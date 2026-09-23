@@ -453,6 +453,322 @@ check_activity_window_prose
 r0d=$?
 echo "activity-window-prose exit=$r0d"
 
+# DS-245 caller-enumeration pin. The soundness of DS-245's whole argument -
+# that demoting `--min-age-hours` to explicit-supply widens no UNATTENDED
+# caller's removal set - is a property of the CALLER SET, not of the gate
+# order. Two successive plan-review rounds each found one caller the prior
+# round had assumed attended (`--archive-unproven`, then `/ds-wrap` Step 5),
+# which is precisely the failure this pin exists to stop recurring silently.
+#
+# The detector itself now lives in `bin/tests/caller_scan.py`, with its own
+# regression suite `bin/tests/test_caller_scan.py` (DS-245 review round 2,
+# CM2-3). It was inline here for two rounds and was wrong in both, each time
+# found only by a reviewer hand-injecting a shape, because nothing committed
+# exercised it. Read that module for what the scan can and cannot see; this
+# file asserts what the RESULT must be, not how it is computed.
+#
+# Three assertions:
+#   (iii) the set of MUTATING invocations under content/, hooks/, bin/ and
+#         scripts/ EQUALS a pinned two-element allowlist. An equality, never
+#         a containment: a NEW mutating caller appearing anywhere under those
+#         paths reddens this, which is the whole point - it cannot land
+#         without someone deciding whether it is attended and, if not,
+#         giving it a floor. Its scope is exactly what `caller_scan` can
+#         see; that module states its residuals and `test_caller_scan.py`
+#         pins them.
+#   (iv)  the session-start reap's own continuation block carries
+#         `--min-age-hours 24`, and `/ds-cleanup-worktrees` Step 2's shell
+#         block reads `DS_CLEANUP_MIN_AGE_HOURS`.
+#   (v)   `/ds-wrap` Step 5 both STATES that Step 2 derives the floor from
+#         the wrap lock, and SITS INSIDE the lock window - i.e. ahead of the
+#         Step 6 release. Round 1 wrote this as a grep for the literal
+#         `DS_CLEANUP_MIN_AGE_HOURS=24`, which round 2 found vacuous: after
+#         Step 5 correctly stopped exporting anything, the only remaining
+#         occurrence of that literal is inside the sentence explaining it is
+#         NOT the mechanism, so the assertion passed on text meaning the
+#         opposite of what it claimed. Ordering is the property the floor
+#         actually depends on: move the release ahead of Step 5, or move
+#         Step 5 out of the window as Parts F and G already are, and the
+#         floor silently disappears from the one unattended mutating caller.
+#
+# Reddening mutations, all EXECUTED:
+#   - delete `--min-age-hours 24` from the reap block          -> fires (iv)
+#   - delete Step 5's wrap-lock derivation sentence            -> fires (v)
+#   - move `ds-wrap-release-lock` ahead of Step 5               -> fires (v)
+#   - add any new mutating invocation under the swept paths    -> fires (iii)
+check_unattended_callers_carry_floor() {
+  python3 - "$REPO_ROOT" <<'PYEOF'
+import os
+import sys
+
+repo_root = sys.argv[1]
+sys.path.insert(0, os.path.join(repo_root, "bin", "tests"))
+
+import caller_scan
+
+# (iii) The allowlist: the files that may carry a mutating invocation.
+ALLOWLIST = {
+    # Session-start reap: unattended, pins --min-age-hours 24 at the call.
+    "content/references/worktree-lifecycle.md",
+    # Step 2: attended when an operator types it directly, and ALSO the
+    # conduit the unattended /ds-wrap Step 5 path reaches this tool through.
+    # It is therefore not simply "the attended caller" - it is where the
+    # floor is applied for both, from DS_CLEANUP_MIN_AGE_HOURS or from the
+    # wrap lock.
+    "content/commands/ds-cleanup-worktrees.md",
+}
+
+violations = []
+
+try:
+    mutating = caller_scan.find_mutating(repo_root)
+except RuntimeError as exc:
+    print("CALLER-ENUMERATION VIOLATION: %s" % exc, file=sys.stderr)
+    sys.exit(1)
+
+found = set(path for path, _l, _r in mutating)
+for extra in sorted(found - ALLOWLIST):
+    violations.append(
+        "CALLER-ENUMERATION VIOLATION: %s carries a MUTATING ds-cleanup-worktrees "
+        "invocation that is not on the DS-245 allowlist. Classify it attended or "
+        "unattended (see bin/ds-cleanup-worktrees' Callers note); if unattended it "
+        "must supply --min-age-hours, and either way this allowlist must be updated "
+        "in the same commit." % extra
+    )
+for missing in sorted(ALLOWLIST - found):
+    violations.append(
+        "CALLER-ENUMERATION VIOLATION: %s no longer carries a mutating "
+        "ds-cleanup-worktrees invocation - if that removal is deliberate, drop it "
+        "from this check's ALLOWLIST in the same commit." % missing
+    )
+
+# (iv) The reap's own continuation block, and Step 2's own shell block.
+for path, lineno, raw in mutating:
+    with open("%s/%s" % (repo_root, path), encoding="utf-8") as fh:
+        text = fh.read().splitlines()
+    if path == "content/references/worktree-lifecycle.md":
+        block = [raw]
+        i = lineno
+        while block[-1].rstrip().endswith("\\") and i < len(text):
+            block.append(text[i])
+            i += 1
+        if "--min-age-hours 24" not in "\n".join(block):
+            violations.append(
+                "CALLER-ENUMERATION VIOLATION: the session-start reap invocation at "
+                "%s:%d does not pass `--min-age-hours 24`. That reap is UNATTENDED "
+                "(backgrounded, output to a log, 30-min idle re-fire) and the age "
+                "floor is off unless supplied, so dropping the flag widens what an "
+                "unattended destructive pass removes." % (path, lineno)
+            )
+    if path == "content/commands/ds-cleanup-worktrees.md":
+        start = lineno
+        while start > 1 and not text[start - 1].strip().startswith("```"):
+            start -= 1
+        end = lineno
+        while end < len(text) and not text[end - 1].strip().startswith("```"):
+            end += 1
+        if "DS_CLEANUP_MIN_AGE_HOURS" not in "\n".join(text[start - 1:end]):
+            violations.append(
+                "CALLER-ENUMERATION VIOLATION: %s's Step 2 shell block no longer "
+                "reads DS_CLEANUP_MIN_AGE_HOURS - a caller able to set it in the "
+                "same shell invocation then has no way to supply the floor." % path
+            )
+
+# (v) /ds-wrap Step 5 states the derivation AND sits inside the lock window.
+WRAP = "content/commands/ds-wrap.md"
+with open("%s/%s" % (repo_root, WRAP), encoding="utf-8") as fh:
+    wrap_lines = fh.read().splitlines()
+
+
+def _find(predicate, label):
+    for idx, line in enumerate(wrap_lines, 1):
+        if predicate(line):
+            return idx
+    violations.append(
+        "CALLER-ENUMERATION VIOLATION: %s no longer contains %s, so neither the "
+        "position of /ds-wrap Step 5 relative to the wrap-lock release nor the "
+        "mechanism that gives it an age floor can be checked at all." % (WRAP, label)
+    )
+    return None
+
+
+step5 = _find(lambda l: l.strip().startswith("**Step 5") and "Worktree cleanup" in l,
+              "a `**Step 5 - Worktree cleanup.**` heading")
+step6 = _find(lambda l: l.strip().startswith("**Step 6"), "a `**Step 6` heading")
+release = _find(lambda l: "Release the pre-flight lock" in l and "ds-wrap-release-lock" in l,
+                "the Step 6 `Release the pre-flight lock: run ds-wrap-release-lock` instruction")
+
+if step5 and step6 and release:
+    if not step5 < release:
+        violations.append(
+            "CALLER-ENUMERATION VIOLATION: %s runs `ds-wrap-release-lock` (line %d) "
+            "BEFORE Step 5 (line %d). Step 2 derives the 24h floor from the presence "
+            "of `<cwd>/.agentic/wrap/lock`, so releasing the lock first silently "
+            "removes the floor from the one unattended mutating caller."
+            % (WRAP, release, step5)
+        )
+    region = "\n".join(wrap_lines[step5 - 1:step6 - 1])
+    if "applies the floor whenever" not in region or ".agentic/wrap/lock" not in region:
+        violations.append(
+            "CALLER-ENUMERATION VIOLATION: %s's Step 5 region no longer states that "
+            "`/ds-cleanup-worktrees` Step 2 applies the floor whenever "
+            "`<cwd>/.agentic/wrap/lock` is present. That sentence is the only "
+            "operator-facing record of why this unattended caller has a floor at "
+            "all, and without it the next maintainer's obvious move is to restore "
+            "an exported DS_CLEANUP_MIN_AGE_HOURS, which cannot work across a tool "
+            "call." % WRAP
+        )
+
+for v in violations:
+    print(v, file=sys.stderr)
+sys.exit(1 if violations else 0)
+PYEOF
+}
+
+echo "== Caller-enumeration check: every mutating ds-cleanup-worktrees invocation is on the DS-245 allowlist, and every unattended one supplies the age floor =="
+check_unattended_callers_carry_floor
+r0f=$?
+echo "unattended-callers exit=$r0f"
+
+# DS-245 regression pin on Step 2's argument construction. It EXECUTES the
+# shipped block against a stub that reports its own argv, rather than
+# pattern-matching the block's spelling: a spelling pin passes for any
+# construct that merely looks right. Two separate defects are pinned here.
+#
+# (1) Found by execution during implementation: the block must pass ZERO
+#     extra arguments when no floor applies. The obvious `set -u` guard for
+#     an empty bash array, `"${ARR[@]-}"`, expands to ONE EMPTY WORD under
+#     bash 3.2.57 and bash 5.3.9 alike - and `ds-cleanup-worktrees` rejects
+#     an empty positional with "positional root arguments require
+#     --multi-repo" and exit 2, which would break the DEFAULT attended
+#     operator run.
+#     Reddening mutation (EXECUTED): change the expansion back to
+#     `"${DS_CLEANUP_AGE_ARGS[@]-}"` - the no-floor legs report argc 3.
+#
+# (2) DS-245 review round 1, CM2: the /ds-wrap Step 5 handoff. Step 5
+#     reaches this block as a SEPARATE shell invocation and shell state does
+#     not survive between invocations, so an exported
+#     DS_CLEANUP_MIN_AGE_HOURS cannot carry the floor there. The block
+#     derives it from `<cwd>/.agentic/wrap/lock` instead - a filesystem
+#     fact /ds-wrap already maintains across the whole of Step 5. The
+#     `wraplock` case below tests THAT handoff: the lock directory is real
+#     and the environment variable is unset, which is the actual Step 5
+#     condition, not the destination with the value pre-set.
+#     Reddening mutation (EXECUTED): delete the `.agentic/wrap/lock` branch
+#     from the block - the wraplock case drops to 2 arguments.
+#
+# Every case asserts the FULL argv, not just its length, so a floor applied
+# with the wrong value is caught too.
+check_step2_age_passthrough_argv() {
+  local ok=0
+  local block
+  # Extract the fenced shell block that actually carries the passthrough,
+  # so this runs the shipped text rather than a copy that can drift.
+  block="$(python3 - "$CLEANUP_DOC" <<'PYEOF'
+import sys
+
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+start = end = None
+in_fence = False
+fence_start = None
+for i, raw in enumerate(lines):
+    if raw.strip().startswith("```"):
+        if in_fence:
+            if start is not None and end is None:
+                end = i
+            in_fence = False
+        else:
+            in_fence = True
+            fence_start = i
+        continue
+    if in_fence and "DS_CLEANUP_AGE_ARGS" in raw and start is None:
+        start = fence_start
+print("\n".join(lines[start + 1:end]) if start is not None and end is not None else "")
+PYEOF
+)"
+
+  if [ -z "$block" ]; then
+    echo "STEP2-ARGV VIOLATION: could not locate the Step 2 shell block carrying DS_CLEANUP_AGE_ARGS in $CLEANUP_DOC" >&2
+    return 1
+  fi
+  if ! printf '%s' "$block" | grep -qF 'DS_CLEANUP_AGE_ARGS'; then
+    echo "STEP2-ARGV VIOLATION: extracted block does not carry DS_CLEANUP_AGE_ARGS - the extractor has drifted" >&2
+    return 1
+  fi
+
+  local stub_dir stub work
+  stub_dir="$(mktemp -d)"
+  work="$(mktemp -d)"
+  stub="$stub_dir/ds-cleanup-worktrees"
+  cat > "$stub" <<'STUBEOF'
+#!/bin/sh
+printf 'ARGV='; for a in "$@"; do printf '[%s]' "$a"; done; printf '\n'
+STUBEOF
+  chmod +x "$stub"
+
+  local base='[--explain][--measure-size]'
+
+  # Replay the block with DS_CLEANUP_BIN bound to the stub, under `set -u`,
+  # once per case. REPO_DIR is unset so the block's own resolution falls
+  # through to the PATH probe, which finds the stub. Each case runs in its
+  # own scratch cwd so the wrap-lock probe reads real filesystem state.
+  #
+  # case := <label>:<wrap-lock present>:<env value, - for unset>:<expected argv>
+  local spec label lock envval expected out argv
+  for spec in \
+    "unset:no:-:${base}" \
+    "empty:no::${base}" \
+    "set:no:24:${base}[--min-age-hours][24]" \
+    "wraplock:yes:-:${base}[--min-age-hours][24]" \
+    "wraplock-env-wins:yes:6:${base}[--min-age-hours][6]" \
+    "spaces:no:2 4:${base}[--min-age-hours][2 4]"; do
+    label="${spec%%:*}"
+    local rest="${spec#*:}"
+    lock="${rest%%:*}"
+    rest="${rest#*:}"
+    envval="${rest%%:*}"
+    expected="${rest#*:}"
+
+    rm -rf "$work/.agentic" 2>/dev/null || true
+    if [ "$lock" = "yes" ]; then
+      mkdir -p "$work/.agentic/wrap/lock"
+    fi
+
+    out="$(
+      cd "$work" || exit 1
+      PATH="$stub_dir:$PATH"
+      unset REPO_DIR DS_CLEANUP_MIN_AGE_HOURS
+      if [ "$envval" != "-" ]; then
+        DS_CLEANUP_MIN_AGE_HOURS="$envval"
+        export DS_CLEANUP_MIN_AGE_HOURS
+      fi
+      set -u
+      eval "$block" 2>/dev/null
+    )"
+    argv="$(printf '%s\n' "$out" | sed -n 's/^ARGV=//p' | head -1)"
+    if [ "$argv" != "$expected" ]; then
+      echo "STEP2-ARGV VIOLATION: case '$label' (wrap lock: $lock, DS_CLEANUP_MIN_AGE_HOURS: $envval) produced argv ${argv:-<none>}, expected $expected." >&2
+      case "$label" in
+        wraplock*)
+          echo "  The wrap-lock branch is what carries the floor onto /ds-wrap Step 5: that step reaches this block as a separate shell invocation, so an exported variable cannot reach it and only a filesystem fact can." >&2
+          ;;
+        *)
+          echo "  An empty-array expansion that yields one EMPTY word makes ds-cleanup-worktrees exit 2 ('positional root arguments require --multi-repo') on the default attended run - use \${ARR[@]+\"\${ARR[@]}\"}, never \"\${ARR[@]-}\"." >&2
+          ;;
+      esac
+      ok=1
+    fi
+  done
+
+  rm -rf "$stub_dir" "$work" 2>/dev/null || true
+  return "$ok"
+}
+
+echo "== Step 2 argv check: the DS_CLEANUP_MIN_AGE_HOURS passthrough passes zero extra args when unset/empty =="
+check_step2_age_passthrough_argv
+r0g=$?
+echo "step2-argv exit=$r0g"
+
 echo "== Run 1: clean scratch repo (expect exit 0) =="
 setup_repo
 run_check "$REPO"
@@ -473,11 +789,11 @@ echo "run3 exit=$r3"
 
 git -C "$REPO" worktree remove --force "$REPO/.agentic/worktrees/spec-fixture" >/dev/null 2>&1 || true
 
-echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e run1=$r1 run2=$r2 run3=$r3"
-if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0c" = "0" ] && [ "$r0d" = "0" ] && [ "$r0e" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
-  echo "PASS: prose-wiring check clean, reap-wiring check clean, manifest-reconciliation check clean, activity-window-prose check clean, lock-caveat-pointers check clean, and two distinct exit codes across three runs (0, 1, 1)"
+echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g run1=$r1 run2=$r2 run3=$r3"
+if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0c" = "0" ] && [ "$r0d" = "0" ] && [ "$r0e" = "0" ] && [ "$r0f" = "0" ] && [ "$r0g" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
+  echo "PASS: prose-wiring check clean, reap-wiring check clean, manifest-reconciliation check clean, activity-window-prose check clean, lock-caveat-pointers check clean, unattended-callers check clean, step2-argv check clean, and two distinct exit codes across three runs (0, 1, 1)"
   exit 0
 fi
 
-echo "FAIL: expected prose-wiring=0, reap-wiring=0, manifest-reconciliation=0, activity-window-prose=0, lock-caveat-pointers=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e $r1 $r2 $r3"
+echo "FAIL: expected prose-wiring=0, reap-wiring=0, manifest-reconciliation=0, activity-window-prose=0, lock-caveat-pointers=0, unattended-callers=0, step2-argv=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g $r1 $r2 $r3"
 exit 1

@@ -23152,6 +23152,16 @@
       "source_token": ".agentic/wrap/last-wrap"
     },
     {
+      "expected_target": ".agentic/wrap/lock",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/wrap/lock",
+      "kind": "operational",
+      "occurrence_hash": "86c957a55aebc60f38fcaa9b8b2764a3db122a992ca8c598696988b934be47f3",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "<cwd>/.agentic/wrap/lock"
+    },
+    {
       "expected_target": "dinostack-codex-wrap",
       "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
@@ -23260,6 +23270,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
       "source_token": "/ds-wrap"
+    },
+    {
+      "expected_target": "content/commands/ds-cleanup-worktrees.md",
+      "generated_token": "manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-cleanup-worktrees`",
+      "kind": "operational",
+      "occurrence_hash": "8f7dcc206e41d0e0d64221926c5b8c1d025f9ae6d16d95a411d76b0227c0e97b",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "`/ds-cleanup-worktrees`"
     },
     {
       "expected_target": ".agentic/compression-state.json",

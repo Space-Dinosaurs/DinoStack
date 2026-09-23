@@ -255,3 +255,18 @@ These are rarely needed outside of custom deployment or cross-harness tuning:
   tier routing overrides. See `content/references/tier-map-example.yml`.
 - **`~/.agentic/role-models.yml`** or **`.agentic/role-models.yml`** - Pi/omp
   role-to-model mapping. See `content/references/role-models.md`.
+- **`DS_CLEANUP_MIN_AGE_HOURS`** - a VALUE-carrying environment variable (not
+  a kill-switch, which is why it is here and not in §4): the age floor in
+  hours that `/ds-cleanup-worktrees` Step 2 passes through as
+  `--min-age-hours`. Unset or empty means "not supplied". Since DS-245 the
+  binary's own `--min-age-hours` is off unless supplied, so an
+  operator-typed `/ds-cleanup-worktrees` applies no creation-age gate at
+  all. Two things supply one anyway, and neither needs an operator to set
+  this variable: `--archive-unproven` implies 24h in the binary, and Step 2
+  itself applies 24h whenever `<cwd>/.agentic/wrap/lock` is present, which
+  is how the unattended `/ds-wrap` Step 5 path gets a floor (shell state
+  does not survive between tool calls, so an exported variable could not
+  carry it there). Set this variable only to override that default in the
+  same shell invocation as Step 2 - it takes precedence over the wrap-lock
+  default. Distinct from `AE_WORKTREE_REAP_DISABLE` in §4, which is a
+  boolean kill-switch for the session-start reap rather than a value.

@@ -45,6 +45,7 @@ Performance: each scenario performs a handful of real `git` subprocess
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import re
@@ -615,12 +616,21 @@ def test_self_worktree_never_removed_even_when_otherwise_eligible(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# 13. (round-2 Major 2b) Age floor: a worktree younger than --min-age-hours
-#     is never removed regardless of how otherwise-eligible it is. Default
-#     run_reap() passes --min-age-hours 0 (bypassing the floor for every
-#     OTHER scenario in this file); this scenario explicitly asserts the
-#     floor itself using a non-zero threshold against a freshly-created
-#     (mtime = now) worktree.
+# 13. (round-2 Major 2b; UPDATED by DS-245) Age floor: a worktree younger
+#     than --min-age-hours is never removed regardless of how
+#     otherwise-eligible it is. Default run_reap() passes --min-age-hours 0
+#     (bypassing the floor for every OTHER scenario in this file); this
+#     scenario asserts the floor itself using a non-zero threshold against a
+#     freshly-created (mtime = now) worktree.
+#
+#     DS-245 re-pins this test onto EXPLICIT-SUPPLY semantics rather than
+#     onto a 24h argparse default. The gate did not move relative to the
+#     gates after it - it is still gate 5, still ahead of activity/dirty/
+#     evidence - what changed is that it applies ONLY when a caller supplies
+#     it. The third leg below (flag OMITTED) is the new contract: creation
+#     age gates nothing at all on an operator-invoked run. Named reddening
+#     mutation, EXECUTED: restore `default=24.0` on the `--min-age-hours`
+#     argparse entry - the omitted-flag leg then resolves SKIP_TOO_YOUNG.
 # --------------------------------------------------------------------------
 
 
@@ -633,6 +643,18 @@ def test_age_floor_blocks_a_young_otherwise_eligible_worktree(tmp_path):
     assert proc.returncode == 0, proc.stderr
     result = outcomes(proc.stdout)
     assert result[str(wt)] == "SKIP_TOO_YOUNG"
+    assert str(wt) in worktree_paths(repo)
+
+    # DS-245: the SAME freshly-created worktree, with the flag OMITTED
+    # entirely (run_reap's `min_age_hours=None` drops the argument rather
+    # than passing 0), resolves REMOVE. Dry-run so the two existing legs
+    # below are left operating on exactly the fixture they always did.
+    # `--archive-unproven` is NOT passed, so nothing implies the fallback.
+    proc_omitted = run_reap(repo, dry_run=True, min_age_hours=None)
+    assert proc_omitted.returncode == 0, proc_omitted.stderr
+    result_omitted = outcomes(proc_omitted.stdout)
+    assert result_omitted[str(wt)] == "REMOVE (ancestor-of-base)", result_omitted
+    assert "skipped-too-young=0" in summary_line(proc_omitted.stdout)
     assert str(wt) in worktree_paths(repo)
 
     # An explicit --min-age-hours 0 on the SAME (now slightly older, but
@@ -3113,6 +3135,15 @@ def test_ds196_scenario_d_stale_remote_tracking_ref_still_reachable(tmp_path):
 #     past the window (backdated mtimes) it proceeds to REMOVE. Named
 #     mutation: defeating `_worktree_activity_hours` (simulating the gate
 #     being removed) reddens the pre-window assertion.
+#
+#     DS-245 renumbering: this is now gate 6, checked after the lock, self
+#     and age gates - not "immediately after the age floor" at 4.5. The
+#     added `min_age_hours=None` leg is the R7 protection: gate 6 stayed
+#     UNCONDITIONAL when gate 5 became conditional, so an omitted
+#     `--min-age-hours` must not take the liveness gate down with it. Named
+#     reddening mutation for that leg: wrap the activity check in
+#     `if min_age_hours is not None:` the way gate 5 is wrapped (or the
+#     existing `:3140` mutation, `_worktree_activity_hours` -> `1e9`).
 # --------------------------------------------------------------------------
 
 
@@ -3127,6 +3158,16 @@ def test_ds196_scenario_e_recent_activity_gated_then_removed(tmp_path):
     assert proc_inside_window.returncode == 0, proc_inside_window.stderr
     result_inside = outcomes(proc_inside_window.stdout)
     assert result_inside[str(wt)] == "SKIP_RECENT_ACTIVITY"
+    assert str(wt) in worktree_paths(repo)
+
+    # DS-245 (R7): with the age gate OFF entirely, gate 6 still fires.
+    proc_no_floor = run_reap(
+        repo, dry_run=True, min_age_hours=None, activity_window_hours="1000000"
+    )
+    assert proc_no_floor.returncode == 0, proc_no_floor.stderr
+    result_no_floor = outcomes(proc_no_floor.stdout)
+    assert result_no_floor[str(wt)] == "SKIP_RECENT_ACTIVITY", result_no_floor
+    assert "skipped-too-young=0" in summary_line(proc_no_floor.stdout)
     assert str(wt) in worktree_paths(repo)
 
     _backdate_worktree_files(wt, hours_ago=20.0)
@@ -4248,3 +4289,158 @@ def test_archive_unproven_repair_failure_reports_unregistered_accurately(tmp_pat
         leftover = Path(str(wt))
         if leftover.exists():
             leftover.chmod(0o700)
+# --------------------------------------------------------------------------
+# DS-245. Four new scenarios pinning the demoted age fallback and the lock
+# gate's new position at 3, ahead of SELF and ahead of every age or activity
+# reading. Each carries a named reddening mutation, all four EXECUTED.
+# --------------------------------------------------------------------------
+
+
+def test_locked_worktree_reported_before_self_and_age(tmp_path):
+    """Rubric R6/R2. A LOCKED worktree that is ALSO the self worktree AND
+    younger than an explicitly-supplied 24h floor reports the LOCK, not
+    either of the other two - `skipped-locked=0` is no longer compatible
+    with a locked worktree being present.
+
+    Named reddening mutation (EXECUTED): move the gate-3 `entry.locked`
+    block below the `_is_self_worktree` check. The outcome becomes
+    SKIP_SELF and `skipped-locked=0`.
+    """
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-locked-first", "worktree-agent-locked-first", push=False)
+    _git(repo, "worktree", "lock", str(wt))
+
+    # NON-dry-run, cwd inside the worktree (so SELF would also fire), and an
+    # explicit 24h floor on a freshly-created worktree (so AGE would also
+    # fire). Only the lock may be reported.
+    proc = run_reap(repo, dry_run=False, min_age_hours="24", cwd=wt)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "SKIP_LOCKED", result
+    summary = summary_line(proc.stdout)
+    assert "skipped-locked=1" in summary, summary
+    assert "skipped-too-young=0" in summary, summary
+    assert "skipped-self=0" in summary, summary
+
+    # Still present, and still locked - the guardrail never unlocks.
+    assert str(wt) in worktree_paths(repo)
+    porcelain = _git(repo, "worktree", "list", "--porcelain").stdout
+    block = [b for b in porcelain.split("\n\n") if str(wt) in b]
+    assert block and "locked" in block[0], porcelain
+
+
+def test_lock_gate_fires_before_any_git_status_call(tmp_path, monkeypatch):
+    """Rubric R6, cost half. Gate 3 must return BEFORE `_git_status_and_
+    ignored` (and therefore before `_build_facts`/`disposition_for`) ever
+    runs. Patching that function to raise proves the ordering directly,
+    which is what discriminates gate 3 from the retained - and now
+    unreachable - `disposition_for(...) is SKIP_LOCKED` branch further
+    down: if the retained branch were doing the work, the raiser would
+    fire.
+
+    Named reddening mutation (EXECUTED): delete the gate-3 block. The
+    patched `_git_status_and_ignored` then raises.
+    """
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-lock-cost", "worktree-agent-lock-cost", push=False)
+
+    mod = _load_module_directly()
+    entry = _worktree_entry(wt, "worktree-agent-lock-cost")
+    entry = dataclasses.replace(entry, locked=True)
+
+    def _raiser(*_args, **_kwargs):
+        raise AssertionError("_git_status_and_ignored must not run for a locked entry")
+
+    monkeypatch.setattr(mod, "_git_status_and_ignored", _raiser)
+
+    out = mod.evaluate_entry(
+        str(repo),
+        entry,
+        mod.WorktreeClass.ISOLATION,
+        "main",
+        gh_ok=False,
+        allow_network=False,
+        min_age_hours=None,
+        strict_ignored=False,
+        activity_window_hours=0.0,
+        no_origin_reachable_evidence=False,
+    )
+    assert out["outcome"] == "SKIP_LOCKED", out
+
+
+def test_archive_unproven_implies_age_floor(tmp_path):
+    """Rubric R3. `--archive-unproven` removes an entry NO gate cleared, so
+    it is unattended by its nature and `_resolve_min_age_hours` implies the
+    24h fallback for it even when `--min-age-hours` is omitted. Both legs
+    pass `--activity-window-hours 0` (run_reap's own default) - gate 6 is
+    unconditional at the 3.0h CLI default and a freshly-created worktree
+    would otherwise return SKIP_RECENT_ACTIVITY before gate 9 is reached.
+
+    Named reddening mutation (EXECUTED): delete the `--archive-unproven`
+    disjunct from `_resolve_min_age_hours` (return `None` unconditionally
+    when the flag value is `None`). The first leg then archives and
+    removes.
+    """
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "worktree-agent-archive-implied-floor"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-archive-implied-floor", branch)
+    archive_dir = repo / ".agentic" / "worktree-archive"
+
+    # Leg 1: flag omitted -> the implied 24h fallback refuses the fresh
+    # worktree at gate 5, before any archiving decision is made.
+    proc = run_reap(
+        repo,
+        dry_run=False,
+        no_gh=False,
+        min_age_hours=None,
+        extra=["--archive-unproven"],
+        gh_dir=_fake_gh_dir(tmp_path),
+    )
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "SKIP_TOO_YOUNG", result
+    assert "archived-and-removed=0" in summary_line(proc.stdout)
+    assert not sorted(archive_dir.glob(f"{branch}-*.bundle")), "no bundle may be written"
+    assert str(wt) in worktree_paths(repo)
+
+    # Leg 2: an explicit 0 overrides the implied fallback and the entry is
+    # archived and removed - proving leg 1 was the age gate, not a
+    # permanent refusal.
+    proc2 = run_reap(
+        repo,
+        dry_run=False,
+        no_gh=False,
+        min_age_hours="0",
+        extra=["--archive-unproven"],
+        gh_dir=_fake_gh_dir(tmp_path),
+    )
+    assert proc2.returncode == 0, proc2.stderr
+    result2 = outcomes(proc2.stdout)
+    assert result2[str(wt)].startswith("ARCHIVED_AND_REMOVED"), result2
+    assert len(sorted(archive_dir.glob(f"{branch}-*.bundle"))) == 1
+    assert str(wt) not in worktree_paths(repo)
+
+
+def test_init_config_rejects_explicit_min_age_hours(tmp_path):
+    """DS-245's deliberate `--init-config` flip. `main()` diffs `args`
+    against `parse_args([])` field-by-field, so once `--min-age-hours`
+    parses with `default=None` an explicit `24` DIFFERS and the standalone-
+    action check rejects it. This previously exited 0 and wrote the config -
+    a documented accepted defect, not a feature; this test pins the new
+    behavior so it is not "fixed" back by accident.
+
+    Named reddening mutation (EXECUTED): restore `default=24.0`. The
+    value-equality diff then sees no difference and it exits 0, writing the
+    config file this test asserts is absent.
+    """
+    fake_home = tmp_path / "init-config-home"
+    fake_home.mkdir()
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--init-config", "--min-age-hours", "24"],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, HOME=str(fake_home)),
+    )
+    assert proc.returncode == 2, (proc.returncode, proc.stdout, proc.stderr)
+    assert "--init-config cannot be combined with any other flag" in proc.stderr
+    assert not (fake_home / ".agentic" / "cleanup-worktrees.json").exists()

@@ -786,6 +786,10 @@ Otherwise skip that target silently.
 
 If the project is a git repository with a manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-cleanup-worktrees` skill available, run it now. This removes stale isolation worktrees and merged feature branches so the repo is clean for the next session. If the skill is not available, skip this step silently.
 
+A wrap runs unattended at session end, and DS-245 made `--min-age-hours` off-by-default, so this step needs the 24h floor an operator-invoked run does not. **It is applied automatically and this step sets nothing.** manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-cleanup-worktrees` Step 2 applies the floor whenever `$AE_PROJECT_DIR/.agentic/wrap/lock` is present, and the whole-flow lock acquired in this command's pre-flight is held until Step 6's `ds-wrap-release-lock`, which runs strictly after this step - so the lock is present for the whole of Step 5 by construction.
+
+That mechanism is deliberate and must not be "simplified" back to an exported variable (DS-245 review round 1, CM2): Step 5 reaches Step 2's block as a SEPARATE shell invocation, and shell state does not survive between invocations, so `DS_CLEANUP_MIN_AGE_HOURS=24` set here would be gone by the time that block runs and the floor would be silently absent on exactly the path that needs it. `DS_CLEANUP_MIN_AGE_HOURS` still works for a caller that can set it in the SAME invocation as the block, and still takes precedence; it is simply not the mechanism here. Why the floor matters on this path: a concurrent session's worktree can be unlocked between turns and idle past the activity window, and nothing here surfaces this step's per-entry decisions to the operator in the same turn.
+
 **Step 6 — Terminal marker transition + confirm completion.**
 
 Release the pre-flight lock: run `ds-wrap-release-lock` (the PATH-wired helper that releases `$AE_PROJECT_DIR/.agentic/wrap/lock`). This must run before returning to the user, regardless of whether any prior step reported "skipped" or "nothing to do".
