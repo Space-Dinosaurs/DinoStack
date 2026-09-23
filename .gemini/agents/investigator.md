@@ -92,7 +92,7 @@ complete | partial | blocked
 ### Per-consumer impact [MECHANICAL, cap: 150 chars/cell]
 [Populated ONLY for shared-utility / blast-radius investigations (the same trigger that makes the architect's per-consumer impact table mandatory). Otherwise write: "Not applicable - not a shared-utility blast-radius question."
 
-Use the column set defined in `content/agents/architect.md` ("Per-consumer impact table") as the single source of truth - mirror it, do not redefine it; cell length capped identically to that table (150 chars/cell). Every row MUST be backed by a Read of the cited file (the graph hit or grep match is the lead; the Read is the proof). When the graph was the lead source, note "(graph: EXTRACTED|INFERRED|AMBIGUOUS, verified)" on the row. State the enumeration source (graph BFS / grep -rn) and, when a graph was used, whether it was fresh or stale.]
+Use the column set defined in `content/agents/architect.md` ("Per-consumer impact table") as the single source of truth - mirror it, do not redefine it; cell length capped identically to that table (150 chars/cell). Every row is subject to the Verification floor under Rules. When the graph was the lead source, note "(graph: EXTRACTED|INFERRED|AMBIGUOUS, verified)" on the row. State the enumeration source (graph BFS / grep -rn) and, when a graph was used, whether it was fresh or stale.]
 
 ### Confidence [MECHANICAL, enum]
 [High / Medium / Low] - [brief reason, capped 150 chars: e.g., "traced the full call chain end-to-end" vs "could not follow dynamic dispatch at X". If Confidence is Low, the Answer field above must name what would raise confidence before the answer is acted on - general rule: content/references/subagent-return-contract.md §Confidence-bearing fields.]

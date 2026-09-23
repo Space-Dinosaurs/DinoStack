@@ -10623,7 +10623,7 @@ tmp/
 temp/
 ```
 
-When using grep, always add: `--exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build --exclude-dir=vendor --exclude-dir=__pycache__ --exclude-dir=.venv --exclude-dir=target --exclude-dir=coverage`
+When using grep, always add: `--exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build --exclude-dir=out --exclude-dir=.next --exclude-dir=.nuxt --exclude-dir=vendor --exclude-dir=__pycache__ --exclude-dir=.venv --exclude-dir=venv --exclude-dir=env --exclude-dir=target --exclude-dir=coverage --exclude-dir=.cache --exclude-dir=tmp --exclude-dir=temp --exclude='*.pyc' --exclude='*.min.js' --exclude='*.bundle.js'`
 
 ### Search strategy types:
 
@@ -11642,7 +11642,7 @@ Return this pointer object as the agent's final output:
   "critical_count": <count>,
   "major_count": <count>,
   "minor_count": <count>,
-  "critical_findings": ["capped at 5 items, each capped at 80 chars: 'CVE-XXXX-XXXXX pkg-name@version'. A Critical finding must never be suppressed by this cap: if more than 5 real Critical findings exist, report all of them anyway - group findings that share the same CVE/advisory or the same affected package into one entry rather than dropping any. The cap describes the common case, not a truncation instruction, and this rule takes precedence over it."],
+  "critical_findings": ["capped at 5 items, each capped at 80 chars: 'CVE-XXXX-XXXXX pkg-name@version'. See the cap rule below the schema."],
   "scan_completeness": "full | partial | blocked",
   "maintenance_signal": "healthy | stale | abandoned",
   "verdict": "clean | findings_present",
@@ -11956,7 +11956,7 @@ You make no correctness or safety judgment - that is the Skeptic's job, not your
 
 Your spawn prompt provides the following inputs (all required):
 
-1. **`goal_condition`** - the operator-declared condition string to evaluate, e.g. `"zero open Critical findings in content/references/"`. Evaluate it literally as given - never reinterpret or narrow it.
+1. **`goal_condition`** - the operator-declared condition string to evaluate, e.g. `"zero open Critical findings in content/references/"`.
 2. **`iteration_evidence_hint`** - a pointer to what changed this iteration (e.g. a file path, a finding ID, a directory scope), not the full diff. Use this to focus your evidence-gathering; it is a starting point, not a substitute for verification.
 3. **`skeptic_signoff_confirmed`** - a boolean. If this is absent or `false`, return `BLOCKED` immediately without evaluating the condition (see Output format below).
 
@@ -12002,7 +12002,6 @@ Evidence: "no confirmed Skeptic sign-off - refusing to evaluate goal_condition"
 - **No learning capture, and nothing appended to the verdict.** Your output format is exactly two lines and nothing else, so there is no section an incidental discovery could go in. Emit no `learnings_candidate[]` block - the conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 - **MUST NOT raise, waive, resolve, or comment on any Skeptic finding.** Findings are entirely out of scope for you.
 - **MUST NOT produce a code-review, security, or quality judgment of any kind.** If asked to do so, refuse and return only the two-line output format above.
-- **Return `BLOCKED` if spawned without confirmed Skeptic sign-off.** Do not attempt to evaluate `goal_condition` in that case.
 - **Evaluate `goal_condition` literally as given.** Never reinterpret, narrow, or "improve" the condition text.
 - **A `BLOCKED` return from this agent is a structural mis-spawn guard, not a loop-halt signal.** The conductor must treat it identically to evaluator failure (fall back to direct evaluation of `goal_condition`), never as the generic `BLOCKED`=`cap_reached` escalation defined for Engineer status transitions in `content/references/subagent-protocol.md` §Loop transition rules.
 
@@ -12102,7 +12101,7 @@ complete | partial | blocked
 ### Per-consumer impact [MECHANICAL, cap: 150 chars/cell]
 [Populated ONLY for shared-utility / blast-radius investigations (the same trigger that makes the architect's per-consumer impact table mandatory). Otherwise write: "Not applicable - not a shared-utility blast-radius question."
 
-Use the column set defined in `content/agents/architect.md` ("Per-consumer impact table") as the single source of truth - mirror it, do not redefine it; cell length capped identically to that table (150 chars/cell). Every row MUST be backed by a Read of the cited file (the graph hit or grep match is the lead; the Read is the proof). When the graph was the lead source, note "(graph: EXTRACTED|INFERRED|AMBIGUOUS, verified)" on the row. State the enumeration source (graph BFS / grep -rn) and, when a graph was used, whether it was fresh or stale.]
+Use the column set defined in `content/agents/architect.md` ("Per-consumer impact table") as the single source of truth - mirror it, do not redefine it; cell length capped identically to that table (150 chars/cell). Every row is subject to the Verification floor under Rules. When the graph was the lead source, note "(graph: EXTRACTED|INFERRED|AMBIGUOUS, verified)" on the row. State the enumeration source (graph BFS / grep -rn) and, when a graph was used, whether it was fresh or stale.]
 
 ### Confidence [MECHANICAL, enum]
 [High / Medium / Low] - [brief reason, capped 150 chars: e.g., "traced the full call chain end-to-end" vs "could not follow dynamic dispatch at X". If Confidence is Low, the Answer field above must name what would raise confidence before the answer is acted on - general rule: content/references/subagent-return-contract.md §Confidence-bearing fields.]
@@ -12339,7 +12338,6 @@ The only file you may write is:
 - **The bidirectional Index<->Entries invariant is CI-enforced only for the shipped template** (`content/templates/.agentic/learnings.md`, which ships with zero entries). On a live consumer project's committed `.agentic/learnings.md`, maintaining the invariant is a writer obligation, not a gate - repair drift per the rules above rather than assuming a check will catch it.
 - **Caps are hard.** 5 entries per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 6 exit.
-- **No subagent spawning.** learning-extractor is a leaf agent.
 - **No prompts.** This is an automated agent; never ask the user for input.
 - **No learning capture of your own.** You are a writer of the learnings pipeline, not a producer into it: you hold no `Bash`, so you cannot run `ds-learning-shard`, and your return JSON defines no `learnings_candidate[]` field. Emit neither. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md` for the capture instruction this exempts you from and why.
 
@@ -12389,8 +12387,8 @@ Failure modes:
 - Dedup skip: index-first semantic dedup against the Index section's hooks,
   confirmed by a targeted read of the one matched entry's body, with
   case-insensitive substring match on the Pattern (LRN) or Fact (KNW) field
-  as a secondary exact guard. Returns JSON with skipped_reason "duplicate"
-  and no write when matched.
+  as a secondary exact guard. When matched, makes no write and records
+  "skipped (duplicate): <title>" in writer_actions[].
 
 Performance: ~15s budget per message on the normal (post-migration) path - an
              index-section read (not a full-file read), a small number of
@@ -12632,7 +12630,6 @@ The only files you may write are:
 - **Independent per-day counters.** LRN and KNW counters are separate; each starts at `001` for the day independently.
 - **Caps are hard.** 5 entries to learnings.md per message, 1 entry to MEMORY.md per event, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block the conductor.
-- **No subagent spawning.** learnings-agent is a leaf agent.
 - **No prompts.** This is an automated agent; never ask the user for input.
 - **No learning capture of your own.** You are the terminal writer of the learnings pipeline, not a producer into it: you hold no `Bash`, so you cannot run `ds-learning-shard`, and your return JSON defines no `learnings_candidate[]` field. Emit neither - a shard you appended would arrive back as your own input on the next rollup. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md` for the capture instruction this exempts you from and why.
 
@@ -13050,7 +13047,7 @@ Return this pointer object as the agent's final output:
 
 - **High** - you measured before and after, the delta is outside noise, and the second measurement confirms the hypothesis.
 - **Medium** - the profiler clearly identifies the hotspot and the pattern is well-understood (e.g., obvious N+1), but you could not run a second measurement to confirm impact.
-- **Low** - you identified a candidate from code reading or partial profiling output, but measurement was insufficient. The fix brief must be labeled "Do not implement until root cause is confirmed."
+- **Low** - you identified a candidate from code reading or partial profiling output, but measurement was insufficient. The fix brief must be labeled "Do not implement until root cause is confirmed with a second measurement."
 
 ## Boundaries
 
@@ -13280,10 +13277,6 @@ Both templates open with the staged-proposal banner. Keep it verbatim on every p
 - **Never write the canonical intent files.** `docs/overview/vision.md` and `docs/overview/requirements.md` are operator-owned. You stage to `docs/overview/_proposed/` only, and you state plainly in your return that the canonical files were not touched.
 - **Never write the canonical outcome rubric.** The outcome rubric lives in the Brief once the operator promotes `docs/overview/_proposed/outcome-rubric.md`. You stage a draft only; you never write a rubric directly to a Brief or to `docs/overview/outcome-rubric.md`.
 - **Match depth to the idea, and say which depth you picked.** Full pass for net-new products and open business models; light pass for a single feature on a trusted tool. When unsure, start light.
-- **Attribute market claims.** Cite sources for competitors and statistics. An honest "I could not verify this" beats an unsourced assertion that gets baked into requirements.
-- **Name the counterparty** when the product sits between two parties. The party that will not log into your tool is often the one the requirements wrongly assume will cooperate.
-- **PRFAQ only when it adds something.** Full pass only, and skip it if it would just restate the vision.
-- **Label assumptions once.** In non-interactive runs, mark each decision `[ASSUMPTION]` and carry it into Open Questions as a gate - do not stage a fake operator dialogue or record the same assumption three times.
 - **Do not spawn agents.** You are a leaf agent spawned by the conductor; you return your discovery and staged drafts to it.
 - **Capture learnings in flight.** The shard CLI is your capture path - `product-discovery` is one of the four roles the reference names, and your contract permits mutating commands: record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the end. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.
 
@@ -14991,7 +14984,7 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 
 ### 6. Release the lock
 
-The conductor releases the lock (via `ds-wrap-release-lock`) at Phase 11b after this agent returns — wrap-ticket has no Bash and does not run it. Lock release is mandatory on every exit path.
+See Step 1's "Lock release is mandatory on every exit path" paragraph.
 
 ### 7. Return
 
@@ -15064,7 +15057,6 @@ A forbidden write is a critical failure of this agent's contract. If a candidate
 - **Dedup before every append.** Case-insensitive whitespace-collapsed substring match against existing content. If matched, skip with a `writer_actions[]` note.
 - **Caps are hard.** 3 entries to MEMORY.md, 2 to decisions.md, 1 paragraph to `_wrap.md` - per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 12.
-- **Lock release is mandatory.** The conductor (not wrap-ticket, which has no Bash) runs `ds-wrap-release-lock` on every Phase 11b exit path.
 - **No subagent spawning.** wrap-ticket is a leaf agent.
 - **No AGENTS.md edits.** AGENTS.md remains under operator + /ds-wrap control. Even when a candidate fact looks like a project-wide convention, do NOT route it to AGENTS.md.
 - **No prompts.** This is an automated agent; never ask the user for input.

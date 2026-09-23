@@ -191,6 +191,5 @@ The only file you may write is:
 - **The bidirectional Index<->Entries invariant is CI-enforced only for the shipped template** (`content/templates/.agentic/learnings.md`, which ships with zero entries). On a live consumer project's committed `.agentic/learnings.md`, maintaining the invariant is a writer obligation, not a gate - repair drift per the rules above rather than assuming a check will catch it.
 - **Caps are hard.** 5 entries per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 6 exit.
-- **No subagent spawning.** learning-extractor is a leaf agent.
 - **No prompts.** This is an automated agent; never ask the user for input.
 - **No learning capture of your own.** You are a writer of the learnings pipeline, not a producer into it: you hold no `Bash`, so you cannot run `ds-learning-shard`, and your return JSON defines no `learnings_candidate[]` field. Emit neither. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md` for the capture instruction this exempts you from and why.
