@@ -31,6 +31,8 @@ Performance: pure string work, no I/O, no git; milliseconds.
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -113,11 +115,18 @@ def test_bare_fence_body_is_not_executable():
     """Accepted residual, pinned so it is a decision rather than a drift.
 
     Round 1 treated a bare fence as shell to catch an invocation written in
-    one. A census of the swept trees found 624 bare fences against 119
-    `bash` ones, overwhelmingly output samples and JSON, so that reading
-    manufactured callers - and the empty info string also inverted the fence
-    state machine (see the next test). If this residual is ever closed, it
-    must be closed WITHOUT reintroducing either effect.
+    one. Bare fences are overwhelmingly output samples and JSON, so that
+    reading manufactured callers - and the empty info string also inverted
+    the fence state machine (see the next test). If this residual is ever
+    closed, it must be closed WITHOUT reintroducing either effect.
+
+    The census supporting the first half lives beside the constant it
+    justifies, in `caller_scan.SHELL_INFO`'s comment, together with the
+    command that re-derives it. It is deliberately not restated here: the
+    figure this docstring carried in 571f632b (624/119) was wrong - it
+    counted fence DELIMITER lines, so every closing fence was tallied as a
+    bare one - and two copies of a number is how one of them goes stale
+    (DS-245 review round 3, finding 1).
     """
     lines = ["prose", "```", "ds-cleanup-worktrees --explain", "```"]
     assert caller_scan.executable_lines(lines, True) == set()
@@ -170,14 +179,226 @@ def test_shell_info_excludes_the_empty_string():
 
 # --------------------------------------------------------------------------
 # Exclusions (round 1, cm3).
+#
+# The version of this section shipped in 571f632b asserted only on the
+# CONSTANTS - that the tool's path is in EXCLUDED_EXACT and a sibling is not.
+# That is true under either comparison, so it certified a hazard it could not
+# detect: changing `find_mutating`'s `path in EXCLUDED_EXACT` to
+# `path.startswith(EXCLUDED_EXACT)` - the exact silent swallow the constant's
+# own comment warns about - passed all 35 cases (DS-245 review round 3,
+# finding 2). The test below drives `find_mutating` against a scratch repo
+# that actually contains such a sibling, so the comparison itself is what is
+# under test.
 # --------------------------------------------------------------------------
 
-def test_tool_itself_is_excluded_by_exact_path_not_prefix():
+def test_excluded_exact_names_the_tool_and_not_its_siblings():
+    """Constants only - retained as documentation of intent.
+
+    This cannot catch a prefix-vs-exact regression on its own; that is
+    `test_sibling_binary_sharing_the_tools_path_prefix_is_still_scanned`'s
+    job. Kept so the intent is stated next to the constant it describes.
+    """
     assert "bin/ds-cleanup-worktrees" in caller_scan.EXCLUDED_EXACT
-    # A future sibling sharing the prefix must NOT be silently excluded.
     sibling = "bin/ds-cleanup-worktrees-all"
     assert sibling not in caller_scan.EXCLUDED_EXACT
     assert not sibling.startswith(caller_scan.EXCLUDED_DIRS)
+
+
+def _git(repo, *args):
+    subprocess.run(["git", "-C", str(repo)] + list(args), check=True,
+                   capture_output=True, text=True)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
+def test_sibling_binary_sharing_the_tools_path_prefix_is_still_scanned(tmp_path):
+    """DS-245 review round 3, finding 2 - drives the comparison, not the constants.
+
+    Reddening mutation (EXECUTED): in `caller_scan.find_mutating`, change
+        if path in EXCLUDED_EXACT or path.startswith(EXCLUDED_DIRS):
+    to
+        if path.startswith(EXCLUDED_EXACT) or path.startswith(EXCLUDED_DIRS):
+    `bin/ds-cleanup-worktrees-all` then falls inside the exclusion and its
+    mutating invocation disappears from the scan, so the assertion below that
+    it IS found fails. Before this test existed that mutation was silent.
+    """
+    repo = tmp_path / "scratch"
+    # All four swept paths must exist: a pathspec naming a directory that is
+    # not in the index makes `git grep` fail rather than return no matches.
+    for name in caller_scan.SWEPT_PATHS:
+        (repo / name).mkdir(parents=True)
+    _git(repo.parent, "init", "-q", "-b", "main", str(repo))
+    _git(repo, "config", "user.email", "scan@example.com")
+    _git(repo, "config", "user.name", "scan")
+
+    # The tool itself: mentions its own name, and MUST be excluded.
+    (repo / "bin" / "ds-cleanup-worktrees").write_text(
+        '#!/usr/bin/env python3\n'
+        'print("ds-cleanup-worktrees: mode=dry-run")\n'
+    )
+    # A sibling whose path shares the tool's path as a PREFIX, carrying a
+    # real mutating invocation. It is a caller and must be scanned.
+    (repo / "bin" / "ds-cleanup-worktrees-all").write_text(
+        '#!/bin/bash\n'
+        'ds-cleanup-worktrees --repo "$1" --explain\n'
+    )
+    # Keep the other swept dirs non-empty so git tracks them.
+    for name in ("content", "hooks", "scripts"):
+        (repo / name / "placeholder.md").write_text("no invocation here\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "fixture")
+
+    found = {path for path, _lineno, _raw in caller_scan.find_mutating(str(repo))}
+
+    assert "bin/ds-cleanup-worktrees-all" in found, (
+        "a sibling binary sharing the tool's path prefix was dropped from the "
+        "scan - EXCLUDED_EXACT must be compared with == , never startswith"
+    )
+    assert "bin/ds-cleanup-worktrees" not in found, (
+        "the tool's own file must stay excluded; it is not one of its callers"
+    )
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
+def test_test_directories_are_excluded_by_prefix(tmp_path):
+    """The other half of the split: EXCLUDED_DIRS IS a prefix comparison.
+
+    Reddening mutation (EXECUTED): change `path.startswith(EXCLUDED_DIRS)` to
+    `path in EXCLUDED_DIRS`; the fixture invocation under `bin/tests/` is then
+    scanned and this assertion fails.
+    """
+    repo = tmp_path / "scratch"
+    for name in caller_scan.SWEPT_PATHS:
+        (repo / name).mkdir(parents=True)
+    _git(repo.parent, "init", "-q", "-b", "main", str(repo))
+    _git(repo, "config", "user.email", "scan@example.com")
+    _git(repo, "config", "user.name", "scan")
+
+    (repo / "bin" / "tests").mkdir()
+    (repo / "bin" / "tests" / "test_fixture.sh").write_text(
+        '#!/bin/bash\n'
+        'ds-cleanup-worktrees --repo "$1" --explain\n'
+    )
+    for name in ("content", "hooks", "scripts"):
+        (repo / name / "placeholder.md").write_text("no invocation here\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "fixture")
+
+    found = {path for path, _lineno, _raw in caller_scan.find_mutating(str(repo))}
+    assert "bin/tests/test_fixture.sh" not in found, (
+        "a scratch-fixture invocation under bin/tests/ is not an operational "
+        "caller and must stay excluded"
+    )
+
+
+# --------------------------------------------------------------------------
+# Feeder robustness (qa-engineer against 571f632b, non-blocking).
+#
+# `git grep` reports a matching BINARY file as `Binary file <path> matches` -
+# a line with no `:<lineno>:` fields. Parsing it raised a bare ValueError,
+# outside `find_mutating`'s documented fail-loud contract. QA hit it only
+# because its scratch snapshot tracked a `__pycache__` this repo gitignores,
+# so it was unreachable on the real tree - but that unreachability rests on
+# .gitignore content, which is not this module's invariant.
+# --------------------------------------------------------------------------
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
+def test_tracked_binary_matching_the_feeder_is_skipped_not_fatal(tmp_path):
+    """A matching binary must be skipped, leaving real callers found.
+
+    Reddening mutation (EXECUTED): drop `-I` from the `git grep` argv in
+    `caller_scan._grep_hits`. `git grep` then emits `Binary file
+    bin/blob.pyc matches`, which this scan cannot parse, and find_mutating
+    raises instead of returning - so the assertion below fails.
+    """
+    repo = tmp_path / "scratch"
+    for name in caller_scan.SWEPT_PATHS:
+        (repo / name).mkdir(parents=True)
+    _git(repo.parent, "init", "-q", "-b", "main", str(repo))
+    _git(repo, "config", "user.email", "scan@example.com")
+    _git(repo, "config", "user.name", "scan")
+
+    (repo / "bin" / "caller.sh").write_text(
+        '#!/bin/bash\n'
+        'ds-cleanup-worktrees --repo "$1" --explain\n'
+    )
+    # A tracked binary whose BYTES contain the token - exactly the shape a
+    # committed __pycache__ produced for QA.
+    (repo / "bin" / "blob.pyc").write_bytes(
+        b"\x00\x01\x02ds-cleanup-worktrees --explain\x00\xff\xfe"
+    )
+    for name in ("content", "hooks", "scripts"):
+        (repo / name / "placeholder.md").write_text("no invocation here\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "fixture")
+
+    found = {path for path, _lineno, _raw in caller_scan.find_mutating(str(repo))}
+    assert found == {"bin/caller.sh"}, (
+        "a tracked binary matching the feeder must be skipped, not crash the "
+        "scan and not be reported as a caller"
+    )
+
+
+def test_unparseable_feeder_line_raises_the_documented_runtime_error(monkeypatch):
+    """Any non-`<path>:<lineno>:<text>` line takes the fail-loud path.
+
+    Reddening mutation (EXECUTED): delete the `len(parts) != 3 or not
+    parts[1].isdigit()` guard in `_grep_hits`. The bare `line.split(":", 2)`
+    then raises ValueError, which is not RuntimeError, so pytest.raises
+    below does not catch it and the test errors.
+    """
+    import subprocess as _sp
+
+    class _Fake:
+        returncode = 0
+        stdout = "Binary file bin/blob.pyc matches\n"
+        stderr = ""
+
+    monkeypatch.setattr(caller_scan.subprocess, "run", lambda *a, **k: _Fake())
+    with pytest.raises(RuntimeError) as excinfo:
+        caller_scan.find_mutating("/nonexistent-root")
+    assert "Binary file" in str(excinfo.value)
+    assert "<path>:<lineno>:<text>" in str(excinfo.value)
+    assert _sp is not None  # keeps the import meaningful to linters
+
+
+# --------------------------------------------------------------------------
+# Which guard actually rejects which shape (DS-245 review round 3, finding 3).
+#
+# `PROBE_RE` and the bare-name lookbehind are both DEFENSE IN DEPTH, not the
+# mechanism: deleting either leaves every case above green, which the
+# reviewer executed. The two tests below pin the attribution itself, so the
+# comments in `caller_scan.py` cannot drift back to claiming those guards do
+# work they do not do.
+# --------------------------------------------------------------------------
+
+def test_command_v_probe_is_rejected_by_cmd_prefix_too():
+    """`CMD_PREFIX_RE`, not `PROBE_RE`, is sufficient on its own here.
+
+    `command` is deliberately absent from `_WRAPPER`, so a prefix ending in
+    `command -v ` cannot be consumed and the position is not command
+    position. Reddening mutation: add `command` to `_WRAPPER` - the prefix
+    then matches and `PROBE_RE` becomes the only remaining guard, which is
+    exactly the trigger `caller_scan.PROBE_RE`'s comment names.
+    """
+    before = "  elif command -v "
+    assert not caller_scan.CMD_PREFIX_RE.search(before)
+    assert caller_scan.PROBE_RE.search(before)
+    assert "command" not in caller_scan._WRAPPER
+
+
+def test_slash_command_is_rejected_by_cmd_prefix_too():
+    """The lookbehind rejects it first; `CMD_PREFIX_RE` would anyway.
+
+    A prefix ending in `/` can never match, because the prefix must end
+    exactly at the token and no alternative consumes a trailing slash.
+    Reddening mutation: give `CMD_PREFIX_RE` an alternative that consumes a
+    bare path segment - the lookbehind then becomes load-bearing alone.
+    """
+    for before in ("  /", "x=$(/", "; /", "  bin/"):
+        assert not caller_scan.CMD_PREFIX_RE.search(before), before
+    # And with the lookbehind in place the token does not even match.
+    line = "  /ds-cleanup-worktrees           Remove stale subagent worktrees."
+    assert not list(caller_scan.TOKEN_RE.finditer(line))
 
 
 # --------------------------------------------------------------------------

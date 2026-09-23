@@ -31,10 +31,11 @@ Downstream consumers: bin/tests/test_worktree_lifecycle_spec.sh
                       auto-collected by `python3 -m pytest bin/tests/`.
 
 Failure modes: `find_mutating` raises RuntimeError when the feeder `git
-               grep` cannot run or matches nothing at all - an empty result
-               there means the pattern or the swept paths have drifted, and
+               grep` cannot run, matches nothing at all, or emits a line
+               outside the `<path>:<lineno>:<text>` contract - an empty
+               result means the pattern or the swept paths have drifted, and
                reporting it as "no mutating callers" would be a vacuous
-               pass. `is_invocation` and `executable_lines` are pure and
+               pass. No other exception type escapes it. `is_invocation` and `executable_lines` are pure and
                total over any input.
 
 Performance: one `git grep` over four trees plus a line scan of each hit
@@ -80,13 +81,42 @@ EXCLUDED_DIRS = ("bin/tests/", "hooks/tests/")
 #:
 #: The empty string is DELIBERATELY ABSENT (DS-245 review round 2, CM2-1).
 #: Round 1 added it to catch an invocation written in a bare ``` fence, and
-#: that was a net loss, measured two ways. A census of the swept paths finds
-#: 624 bare fences against 119 `bash` ones, and the bare ones are
-#: overwhelmingly output samples, JSON and diagrams - treating them as shell
-#: manufactures false callers. `console` and `shell-session`, added in the
-#: same round, match ZERO fences anywhere in the tree. Accepted residual,
-#: stated rather than papered over: a mutating invocation written inside a
-#: bare fence is not seen by this scan.
+#: that was a net loss, measured two ways: it inverted the fence scan (see
+#: `executable_lines`), and bare fences are overwhelmingly output samples,
+#: JSON and diagrams, so reading them as shell manufactures false callers.
+#:
+#: The census below counts OPENING fences only, over exactly the files this
+#: scan reads - the swept paths, `.md` only, minus the exclusions above.
+#: Round 2 first committed 624/119 here, which was wrong: it counted fence
+#: DELIMITER LINES with `git grep -h '^```'`, so every CLOSING fence was
+#: tallied as a bare one (DS-245 review round 3, finding 1). Re-derive with:
+#:
+#:     python3 - <<'PY'
+#:     import collections, subprocess, sys
+#:     sys.path.insert(0, "bin/tests"); import caller_scan as cs
+#:     files = subprocess.run(["git", "ls-files", "--"] + list(cs.SWEPT_PATHS),
+#:                            capture_output=True, text=True, check=True).stdout.split()
+#:     counts = collections.Counter()
+#:     for path in files:
+#:         if not path.endswith(".md"): continue
+#:         if path in cs.EXCLUDED_EXACT or path.startswith(cs.EXCLUDED_DIRS): continue
+#:         in_fence = False
+#:         for raw in open(path, encoding="utf-8", errors="replace"):
+#:             st = raw.strip()
+#:             if not st.startswith("```"): continue
+#:             if in_fence: in_fence = False; continue
+#:             in_fence = True
+#:             info = st[3:].strip().split()
+#:             counts[info[0] if info else "(bare)"] += 1
+#:     for tag, n in counts.most_common(): print("%6d  %s" % (n, tag))
+#:     PY
+#:
+#: At 571f632b that prints 212 `(bare)` against 138 `bash`, and neither
+#: `console` nor `shell-session` appears at all - both were added in round 2
+#: and match zero fences, so both came out with the empty string.
+#:
+#: Accepted residual, stated rather than papered over: a mutating invocation
+#: written inside a bare fence is not seen by this scan.
 SHELL_INFO = ("bash", "sh", "shell", "zsh")
 
 #: A run carrying any of these removes nothing.
@@ -97,6 +127,16 @@ NON_MUTATING_FLAGS = ("--count-only", "--report", "--dry-run")
 #: the slash, so the `/ds-cleanup-worktrees` SLASH COMMAND in `bin/ds-help`'s
 #: listing is not mistaken for a filesystem path), or the bare name resolved
 #: through PATH.
+#:
+#: The bare-name form's `(?<![A-Za-z0-9_./-])` lookbehind is what makes that
+#: slash-command exclusion happen HERE rather than downstream, but it is not
+#: load-bearing either (DS-245 review round 3, finding 3): `CMD_PREFIX_RE`
+#: rejects any prefix ending in `/` independently, since the prefix must end
+#: exactly at the token and no alternative can consume a trailing slash.
+#: Deleting the lookbehind leaves all cases green - executed by the reviewer
+#: and pinned by `test_slash_command_is_rejected_by_cmd_prefix_too`. Its
+#: trigger, if `CMD_PREFIX_RE` ever gains an alternative that can consume a
+#: bare path segment, is that this becomes the only guard on that shape.
 TOKEN_RE = re.compile(
     r'(?:'
     r'"?\$\{?DS_CLEANUP_BIN\}?"?'
@@ -132,6 +172,17 @@ CMD_PREFIX_RE = re.compile(
 )
 
 #: `command -v <tool>` is a probe, not an invocation (step 9a says so).
+#:
+#: NOT load-bearing for any shape in the suite, and the comment used to
+#: imply otherwise (DS-245 review round 3, finding 3). `CMD_PREFIX_RE`
+#: independently rejects every `command -v` prefix, because `command` is
+#: absent from `_WRAPPER` and so cannot be consumed - deleting this guard
+#: leaves all cases green, which the reviewer executed and
+#: `test_command_v_probe_is_rejected_by_cmd_prefix_too` now pins.
+#: Retained as a second line of defense with ONE concrete trigger: adding
+#: `command` to `_WRAPPER` (defensible - `command foo` does exec foo) would
+#: make this the only thing separating `command -v foo`, a probe, from
+#: `command foo`, a real invocation.
 PROBE_RE = re.compile(r'command\s+-v\s*$|(?<![A-Za-z0-9_-])-v\s*$')
 
 
@@ -205,8 +256,17 @@ def executable_lines(lines: Sequence[str], is_markdown: bool) -> Set[int]:
 
 
 def _grep_hits(repo_root: str) -> Dict[str, Set[int]]:
+    # `-I` excludes binary files. It is semantic, not a workaround: a binary
+    # cannot carry a shell invocation, and without it `git grep` emits
+    # `Binary file <path> matches` - a line with no `:<lineno>:` fields,
+    # which the parse below cannot split and which raised a bare ValueError
+    # instead of this function's documented fail-loud RuntimeError (found by
+    # qa-engineer against 571f632b, whose scratch snapshot tracked a
+    # `__pycache__` the real repo gitignores). That it is unreachable on this
+    # tree today rests on .gitignore content, which is not this module's
+    # invariant to depend on.
     proc = subprocess.run(
-        ["git", "-C", repo_root, "grep", "-n", "-E", PATTERN, "--"] + list(SWEPT_PATHS),
+        ["git", "-C", repo_root, "grep", "-I", "-n", "-E", PATTERN, "--"] + list(SWEPT_PATHS),
         capture_output=True,
         text=True,
     )
@@ -225,7 +285,18 @@ def _grep_hits(repo_root: str) -> Dict[str, Set[int]]:
         )
     hits: Dict[str, Set[int]] = {}
     for line in proc.stdout.splitlines():
-        path, lineno, _rest = line.split(":", 2)
+        # Any line the `<path>:<lineno>:<text>` contract does not describe is
+        # a feeder that stopped behaving as assumed. Route it through this
+        # function's documented RuntimeError rather than letting a parse
+        # error escape - the manifest promises fail-loud, and a bare
+        # ValueError is outside that promise.
+        parts = line.split(":", 2)
+        if len(parts) != 3 or not parts[1].isdigit():
+            raise RuntimeError(
+                "the step-9a git grep emitted a line that is not "
+                "`<path>:<lineno>:<text>`: %r" % line
+            )
+        path, lineno, _rest = parts
         hits.setdefault(path, set()).add(int(lineno))
     return hits
 
