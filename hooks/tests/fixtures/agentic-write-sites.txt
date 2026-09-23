@@ -54,6 +54,7 @@
 .opencode/plugins/session-context.ts::const eventsPath = path.join(cwd, ".agentic", "events.jsonl");
 .opencode/plugins/session-context.ts::const projectDir = path.join(cwd, ".agentic");
 .opencode/plugins/session-context.ts::const shardDir = path.join(cwd, ".agentic", "context.d");
+bin/_telemetry.py::primary_events_path = primary_root(cwd_events_path.parent.parent) / ".agentic" / "events.jsonl"
 bin/ds-cost::EVENTS_PATH = _agentic_root() / ".agentic" / "events.jsonl"
 bin/ds-cost::Path(".agentic/..."). Constants, not functions, so
 bin/ds-cost::SESSION_LOG_DIR = _agentic_root() / ".agentic" / "session-log"

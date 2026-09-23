@@ -46,7 +46,8 @@ never read an empty object as "signal present, value zero").
 
 Public API:
   ds-evaluate [--repo <path>] [--json]
-    --repo   path to the DinoStack checkout (default: cwd)
+    --repo   path to the DinoStack checkout (default: cwd). Use the main
+             checkout: hook spawn rows land there, not in a linked worktree.
     --json   emit JSON (the default output; accepted for symmetry)
     --help   print usage and exit 0
   Exit 0 on success. Exit 1 when invoked outside a DinoStack checkout (no
@@ -458,7 +459,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--repo",
         default=".",
-        help="path to the DinoStack checkout (default: cwd)",
+        help="path to the DinoStack checkout (default: cwd); use the main checkout, not a linked worktree - hook spawn rows are written there",
     )
     parser.add_argument(
         "--json",
