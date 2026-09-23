@@ -1705,7 +1705,7 @@
         <ul>
           <li><strong>adr-drift-detector</strong> - audits codebase compliance against Architecture Decision Records</li>
           <li><strong>adr-generator</strong> - creates comprehensive ADRs with structured formatting</li>
-          <li><strong>qa-engineer</strong> - verifies changes in a real browser, runs test suites, validates against acceptance criteria. For UI-visible changes, spawned IN PARALLEL with the Skeptic (single message, both background) - sign-off requires both to pass.</li>
+          <li><strong>qa-engineer</strong> - verifies changes in a real browser, runs test suites, validates against acceptance criteria. For UI-visible changes, spawned IN PARALLEL with the Skeptic (single message, both background) - sign-off requires both to pass. Closes the browser session and kills the dev server it started on every exit path, because nothing it launched is reaped when its run ends (see <code>worktree-lifecycle.md</code> §Agent-spawned process lifetime ownership).</li>
           <li><strong>perf-analyst</strong> - profiles CPU, memory, and latency hotspots; produces a measured findings brief for the engineer. Does not implement fixes.</li>
           <li><strong>release-orchestrator</strong> - sequences the full release from pre-flight gates through version bump, tag, deploy, and post-deploy verification. Enforces gates; refuses to proceed when any check fails.</li>
           <li><strong>dependency-auditor</strong> - supply-chain review: CVE scanning, license compliance, and lockfile analysis across all detected ecosystems. Read-only; produces a findings brief for the engineer.</li>
