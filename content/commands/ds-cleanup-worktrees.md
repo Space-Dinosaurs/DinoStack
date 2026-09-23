@@ -102,11 +102,14 @@ if [[ -n "$DS_CLEANUP_BIN" ]]; then
   # absent for an operator-typed run. No new file, no new variable, nothing
   # for /ds-wrap to remember to set.
   #
-  # Its one false-positive shape is a conductor holding the same lock for a
-  # Phase 11b `wrap-ticket` spawn while an operator separately types
-  # /ds-cleanup-worktrees. That applies the floor when it need not - a
-  # delayed reap, never a loss, which is fail-direction (a) in the gate
-  # order's own accounting. Pass `--min-age-hours 0` to override it.
+  # Anything else holding that same path also applies the floor. The lock
+  # is shared, so that is at least: a conductor holding it for a Phase 11b
+  # `wrap-ticket` spawn, a concurrent /ds-wrap in another session on this
+  # repo, and the deferred-wrap daemon - the list is NOT closed, which is
+  # why it is stated as a direction rather than an enumeration. Every one of
+  # them applies the floor when it need not, which is a delayed reap and
+  # never a loss: fail-direction (a) in the gate order's own accounting.
+  # Pass `--min-age-hours 0` to override it.
   #
   # The array plus the `[@]+"${...[@]}"` alternate-value expansion is
   # mandatory, not stylistic, and BOTH halves are load-bearing. bash 3.2

@@ -859,11 +859,19 @@ UNATTENDED otherwise, including when it fires from a hook or session
 lifecycle event, when it is backgrounded or its output goes to a log, or
 when it is one step of a longer automated flow the human is not reading
 step by step. Ambiguity resolves to UNATTENDED. Every mutating unattended
-caller supplies the gate-5 age floor: the session-start reap in
-`content/references/worktree-lifecycle.md` pins `--min-age-hours 24` at
-the invocation; `/ds-wrap` Step 5 exports `DS_CLEANUP_MIN_AGE_HOURS=24`,
-which `content/commands/ds-cleanup-worktrees.md` Step 2 passes through;
-and `--archive-unproven` implies it in `_resolve_min_age_hours`. The one
+caller supplies the gate-5 age floor, by one of three routes: the
+session-start reap in `content/references/worktree-lifecycle.md` pins
+`--min-age-hours 24` at the invocation; `--archive-unproven` implies it in
+`_resolve_min_age_hours`; and `/ds-wrap` Step 5 SETS NOTHING - it reaches
+`content/commands/ds-cleanup-worktrees.md` Step 2, which applies the floor
+itself whenever `<cwd>/.agentic/wrap/lock` is present, and /ds-wrap holds
+that lock across the whole of Step 5. Do NOT "restore" an exported
+`DS_CLEANUP_MIN_AGE_HOURS` on that path: Step 5 reaches Step 2 as a
+SEPARATE shell invocation and shell state does not survive between
+invocations, so the export would be gone before the block ran and the
+floor would be silently absent. `DS_CLEANUP_MIN_AGE_HOURS` remains a valid
+override for a caller that can set it in the SAME invocation as the block
+(`content/commands/ds-wrap.md` §Step 5 records this and why). The one
 attended mutating caller is an operator-typed `/ds-cleanup-worktrees`,
 which supplies no floor - that is where DS-245's value lands. The
 `--count-only` call sites (`bin/ds-base-sync`, the SessionStart nudge) and
@@ -875,12 +883,18 @@ ranges over invocations the check can SEE, which is this tool named as a
 COMMAND WORD - `$DS_CLEANUP_BIN`, a path ending in its name, or the bare
 name on PATH - standing in command position on an executable line; a flag
 is not required, because a bare `"$DS_CLEANUP_BIN"` runs the default mode,
-which removes. One residual is deliberately NOT claimed closed: a caller
-reaching this tool through a DIFFERENTLY-NAMED variable is invisible to
-the grep feeding that check. `bin/ds-base-sync` is exactly that shape
-today - it assigns `_ds_cleanup_worktrees` and invokes through it - which
-is a live example rather than a hypothetical, though it is `--count-only`
-and so mutates nothing.
+which removes. Residuals, stated at their true width and pinned in
+`bin/tests/test_caller_scan.py`: an invocation whose command word is a
+DIFFERENTLY-NAMED variable is not recognised, even though the file
+containing it IS swept - `bin/ds-base-sync` is that shape today (it
+assigns `_ds_cleanup_worktrees`, so the assignment line is seen and
+correctly rejected while the invocation through it is not seen at all),
+a live example rather than a hypothetical, and `--count-only` so it
+mutates nothing; a path-form invocation whose first argument is not a flag
+is not recognised either; and an invocation written inside a fence with no
+info string is not read, because treating bare fences as shell both
+manufactured false callers and inverted the fence scan (see
+`bin/tests/caller_scan.py`'s `SHELL_INFO`).
 
 Upstream deps: Python 3 stdlib only (argparse, fnmatch, json, os, re, shutil,
                sys, time, pathlib, collections, typing - `subprocess` is

@@ -460,258 +460,73 @@ echo "activity-window-prose exit=$r0d"
 # round had assumed attended (`--archive-unproven`, then `/ds-wrap` Step 5),
 # which is precisely the failure this pin exists to stop recurring silently.
 #
+# The detector itself now lives in `bin/tests/caller_scan.py`, with its own
+# regression suite `bin/tests/test_caller_scan.py` (DS-245 review round 2,
+# CM2-3). It was inline here for two rounds and was wrong in both, each time
+# found only by a reviewer hand-injecting a shape, because nothing committed
+# exercised it. Read that module for what the scan can and cannot see; this
+# file asserts what the RESULT must be, not how it is computed.
+#
 # Three assertions:
 #   (iii) the set of MUTATING invocations under content/, hooks/, bin/ and
 #         scripts/ EQUALS a pinned two-element allowlist. An equality, never
 #         a containment: a NEW mutating caller appearing anywhere under those
 #         paths reddens this, which is the whole point - it cannot land
 #         without someone deciding whether it is attended and, if not,
-#         giving it a floor.
-#
-#         SCOPE OF THAT EQUALITY, stated exactly (DS-245 review round 1,
-#         CM1). It ranges over invocations this check can SEE, which is the
-#         tool named as a COMMAND WORD - `$DS_CLEANUP_BIN`, a path ending in
-#         the tool name, or the bare name on PATH - standing in command
-#         position on an executable line. Round 1 found two shapes an
-#         earlier revision could not see, both now covered and both pinned
-#         by a mutation below: a bare `"$DS_CLEANUP_BIN"` with NO flags at
-#         all (which is a mutating run - removal is the default mode), and
-#         an invocation inside a fence with no info string. Command position
-#         is now the predicate; carrying a flag is not required.
-#         KNOWN RESIDUAL, unchanged from step 9e and deliberately not
-#         claimed closed: a caller that reaches the tool through a
-#         DIFFERENTLY-NAMED variable is invisible to the step-9a grep that
-#         feeds this check, so it cannot be seen here at all.
-#         `bin/ds-base-sync` is exactly that shape today - it assigns
-#         `_ds_cleanup_worktrees` and invokes through it - and is a live
-#         example, not a hypothetical. It is `--count-only` (non-mutating),
-#         so nothing is missed today, but the equality's reach stops there.
+#         giving it a floor. Its scope is exactly what `caller_scan` can
+#         see; that module states its residuals and `test_caller_scan.py`
+#         pins them.
 #   (iv)  the session-start reap's own continuation block carries
 #         `--min-age-hours 24`, and `/ds-cleanup-worktrees` Step 2's shell
-#         block carries the `DS_CLEANUP_MIN_AGE_HOURS` passthrough.
-#   (v)   `content/commands/ds-wrap.md` sets `DS_CLEANUP_MIN_AGE_HOURS=24`
-#         for Step 5, the unattended caller that routes through Step 2.
+#         block reads `DS_CLEANUP_MIN_AGE_HOURS`.
+#   (v)   `/ds-wrap` Step 5 both STATES that Step 2 derives the floor from
+#         the wrap lock, and SITS INSIDE the lock window - i.e. ahead of the
+#         Step 6 release. Round 1 wrote this as a grep for the literal
+#         `DS_CLEANUP_MIN_AGE_HOURS=24`, which round 2 found vacuous: after
+#         Step 5 correctly stopped exporting anything, the only remaining
+#         occurrence of that literal is inside the sentence explaining it is
+#         NOT the mechanism, so the assertion passed on text meaning the
+#         opposite of what it claimed. Ordering is the property the floor
+#         actually depends on: move the release ahead of Step 5, or move
+#         Step 5 out of the window as Parts F and G already are, and the
+#         floor silently disappears from the one unattended mutating caller.
 #
-# The reduction to "mutating invocation" is mechanical and its three
-# exclusions are deliberate, each stated in the Python below: the tool's own
-# file (a tool is not its own caller, and its `--help`/Public-API blocks
-# spell usage lines that are documentation, not invocations), the two test
-# directories (a scratch-fixture invocation is not an operational caller,
-# and THIS file's own pinned literals live there), and non-executable
-# context (markdown prose outside a shell fence is a suggestion, per the
-# same rule that makes `content/commands/ds-wrap.md:722` assertion (v)'s
-# business rather than assertion (iii)'s; shell/python comment lines are
-# likewise not invocations).
-#
-# Reddening mutations, all three EXECUTED during development:
+# Reddening mutations, all EXECUTED:
 #   - delete `--min-age-hours 24` from the reap block          -> fires (iv)
-#   - delete `DS_CLEANUP_MIN_AGE_HOURS=24` from ds-wrap.md     -> fires (v)
+#   - delete Step 5's wrap-lock derivation sentence            -> fires (v)
+#   - move `ds-wrap-release-lock` ahead of Step 5               -> fires (v)
 #   - add any new mutating invocation under the swept paths    -> fires (iii)
 check_unattended_callers_carry_floor() {
   python3 - "$REPO_ROOT" <<'PYEOF'
-import re
-import subprocess
+import os
 import sys
 
 repo_root = sys.argv[1]
+sys.path.insert(0, os.path.join(repo_root, "bin", "tests"))
 
-# The step-9a enumeration pattern, DELIBERATELY WIDENED (DS-245 review
-# round 1, CM1). Step 9a's own pattern excludes `/` from the character
-# class preceding the token, so it cannot match a path-form invocation such
-# as `python3 "$REPO_DIR/bin/ds-cleanup-worktrees" --explain` at all -
-# measured: 0 hits for that line under 9a's pattern, 1 under this one. A
-# feeder that cannot see a shape makes any equality asserted downstream
-# vacuous for it, so this check uses a strict SUPERSET of 9a's pattern.
-# Dropping `/` does not loosen the trailing boundary, so a sibling binary
-# like `ds-cleanup-worktrees-all` is still not matched here (its trailing
-# `-` is inside the excluded class); that sibling is handled deliberately
-# by EXCLUDED_EXACT below, not by accident.
-PATTERN = (
-    r'(^|[^A-Za-z0-9_.-])(ds-cleanup-worktrees|DS_CLEANUP_BIN)'
-    r'([^A-Za-z0-9_.-]|$)'
-)
-PATHS = ["content", "hooks", "bin", "scripts"]
+import caller_scan
 
-# See this function's shell-side comment for why each exclusion is sound.
-# Two kinds, kept apart deliberately (DS-245 review round 1, cm3): EXACT
-# paths, compared with ==, and DIRECTORY prefixes, compared with startswith.
-# `bin/ds-cleanup-worktrees` is an exact path, never a prefix - as a prefix
-# it would silently swallow a future sibling such as
-# `bin/ds-cleanup-worktrees-all`, which WOULD be a caller and must be
-# classified rather than excluded by an accident of naming.
-EXCLUDED_EXACT = (
-    "bin/ds-cleanup-worktrees",  # the tool itself is not one of its callers
-)
-EXCLUDED_DIRS = (
-    "bin/tests/",                # scratch-fixture runs; this file's own pins
-    "hooks/tests/",              # same
-)
-
-# The tool spelled as a COMMAND WORD. Three forms: a `$DS_CLEANUP_BIN`
-# expansion, a PATH ending in the tool name (at least one segment before the
-# slash, so the `/ds-cleanup-worktrees` SLASH COMMAND in `bin/ds-help`'s
-# listing is not mistaken for a filesystem path), or the bare name resolved
-# through PATH.
-TOKEN_RE = (
-    r'(?:'
-    r'"?\$\{?DS_CLEANUP_BIN\}?"?'
-    r'|"?[^\s;&|()"\x27]+/ds-cleanup-worktrees"?'
-    r'|(?<![A-Za-z0-9_./-])ds-cleanup-worktrees'
-    r')(?![A-Za-z0-9_.-])'
-)
-
-# Words that may precede a command without displacing it from command
-# position: interpreters, and wrappers that go on to exec their argument.
-# The `"$VAR"` alternative covers the live `"$TIMEOUT_BIN" 5 python3 ...`
-# shape in hooks/session-start-wrap.sh.
-_WRAPPER = (
-    r'(?:python3?|exec|env|nohup|setsid|time|timeout|sudo|bash|sh|xargs'
-    r'|"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"?)'
-)
-
-# Command position, matched against the text BEFORE the token on its line.
-# Deliberately narrow on `(`: a bare `(` counts only at line start (a
-# subshell, the shape the session-start reap uses), never mid-line, because
-# a `(` inside a prose string is common and would fabricate invocations.
-CMD_PREFIX_RE = re.compile(
-    r'(?:'
-    r'^\s*'                                     # start of line
-    r'|^\s*\(\s*'                               # subshell opened at line start
-    r'|\$\(\s*'                                 # command substitution
-    r'|[;&|]\s*'                                # after ; && || |
-    r'|\b(?:then|else|elif|do|if|while|until)\s+'
-    r')'
-    r'(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*'        # inline VAR=val assignments
-    r'(?:' + _WRAPPER + r'\s+(?:[-\w./]+\s+)*)*'  # wrappers, each with optional args
-    r'$'
-)
-# `command -v <tool>` is a probe, not an invocation (step 9a says so).
-PROBE_RE = re.compile(r'command\s+-v\s*$|(?<![A-Za-z0-9_-])-v\s*$')
-NON_MUTATING_FLAGS = ("--count-only", "--report", "--dry-run")
-# Fence info strings whose bodies are executable shell. The empty string is
-# INCLUDED (CM1): a bare ``` fence is the default way to write a shell block
-# and an earlier revision skipped those entirely.
-SHELL_INFO = ("bash", "sh", "shell", "zsh", "console", "shell-session", "")
-
-
-def _is_invocation(raw):
-    """True iff the tool stands in command position anywhere on this line.
-
-    For the `$DS_CLEANUP_BIN` and bare-name forms, carrying a flag is NOT
-    required: `"$DS_CLEANUP_BIN"` with no arguments at all runs the tool in
-    its default mode, which REMOVES. That is precisely the shape round 1
-    found unguarded.
-
-    The PATH form is the one exception, and the asymmetry is measured, not
-    stylistic. Widening the feeder grep to see path forms also makes it
-    return every `bin/ds-cleanup-worktrees` CROSS-REFERENCE in a Python
-    docstring, and a docstring continuation line beginning with that path
-    is in command position by every structural test there is - three files
-    (`bin/_lib.py`, `bin/ds-agentic-repair`, `bin/ds-branch-prune`) were
-    flagged this way. Requiring a following flag separates naming a path
-    from running it: all of those mentions are followed by prose, while a
-    real path-form invocation is followed by its arguments. The residual is
-    a path-form invocation with NO arguments at all, which no caller in
-    this repo has ever written.
-    """
-    for m in re.finditer(TOKEN_RE, raw):
-        before = raw[:m.start()]
-        if PROBE_RE.search(before):
-            continue
-        if not CMD_PREFIX_RE.search(before):
-            continue
-        if "/" in m.group(0) and not re.match(r'\s+-', raw[m.end():]):
-            continue
-        return True
-    return False
-
-# (iii) The allowlist, as (path, the literal the invocation must contain).
+# (iii) The allowlist: the files that may carry a mutating invocation.
 ALLOWLIST = {
-    "content/references/worktree-lifecycle.md",   # session-start reap (unattended)
-    "content/commands/ds-cleanup-worktrees.md",   # Step 2 (attended; honours the env var)
+    # Session-start reap: unattended, pins --min-age-hours 24 at the call.
+    "content/references/worktree-lifecycle.md",
+    # Step 2: attended when an operator types it directly, and ALSO the
+    # conduit the unattended /ds-wrap Step 5 path reaches this tool through.
+    # It is therefore not simply "the attended caller" - it is where the
+    # floor is applied for both, from DS_CLEANUP_MIN_AGE_HOURS or from the
+    # wrap lock.
+    "content/commands/ds-cleanup-worktrees.md",
 }
 
 violations = []
 
+try:
+    mutating = caller_scan.find_mutating(repo_root)
+except RuntimeError as exc:
+    print("CALLER-ENUMERATION VIOLATION: %s" % exc, file=sys.stderr)
+    sys.exit(1)
 
-def run_grep():
-    proc = subprocess.run(
-        ["git", "-C", repo_root, "grep", "-n", "-E", PATTERN, "--"] + PATHS,
-        capture_output=True,
-        text=True,
-    )
-    # `git grep` exits 1 on zero matches - which here means the enumeration
-    # itself broke, never a clean result. Fail loudly rather than reporting
-    # an empty mutating set as agreement with an empty allowlist.
-    if proc.returncode not in (0, 1):
-        violations.append(
-            "CALLER-ENUMERATION VIOLATION: the step-9a git grep failed (rc=%d): %s"
-            % (proc.returncode, proc.stderr.strip())
-        )
-        return []
-    if not proc.stdout.strip():
-        violations.append(
-            "CALLER-ENUMERATION VIOLATION: the step-9a git grep matched NOTHING - "
-            "the pattern or the swept paths have drifted, so this check would "
-            "otherwise pass having asserted nothing"
-        )
-        return []
-    return proc.stdout.splitlines()
-
-
-def executable_lines(path):
-    """Line numbers of `path` that are executable shell, comments removed.
-
-    For markdown that is the inside of a bash/sh/shell/zsh fence and nothing
-    else; for every other file it is every non-comment line.
-    """
-    with open("%s/%s" % (repo_root, path), encoding="utf-8", errors="replace") as fh:
-        text = fh.read().splitlines()
-    ok = set()
-    if path.endswith(".md"):
-        in_fence = False
-        for i, raw in enumerate(text, 1):
-            stripped = raw.strip()
-            if stripped.startswith("```"):
-                if in_fence:
-                    in_fence = False
-                else:
-                    info = stripped[3:].strip().split()
-                    word = info[0] if info else ""
-                    in_fence = word in SHELL_INFO
-                continue
-            if in_fence and not stripped.startswith("#"):
-                ok.add(i)
-    else:
-        for i, raw in enumerate(text, 1):
-            if not raw.strip().startswith("#"):
-                ok.add(i)
-    return ok, text
-
-
-hits = {}
-for line in run_grep():
-    path, lineno, _rest = line.split(":", 2)
-    hits.setdefault(path, set()).add(int(lineno))
-
-mutating = []
-for path in sorted(hits):
-    if path in EXCLUDED_EXACT or path.startswith(EXCLUDED_DIRS):
-        continue
-    ok, text = executable_lines(path)
-    for lineno in sorted(hits[path]):
-        if lineno not in ok:
-            continue
-        raw = text[lineno - 1]
-        if not _is_invocation(raw):
-            continue
-        if any(flag in raw for flag in NON_MUTATING_FLAGS):
-            continue
-        mutating.append((path, lineno, raw, text))
-
-# (iii) SET EQUALITY, both directions reported separately so a reader can
-# tell "a new caller appeared" from "a pinned caller vanished".
-found = set(path for path, _l, _r, _t in mutating)
+found = set(path for path, _l, _r in mutating)
 for extra in sorted(found - ALLOWLIST):
     violations.append(
         "CALLER-ENUMERATION VIOLATION: %s carries a MUTATING ds-cleanup-worktrees "
@@ -728,10 +543,12 @@ for missing in sorted(ALLOWLIST - found):
     )
 
 # (iv) The reap's own continuation block, and Step 2's own shell block.
-for path, lineno, raw, text in mutating:
+for path, lineno, raw in mutating:
+    with open("%s/%s" % (repo_root, path), encoding="utf-8") as fh:
+        text = fh.read().splitlines()
     if path == "content/references/worktree-lifecycle.md":
         block = [raw]
-        i = lineno - 1
+        i = lineno
         while block[-1].rstrip().endswith("\\") and i < len(text):
             block.append(text[i])
             i += 1
@@ -753,21 +570,54 @@ for path, lineno, raw, text in mutating:
         if "DS_CLEANUP_MIN_AGE_HOURS" not in "\n".join(text[start - 1:end]):
             violations.append(
                 "CALLER-ENUMERATION VIOLATION: %s's Step 2 shell block no longer "
-                "reads DS_CLEANUP_MIN_AGE_HOURS - an unattended caller routing "
-                "through Step 2 (/ds-wrap Step 5) then has no way to supply the "
-                "age floor at all." % path
+                "reads DS_CLEANUP_MIN_AGE_HOURS - a caller able to set it in the "
+                "same shell invocation then has no way to supply the floor." % path
             )
 
-# (v) /ds-wrap Step 5 sets the variable Step 2 passes through.
-with open("%s/content/commands/ds-wrap.md" % repo_root, encoding="utf-8") as fh:
-    wrap = fh.read()
-if "DS_CLEANUP_MIN_AGE_HOURS=24" not in wrap:
+# (v) /ds-wrap Step 5 states the derivation AND sits inside the lock window.
+WRAP = "content/commands/ds-wrap.md"
+with open("%s/%s" % (repo_root, WRAP), encoding="utf-8") as fh:
+    wrap_lines = fh.read().splitlines()
+
+
+def _find(predicate, label):
+    for idx, line in enumerate(wrap_lines, 1):
+        if predicate(line):
+            return idx
     violations.append(
-        "CALLER-ENUMERATION VIOLATION: content/commands/ds-wrap.md does not set "
-        "DS_CLEANUP_MIN_AGE_HOURS=24 for Step 5. A wrap is UNATTENDED under the "
-        "Callers note's predicate (one step of a longer automated flow), so Step 5 "
-        "must supply the floor Step 2 otherwise omits."
+        "CALLER-ENUMERATION VIOLATION: %s no longer contains %s, so neither the "
+        "position of /ds-wrap Step 5 relative to the wrap-lock release nor the "
+        "mechanism that gives it an age floor can be checked at all." % (WRAP, label)
     )
+    return None
+
+
+step5 = _find(lambda l: l.strip().startswith("**Step 5") and "Worktree cleanup" in l,
+              "a `**Step 5 - Worktree cleanup.**` heading")
+step6 = _find(lambda l: l.strip().startswith("**Step 6"), "a `**Step 6` heading")
+release = _find(lambda l: "Release the pre-flight lock" in l and "ds-wrap-release-lock" in l,
+                "the Step 6 `Release the pre-flight lock: run ds-wrap-release-lock` instruction")
+
+if step5 and step6 and release:
+    if not step5 < release:
+        violations.append(
+            "CALLER-ENUMERATION VIOLATION: %s runs `ds-wrap-release-lock` (line %d) "
+            "BEFORE Step 5 (line %d). Step 2 derives the 24h floor from the presence "
+            "of `<cwd>/.agentic/wrap/lock`, so releasing the lock first silently "
+            "removes the floor from the one unattended mutating caller."
+            % (WRAP, release, step5)
+        )
+    region = "\n".join(wrap_lines[step5 - 1:step6 - 1])
+    if "applies the floor whenever" not in region or ".agentic/wrap/lock" not in region:
+        violations.append(
+            "CALLER-ENUMERATION VIOLATION: %s's Step 5 region no longer states that "
+            "`/ds-cleanup-worktrees` Step 2 applies the floor whenever "
+            "`<cwd>/.agentic/wrap/lock` is present. That sentence is the only "
+            "operator-facing record of why this unattended caller has a floor at "
+            "all, and without it the next maintainer's obvious move is to restore "
+            "an exported DS_CLEANUP_MIN_AGE_HOURS, which cannot work across a tool "
+            "call." % WRAP
+        )
 
 for v in violations:
     print(v, file=sys.stderr)
