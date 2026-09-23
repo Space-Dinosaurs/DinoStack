@@ -21422,6 +21422,16 @@
       "source_token": "cwd"
     },
     {
+      "expected_target": "content/commands/ds-cleanup-worktrees.md",
+      "generated_token": "manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-cleanup-worktrees`",
+      "kind": "operational",
+      "occurrence_hash": "276d2d4ad7a51ce9ab3ce525b2df9177dff9aef5c636dabd2456a8e961d9ecce",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "`/ds-cleanup-worktrees`"
+    },
+    {
       "expected_target": ".agentic/learnings.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
       "kind": "operational",

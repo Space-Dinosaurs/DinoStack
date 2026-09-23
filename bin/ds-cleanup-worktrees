@@ -23,8 +23,11 @@ Purpose: Executable reference implementation of the `/ds-cleanup-worktrees`
          ds-cleanup-worktrees.md` Step 2 now invokes this tool to run,
          rather than restating - so this tool can no longer diverge from
          it. See "Removal predicate" below for the full gate order,
-         including three additional safety floors `disposition_for` does
-         not know about (self-worktree, age, and gitignored-content).
+         including four additional safety floors `disposition_for` does
+         not know about: a self-worktree guard, an explicit-supply age
+         fallback (`--min-age-hours`, off unless supplied or implied by
+         `--archive-unproven` - DS-245), a file-activity liveness gate,
+         and a gitignored-content guard.
 
 Classification reuses `bin/tests/worktree_model.py`'s `classify_entry`
 (path-prefix classification: `.claude/worktrees/` = ISOLATION,
@@ -56,36 +59,71 @@ Gate order, first match wins, ALL must clear for REMOVE:
      (handled by `git worktree prune` at the end of the run, per the
      existing session-start-prune unlock-then-prune pattern - see the
      Locked handling note below for the one case where an unlock fires).
-  3. SELF (new, round-2 Major 2a) -> a worktree whose directory the
+  3. LOCKED, directory present (DS-245 moved this ahead of SELF) -> a
+     locked entry is ALWAYS reported `SKIP_LOCKED`, never unlocked or
+     force-removed here. `evaluate_entry` reads `entry.locked` directly at
+     this position, so the guardrail returns before any age stat, activity
+     walk, `git status` or `gh` call. `disposition_for`'s own SKIP_LOCKED
+     gate reads the same `entry.locked` and remains the normative
+     definition, so the two cannot diverge. Before DS-245 this sat behind
+     SELF and the age floor, so a locked worktree that was ALSO self, also
+     young, or also recently active reported one of those reasons instead,
+     and `skipped-locked=0` was compatible with a locked worktree being
+     present.
+  4. SELF (new, round-2 Major 2a) -> a worktree whose directory the
      CURRENT PROCESS is running inside (compared via `Path.cwd()`) is
-     NEVER removed, unconditionally, before any other check. This is a
-     hard floor, not a heuristic: a v1 dry run against the live 38-
-     worktree checkout flagged this tool's OWN worktree as REMOVE.
-  4. AGE FLOOR (new, round-2 Major 2b) -> a worktree whose OWN ROOT
-     DIRECTORY's mtime (an approximate proxy, re-armed by any operation
-     touching the path directly - never the branch's or its commits'
-     creation time) is within `--min-age-hours` (default 24) is never
-     removed, regardless of dirty/lock/branch state. This protects a
-     resumable-idle worktree - an unlocked, clean worktree can still
-     belong to work the operator will resume. See the Locked handling
-     note below for why this floor exists independently of
-     `SKIP_LOCKED`, not instead of it.
-  4.5. RECENT ACTIVITY (DS-196) -> `SKIP_RECENT_ACTIVITY`, immediately
-     after the age floor, before any git/gh evidence is gathered. Unlike
-     gate 4's single directory-mtime stat, this walks every FILE under the
-     worktree (pruning `.git`/`node_modules`/`.venv`/`dist`/`build`/
-     `.next`/`__pycache__` - see `_worktree_activity_hours`) and gates on
-     the most recent FILE mtime being within `--activity-window-hours`
-     (default 3.0) - a more direct liveness signal layered on top of gate
-     4's approximate directory-mtime proxy. An indeterminate reading
-     (`None`) fails CLOSED, same posture as gate 4. `SKIP_RECENT_ACTIVITY`
-     masks `SKIP_DIRTY`/`SKIP_LOCKED` in `--explain` for an in-use tree,
-     same class as `SKIP_TOO_YOUNG` masking those same two gates.
-  5. LOCKED (directory present) -> `disposition_for`'s own gate;
-     `SKIP_LOCKED`, unconditionally, never unlocked or force-removed here.
-  6. DIRTY -> `disposition_for`'s own gate (`git status --porcelain`,
+     NEVER removed, unconditionally; the only gate ahead of it is the lock
+     gate, which is likewise terminal, so this remains a hard floor on
+     removal. A hard floor, not a heuristic: a v1 dry run against the live
+     38-worktree checkout flagged this tool's OWN worktree as REMOVE.
+  5. AGE FALLBACK (round-2 Major 2b; demoted to explicit-supply by
+     DS-245) -> a worktree whose OWN ROOT DIRECTORY's mtime (an
+     approximate proxy, re-armed by any operation touching the path
+     directly - never the branch's or its commits' creation time) is
+     within `--min-age-hours` resolves `SKIP_TOO_YOUNG`, regardless of
+     activity/dirty/branch state.
+     APPLYING CONDITION: this gate applies ONLY when `--min-age-hours` was
+     supplied explicitly, or when `--archive-unproven` was passed without
+     it - `_resolve_min_age_hours` implies the 24h fallback there, because
+     that path removes an entry no gate cleared, so the floor is doing
+     work no other gate does. Otherwise the gate is skipped in full and
+     `_worktree_age_hours` is never called at all.
+     WHY NO AUTOMATIC CONDITION IS POSSIBLE: lock absence is never
+     readable as evidence of non-occupancy - measured 2026-08-25, an
+     `isolation:"worktree"` agent's lock is released when it RETURNS while
+     the worktree stays live and resumable - so no automatic per-entry
+     condition can distinguish "unlocked and free" from "unlocked between
+     turns". The tool relies on measured idleness (gate 6) for the signal
+     it can read, and retains `--min-age-hours` as the caller's explicit
+     floor. Every unattended caller supplies it (see the Callers note
+     below): the session-start reap, `/ds-wrap` Step 5, and
+     `--archive-unproven`.
+     BOTH FAIL DIRECTIONS. (a) It applies when it need not: an entry is
+     refused that later gates might have cleared. The cost is a delayed
+     reap, never a loss, and this is the direction every unattended caller
+     takes by construction. (b) It does not apply when it should: a
+     worktree holding a resumable agent between turns, idle past
+     `--activity-window-hours`, can be removed. Its commits survive on its
+     branch and `git worktree remove` is called without `--force`, so it
+     refuses on uncommitted content; the loss ceiling is the agent's cwd
+     plus unprotected untracked scratch. Direction (b) is accepted ONLY on
+     callers the Callers note below classifies attended.
+  6. RECENT ACTIVITY (DS-196) -> `SKIP_RECENT_ACTIVITY`, immediately
+     after the age fallback, before any git/gh evidence is gathered.
+     Unlike gate 5's single directory-mtime stat, this walks every FILE
+     under the worktree (pruning `.git`/`node_modules`/`.venv`/`dist`/
+     `build`/`.next`/`__pycache__` - see `_worktree_activity_hours`) and
+     gates on the most recent FILE mtime being within
+     `--activity-window-hours` (default 3.0) - a more direct liveness
+     signal than gate 5's approximate directory-mtime proxy, and
+     UNCONDITIONAL, unlike gate 5: it is the only automatic idleness
+     signal this tool has. An indeterminate reading (`None`) fails CLOSED.
+     `SKIP_RECENT_ACTIVITY` masks `SKIP_DIRTY` in `--explain` for an
+     in-use tree, same class as `SKIP_TOO_YOUNG` masking that same gate.
+     Neither can mask `SKIP_LOCKED` any more - gate 3 precedes both.
+  7. DIRTY -> `disposition_for`'s own gate (`git status --porcelain`,
      computed together with the ignored-content check below in one call).
-  7. PROTECTED CONTENT (round-2 Major 3, round-3 OPERATOR DECISION on
+  8. PROTECTED CONTENT (round-2 Major 3, round-3 OPERATOR DECISION on
      polarity, round-4 correction inside `.agentic/`) -> gitignored
      content is a PROTECTED DENYLIST by default, not a fail-safe
      allowlist: a path blocks removal ONLY when it matches
@@ -117,7 +155,7 @@ Gate order, first match wins, ALL must clear for REMOVE:
      `.agentic/reaped-telemetry/` first - see "Telemetry salvage" below;
      telemetry is disposable for the purpose of BLOCKING removal, but it
      is not worthless, and a failed salvage blocks removal too.
-  8. Branch evidence -> delegated entirely to `disposition_for` (ancestry,
+  9. Branch evidence -> delegated entirely to `disposition_for` (ancestry,
      then content-subsumption, then a bare MERGED PR, then origin-
      reachability (DS-196), then push status - `strict_pr_state=False`,
      the same lenient grade the shared model already reserves for
@@ -131,8 +169,12 @@ Gate order, first match wins, ALL must clear for REMOVE:
      `--no-origin-reachable-evidence` restores pre-DS-196 evidence order
      exactly. See `worktree_model.py`'s `WORKTREE_REMOVAL_EVIDENCE_ORDER`
      and `_check_origin_reachable` docstrings for the full precedence
-     rationale and safety precondition.
-  9. PR-QUERY-FAILURE OVERRIDE (round-N Major fix) -> a `gh` PR-state query
+     rationale and safety precondition. A non-`ELIGIBLE` outcome here is
+     `SKIP_UNPROVEN`, which is also the only bucket `--archive-unproven`
+     draws its candidates from - and passing that flag implies the gate-5
+     age fallback (see `_resolve_min_age_hours`), because archiving
+     removes an entry no gate cleared.
+  10. PR-QUERY-FAILURE OVERRIDE (round-N Major fix) -> a `gh` PR-state query
      that could not be answered at all (nonzero exit, unparseable JSON, or
      a timeout - see `_pr_state`'s docstring) is a DISTINCT fact from "no
      PR exists" and must never be collapsed into it. When such a failure
@@ -213,15 +255,17 @@ specific branch still errors (rate limit, network blip). Round-N Major fix:
 such a failure is a distinct fact from "no PR exists" (see `_pr_state`'s
 docstring) and, when it would otherwise leave an entry resolved to exactly
 `SKIP_NOT_PUSHED` or `SKIP_AMBIGUOUS_NO_PR`, `evaluate_entry` reclassifies
-it to its own `SKIP_PR_QUERY_ERROR` outcome (Removal predicate gate 9,
+it to its own `SKIP_PR_QUERY_ERROR` outcome (Removal predicate gate 10,
 above) - a bucket that is never `SKIP_UNPROVEN` at all, so it is excluded
 from `_ARCHIVABLE_UNPROVEN_DISPOSITIONS` by construction, not merely by an
 unlisted `reason` value. Without this, a worktree behind a genuinely OPEN
 PR whose query happened to fail on this run would be indistinguishable from
 a genuinely-unprovable branch and could be silently archived and removed.
-For every entry that clears the whitelist (already clean, unlocked, past
-the age floor, not self, not protected-content, past the gh-evidence
-refusal check - i.e. the ONLY thing blocking it is exactly one of the two
+For every entry that clears the whitelist (already clean, unlocked, not
+self, past the age fallback - which `--archive-unproven` itself supplies,
+so this precondition holds on this path precisely because the flag implies
+it - idle past the activity window, not protected-content, past the
+gh-evidence refusal check - i.e. the ONLY thing blocking it is exactly one of the two
 whitelisted unprovable-branch-evidence dispositions): (1) `git bundle
 create <repo>/.agentic/worktree-archive/<branch>-<timestamp>.bundle
 <branch>` captures the FULL branch (every commit unique to it, not just
@@ -564,11 +608,23 @@ Public API (CLI):
                           ls-remote` network round-trip per entry - see
                           bin/ds-base-sync and hooks/session-start-wrap.sh's
                           own manifests for that pre-fix figure).
-  --min-age-hours <float> Age floor in hours (see gate 4 above). Default
-                          24.
+  --min-age-hours <float> Age fallback in hours (see gate 5 above).
+                          NO DEFAULT (DS-245): omitted, the gate is
+                          skipped in full and directory creation age is
+                          not consulted at all. `--archive-unproven`
+                          implies 24 when this flag is omitted, because
+                          that path removes an entry no gate cleared. The
+                          gate order's own APPLYING CONDITION entry states
+                          why no automatic condition is possible - lock
+                          absence carries no occupancy information, so
+                          this floor is the caller's explicit choice, and
+                          every unattended caller makes it (see the
+                          Callers note below).
   --activity-window-hours <float>
                           DS-196: recent-file-activity floor in hours (see
-                          gate 4.5 above). Default 3.0. `evaluate_entry`
+                          gate 6 above). Default 3.0, and UNCONDITIONAL -
+                          unlike gate 5's age fallback, this gate always
+                          runs. `evaluate_entry`
                           fires on `activity_hours is None or
                           activity_hours < window`, so the `None` branch
                           (no file could be stat'd inside the worktree -
@@ -579,9 +635,10 @@ Public API (CLI):
                           runs against it
                           (a real `None < 0` comparison raises TypeError in
                           Python 3, not False) - never used as the
-                          default; only the age floor runs at 0 seconds'
-                          notice, and this floor stays a separate, later
-                          gate.
+                          default. This floor stays a separate, later gate
+                          than the age fallback above, and since DS-245 it
+                          is also the only one of the two that runs
+                          without a caller opting in.
   --no-origin-reachable-evidence
                           DS-196: rollback lever - restores pre-DS-196
                           evidence order exactly (passes
@@ -590,9 +647,9 @@ Public API (CLI):
                           here and in the docs as an explicit escape hatch,
                           same spirit as `--strict-ignored` below.
   --strict-ignored        Round-3 escape hatch back to the round-2 default:
-                          gate 7 (PROTECTED CONTENT) becomes a fail-safe
+                          gate 8 (PROTECTED CONTENT) becomes a fail-safe
                           ALLOWLIST again - block unless every ignored path
-                          is covered by `_IGNORED_ALLOWLIST_*` (see gate 7
+                          is covered by `_IGNORED_ALLOWLIST_*` (see gate 8
                           above and `_PROTECTED_CONTENT_DIR_PREFIXES`'s own
                           comment for the operator-decision rationale this
                           flag exists to preserve). Applies UNIFORMLY,
@@ -645,7 +702,7 @@ Public API (CLI):
                           call errored/timed out/rate-limited) is also
                           never archived: such an entry is reclassified to
                           `SKIP_PR_QUERY_ERROR` before this whitelist check
-                          ever runs (Removal predicate gate 9), so it is
+                          ever runs (Removal predicate gate 10), so it is
                           never `SKIP_UNPROVEN` in the first place.
   --max-repos N            (DS-189 Unit A, requires `--multi-repo`) Caps the
                           discovered-and-deduped target list to the first N
@@ -739,14 +796,22 @@ Public API (CLI):
   --init-config            Standalone action: usage error, exit 2, when
                           combined with any OTHER flag set to a
                           non-default value. An explicitly-passed value
-                          that happens to equal that flag's own default
-                          (e.g. `--init-config --min-age-hours 24` when 24
-                          is already the default) is indistinguishable
-                          from having not passed that flag at all - the
-                          comparison in `main()` diffs `args` against a
-                          fresh no-args `Namespace` field-by-field, which
-                          cannot see how a value arrived, only what it is
-                          - and is tolerated rather than rejected. Scaffolds
+                          that happens to equal that flag's own default is
+                          indistinguishable from having not passed that
+                          flag at all - the comparison in `main()` diffs
+                          `args` against a fresh no-args `Namespace`
+                          field-by-field, which cannot see how a value
+                          arrived, only what it is - and is tolerated
+                          rather than rejected. DS-245 narrowed this
+                          residual to exactly ONE flag,
+                          `--activity-window-hours`: every other
+                          non-boolean default is already `None` (including
+                          `--min-age-hours`, whose 24.0 default this
+                          limitation used to be documented against) and
+                          `store_true` flags are detectable by value.
+                          Consequence, deliberate and not to be "fixed"
+                          back: `--init-config --min-age-hours 24` now
+                          exits 2 where it previously exited 0 and wrote. Scaffolds
                           `~/.agentic/cleanup-worktrees.json` for a
                           first-time `--multi-repo` setup: if the file
                           already exists, prints its current contents and a
@@ -776,9 +841,36 @@ NOT prove a worktree is abandoned - a session can be resumed into an
 unlocked, clean worktree later (this is exactly what a round-2 review
 correction established: a v1 dry run flagged this very tool's own live
 worktree as REMOVE, which SKIP_LOCKED alone would not have caught since
-it was unlocked at the time). Gates 3 (SELF) and 4 (AGE FLOOR) above exist
-BECAUSE of this gap, not instead of `SKIP_LOCKED` - all three are
-independent, additive protections.
+it was unlocked at the time). Measured 2026-08-25: an
+`isolation:"worktree"` agent's lock is released when the agent RETURNS,
+not when its session ends, so a live resumable worktree reads as unlocked
+for the whole interval between operator turns - this tool therefore never
+reads lock absence as evidence of anything, and gate 6's measured
+file-activity reading is the only automatic idleness signal it relies on.
+Gates 4 (SELF) and 6 (RECENT ACTIVITY) above exist BECAUSE of this gap,
+not instead of `SKIP_LOCKED` - all three are independent, additive
+protections, and gate 5's explicit age floor is a fourth, supplied by
+every unattended caller (see the Callers note below).
+
+Callers (DS-245). A caller is ATTENDED iff a human issued the command
+whose immediate next action is this invocation AND the invocation's
+per-entry decisions are surfaced to that human in the same turn;
+UNATTENDED otherwise, including when it fires from a hook or session
+lifecycle event, when it is backgrounded or its output goes to a log, or
+when it is one step of a longer automated flow the human is not reading
+step by step. Ambiguity resolves to UNATTENDED. Every mutating unattended
+caller supplies the gate-5 age floor: the session-start reap in
+`content/references/worktree-lifecycle.md` pins `--min-age-hours 24` at
+the invocation; `/ds-wrap` Step 5 exports `DS_CLEANUP_MIN_AGE_HOURS=24`,
+which `content/commands/ds-cleanup-worktrees.md` Step 2 passes through;
+and `--archive-unproven` implies it in `_resolve_min_age_hours`. The one
+attended mutating caller is an operator-typed `/ds-cleanup-worktrees`,
+which supplies no floor - that is where DS-245's value lands. The
+`--count-only` call sites (`bin/ds-base-sync`, the SessionStart nudge) and
+`--report` are non-mutating and need no floor.
+`bin/tests/test_worktree_lifecycle_spec.sh`'s
+`check_unattended_callers_carry_floor` pins this set as an EQUALITY, so a
+new mutating caller cannot appear without reddening it.
 
 Upstream deps: Python 3 stdlib only (argparse, fnmatch, json, os, re, shutil,
                sys, time, pathlib, collections, typing - `subprocess` is
@@ -1166,7 +1258,7 @@ _IGNORED_ALLOWLIST_PATTERNS = (".DS_Store", "*.log")
 #: `SKIP_AMBIGUOUS_NO_PR` (every evidence source was inconclusive - no PR,
 #: no merge evidence, no subsumption proof) - PROVIDED the PR-state query
 #: that helped produce that disposition actually succeeded (see
-#: `evaluate_entry`'s gate 9 / `SKIP_PR_QUERY_ERROR`: a per-entry `gh pr
+#: `evaluate_entry`'s gate 10 / `SKIP_PR_QUERY_ERROR`: a per-entry `gh pr
 #: list` failure reclassifies the entry to a bucket that is never
 #: `SKIP_UNPROVEN` at all, so this whitelist never even sees it). See the
 #: module docstring's "Archiving unproven branches" section for the full
@@ -1775,8 +1867,8 @@ def _compute_origin_reachable(repo: str, head_sha: Optional[str]) -> str:
     green light) while `"unreachable"` is an affirmative negative result
     from a query that DID run successfully. Populates `facts.
     origin_reachable` ONLY - never `facts.head_reachable`, which remains
-    unrelated, dead code (see the module docstring's Removal predicate
-    gate 4a note and `worktree_model.DispositionFacts`'s own docstring).
+    unrelated, dead code (see `worktree_model.DispositionFacts`'s own
+    docstring).
 
     Depends on stale remote-tracking refs surviving locally - see the
     module docstring's `fetch.prune` caveat.
@@ -2699,6 +2791,34 @@ def _display_reason(facts: DispositionFacts) -> str:
     return "eligible"
 
 
+#: The value `--min-age-hours` takes when it is implied rather than
+#: supplied (see `_resolve_min_age_hours`). DS-245 demoted this from an
+#: argparse default to an explicit-supply fallback: `--min-age-hours`
+#: parses with `default=None`, and `None` means the age gate is skipped
+#: entirely.
+_DEFAULT_MIN_AGE_HOURS: float = 24.0
+
+
+def _resolve_min_age_hours(args: argparse.Namespace) -> Optional[float]:
+    """SOLE resolution site for the age floor's effective value (DS-245).
+
+    Explicit value wins; else `_DEFAULT_MIN_AGE_HOURS` when
+    `--archive-unproven` is set (that path removes an entry no gate
+    cleared, so the floor is doing work no other gate does); else `None`,
+    meaning `evaluate_entry` skips gate 5 in full and never even stats the
+    worktree root's mtime.
+
+    Every consumer of the effective value calls this - never
+    `args.min_age_hours` directly - so the three call sites
+    (`_deep_report_row`, the single-repo sweep, and the SKIP_TOO_YOUNG
+    NOTE) cannot drift apart. The NOTE in particular would raise under
+    `:g` formatting if handed a raw `None`.
+    """
+    if args.min_age_hours is not None:
+        return args.min_age_hours
+    return _DEFAULT_MIN_AGE_HOURS if args.archive_unproven else None
+
+
 def evaluate_entry(
     repo: str,
     entry,
@@ -2706,7 +2826,7 @@ def evaluate_entry(
     base_ref: str,
     gh_ok: bool,
     allow_network: bool,
-    min_age_hours: float,
+    min_age_hours: Optional[float],
     strict_ignored: bool,
     activity_window_hours: float = 3.0,
     no_origin_reachable_evidence: bool = False,
@@ -2716,12 +2836,20 @@ def evaluate_entry(
     SKIP_RECENT_ACTIVITY, SKIP_LOCKED, SKIP_DIRTY, SKIP_PROTECTED_CONTENT,
     SKIP_PR_QUERY_ERROR, SKIP_UNPROVEN, REMOVE.
 
+    DS-245: `min_age_hours` is `Optional[float]`. `None` means the age
+    gate (gate 5) is skipped ENTIRELY - `_worktree_age_hours` is not even
+    called - and is what a caller that supplied no `--min-age-hours` gets;
+    see `_resolve_min_age_hours` for the sole resolution rule. DS-245 also
+    put the lock read at gate 3, ahead of SELF and ahead of every age or
+    activity reading, so a locked entry always reports `SKIP_LOCKED`.
+
     DS-196: `activity_window_hours` gates a worktree with a file touched
-    inside the window (`SKIP_RECENT_ACTIVITY`) immediately after the
-    `min_age_hours` age floor, before any git/gh evidence is gathered -
-    same "protect a resumable-idle worktree" spirit as the age floor, but
-    keyed on FILE content mtimes rather than the worktree root directory's
-    own mtime. `no_origin_reachable_evidence` (the `--no-origin-reachable-
+    inside the window (`SKIP_RECENT_ACTIVITY`) at gate 6, immediately
+    after the `min_age_hours` age fallback and before any git/gh evidence
+    is gathered - same "protect a resumable-idle worktree" spirit as the
+    age fallback, but keyed on FILE content mtimes rather than the
+    worktree root directory's own mtime, and unconditional where the age
+    fallback is not. `no_origin_reachable_evidence` (the `--no-origin-reachable-
     evidence` CLI rollback lever), when True, makes the `disposition_for`
     call below pass `merge_evidence_order=MERGE_EVIDENCE_ORDER` explicitly
     - reproducing pre-DS-196 evidence order exactly.
@@ -2745,16 +2873,32 @@ def evaluate_entry(
             return {**base, "outcome": "SKIP_MISSING_LOCKED"}
         return {**base, "outcome": "SKIP_MISSING"}
 
+    if entry.locked:
+        # Gate 3 (DS-245). Read directly here rather than waiting for
+        # `disposition_for`: the guardrail is unconditional and must
+        # precede SELF (rubric R6), and this returns before any age stat,
+        # activity walk, `git status` or `gh` call. `worktree_model`'s own
+        # SKIP_LOCKED branch reads this same `entry.locked`, so the two
+        # predicates cannot diverge.
+        return {**base, "outcome": "SKIP_LOCKED"}
+
     if _is_self_worktree(entry.path):
         return {**base, "outcome": "SKIP_SELF"}
 
-    age_hours = _worktree_age_hours(entry.path)
-    if age_hours is None or age_hours < min_age_hours:
-        return {**base, "outcome": "SKIP_TOO_YOUNG"}
+    # Gate 5 (DS-245): the age floor applies ONLY when a caller supplied
+    # it (or `--archive-unproven` implied it - see
+    # `_resolve_min_age_hours`). `None` skips the gate in full, including
+    # the `_worktree_age_hours` stat itself.
+    if min_age_hours is not None:
+        age_hours = _worktree_age_hours(entry.path)
+        if age_hours is None or age_hours < min_age_hours:
+            return {**base, "outcome": "SKIP_TOO_YOUNG"}
 
-    # DS-196: gate 4.5, immediately after the age floor, before any git
+    # DS-196: gate 6, immediately after the age fallback, before any git
     # status/evidence call - a None (indeterminate) reading fails CLOSED,
-    # same posture as the age floor immediately above.
+    # same posture as the age fallback immediately above. UNCONDITIONAL,
+    # unlike gate 5: this runs whether or not a caller supplied a floor,
+    # and is the only automatic idleness signal this tool has.
     activity_hours = _worktree_activity_hours(entry.path)
     if activity_hours is None or activity_hours < activity_window_hours:
         return {**base, "outcome": "SKIP_RECENT_ACTIVITY"}
@@ -2771,6 +2915,13 @@ def evaluate_entry(
         # directory still exists - its agent may still be running (and
         # absence of a lock elsewhere does not imply this one is stale -
         # see the module docstring's Locked handling note).
+        #
+        # UNREACHABLE from this call site as of DS-245's gate 3, which
+        # returns SKIP_LOCKED on the same `entry.locked` read before any
+        # of the work above runs. Retained deliberately: deleting it would
+        # make this function depend on gate 3 for a guarantee
+        # `disposition_for` states normatively, and `disposition_for` is
+        # the single normative definition this tool delegates to.
         return {**base, "outcome": "SKIP_LOCKED"}
     if disposition is Disposition.SKIP_DIRTY:
         return {**base, "outcome": "SKIP_DIRTY"}
@@ -2809,7 +2960,7 @@ def _evaluate_entries(
     resolved_base: str,
     gh_ok: bool,
     allow_network: bool,
-    min_age_hours: float,
+    min_age_hours: Optional[float],
     strict_ignored: bool,
     activity_window_hours: float = 3.0,
     no_origin_reachable_evidence: bool = False,
@@ -3202,7 +3353,7 @@ def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict
         resolved_base,
         gh_ok,
         allow_network,
-        args.min_age_hours,
+        _resolve_min_age_hours(args),
         args.strict_ignored,
         args.activity_window_hours,
         args.no_origin_reachable_evidence,
@@ -3526,7 +3677,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--no-gh", action="store_true")
     p.add_argument("--explain", action="store_true")
     p.add_argument("--count-only", action="store_true")
-    p.add_argument("--min-age-hours", type=float, default=24.0)
+    p.add_argument("--min-age-hours", type=float, default=None)
     p.add_argument("--activity-window-hours", type=float, default=3.0)
     p.add_argument("--no-origin-reachable-evidence", dest="no_origin_reachable_evidence", action="store_true")
     p.add_argument("--strict-ignored", action="store_true")
@@ -3738,7 +3889,7 @@ def _run_repo(
         resolved_base,
         gh_ok,
         allow_network,
-        args.min_age_hours,
+        _resolve_min_age_hours(args),
         args.strict_ignored,
         args.activity_window_hours,
         args.no_origin_reachable_evidence,
@@ -4216,22 +4367,33 @@ def _run_repo(
             "from this run."
         )
 
-    # Round-2 rework (Skeptic Major 1): an operator running this right after
-    # a merge, at the default 24h age floor, sees `removed=0` in the summary
-    # line above with no obvious explanation - the age floor is buried in
-    # the `skipped-too-young` bucket field unless they already know to look
-    # for it. Surface it as its own NOTE, same visibility tier as the
+    # Round-2 rework (Skeptic Major 1): an operator running this with the
+    # age floor in force sees `removed=0` in the summary line above with no
+    # obvious explanation - the age floor is buried in the
+    # `skipped-too-young` bucket field unless they already know to look for
+    # it. Surface it as its own NOTE, same visibility tier as the
     # PR-query-error NOTE above, whenever the bucket is nonzero.
+    #
+    # DS-245: the bucket is nonzero only when the floor actually applied,
+    # so `_resolve_min_age_hours` is never `None` here - but it is still
+    # the value that must be formatted, never `args.min_age_hours`, which
+    # is `None` on an `--archive-unproven` run that implied the floor and
+    # would raise under `:g`. `locked` is dropped from the "another
+    # reason" list: gate 3 now precedes gate 5, so a locked entry can no
+    # longer land in this bucket.
     too_young_count = outcome_counts.get("SKIP_TOO_YOUNG", 0)
     if too_young_count:
+        _note_min_age_hours = _resolve_min_age_hours(args)
         print(
             f"NOTE: {too_young_count} worktree(s) skipped because they are younger than "
-            f"the {args.min_age_hours:g}h age floor (--min-age-hours) - an unlocked worktree "
+            f"the {_note_min_age_hours:g}h age floor (--min-age-hours) - an unlocked worktree "
             "can still belong to a resumable session, so this floor is a safety default, not "
             "a bug. The age floor is only one of several gates, so a worktree may still be "
-            "skipped afterward for another reason (dirty, locked, unproven branch, etc.) - "
-            "narrowing this floor does not guarantee removal, and removes the protection "
-            "against reaping a concurrent session's fresh worktree."
+            "skipped afterward for another reason (recent activity, dirty, protected ignored "
+            "content, an unproven branch, etc.) - narrowing this floor does not guarantee "
+            "removal, and removes the protection against reaping a concurrent session's fresh "
+            "worktree. This floor applied because it was supplied explicitly, or implied by "
+            "--archive-unproven; it is off by default."
         )
 
     # DS-196: mirrors the SKIP_TOO_YOUNG NOTE above - a worktree with a file
@@ -4491,13 +4653,20 @@ def main(argv: Optional[List[str]] = None) -> int:
         # LIMITATION (round-2 Minor fix, matches the `--init-config` Public
         # API doc above): this value-equality comparison cannot detect an
         # explicitly-passed flag whose value happens to match that flag's
-        # own default - e.g. `--init-config --min-age-hours 24` exits 0 and
-        # writes, even though `--min-age-hours` was technically combined
-        # with `--init-config`. A second hand-maintained "was this field
-        # explicitly passed" list would drift from `parse_args` exactly
-        # like the flag list this comment already avoids re-introducing,
-        # so this is accepted as the documented contract rather than
-        # "fixed" with more bookkeeping.
+        # own default. A second hand-maintained "was this field explicitly
+        # passed" list would drift from `parse_args` exactly like the flag
+        # list this comment already avoids re-introducing, so this is
+        # accepted as the documented contract rather than "fixed" with
+        # more bookkeeping.
+        #
+        # DS-245 narrowed the residual to exactly ONE flag,
+        # `--activity-window-hours`: every other non-boolean default is
+        # now `None` (`--min-age-hours` included) and `store_true` flags
+        # are detectable by value. The flip that follows is deliberate:
+        # `--init-config --min-age-hours 24` now exits 2 where it
+        # previously exited 0 and wrote, because 24 no longer equals the
+        # default. Do not "fix" it back - the old behavior was itself the
+        # documented accepted defect this comment describes.
         defaults = parse_args([])
         other_fields_changed = any(
             getattr(args, field) != getattr(defaults, field) for field in vars(args) if field != "init_config"

@@ -453,6 +453,318 @@ check_activity_window_prose
 r0d=$?
 echo "activity-window-prose exit=$r0d"
 
+# DS-245 caller-enumeration pin. The soundness of DS-245's whole argument -
+# that demoting `--min-age-hours` to explicit-supply widens no UNATTENDED
+# caller's removal set - is a property of the CALLER SET, not of the gate
+# order. Two successive plan-review rounds each found one caller the prior
+# round had assumed attended (`--archive-unproven`, then `/ds-wrap` Step 5),
+# which is precisely the failure this pin exists to stop recurring silently.
+#
+# Three assertions:
+#   (iii) the set of MUTATING invocations under content/, hooks/, bin/ and
+#         scripts/ EQUALS a pinned two-element allowlist. An equality, never
+#         a containment: a NEW mutating caller appearing anywhere under those
+#         paths reddens this, which is the whole point - it cannot land
+#         without someone deciding whether it is attended and, if not,
+#         giving it a floor.
+#   (iv)  the session-start reap's own continuation block carries
+#         `--min-age-hours 24`, and `/ds-cleanup-worktrees` Step 2's shell
+#         block carries the `DS_CLEANUP_MIN_AGE_HOURS` passthrough.
+#   (v)   `content/commands/ds-wrap.md` sets `DS_CLEANUP_MIN_AGE_HOURS=24`
+#         for Step 5, the unattended caller that routes through Step 2.
+#
+# The reduction to "mutating invocation" is mechanical and its three
+# exclusions are deliberate, each stated in the Python below: the tool's own
+# file (a tool is not its own caller, and its `--help`/Public-API blocks
+# spell usage lines that are documentation, not invocations), the two test
+# directories (a scratch-fixture invocation is not an operational caller,
+# and THIS file's own pinned literals live there), and non-executable
+# context (markdown prose outside a shell fence is a suggestion, per the
+# same rule that makes `content/commands/ds-wrap.md:722` assertion (v)'s
+# business rather than assertion (iii)'s; shell/python comment lines are
+# likewise not invocations).
+#
+# Reddening mutations, all three EXECUTED during development:
+#   - delete `--min-age-hours 24` from the reap block          -> fires (iv)
+#   - delete `DS_CLEANUP_MIN_AGE_HOURS=24` from ds-wrap.md     -> fires (v)
+#   - add any new mutating invocation under the swept paths    -> fires (iii)
+check_unattended_callers_carry_floor() {
+  python3 - "$REPO_ROOT" <<'PYEOF'
+import re
+import subprocess
+import sys
+
+repo_root = sys.argv[1]
+
+# The step-9a enumeration pattern, verbatim.
+PATTERN = (
+    r'(^|[^A-Za-z0-9_./-])(ds-cleanup-worktrees|/ds-cleanup-worktrees|DS_CLEANUP_BIN)'
+    r'([^A-Za-z0-9_.-]|$)'
+)
+PATHS = ["content", "hooks", "bin", "scripts"]
+
+# See this function's shell-side comment for why each exclusion is sound.
+EXCLUDED_PREFIXES = (
+    "bin/ds-cleanup-worktrees",  # the tool itself is not one of its callers
+    "bin/tests/",                # scratch-fixture runs; this file's own pins
+    "hooks/tests/",              # same
+)
+
+# An invocation passes the tool at least one flag. `command -v <tool>` is a
+# probe, not an invocation (step 9a says so explicitly).
+INVOCATION_RE = re.compile(
+    r'(?:"?\$\{?DS_CLEANUP_BIN\}?"?|(?<![A-Za-z0-9_./-])ds-cleanup-worktrees)\s+-'
+)
+PROBE_RE = re.compile(r'command\s+-v\s+ds-cleanup-worktrees')
+NON_MUTATING_FLAGS = ("--count-only", "--report", "--dry-run")
+SHELL_INFO = ("bash", "sh", "shell", "zsh")
+
+# (iii) The allowlist, as (path, the literal the invocation must contain).
+ALLOWLIST = {
+    "content/references/worktree-lifecycle.md",   # session-start reap (unattended)
+    "content/commands/ds-cleanup-worktrees.md",   # Step 2 (attended; honours the env var)
+}
+
+violations = []
+
+
+def run_grep():
+    proc = subprocess.run(
+        ["git", "-C", repo_root, "grep", "-n", "-E", PATTERN, "--"] + PATHS,
+        capture_output=True,
+        text=True,
+    )
+    # `git grep` exits 1 on zero matches - which here means the enumeration
+    # itself broke, never a clean result. Fail loudly rather than reporting
+    # an empty mutating set as agreement with an empty allowlist.
+    if proc.returncode not in (0, 1):
+        violations.append(
+            "CALLER-ENUMERATION VIOLATION: the step-9a git grep failed (rc=%d): %s"
+            % (proc.returncode, proc.stderr.strip())
+        )
+        return []
+    if not proc.stdout.strip():
+        violations.append(
+            "CALLER-ENUMERATION VIOLATION: the step-9a git grep matched NOTHING - "
+            "the pattern or the swept paths have drifted, so this check would "
+            "otherwise pass having asserted nothing"
+        )
+        return []
+    return proc.stdout.splitlines()
+
+
+def executable_lines(path):
+    """Line numbers of `path` that are executable shell, comments removed.
+
+    For markdown that is the inside of a bash/sh/shell/zsh fence and nothing
+    else; for every other file it is every non-comment line.
+    """
+    with open("%s/%s" % (repo_root, path), encoding="utf-8", errors="replace") as fh:
+        text = fh.read().splitlines()
+    ok = set()
+    if path.endswith(".md"):
+        in_fence = False
+        for i, raw in enumerate(text, 1):
+            stripped = raw.strip()
+            if stripped.startswith("```"):
+                if in_fence:
+                    in_fence = False
+                else:
+                    info = stripped[3:].strip().split()
+                    in_fence = bool(info) and info[0] in SHELL_INFO
+                continue
+            if in_fence and not stripped.startswith("#"):
+                ok.add(i)
+    else:
+        for i, raw in enumerate(text, 1):
+            if not raw.strip().startswith("#"):
+                ok.add(i)
+    return ok, text
+
+
+hits = {}
+for line in run_grep():
+    path, lineno, _rest = line.split(":", 2)
+    hits.setdefault(path, set()).add(int(lineno))
+
+mutating = []
+for path in sorted(hits):
+    if path.startswith(EXCLUDED_PREFIXES):
+        continue
+    ok, text = executable_lines(path)
+    for lineno in sorted(hits[path]):
+        if lineno not in ok:
+            continue
+        raw = text[lineno - 1]
+        if PROBE_RE.search(raw) or not INVOCATION_RE.search(raw):
+            continue
+        if any(flag in raw for flag in NON_MUTATING_FLAGS):
+            continue
+        mutating.append((path, lineno, raw, text))
+
+# (iii) SET EQUALITY, both directions reported separately so a reader can
+# tell "a new caller appeared" from "a pinned caller vanished".
+found = set(path for path, _l, _r, _t in mutating)
+for extra in sorted(found - ALLOWLIST):
+    violations.append(
+        "CALLER-ENUMERATION VIOLATION: %s carries a MUTATING ds-cleanup-worktrees "
+        "invocation that is not on the DS-245 allowlist. Classify it attended or "
+        "unattended (see bin/ds-cleanup-worktrees' Callers note); if unattended it "
+        "must supply --min-age-hours, and either way this allowlist must be updated "
+        "in the same commit." % extra
+    )
+for missing in sorted(ALLOWLIST - found):
+    violations.append(
+        "CALLER-ENUMERATION VIOLATION: %s no longer carries a mutating "
+        "ds-cleanup-worktrees invocation - if that removal is deliberate, drop it "
+        "from this check's ALLOWLIST in the same commit." % missing
+    )
+
+# (iv) The reap's own continuation block, and Step 2's own shell block.
+for path, lineno, raw, text in mutating:
+    if path == "content/references/worktree-lifecycle.md":
+        block = [raw]
+        i = lineno - 1
+        while block[-1].rstrip().endswith("\\") and i < len(text):
+            block.append(text[i])
+            i += 1
+        if "--min-age-hours 24" not in "\n".join(block):
+            violations.append(
+                "CALLER-ENUMERATION VIOLATION: the session-start reap invocation at "
+                "%s:%d does not pass `--min-age-hours 24`. That reap is UNATTENDED "
+                "(backgrounded, output to a log, 30-min idle re-fire) and the age "
+                "floor is off unless supplied, so dropping the flag widens what an "
+                "unattended destructive pass removes." % (path, lineno)
+            )
+    if path == "content/commands/ds-cleanup-worktrees.md":
+        start = lineno
+        while start > 1 and not text[start - 1].strip().startswith("```"):
+            start -= 1
+        end = lineno
+        while end < len(text) and not text[end - 1].strip().startswith("```"):
+            end += 1
+        if "DS_CLEANUP_MIN_AGE_HOURS" not in "\n".join(text[start - 1:end]):
+            violations.append(
+                "CALLER-ENUMERATION VIOLATION: %s's Step 2 shell block no longer "
+                "reads DS_CLEANUP_MIN_AGE_HOURS - an unattended caller routing "
+                "through Step 2 (/ds-wrap Step 5) then has no way to supply the "
+                "age floor at all." % path
+            )
+
+# (v) /ds-wrap Step 5 sets the variable Step 2 passes through.
+with open("%s/content/commands/ds-wrap.md" % repo_root, encoding="utf-8") as fh:
+    wrap = fh.read()
+if "DS_CLEANUP_MIN_AGE_HOURS=24" not in wrap:
+    violations.append(
+        "CALLER-ENUMERATION VIOLATION: content/commands/ds-wrap.md does not set "
+        "DS_CLEANUP_MIN_AGE_HOURS=24 for Step 5. A wrap is UNATTENDED under the "
+        "Callers note's predicate (one step of a longer automated flow), so Step 5 "
+        "must supply the floor Step 2 otherwise omits."
+    )
+
+for v in violations:
+    print(v, file=sys.stderr)
+sys.exit(1 if violations else 0)
+PYEOF
+}
+
+echo "== Caller-enumeration check: every mutating ds-cleanup-worktrees invocation is on the DS-245 allowlist, and every unattended one supplies the age floor =="
+check_unattended_callers_carry_floor
+r0f=$?
+echo "unattended-callers exit=$r0f"
+
+# DS-245 regression pin, found by execution during implementation. Step 2's
+# DS_CLEANUP_MIN_AGE_HOURS passthrough must pass ZERO extra arguments when
+# the variable is unset or empty. The obvious `set -u` guard for an empty
+# bash array, `"${ARR[@]-}"`, expands to ONE EMPTY WORD under bash 3.2.57
+# and bash 5.3.9 alike - and `ds-cleanup-worktrees` rejects an empty
+# positional with "positional root arguments require --multi-repo" and
+# exit 2, which would break the DEFAULT attended operator run. This check
+# EXECUTES the block's own construct against a stub that reports its argc,
+# rather than pattern-matching the expansion's spelling: a spelling pin
+# would pass for any construct that merely looks right.
+#
+# Reddening mutation (EXECUTED): change the block's expansion back to
+# `"${DS_CLEANUP_AGE_ARGS[@]-}"` - the unset leg reports argc=3.
+check_step2_age_passthrough_argv() {
+  local ok=0
+  local block
+  # Extract the fenced shell block that actually carries the passthrough,
+  # so this runs the shipped text rather than a copy that can drift.
+  block="$(python3 - "$CLEANUP_DOC" <<'PYEOF'
+import sys
+
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+start = end = None
+in_fence = False
+fence_start = None
+for i, raw in enumerate(lines):
+    if raw.strip().startswith("```"):
+        if in_fence:
+            if start is not None and end is None:
+                end = i
+            in_fence = False
+        else:
+            in_fence = True
+            fence_start = i
+        continue
+    if in_fence and "DS_CLEANUP_AGE_ARGS" in raw and start is None:
+        start = fence_start
+print("\n".join(lines[start + 1:end]) if start is not None and end is not None else "")
+PYEOF
+)"
+
+  if [ -z "$block" ]; then
+    echo "STEP2-ARGV VIOLATION: could not locate the Step 2 shell block carrying DS_CLEANUP_AGE_ARGS in $CLEANUP_DOC" >&2
+    return 1
+  fi
+  if ! printf '%s' "$block" | grep -qF 'DS_CLEANUP_AGE_ARGS'; then
+    echo "STEP2-ARGV VIOLATION: extracted block does not carry DS_CLEANUP_AGE_ARGS - the extractor has drifted" >&2
+    return 1
+  fi
+
+  local stub_dir stub
+  stub_dir="$(mktemp -d)"
+  stub="$stub_dir/ds-cleanup-worktrees"
+  cat > "$stub" <<'STUBEOF'
+#!/bin/sh
+printf 'ARGC=%s\n' "$#"
+STUBEOF
+  chmod +x "$stub"
+
+  # Replay the block with DS_CLEANUP_BIN bound to the stub, under `set -u`,
+  # for each of the three cases. REPO_DIR is unset so the block's own
+  # resolution falls through to the PATH probe, which finds the stub.
+  local case_label expected out argc
+  for case_label in unset:2 empty:2 set:4; do
+    expected="${case_label#*:}"
+    out="$(
+      PATH="$stub_dir:$PATH"
+      unset REPO_DIR DS_CLEANUP_MIN_AGE_HOURS
+      case "${case_label%%:*}" in
+        empty) DS_CLEANUP_MIN_AGE_HOURS="" ;;
+        set) DS_CLEANUP_MIN_AGE_HOURS=24 ;;
+      esac
+      export DS_CLEANUP_MIN_AGE_HOURS 2>/dev/null || true
+      set -u
+      eval "$block" 2>/dev/null
+    )"
+    argc="$(printf '%s\n' "$out" | sed -n 's/^ARGC=//p' | head -1)"
+    if [ "$argc" != "$expected" ]; then
+      echo "STEP2-ARGV VIOLATION: with DS_CLEANUP_MIN_AGE_HOURS ${case_label%%:*}, Step 2 passed argc=${argc:-<none>}, expected $expected. An empty-array expansion that yields one EMPTY word makes ds-cleanup-worktrees exit 2 ('positional root arguments require --multi-repo') on the default attended run - use \${ARR[@]+\"\${ARR[@]}\"}, never \"\${ARR[@]-}\"." >&2
+      ok=1
+    fi
+  done
+
+  rm -rf "$stub_dir" 2>/dev/null || true
+  return "$ok"
+}
+
+echo "== Step 2 argv check: the DS_CLEANUP_MIN_AGE_HOURS passthrough passes zero extra args when unset/empty =="
+check_step2_age_passthrough_argv
+r0g=$?
+echo "step2-argv exit=$r0g"
+
 echo "== Run 1: clean scratch repo (expect exit 0) =="
 setup_repo
 run_check "$REPO"
@@ -473,11 +785,11 @@ echo "run3 exit=$r3"
 
 git -C "$REPO" worktree remove --force "$REPO/.agentic/worktrees/spec-fixture" >/dev/null 2>&1 || true
 
-echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e run1=$r1 run2=$r2 run3=$r3"
-if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0c" = "0" ] && [ "$r0d" = "0" ] && [ "$r0e" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
-  echo "PASS: prose-wiring check clean, reap-wiring check clean, manifest-reconciliation check clean, activity-window-prose check clean, lock-caveat-pointers check clean, and two distinct exit codes across three runs (0, 1, 1)"
+echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g run1=$r1 run2=$r2 run3=$r3"
+if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0c" = "0" ] && [ "$r0d" = "0" ] && [ "$r0e" = "0" ] && [ "$r0f" = "0" ] && [ "$r0g" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
+  echo "PASS: prose-wiring check clean, reap-wiring check clean, manifest-reconciliation check clean, activity-window-prose check clean, lock-caveat-pointers check clean, unattended-callers check clean, step2-argv check clean, and two distinct exit codes across three runs (0, 1, 1)"
   exit 0
 fi
 
-echo "FAIL: expected prose-wiring=0, reap-wiring=0, manifest-reconciliation=0, activity-window-prose=0, lock-caveat-pointers=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e $r1 $r2 $r3"
+echo "FAIL: expected prose-wiring=0, reap-wiring=0, manifest-reconciliation=0, activity-window-prose=0, lock-caveat-pointers=0, unattended-callers=0, step2-argv=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g $r1 $r2 $r3"
 exit 1

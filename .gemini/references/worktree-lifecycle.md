@@ -601,11 +601,15 @@ git worktree list --porcelain | awk '
 done
 git worktree prune
 # Worktree reap (DS-196): this is the conductor's own preflight action, invoking
-# bin/ds-cleanup-worktrees's full evidence-gated disposition (origin-reachability,
-# activity liveness, dirty/locked/age/protected-content gates - see "The unproven
+# bin/ds-cleanup-worktrees's full evidence-gated disposition (lock, self,
+# age fallback, activity liveness, dirty/protected-content gates - see "The unproven
 # class" and bin/ds-cleanup-worktrees's own docstring for the full predicate)
 # against the CURRENT repo, backgrounded so this preflight never blocks on
-# worktree count. `git rev-parse --show-toplevel` resolves the repo root explicitly
+# worktree count. It pins `--min-age-hours 24` DELIBERATELY (DS-245): the age
+# floor is off unless supplied, and this reap is unattended - backgrounded, its
+# output going to a log no operator reads in-band, re-firing after 30 minutes idle -
+# so no operator is present to adjudicate an unlocked-but-resumable worktree.
+# Removing that flag widens what an unattended, destructive pass removes; do not. `git rev-parse --show-toplevel` resolves the repo root explicitly
 # rather than using $(pwd) - `.agentic/` is root-anchored in .gitignore, so a non-root
 # cwd would otherwise create a stray, non-ignored `.agentic/` directory. Note: when this
 # preflight itself runs from inside a worktree (rather than the main checkout),
@@ -629,6 +633,7 @@ if [ -z "${AE_WORKTREE_REAP_DISABLE:-}" ]; then
       mkdir -p "$REPO_ROOT/.agentic" 2>/dev/null || true
       ( echo "=== reap $(date -u +%Y-%m-%dT%H:%M:%SZ) pid $$ ===" >> "$REPO_ROOT/.agentic/worktree-reap.log"
         ds-cleanup-worktrees --repo "$REPO_ROOT" \
+          --min-age-hours 24 \
           >> "$REPO_ROOT/.agentic/worktree-reap.log" 2>&1 || true ) >>"$REPO_ROOT/.agentic/worktree-reap.log" 2>&1 &
     fi
     # else: --show-toplevel failed (not a git repo) - skip silently, nothing to reap.
@@ -695,9 +700,9 @@ residual documented below.
 
 ## The unproven class, and archiving it (`--archive-unproven`)
 
-Even with every prior gate passing (clean, unlocked, past the age floor, not self, not protected-content), `bin/ds-cleanup-worktrees` still refuses to remove a worktree whose branch carries real, unmerged commits that were never pushed anywhere and have no matching PR - `disposition_for` correctly reports `SKIP_UNPROVEN` rather than guessing. Measured against this repo's own live checkout, this is the dominant remaining blocker once the `.agentic/`-content correction landed: `skipped-protected-content` dropped to 0, but `removed` stayed 0, because most of the remaining worktrees carry exactly this class of branch (default-named `worktree-agent-<id>` branches and legacy `ds-round8`..`ds-round12` rework branches - see §Ad-hoc worktree cleanup obligation above for how they accumulated). Left alone by this predicate, `SKIP_UNPROVEN` worktrees do not resolve on their own. **This is now qualified, not absolute (DS-196):** a `SKIP_UNPROVEN` branch that has since been pushed to `origin` and reached a resolved (non-open) PR state can resolve via the separate `origin_reachable` evidence source (see the session-start reap above), which is LENIENT-only and evaluated after `pr_state` - `SKIP_UNPROVEN` itself, produced by the STRICT branch-deletion path, is untouched by this; only the worktree-removal path gains the new resolution route. A branch that is genuinely unpushed, with no PR, still never resolves.
+Even with every prior gate passing (unlocked, not self, idle past the activity window, clean, not protected-content), `bin/ds-cleanup-worktrees` still refuses to remove a worktree whose branch carries real, unmerged commits that were never pushed anywhere and have no matching PR - `disposition_for` correctly reports `SKIP_UNPROVEN` rather than guessing. Measured against this repo's own live checkout, this is the dominant remaining blocker once the `.agentic/`-content correction landed: `skipped-protected-content` dropped to 0, but `removed` stayed 0, because most of the remaining worktrees carry exactly this class of branch (default-named `worktree-agent-<id>` branches and legacy `ds-round8`..`ds-round12` rework branches - see §Ad-hoc worktree cleanup obligation above for how they accumulated). Left alone by this predicate, `SKIP_UNPROVEN` worktrees do not resolve on their own. **This is now qualified, not absolute (DS-196):** a `SKIP_UNPROVEN` branch that has since been pushed to `origin` and reached a resolved (non-open) PR state can resolve via the separate `origin_reachable` evidence source (see the session-start reap above), which is LENIENT-only and evaluated after `pr_state` - `SKIP_UNPROVEN` itself, produced by the STRICT branch-deletion path, is untouched by this; only the worktree-removal path gains the new resolution route. A branch that is genuinely unpushed, with no PR, still never resolves.
 
-**`SKIP_RECENT_ACTIVITY` masking note:** the new file-activity liveness gate (`--activity-window-hours`, default 3.0) is checked immediately after the age floor and before the dirty/locked checks, so a worktree that is BOTH recently active AND dirty or locked reports only `SKIP_RECENT_ACTIVITY` in a plain run - the dirty/locked facts are still true but not the reported reason. This is the same masking class as the pre-existing `SKIP_TOO_YOUNG` age-floor gate; `--explain` surfaces the full evidence for a given entry regardless of which single-reason bucket it lands in.
+**`SKIP_RECENT_ACTIVITY` masking note:** the file-activity liveness gate (`--activity-window-hours`, default 3.0) is checked after the lock, self and age gates and before the dirty check, so a worktree that is BOTH recently active AND dirty reports only `SKIP_RECENT_ACTIVITY` in a plain run - the dirty fact is still true but not the reported reason. A locked worktree now always reports `SKIP_LOCKED` (DS-245 moved the lock gate ahead of self, age and activity), so it can no longer be masked by this gate or by the age floor. This is the same masking class as the pre-existing `SKIP_TOO_YOUNG` age-floor gate; `--explain` surfaces the full evidence for a given entry regardless of which single-reason bucket it lands in.
 
 This repo already solved the identical problem for BRANCHES: a 2026-08-11 manual one-off operator sweep (DS-153) archived 75 branches its own four-layer subsumption predicate could not prove into one verified `git bundle` (`.agentic/branch-archive/`) before deleting them, rather than leaving them unresolved forever - `bin/ds-branch-prune` itself does not call `git bundle`. `bin/ds-cleanup-worktrees --archive-unproven` extends that exact pattern to WORKTREES - OPT-IN, never the default:
 
@@ -709,7 +714,7 @@ This repo already solved the identical problem for BRANCHES: a 2026-08-11 manual
 
 `.agentic/worktree-archive/` is gitignored (the existing `/.agentic/*` umbrella already covers it - no new carve-out) and grows unbounded, exactly like `.agentic/branch-archive/` before it - pruning it is the operator's own responsibility, not something either tool does automatically. Without `--archive-unproven`, `SKIP_UNPROVEN` entries are reported and never touched - this is unchanged default behavior. See `bin/ds-cleanup-worktrees`'s own module docstring ("Archiving unproven branches") for the full mechanism.
 
-Not every non-`ELIGIBLE` branch-evidence outcome lands in `SKIP_UNPROVEN`, and `--archive-unproven` only ever considers entries that do. A worktree whose `gh pr list` query genuinely FAILED for that one branch (rate limit, auth hiccup, network blip - `gh` itself remains available) resolves to its own `SKIP_PR_QUERY_ERROR` outcome instead, on every run mode, not only under `--archive-unproven` - a query failure is a distinct fact from "no PR exists" and treating it as absence would let a worktree behind a live OPEN PR be silently archived (or, on the lenient MERGED-is-sufficient worktree-removal path, removed outright with no flags at all). See `bin/ds-cleanup-worktrees`'s own module docstring, Removal predicate gate 9, for the full mechanism.
+`--archive-unproven` implies the 24h age fallback when `--min-age-hours` is not supplied alongside it (DS-245, `_resolve_min_age_hours`): unlike a plain sweep, this path removes an entry that no gate cleared - its branch evidence is unresolved by construction - so the floor is doing work no other gate does there, and the flag is unattended by its nature. Pass `--min-age-hours 0` explicitly to override it. Not every non-`ELIGIBLE` branch-evidence outcome lands in `SKIP_UNPROVEN`, and `--archive-unproven` only ever considers entries that do. A worktree whose `gh pr list` query genuinely FAILED for that one branch (rate limit, auth hiccup, network blip - `gh` itself remains available) resolves to its own `SKIP_PR_QUERY_ERROR` outcome instead, on every run mode, not only under `--archive-unproven` - a query failure is a distinct fact from "no PR exists" and treating it as absence would let a worktree behind a live OPEN PR be silently archived (or, on the lenient MERGED-is-sufficient worktree-removal path, removed outright with no flags at all). See `bin/ds-cleanup-worktrees`'s own module docstring, Removal predicate gate 10, for the full mechanism.
 
 ## `SKIP_UNREFERENCED_COMMIT`: a distinct detached-HEAD-commit class
 
@@ -774,7 +779,7 @@ Migrating an existing project to pnpm (`pnpm import` from an existing lockfile, 
 
 ## Cross-repo mode: `--multi-repo` and `--report`
 
-`bin/ds-cleanup-worktrees --multi-repo` extends every gate and mechanism documented above (self/age/dirty/locked/protected-content, `SKIP_UNPROVEN`, `--archive-unproven`) to sweep several repos in one call, sequentially, each resolving its OWN base independently (`--base` combined with `--multi-repo` is a usage error - a single global base would silently leak one repo's base into every other repo's evaluation). `--multi-repo --report` (with or without `--count-only`) is the read-only, ranked cross-repo visibility companion - "which project is worst" - and is the recommended first step before a multi-repo sweep; see `content/commands/ds-cleanup-worktrees.md` for the full flag reference and the two cost tiers. The standalone `bin/ds-reap-all` subprocess-per-repo sweep wrapper has been retired - this in-process mode is the sole cross-repo mechanism.
+`bin/ds-cleanup-worktrees --multi-repo` extends every gate and mechanism documented above (locked/self/age-fallback/activity/dirty/protected-content, `SKIP_UNPROVEN`, `--archive-unproven`) to sweep several repos in one call, sequentially, each resolving its OWN base independently (`--base` combined with `--multi-repo` is a usage error - a single global base would silently leak one repo's base into every other repo's evaluation). `--multi-repo --report` (with or without `--count-only`) is the read-only, ranked cross-repo visibility companion - "which project is worst" - and is the recommended first step before a multi-repo sweep; see `content/commands/ds-cleanup-worktrees.md` for the full flag reference and the two cost tiers. The standalone `bin/ds-reap-all` subprocess-per-repo sweep wrapper has been retired - this in-process mode is the sole cross-repo mechanism.
 
 ## Guardrail: never force-override the harness lock
 

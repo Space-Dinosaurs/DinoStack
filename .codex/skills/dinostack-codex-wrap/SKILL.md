@@ -786,6 +786,8 @@ Otherwise skip that target silently.
 
 If the project is a git repository with a manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-cleanup-worktrees` skill available, run it now. This removes stale isolation worktrees and merged feature branches so the repo is clean for the next session. If the skill is not available, skip this step silently.
 
+A wrap runs unattended at session end, so set `DS_CLEANUP_MIN_AGE_HOURS=24` for that invocation - it keeps the 24h floor an operator-invoked run does not need (DS-245: manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-cleanup-worktrees` Step 2 reads that variable and passes `--min-age-hours` through; the flag is off when it is unset). Do not omit it: a concurrent session's worktree can be unlocked between turns and idle past the activity window, and nothing here surfaces this step's per-entry decisions to the operator in the same turn.
+
 **Step 6 — Terminal marker transition + confirm completion.**
 
 Release the pre-flight lock: run `ds-wrap-release-lock` (the PATH-wired helper that releases `$AE_PROJECT_DIR/.agentic/wrap/lock`). This must run before returning to the user, regardless of whether any prior step reported "skipped" or "nothing to do".
