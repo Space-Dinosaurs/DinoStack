@@ -2011,7 +2011,7 @@ agent-browser fill @e2 "text" # fill input by ref
 agent-browser close           # close the session when done (close --all closes every session)
 ```
 
-After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close it when verification is done (`agent-browser close`, or `close --all` to close every session) - otherwise the browser lingers open after the task.
+After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close it when verification is done (`agent-browser close`, or `close --all` to close every session) - otherwise the session and its browser process are not reaped when your run ends and persist afterward. `agent-browser` is headless by default, so no window is left open; what persists is the session's live process, consuming resources and able to collide with a concurrent run (see `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership).
 
 ## Discovery-Based Check Discipline
 
@@ -13403,7 +13403,7 @@ for i in $(seq 1 30); do nc -z localhost <port> && break; sleep 1; done
 
 If the port doesn't respond within 30 seconds, report BLOCKED with: "Dev server failed to start. Check /tmp/qa_devserver.log."
 
-**Teardown (run on every exit path - PASS, FAIL, BLOCKED, INCONCLUSIVE, or error).** After QA completes, close the browser session AND kill the dev server. Run both unconditionally, even when verification was blocked or bailed early - a leaked `agent-browser` session otherwise lingers (visibly) after the run:
+**Teardown (run on every exit path - PASS, FAIL, BLOCKED, INCONCLUSIVE, or error).** After QA completes, close the browser session AND kill the dev server. Run both unconditionally, even when verification was blocked or bailed early - a leaked `agent-browser` session is not reaped when your run ends - it survives as a live process, consuming resources and able to collide with a concurrent run. It is headless by default, so no window is left on screen; the session's browser process is what persists (see `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership):
 
 ```bash
 agent-browser close --all 2>/dev/null || true   # close every agent-browser session
