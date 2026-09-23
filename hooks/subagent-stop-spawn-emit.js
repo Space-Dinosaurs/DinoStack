@@ -179,9 +179,10 @@
  *                DS-246 additions: lib/spawn-events.js (spawnEventsPath,
  *                streamLines), lib/repo-root.js resolveMainRepoRoot,
  *                lib/active-ticket.js (resolveActiveTicket; may write its
- *                .ticket-scan-<session>.json cache under the primary root).
- *                readRoundState() reads the cwd root first, then the
- *                primary root.
+ *                .ticket-scan-<session>.json cache under the cwd root, the
+ *                same place the PreToolUse hook writes it).
+ *                resolveActiveTicket and readRoundState() read the cwd
+ *                root; readRoundState() then falls back to the primary root.
  *
  * Downstream consumers: Claude Code SubagentStop hook (wired by
  *                        .claude/install.sh). hooks/stop-context.js
@@ -338,7 +339,7 @@
  *              transcript path), an optional bounded readdirSync scan
  *              (first MAX_PROJECT_DIRS_SCAN entries under
  *              configDir/projects, only on primary-path miss), and one
- *              synchronous fs.readFileSync of the resolved transcript,
+ *              chunked streamLines read of the resolved transcript,
  *              size-capped at MAX_TRANSCRIPT_BYTES (256 MiB) - a transcript
  *              at or above that size is skipped entirely rather than read.
  *
@@ -1447,12 +1448,13 @@ async function run() {
       }
     }
 
+    const cwdAgenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
     let ticket;
     if (match && match.taskId) {
       ticket = { ticketId: match.taskId, source: 'paired_start', note: null };
     } else {
       ticket = resolveActiveTicket({
-        agenticDir,
+        agenticDir: cwdAgenticDir,
         sessionId,
         transcriptPath: nonBlank(payload.transcript_path),
         toolUseId: matchToolUseId,
@@ -1466,7 +1468,7 @@ async function run() {
     const calibrationNoteParts = [];
     if (agentName === 'skeptic') {
       try {
-        const roundState = readRoundState(path.join(resolveAgenticCwd(cwd), '.agentic'), matchToolUseId)
+        const roundState = readRoundState(cwdAgenticDir, matchToolUseId)
           || readRoundState(agenticDir, matchToolUseId);
         if (roundState) {
           calibrationFields.unit_key = roundState.unitKey;

@@ -61,7 +61,8 @@
  *                Writes [primary root]/.agentic/events.jsonl via appendFileSync.
  *                Writes [resolved root]/.agentic/.last-architect-spawn via
  *                writeFileSync when agentName === 'architect'.
- *                Never reads other .agentic/ files.
+ *                Reads no other .agentic/ files beyond the active-ticket.js
+ *                reads named above.
  *
  * Downstream consumers: Claude Code PreToolUse(Task/Agent) hook (wired by
  *                        .claude/install.sh; matchers "Task" and "Agent").
@@ -98,7 +99,12 @@
  *              max-bytes cap - see that module for current defaults) rather
  *              than a single synchronous read; run() is async end-to-end
  *              (await readStdinGuarded(), then one JSON.parse, one mkdir,
- *              one appendFileSync). Runs on the PreToolUse critical path but
+ *              one appendFileSync). resolveActiveTicket adds, on a
+ *              session's first spawn, a streamed scan of up to the last
+ *              256 MiB of the parent transcript (only lines naming
+ *              ds-implement-ticket or "tool_use" are parsed); later spawns
+ *              read only the bytes appended since the cached offset.
+ *              Runs on the PreToolUse critical path but
  *              never blocks it indefinitely - a slow or silent stdin
  *              resolves via one of stdin-guard's bounded routes instead of
  *              hanging.

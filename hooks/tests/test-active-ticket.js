@@ -95,6 +95,12 @@ eq(invocationKeys('#42'), ['#42'], '#N form');
 eq(invocationKeys('(AUT-983).'), ['AUT-983'], 'surrounding punctuation trimmed');
 eq(descriptionKeys('Skeptic AUT-858 round 2 (see AUT-872)'), ['AUT-858', 'AUT-872'], 'description keys');
 eq(descriptionKeys('Skeptic round 2'), [], 'description with no key');
+eq(descriptionKeys('Correct false learning KNW-20260913-006 and LRN-20260801-012'), [],
+  'learning IDs are not ticket keys');
+eq(descriptionKeys('Benchmark GLM-4 vs GPT-5 on SHA-256 and UTF-8 input'), [],
+  'model names and encoding/hash names are not ticket keys');
+eq(descriptionKeys('AUT-858 fix after KNW-20260913-006 (GLM-4)'), ['AUT-858'],
+  'a real key next to non-ticket IDs is still found');
 
 // ---------------------------------------------------------------------------
 console.log('\nTier order and invocation shapes');
@@ -181,6 +187,23 @@ console.log('\nStaleness guards');
   cleanup(fx);
 }
 
+{
+  // Regression: a learning ID or model name in a spawn description used to
+  // veto that spawn and expire T for every later spawn in the session.
+  const fx = fixture([
+    slash('AUT-100'),
+    spawnUse('toolu_k', 'Correct false learning KNW-20260913-006'),
+    spawnUse('toolu_g', 'Compare GLM-4 output, SHA-256 and UTF-8'),
+  ]);
+  eq(resolve(fx, 'toolu_k', 'Correct false learning KNW-20260913-006'),
+    { ticketId: 'AUT-100', source: 'invocation', note: null }, 'a learning-ID description is not vetoed');
+  eq(resolve(fx, 'toolu_g', 'Compare GLM-4 output, SHA-256 and UTF-8'),
+    { ticketId: 'AUT-100', source: 'invocation', note: null }, 'a model/encoding-name description is not vetoed');
+  eq(resolve(fx, 'toolu_later', 'Skeptic round 1'),
+    { ticketId: 'AUT-100', source: 'invocation', note: null }, 'non-ticket IDs do not expire the invocation');
+  cleanup(fx);
+}
+
 // ---------------------------------------------------------------------------
 console.log('\nSession-shaped fixtures');
 {
@@ -244,6 +267,21 @@ console.log('\nScan cache');
   // Partial trailing line: not consumed, so it is read once complete.
   fs.appendFileSync(fx.transcriptPath, JSON.stringify(skill('AUT-300')).slice(0, 40));
   eq(resolve(fx, 't', '').ticketId, 'AUT-200', 'a partial trailing line is not consumed');
+  cleanup(fx);
+}
+{
+  const fx = fixture([slash('AUT-100')]);
+  const oldCache = path.join(fx.agenticDir, '.ticket-scan-old-session.json');
+  const freshCache = path.join(fx.agenticDir, '.ticket-scan-recent-session.json');
+  const unrelated = path.join(fx.agenticDir, 'events.jsonl');
+  for (const p of [oldCache, freshCache, unrelated]) fs.writeFileSync(p, '{}');
+  const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+  fs.utimesSync(oldCache, eightDaysAgo, eightDaysAgo);
+  fs.utimesSync(unrelated, eightDaysAgo, eightDaysAgo);
+  resolve(fx, 't', '');
+  assert(!fs.existsSync(oldCache), 'a scan cache older than 7 days is swept on a first call');
+  assert(fs.existsSync(freshCache), 'a recent scan cache is kept');
+  assert(fs.existsSync(unrelated), 'non-cache files are never swept');
   cleanup(fx);
 }
 {

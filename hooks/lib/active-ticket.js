@@ -26,7 +26,8 @@
  *     'invocation_vetoed:<keys>', 'invocation_expired:<key>',
  *     'resolver_error'.
  *   invocationKeys(args) -> string[]   (exported for tests)
- *   descriptionKeys(text) -> string[]  (exported for tests)
+ *   descriptionKeys(text) -> string[]  (exported for tests; excludes
+ *     date-shaped IDs and the NON_TICKET_PREFIXES list)
  *
  * Upstream deps: Node built-ins (fs, path); ./spawn-events.js (streamLines).
  *   Reads `<agenticDir>/batch-state.json` and the parent-session transcript
@@ -34,7 +35,9 @@
  *   `<agenticDir>/.ticket-scan-<sessionId>.json`
  *   `{path, offset, invocation:{key,ts,note}|null, expired_by:[{key,tool_use_id}]}`
  *   via pid-suffixed tmp + rename; `expired_by` keeps at most two entries
- *   so this spawn's own tool_use can be excluded.
+ *   so this spawn's own tool_use can be excluded. On a session's first
+ *   call (no valid cache yet) it deletes `.ticket-scan-*` files in
+ *   agenticDir whose mtime is older than 7 days.
  *
  * Downstream consumers: hooks/pre-tool-use-spawn-emit.js,
  *   hooks/subagent-stop-spawn-emit.js (fallback when the paired start has
@@ -57,7 +60,13 @@ const { streamLines } = require('./spawn-events.js');
 
 const MAX_SCAN_BYTES = 256 * 1024 * 1024;
 const KEY_RE = /^[A-Z][A-Z0-9_]+-\d+$/;
-const DESC_KEY_RE = /\b[A-Z][A-Z0-9_]+-\d+\b/g;
+// `(?!-\d)` drops date-shaped IDs such as KNW-20260913-006; the prefix
+// list drops learning IDs, model names, and encodings/hashes that share the
+// ticket-key shape (GLM-4, SHA-256, UTF-8).
+const DESC_KEY_RE = /\b([A-Z][A-Z0-9_]+)-\d+\b(?!-\d)/g;
+const NON_TICKET_PREFIXES = new Set(['KNW', 'LRN', 'GLM', 'GPT', 'SHA', 'UTF', 'ISO', 'RFC']);
+const CACHE_PREFIX = '.ticket-scan-';
+const CACHE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const COMMAND_RE = /<command-name>\/?(?:[\w.-]+:)?ds-implement-ticket<\/command-name>/;
 const ARGS_RE = /<command-args>([\s\S]*?)<\/command-args>/;
 
@@ -81,7 +90,11 @@ function invocationKeys(args) {
 }
 
 function descriptionKeys(text) {
-  return [...new Set(String(text || '').match(DESC_KEY_RE) || [])];
+  const keys = new Set();
+  for (const m of String(text || '').matchAll(DESC_KEY_RE)) {
+    if (!NON_TICKET_PREFIXES.has(m[1])) keys.add(m[0]);
+  }
+  return [...keys];
 }
 
 function invocationFrom(args, ts) {
@@ -131,6 +144,19 @@ function saveCache(cachePath, state) {
   }
 }
 
+function pruneAgedCaches(agenticDir) {
+  try {
+    const now = Date.now();
+    for (const name of fs.readdirSync(agenticDir)) {
+      if (!name.startsWith(CACHE_PREFIX)) continue;
+      try {
+        const p = path.join(agenticDir, name);
+        if (now - fs.statSync(p).mtimeMs > CACHE_RETENTION_MS) fs.unlinkSync(p);
+      } catch (_) { /* per-entry best-effort */ }
+    }
+  } catch (_) { /* directory unreadable: sweep next session */ }
+}
+
 function applyRecord(state, obj) {
   const msg = obj.message;
   if (obj.type === 'user') {
@@ -161,7 +187,7 @@ function applyRecord(state, obj) {
 
 function scanTranscript(agenticDir, sessionId, transcriptPath) {
   const safeSid = String(sessionId).replace(/[^\w.-]/g, '_');
-  const cachePath = path.join(agenticDir, `.ticket-scan-${safeSid}.json`);
+  const cachePath = path.join(agenticDir, `${CACHE_PREFIX}${safeSid}.json`);
   let size;
   try {
     size = fs.statSync(transcriptPath).size;
@@ -169,6 +195,7 @@ function scanTranscript(agenticDir, sessionId, transcriptPath) {
     return null;
   }
   let state = loadCache(cachePath, transcriptPath);
+  if (!state) pruneAgedCaches(agenticDir);
   if (!state || state.offset > size) {
     state = { path: transcriptPath, offset: 0, invocation: null, expired_by: [] };
   }
