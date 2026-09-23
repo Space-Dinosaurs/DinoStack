@@ -93,14 +93,20 @@ eq(invocationKeys('https://solara6.atlassian.net/browse/DS-246'), ['DS-246'], 'J
 eq(invocationKeys('https://github.com/o/r/issues/42'), ['#42'], 'GitHub /issues/ URL maps to #N');
 eq(invocationKeys('#42'), ['#42'], '#N form');
 eq(invocationKeys('(AUT-983).'), ['AUT-983'], 'surrounding punctuation trimmed');
-eq(descriptionKeys('Skeptic AUT-858 round 2 (see AUT-872)'), ['AUT-858', 'AUT-872'], 'description keys');
-eq(descriptionKeys('Skeptic round 2'), [], 'description with no key');
-eq(descriptionKeys('Correct false learning KNW-20260913-006 and LRN-20260801-012'), [],
+eq(descriptionKeys('Skeptic AUT-858 round 2 (see AUT-872)', 'AUT-1'), ['AUT-858', 'AUT-872'], 'description keys');
+eq(descriptionKeys('Skeptic round 2', 'AUT-1'), [], 'description with no key');
+eq(descriptionKeys('Correct false learning KNW-20260913-006 and LRN-20260801-012', 'AUT-1'), [],
   'learning IDs are not ticket keys');
-eq(descriptionKeys('Benchmark GLM-4 vs GPT-5 on SHA-256 and UTF-8 input'), [],
+eq(descriptionKeys('Correct false learning KNW-20260913-006', 'KNW-1'), [],
+  'a date-shaped ID is not a key even under its own prefix');
+eq(descriptionKeys('Benchmark GLM-4 vs GPT-5 on SHA-256 and UTF-8 input', 'AUT-1'), [],
   'model names and encoding/hash names are not ticket keys');
-eq(descriptionKeys('AUT-858 fix after KNW-20260913-006 (GLM-4)'), ['AUT-858'],
+eq(descriptionKeys('AUT-858 fix after KNW-20260913-006 (GLM-4)', 'AUT-1'), ['AUT-858'],
   'a real key next to non-ticket IDs is still found');
+eq(descriptionKeys('Skeptic on ADR-038 v1.1', 'AUT-976'), [], 'another prefix is not a key of T\'s project');
+eq(descriptionKeys('Review PR-123, AES-256, Q4-2026, TIER-3', 'AUT-976'), [], 'no denylist needed for other prefixes');
+eq(descriptionKeys('Author ADR-038 v1.1', 'ADR-1'), ['ADR-038'], 'the same shape counts under its own prefix');
+eq(descriptionKeys('AUT-977 engineer', '#42'), [], 'a #N ticket has no project prefix');
 
 // ---------------------------------------------------------------------------
 console.log('\nTier order and invocation shapes');
@@ -201,6 +207,21 @@ console.log('\nStaleness guards');
     { ticketId: 'AUT-100', source: 'invocation', note: null }, 'a model/encoding-name description is not vetoed');
   eq(resolve(fx, 'toolu_later', 'Skeptic round 1'),
     { ticketId: 'AUT-100', source: 'invocation', note: null }, 'non-ticket IDs do not expire the invocation');
+  cleanup(fx);
+}
+{
+  // Regression: keys with another prefix (real ADR-0NN spawns) used to veto
+  // T and expire it for the rest of the session; a same-prefix switch still does.
+  const fx = fixture([slash('AUT-976'), spawnUse('toolu_adr', 'Skeptic on ADR-038 v1.1')]);
+  eq(resolve(fx, 'toolu_adr', 'Skeptic on ADR-038 v1.1'),
+    { ticketId: 'AUT-976', source: 'invocation', note: null }, 'an ADR description is not vetoed under AUT-976');
+  eq(resolve(fx, 'toolu_later', 'Skeptic round 1'),
+    { ticketId: 'AUT-976', source: 'invocation', note: null }, 'an ADR spawn does not expire the invocation');
+  append(fx, [spawnUse('toolu_sw', 'AUT-977 engineer, per ADR-038')]);
+  eq(resolve(fx, 'toolu_sw', 'AUT-977 engineer, per ADR-038'),
+    { ticketId: null, source: 'none', note: 'invocation_vetoed:AUT-977' }, 'a same-prefix switch is still vetoed');
+  eq(resolve(fx, 'toolu_after', 'Skeptic round 1'),
+    { ticketId: null, source: 'none', note: 'invocation_expired:AUT-977' }, 'a same-prefix switch still expires T');
   cleanup(fx);
 }
 

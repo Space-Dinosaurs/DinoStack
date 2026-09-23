@@ -10,11 +10,12 @@
  *               tool_use whose `skill` ends with `ds-implement-ticket`),
  *               when its args name exactly one key T. Two staleness guards
  *               apply, because operators switch tickets in plain text:
- *               veto - a spawn whose description names ticket keys, none of
- *               them T, is not credited; expiry - once any Agent/Task
- *               tool_use after the invocation (other than this spawn's own)
- *               names keys without T, T stays expired until the next
- *               invocation.
+ *               veto - a spawn whose description names keys of T's own
+ *               project (same prefix), none of them T, is not credited;
+ *               expiry - once any Agent/Task tool_use after the invocation
+ *               (other than this spawn's own) names such keys without T, T
+ *               stays expired until the next invocation. Keys with another
+ *               prefix (ADR-038, GLM-4, SHA-256) never count.
  *            3. none, with a note naming why.
  *
  * Public API (CommonJS):
@@ -26,10 +27,12 @@
  *     'invocation_vetoed:<keys>', 'invocation_expired:<key>',
  *     'resolver_error'.
  *   invocationKeys(args) -> string[]   (exported for tests)
- *   descriptionKeys(text) -> string[]  (exported for tests; excludes
- *     date-shaped IDs and the NON_TICKET_PREFIXES list)
+ *   descriptionKeys(text, ticketKey) -> string[]  (exported for tests;
+ *     only keys sharing ticketKey's prefix, excluding date-shaped IDs;
+ *     [] when ticketKey has no project prefix)
  *
- * Upstream deps: Node built-ins (fs, path); ./spawn-events.js (streamLines).
+ * Upstream deps: Node built-ins (fs, path); ./spawn-events.js (streamLines);
+ *   ./prune-aged.js (pruneAgedFiles).
  *   Reads `<agenticDir>/batch-state.json` and the parent-session transcript
  *   (at most its last MAX_SCAN_BYTES, incrementally). Writes
  *   `<agenticDir>/.ticket-scan-<sessionId>.json`
@@ -57,14 +60,13 @@
 const fs = require('fs');
 const path = require('path');
 const { streamLines } = require('./spawn-events.js');
+const { pruneAgedFiles } = require('./prune-aged.js');
 
 const MAX_SCAN_BYTES = 256 * 1024 * 1024;
-const KEY_RE = /^[A-Z][A-Z0-9_]+-\d+$/;
-// `(?!-\d)` drops date-shaped IDs such as KNW-20260913-006; the prefix
-// list drops learning IDs, model names, and encodings/hashes that share the
-// ticket-key shape (GLM-4, SHA-256, UTF-8).
+const KEY_RE = /^([A-Z][A-Z0-9_]+)-\d+$/;
+// `(?!-\d)` drops date-shaped IDs (PL-20260913-006), which can share a
+// project's prefix and are never a bare ticket key.
 const DESC_KEY_RE = /\b([A-Z][A-Z0-9_]+)-\d+\b(?!-\d)/g;
-const NON_TICKET_PREFIXES = new Set(['KNW', 'LRN', 'GLM', 'GPT', 'SHA', 'UTF', 'ISO', 'RFC']);
 const CACHE_PREFIX = '.ticket-scan-';
 const CACHE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const COMMAND_RE = /<command-name>\/?(?:[\w.-]+:)?ds-implement-ticket<\/command-name>/;
@@ -89,10 +91,12 @@ function invocationKeys(args) {
   return [...keys];
 }
 
-function descriptionKeys(text) {
+function descriptionKeys(text, ticketKey) {
+  const project = KEY_RE.exec(String(ticketKey || ''));
+  if (!project) return [];
   const keys = new Set();
   for (const m of String(text || '').matchAll(DESC_KEY_RE)) {
-    if (!NON_TICKET_PREFIXES.has(m[1])) keys.add(m[0]);
+    if (m[1] === project[1]) keys.add(m[0]);
   }
   return [...keys];
 }
@@ -144,19 +148,6 @@ function saveCache(cachePath, state) {
   }
 }
 
-function pruneAgedCaches(agenticDir) {
-  try {
-    const now = Date.now();
-    for (const name of fs.readdirSync(agenticDir)) {
-      if (!name.startsWith(CACHE_PREFIX)) continue;
-      try {
-        const p = path.join(agenticDir, name);
-        if (now - fs.statSync(p).mtimeMs > CACHE_RETENTION_MS) fs.unlinkSync(p);
-      } catch (_) { /* per-entry best-effort */ }
-    }
-  } catch (_) { /* directory unreadable: sweep next session */ }
-}
-
 function applyRecord(state, obj) {
   const msg = obj.message;
   if (obj.type === 'user') {
@@ -176,7 +167,7 @@ function applyRecord(state, obj) {
       state.invocation = invocationFrom(input.args, obj.timestamp || null);
       state.expired_by = [];
     } else if ((block.name === 'Agent' || block.name === 'Task') && state.invocation && state.invocation.key) {
-      const keys = descriptionKeys(input.description);
+      const keys = descriptionKeys(input.description, state.invocation.key);
       if (keys.length && !keys.includes(state.invocation.key) && state.expired_by.length < 2
           && !state.expired_by.some((e) => e.tool_use_id === block.id)) {
         state.expired_by.push({ key: keys[0], tool_use_id: block.id || null });
@@ -195,7 +186,7 @@ function scanTranscript(agenticDir, sessionId, transcriptPath) {
     return null;
   }
   let state = loadCache(cachePath, transcriptPath);
-  if (!state) pruneAgedCaches(agenticDir);
+  if (!state) pruneAgedFiles(agenticDir, CACHE_PREFIX, CACHE_RETENTION_MS);
   if (!state || state.offset > size) {
     state = { path: transcriptPath, offset: 0, invocation: null, expired_by: [] };
   }
@@ -235,7 +226,7 @@ function resolveActiveTicket(opts) {
     const T = state.invocation.key;
     if (!T) return none(state.invocation.note || 'invocation_no_key');
 
-    const keys = descriptionKeys(spawnDescription);
+    const keys = descriptionKeys(spawnDescription, T);
     if (keys.length && !keys.includes(T)) return none(`invocation_vetoed:${keys.join(',')}`);
     const expirer = state.expired_by.find((e) => !toolUseId || e.tool_use_id !== toolUseId);
     if (expirer) return none(`invocation_expired:${expirer.key}`);
