@@ -134,5 +134,5 @@ hooks/stop-context.js::const cursorPath = path.join(resolveAgenticCwd(cwd), '.ag
 hooks/stop-context.js::const eventsPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'events.jsonl');
 hooks/stop-context.js::const markerPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'learnings-agent.session');
 hooks/stop-context.js::healthPath = path.join(resolveAgenticCwd(cwd), '.agentic', '.telemetry-health.json');
-hooks/subagent-stop-spawn-emit.js::const roundState = readRoundState(path.join(resolveAgenticCwd(cwd), '.agentic'), matchToolUseId)
+hooks/subagent-stop-spawn-emit.js::const cwdAgenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
 hooks/wrap-daemon.js::const cfgPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');
