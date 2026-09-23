@@ -242,18 +242,23 @@ Failure modes:
       and `[per <agent>, unverified]` - anywhere in a sentence, so a sentence
       that merely quotes any one of them as an example (rather than genuinely
       carrying a tag of its own) reads as exempt - DIRECTION: false negative
-      (a bypass, not a false deny). A round-2 fix required
-      `[verified-by-execution` to be followed by `:` or `,` plus at least one
-      non-whitespace detail character before this residual applies to it (a
-      bare or empty-detail `[verified-by-execution]`/`[verified-by-execution:]`/
-      `[verified-by-execution,]`, quoted or not, now denies), narrowing but
-      not eliminating this class for that tag; `[per <agent>, unverified]` is
-      equally bypassable by a quoted mention and was not narrowed. Fixing it
-      requires parsing the wrapping bracket's own well-formedness (e.g.
-      confirming the tag is the sentence's own trailing annotation, not
-      prose describing tag syntax) - a materially larger structural change
-      than any round to date has scoped; tracked as a named residual, not
-      silently absorbed. Re-verified by execution this round (see
+      (a bypass, not a false deny); this predates the fourth tag and also
+      covers an empty-detail quote for the first two, e.g. `[verified:]`,
+      `[verified: ]`, `[verified-local:]`, or `[verified-local: ]`, which
+      read as exempt the same way despite naming no real location.
+      `[verified-by-execution` additionally requires `:` or `,` followed by
+      at least one non-whitespace detail character before this residual
+      applies to it (a bare or empty-detail
+      `[verified-by-execution]`/`[verified-by-execution:]`/
+      `[verified-by-execution,]`, quoted or not, denies), narrowing but not
+      eliminating this class for that tag; `[verified:`, `[verified-local:`,
+      and `[per <agent>, unverified]` carry no equivalent narrowing and are
+      equally bypassable by a quoted mention. Fixing it requires parsing the
+      wrapping bracket's own well-formedness (e.g. confirming the tag is the
+      sentence's own trailing annotation, not prose describing tag syntax) -
+      a materially larger structural change than any round to date has
+      scoped; tracked as a named residual, not silently absorbed.
+      Re-verified by execution this round (see
       `bin/tests/test_enforce_skeptic_neutrality.py`'s
       `test_round3_residual_provenance_re_substring_match_false_negative`).
     - `_SENT_SPLIT_RE` scans raw characters with no awareness of bracket

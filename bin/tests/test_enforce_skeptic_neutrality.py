@@ -1746,16 +1746,15 @@ def test_round8_deny_message_flags_conductor_self_narration_as_a_claim():
 # `[verified-by-execution: ...]` tag: fourth canonical provenance tag
 # (content/sections/04-risk-classification.md's provenance test). Added
 # because this shape was in live conductor use before the hook recognized
-# it - every use was denied. Round-2 fix: the tag must be followed by `:`
-# or `,` (matching the corpus's colon-detail and comma-session forms) -
-# a bare `[verified-by-execution]` names no command and can't be checked,
-# and a round-1 `\b`-only match let a sentence that merely backtick-quotes
-# the bare tag as an example (real corpus record: "...and every
-# `[verified-by-execution]` tag it carries") read as falsely exempt. Both
-# are now denied. Round-3 fix: `:`/`,` with nothing after it (an empty
-# detail - `[verified-by-execution:]` / `[verified-by-execution,]`) was
-# still falsely exempt; now requires at least one non-whitespace
-# character after the punctuation.
+# it - every use was denied. The tag must be followed by `:` or `,`
+# (matching the corpus's colon-detail and comma-session forms) plus at
+# least one non-whitespace detail character before the closing bracket -
+# a bare `[verified-by-execution]`, an empty-detail
+# `[verified-by-execution:]`/`[verified-by-execution,]`, and a sentence
+# that merely backtick-quotes any of those bare/empty shapes as an example
+# (real corpus record: "...and every `[verified-by-execution]` tag it
+# carries") all deny; a genuine colon-detail or comma-session form with
+# real content stays exempt.
 # =========================================================================== #
 def test_verified_by_execution_colon_detail_form_exempt():
     sentence = (
@@ -1771,35 +1770,33 @@ def test_verified_by_execution_comma_session_form_exempt():
 
 
 def test_verified_by_execution_colon_empty_detail_denies():
-    """Round-3 fix: `[verified-by-execution:]` with nothing after the
-    colon names no command and can't be checked - it must deny, same as
-    the bare form."""
+    """`[verified-by-execution:]` with nothing after the colon names no
+    command and can't be checked - it must deny, same as the bare form."""
     sentence = "The hook denies this sentence [verified-by-execution:]."
     result = _mod.field7_violation([sentence])
     assert result == sentence
 
 
 def test_verified_by_execution_comma_empty_detail_denies():
-    """Round-3 fix: `[verified-by-execution,]` with nothing after the
-    comma names no command and can't be checked - it must deny, same as
-    the bare form."""
+    """`[verified-by-execution,]` with nothing after the comma names no
+    command and can't be checked - it must deny, same as the bare form."""
     sentence = "The hook denies this sentence [verified-by-execution,]."
     result = _mod.field7_violation([sentence])
     assert result == sentence
 
 
 def test_verified_by_execution_bare_form_denies():
-    """Round-2 fix: a bare tag with no `:` or `,` detail names no command
-    and can't be checked - it must deny, not be treated as exempt. This
-    also closes the real round-1 bypass where a sentence merely
-    backtick-quoting the bare tag as an example read as falsely exempt."""
+    """A bare tag with no `:` or `,` detail names no command and can't be
+    checked - it must deny, not be treated as exempt. This also closes a
+    real bypass where a sentence merely backtick-quoting the bare tag as
+    an example read as falsely exempt."""
     sentence = "The hook denies this sentence [verified-by-execution]."
     result = _mod.field7_violation([sentence])
     assert result == sentence
 
 
 def test_verified_by_execution_bare_quoted_mention_denies():
-    """Real round-1 bypass, reproduced verbatim (corpus record
+    """Real bypass, reproduced verbatim (corpus record
     skeptic_spawns.jsonl line 9): a claim that merely backtick-quotes
     the bare tag as an example carries no genuine detail and must deny."""
     sentence = (
