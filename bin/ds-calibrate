@@ -14,7 +14,11 @@ Public API: ds-calibrate density   [--since <ISO8601>] [--task <unit>]
 
 Upstream deps: Python 3 stdlib (argparse, json, sys, os, datetime, pathlib).
                Reads .agentic/events.jsonl (current working directory's
-               .agentic/, or $AGENTIC_DIR override). Optional pyyaml soft
+               .agentic/, or $AGENTIC_DIR override). With $AGENTIC_DIR
+               unset, also merges the hook spawn rows the hooks wrote to
+               the PRIMARY checkout when run from a linked worktree
+               (DS-246, via bin/_telemetry.py); an explicit $AGENTIC_DIR is
+               read verbatim with no merge. Optional pyyaml soft
                dependency for any future config; not required by the current
                subcommands.
 
@@ -23,8 +27,10 @@ Downstream consumers: content/references/skeptic-protocol.md Section 13
                       developers running the command interactively to
                       inspect Skeptic drift over time.
 
-Failure modes: missing .agentic/events.jsonl -> exit 1 with a one-line
-               message ("ds-calibrate: no events log at <path>");
+Failure modes: missing .agentic/events.jsonl (and, with $AGENTIC_DIR
+               unset, no primary-checkout events log either) -> exit 1
+               with a one-line message ("ds-calibrate: no events log at
+               <path>");
                malformed JSONL lines are skipped silently and counted in a
                trailing footnote ("N events skipped due to malformed
                lines."); zero qualifying spawns under the warming-up
@@ -66,11 +72,26 @@ def _parse_since(s: str | None) -> _dt.datetime | None:
         sys.exit(2)
 
 
-def _iter_events(path: Path, since: _dt.datetime | None) -> Iterable[dict[str, Any]]:
+def _load_telemetry():
+    import importlib.machinery as _ilm
+    import importlib.util as _ilu
+
+    loader = _ilm.SourceFileLoader(
+        "_telemetry", str(Path(__file__).resolve().parent / "_telemetry.py")
+    )
+    mod = _ilu.module_from_spec(_ilu.spec_from_loader("_telemetry", loader))
+    loader.exec_module(mod)
+    return mod
+
+
+_TELEMETRY = _load_telemetry()
+
+
+def _read_events(path: Path) -> tuple[list[dict[str, Any]], int]:
+    events: list[dict[str, Any]] = []
     skipped = 0
     if not path.exists():
-        print(f"ds-calibrate: no events log at {path}", file=sys.stderr)
-        sys.exit(1)
+        return events, skipped
     with path.open() as f:
         for raw in f:
             raw = raw.strip()
@@ -78,23 +99,35 @@ def _iter_events(path: Path, since: _dt.datetime | None) -> Iterable[dict[str, A
                 continue
             try:
                 obj = json.loads(raw)
-                if not isinstance(obj, dict):
-                    skipped += 1
-                    continue
             except json.JSONDecodeError:
                 skipped += 1
                 continue
-            if since is not None:
-                ts = obj.get("ts")
-                if isinstance(ts, str):
-                    try:
-                        ts_norm = ts[:-1] + "+00:00" if ts.endswith("Z") else ts
-                        ts_dt = _dt.datetime.fromisoformat(ts_norm)
-                        if ts_dt < since:
-                            continue
-                    except ValueError:
-                        pass
-            yield obj
+            if not isinstance(obj, dict):
+                skipped += 1
+                continue
+            events.append(obj)
+    return events, skipped
+
+
+def _iter_events(path: Path, since: _dt.datetime | None) -> Iterable[dict[str, Any]]:
+    events, skipped = _read_events(path)
+    if "AGENTIC_DIR" not in os.environ:
+        events = _TELEMETRY.merge_primary_spawn_rows(path.absolute(), events)
+    if not path.exists() and not events:
+        print(f"ds-calibrate: no events log at {path}", file=sys.stderr)
+        sys.exit(1)
+    for obj in events:
+        if since is not None:
+            ts = obj.get("ts")
+            if isinstance(ts, str):
+                try:
+                    ts_norm = ts[:-1] + "+00:00" if ts.endswith("Z") else ts
+                    ts_dt = _dt.datetime.fromisoformat(ts_norm)
+                    if ts_dt < since:
+                        continue
+                except ValueError:
+                    pass
+        yield obj
     if skipped:
         print(f"\n({skipped} events skipped due to malformed lines.)")
 

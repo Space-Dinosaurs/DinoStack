@@ -7697,7 +7697,7 @@ ds-calibrate divergence [--since <ISO8601>]
 ds-calibrate help
 ```
 
-`density` reads `.agentic/events.jsonl`, filters Skeptic `spawn_complete` events, and prints findings-per-100-diff-lines aggregates plus a per-iteration breakdown. Each row is keyed on `data.unit_key` (the DS-178 unit-A calibration field), falling back to the event's `task_id` for older rows that predate it - the rendered/filtered `unit` column reflects whichever resolved. Spawns where `diff_lines` is `0` OR absent are excluded from the aggregate denominator; per-row output prints `N/A` in the density column for those rows, and prints `-` (never `0`) in the lines column when `diff_lines` is absent, distinguishing "not measured" from a real zero. When fewer than 10 spawns have been observed (after zero/absent-diff exclusion), the command prints `warming up: N/10 spawns observed; baseline not yet established.` to indicate that drift signals are not yet meaningful.
+`density` reads `.agentic/events.jsonl` (with `$AGENTIC_DIR` unset, run from a linked worktree, plus the primary checkout's hook spawn rows), filters Skeptic `spawn_complete` events, and prints findings-per-100-diff-lines aggregates plus a per-iteration breakdown. Each row is keyed on `data.unit_key` (the DS-178 unit-A calibration field), falling back to the event's `task_id` for older rows that predate it - the rendered/filtered `unit` column reflects whichever resolved. Spawns where `diff_lines` is `0` OR absent are excluded from the aggregate denominator; per-row output prints `N/A` in the density column for those rows, and prints `-` (never `0`) in the lines column when `diff_lines` is absent, distinguishing "not measured" from a real zero. When fewer than 10 spawns have been observed (after zero/absent-diff exclusion), the command prints `warming up: N/10 spawns observed; baseline not yet established.` to indicate that drift signals are not yet meaningful.
 
 `divergence` reads `meta_review_complete` events and prints the divergence rate (Critical/Major/Minor missed counts and percentage of sampled spawns).
 
@@ -15521,7 +15521,7 @@ Implementation: `bin/ds-change-delta` (Python 3 stdlib).
 ## Usage
 
 ```
-ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH] [--window-days N] --repo PATH [--repo PATH ...] [--json]
+ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH] [--window-days N] [--pr-lookahead-days N] --repo PATH [--repo PATH ...] [--json]
 ```
 
 - `--cut` (required): a git SHA (resolved to its **committer** date on
@@ -15540,8 +15540,50 @@ ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH] [--window-days N] --repo P
   hook-deny, token, and wall-time metrics are computed over the MERGED
   row set across every `--repo` - not independently per repo and then
   combined. PR history is reported separately, per repo.
+- `--pr-lookahead-days N` (optional, default 7): merged PRs up to N days
+  past a window's end still count for that window's tickets.
 - `--json` for the full machine-readable report; default is a fixed-width
   table.
+
+## Spawn telemetry: `agent_model` and `per_ticket` (DS-246)
+
+Both read only hook spawn rows with `data.telemetry_v: 2` from each
+`--repo`'s `.agentic/events.jsonl`; older rows never contribute. Their
+status comes from the same precedence as every other metric, over the v2
+rows' own extent (intersected across repos, reported as `v2_coverage`):
+a window the v2 rows do not fully bracket is `INSUFFICIENT_COVERAGE`, and
+a store with no v2 rows is `ABSENT`, both with `null` values.
+
+- `agent_model`: per agent x model, the runs ending in the window with
+  their tokens, wall time and dollars. Dollars use built-in rates from
+  the DS-246 ticket, overridden by `~/.agentic/pricing.yml`. An exact
+  model id goes to `dollars_exact`; an id priced by family (for example
+  `claude-opus-5` at the Opus 5.5 rate) goes to `dollars_family_estimated`
+  and is named in `family_priced_models`. A run with no tokens is counted
+  in `tokens_null_runs`, never priced as zero.
+- `per_ticket`: one row per ticket whose first v2 spawn (else its ledger
+  `opened_ts`) falls in the window, keyed by the hooks' `task_id`. Each
+  row reports Skeptic reviews, max iteration, Critical/Major/Minor totals,
+  `re_raised` (`null` when no `findings_log` entry records it), QA runs and
+  fail-backs (FAIL or PARTIAL), merged and follow-up PRs, re-entries more
+  than 1h after the first merge, Critical+Major findings after it (`null`
+  when the review count fell back to the ledger's `skeptic_rounds`),
+  `ledger_skeptic_rounds` (shown beside a telemetry count so an undercount
+  is visible), `unit_count` (from the ledger, default 1), rework loops
+  (`max(skeptic_reviews - unit_count, 0) + qa_fail_backs +
+  max(prs_merged - unit_count, 0)`, so a clean ticket with one review and
+  one PR per unit reports 0), end-to-end wall (final merge minus first
+  spawn) and dollars. A ticket whose ledger `opened_ts` predates the v2
+  extent is listed in `excluded_pre_v2` instead; a ticket with no ledger
+  row that began before the v2 extent cannot be detected, so it is
+  anchored at its first v2 spawn with a short wall and fewer reviews.
+- PR attribution: a PR number in a repo's `ticket-ledger.jsonl` counts
+  for every ticket recording it. Any other PR counts for T only when its
+  title starts with `T:`, `[T]`, `[T]:` or `type(T):`, or else when the
+  last `/`-separated segment of its branch starts with T; a PR that only
+  mentions T does not count, and one matching several tickets goes to
+  `ambiguous_prs`. When `gh` is unavailable, only the PR-derived fields
+  (and `loops`) are `null`.
 
 ## Coverage and status
 
@@ -15590,7 +15632,8 @@ nested worktree checkouts together.
 - **Skeptic-loop yield per round** - this repo's telemetry cannot support
   that measurement at all (see `MEMORY.md`'s KNW-20260818-002 through
   -006); it is out of scope here and is never synthesized from a proxy
-  signal.
+  signal. `per_ticket` reports review counts and findings totals, not
+  per-round yield.
 - **Consumer-repo PR history beyond a resolvable `gh` remote** - a
   `--repo` with no `origin` remote `gh` can resolve reports
   `NOT_A_GIT_REPO` for that one signal while still contributing to the
@@ -16075,6 +16118,9 @@ ds-cost retro [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--author <handle>] [--j
 ```
 
 The CLI reads `.agentic/events.jsonl` from the current working directory.
+Run from a linked worktree, it also reads the hook `spawn_start`/`spawn_complete`
+rows in the primary checkout's `.agentic/events.jsonl`, where the hooks write
+them since DS-246.
 Output is a fixed-width table sorted by agent name, with a TOTAL row.
 Every output ends with the V1 disclosure footer (see "V1 scope" below).
 
@@ -16088,7 +16134,7 @@ qa-engineer 1        801      244      3001      9100      88.0
 TOTAL       14       25857    11204    112423    414330    1101.6
 
 Pricing not configured. Create ~/.agentic/pricing.yml to enable dollar columns.
-Note: all agent types are counted (hook-emitted spawn_start for ad-hoc sessions; conductor spawn_complete for /ds-implement-ticket sessions). Hook-spawn tokens render as n/a in the unpriced table (zeros in the priced table) UNLESS a paired hook-emitted spawn_complete resolved a real subagent transcript (post-DS-160 token resolution), in which case the real summed tokens are shown. Hook-spawn wall-time renders as n/a (unpriced table) or 0.0 (priced table) UNLESS a paired hook-emitted spawn_complete (DS-160) supplied a real wall_seconds figure for that spawn, in which case the real duration is shown.
+Note: all agent types are counted (hook-emitted spawn_start for ad-hoc sessions; conductor spawn_complete for /ds-implement-ticket sessions). Hook-spawn tokens render as n/a in the unpriced table (zeros in the priced table) UNLESS a paired hook-emitted spawn_complete resolved a real subagent transcript (post-DS-160 token resolution), in which case the real summed tokens are shown. Hook-spawn wall-time renders as n/a (unpriced table) or 0.0 (priced table) UNLESS a paired DS-246 hook spawn_complete supplied per-run wall_seconds for that spawn, in which case the summed run durations are shown.
 ```
 
 ## Output: pricing present
@@ -16111,10 +16157,12 @@ role is excluded. Hook-emitted spawns render token columns as `n/a` (or `0`
 in the priced table) unless a paired hook-emitted `spawn_complete` resolved
 a real subagent transcript (post-DS-160 token resolution), in which case the
 real summed tokens are shown. Hook-emitted spawns render wall-time as `n/a`
-(unpriced table) or `0.0` (priced table) unless a paired hook-emitted
-`spawn_complete` (DS-160) supplied a real `wall_seconds` figure for that
-spawn - which does not require transcript resolution - in which case the
-real duration is shown.
+(unpriced table) or `0.0` (priced table) unless a paired DS-246 hook
+`spawn_complete` supplied per-run `wall_seconds` - which does not require
+transcript resolution - in which case the run durations are summed.
+Pre-DS-246 hook wall times are not used. A resumed spawn counts once, with
+tokens taken from its last cumulative value, and its resolved model keys the
+dollar columns.
 
 This footer is appended to every `ds-cost session|task|project` output
 so users see the disclosure without reading the spec.
@@ -16129,7 +16177,12 @@ THIS SHAPE IS AN ILLUSTRATIVE EXAMPLE ONLY - the model ids below are
 placeholders, not real provider ids.
 Substitute your own current model ids and rates; `/ds-cost` looks up each
 event's recorded model string as a literal key into `models:`, so any id you
-use here works as long as it matches.
+use here works as long as it matches (a trailing `[...]` tag or `-YYYYMMDD`
+date suffix on the recorded id is ignored). A model priced only by family
+(e.g. an `opus` id with no exact entry) is listed as missing, not estimated.
+`cache_creation` is the 5-minute cache-write rate; an optional
+`cache_creation_1h` sets the 1-hour rate, which otherwise defaults to 2x
+`input`.
 
 ```
 updated: 2026-04-15

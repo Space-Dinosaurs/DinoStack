@@ -836,7 +836,82 @@ def test_hook_spawn_complete_with_resolved_tokens_renders_real_numbers():
     print("PASS test_hook_spawn_complete_with_resolved_tokens_renders_real_numbers")
 
 
+# ---------------------------------------------------------------------------
+# DS-246: primary-checkout merge, per-run rollup, model-keyed pricing
+# ---------------------------------------------------------------------------
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import telemetry_v2_fixtures as fx
+
+
+def test_worktree_run_includes_spawn_rows_written_to_main_checkout():
+    """QA 10: run from a linked worktree, ds-cost also reads the hook spawn rows
+    the hooks wrote to the primary checkout; run from main, it reads only main."""
+    with tempfile.TemporaryDirectory() as tmp:
+        main, worktree = fx.make_linked_worktree(Path(tmp))
+        fx.write_jsonl(main / ".agentic" / "events.jsonl", [
+            fx.v2_start("2026-09-01T10:00:00Z", "engineer", "s1", "AUT-1"),
+            fx.v2_complete("2026-09-01T10:10:00Z", "engineer", "s1", "AUT-1", wall_seconds=600.0,
+                           cumulative=fx.tokens(input=4321)),
+        ])
+        fx.write_jsonl(worktree / ".agentic" / "events.jsonl", [
+            fx.v2_start("2026-09-01T09:00:00Z", "architect", "s0", "AUT-1"),
+        ])
+        args = types.SimpleNamespace(session_uuid=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_session, args,
+                                  events_path=worktree / ".agentic" / "events.jsonl")
+        assert rc == 0
+        eng = next(l for l in out.splitlines() if l.startswith("engineer"))
+        assert "4321" in eng and "600.0" in eng, eng
+        assert any(l.startswith("architect") for l in out.splitlines()), out
+
+        rc, out, _ = _capture_cmd(_mod.cmd_session, args,
+                                  events_path=main / ".agentic" / "events.jsonl")
+        assert rc == 0
+        assert any(l.startswith("engineer") for l in out.splitlines()), out
+        assert not any(l.startswith("architect") for l in out.splitlines()), out
+    print("PASS test_worktree_run_includes_spawn_rows_written_to_main_checkout")
+
+
+def test_hook_spawn_resumed_runs_roll_up_with_model():
+    """A resumed spawn counts once: wall is the sum of its run walls, tokens the
+    last cumulative value, and the resolved model keys the pricing bucket."""
+    events = [
+        fx.v2_start("2026-09-01T10:00:00Z", "skeptic", "k1", "AUT-2"),
+        fx.v2_complete("2026-09-01T10:05:00Z", "skeptic", "k1", "AUT-2", wall_seconds=300.0,
+                       cumulative=fx.tokens(output=100), model="claude-sonnet-5"),
+        fx.v2_complete("2026-09-01T11:05:00Z", "skeptic", "k1", "AUT-2", run_index=2,
+                       wall_seconds=60.0, cumulative=fx.tokens(output=250),
+                       run_tokens=fx.tokens(output=150), model="claude-sonnet-5",
+                       pair_method="resume"),
+    ]
+    agg = _mod._aggregate_by_agent(events)
+    bucket = agg["skeptic"]
+    assert bucket["spawns"] == 1
+    assert bucket["wall_seconds"] == 360.0
+    assert bucket["tokens"]["output"] == 250
+    assert bucket["models"]["claude-sonnet-5"]["output"] == 250
+    print("PASS test_hook_spawn_resumed_runs_roll_up_with_model")
+
+
+def test_price_row_exact_only_with_1h_cache_split():
+    pricing = {"claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_creation": 5.0,
+                                   "cache_read": 0.2}}
+    toks = fx.tokens(input=1000, output=2000, cache_read=1_000_000, cc_5m=100_000, cc_1h=50_000)
+    dollars, missing = _mod._price_row(pricing, {"claude-opus-5-5": toks})
+    assert missing == []
+    assert abs(dollars["cache_creation"] - 0.9) < 1e-9, dollars   # 0.5 (5m) + 0.4 (1h at 2x input)
+    assert abs(dollars["total"] - 1.144) < 1e-9, dollars
+    dollars, missing = _mod._price_row(pricing, {"claude-opus-5": toks})
+    assert dollars is None and missing == ["claude-opus-5"]
+    print("PASS test_price_row_exact_only_with_1h_cache_split")
+
+
 if __name__ == "__main__":
+    # DS-246
+    test_worktree_run_includes_spawn_rows_written_to_main_checkout()
+    test_hook_spawn_resumed_runs_roll_up_with_model()
+    test_price_row_exact_only_with_1h_cache_split()
     # session
     test_session_no_events_empty_table()
     test_session_all_events_aggregated()

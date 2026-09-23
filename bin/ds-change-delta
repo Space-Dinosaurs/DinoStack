@@ -7,19 +7,32 @@ Purpose: DS-241 one-shot before/after telemetry delta tool. Resolves a
          wall-time/PR-history metrics for each side from the SAME live
          telemetry stores `ds-cost`, `ds-evaluate`, `ds-hook-fire-report`,
          and `ds-branch-prune` already read - reusing their established
-         parsing conventions (duplicated, not imported: see those
-         modules' own docstrings for the originals) rather than
-         inventing new ones. Lets an operator answer "did this specific
+         parsing conventions rather than inventing new ones. The
+         session-log, fires-log and PR parsing is duplicated, not
+         imported (see those modules' own docstrings for the originals);
+         hook spawn rows and pricing come from the shared
+         bin/_telemetry.py (DS-246). Lets an operator answer "did this specific
          commit help or hurt" without hand-running two separate
          `ds-evaluate`/`ds-cost` invocations and reconciling window
          boundaries and coverage caveats by hand.
 
+         DS-246 adds two spawn-telemetry sides, both gated by the v2
+         coverage extent (hook spawn rows with data.telemetry_v == 2,
+         intersected across repos, through _side_status; pre-v2 rows
+         never contribute): `agent_model` (per agent x model runs,
+         tokens, wall and dollars, exact-id and family-priced dollars
+         reported separately) and `per_ticket` (Skeptic reviews, max
+         iteration, C/M/m, re_raised, QA runs and fail-backs, merged and
+         follow-up PRs, loops, end-to-end wall, escaped-defect signals).
+
 Public API: ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH]
-            [--window-days N] --repo PATH [--repo PATH ...] [--json]
+            [--window-days N] [--pr-lookahead-days N]
+            --repo PATH [--repo PATH ...] [--json]
             Default output: a fixed-width table. --json emits the full
-            {"meta":..., "metrics":..., "pr_history":...} object (see
-            main() / build_delta()'s docstring for the exact shape - this
-            is the binding contract the regression test asserts against).
+            {"meta":..., "metrics":..., "pr_history":..., "agent_model":...,
+            "per_ticket":...} object (see build_delta(), _agent_model_side()
+            and _ticket_row() for the exact shape - this is the binding
+            contract the regression test asserts against).
             Exit 0 on any well-formed run, even one where every metric
             reports a non-OK status (an absent or short-of-window store
             is informative output, not a CLI failure). Exit 1 when --cut
@@ -97,8 +110,14 @@ Upstream deps: git, gh (optional - PR-history metrics degrade to
             Reads `<repo>/.agentic/session-log/*.jsonl`,
             `<repo>/.agentic/.enforcement-fires.jsonl` plus its three
             known stranded-copy locations (see _stranded_fire_log_paths),
-            and (per repo with a resolvable gh remote) the GitHub GraphQL
-            `search` connection for merged PRs.
+            `<repo>/.agentic/events.jsonl` (hook spawn rows),
+            `<repo>/.agentic/ticket-ledger.jsonl`,
+            `<repo>/.agentic/loop-state-*.json` (findings_log re_raised,
+            iteration fallback), and (per repo with a resolvable gh
+            remote) the GitHub GraphQL `search` connection for merged PRs.
+            bin/_telemetry.py is loaded by resolved path
+            (SourceFileLoader), with ~/.agentic/pricing.yml overriding its
+            built-in rates when present.
 
 Downstream consumers: operator-invoked directly (content/commands/
             ds-change-delta.md); not called by any other DinoStack tool.
@@ -121,18 +140,24 @@ Known limitation: passing a repo root AND one of that repo's own
             time. Avoid passing a repo and its own nested worktree
             checkouts together.
 
-Performance: one `git show` per --cut-repo, one `gh api graphql` page
-            fetch per PR-history --repo per side (paginated, bounded),
-            and a full read of every matching session-log/fires-log file
-            per --repo. No caching; a wide --window-days against a busy
+Performance: one `git show` per --cut-repo, one `gh repo view` and one
+            `gh api graphql` page fetch per PR-history --repo per side
+            (paginated, bounded), one more paginated fetch per --repo
+            spanning [before_start, after_end + --pr-lookahead-days] for
+            per-ticket PR attribution (skipped when neither per_ticket
+            side is OK), and a full read of every matching session-log/
+            fires-log/events/ledger/loop-state file per --repo. No caching; a wide --window-days against a busy
             repo's PR history can approach GitHub search's documented
             1,000-result cap (see content/commands/ds-change-delta.md).
 """
 from __future__ import annotations
 
 import argparse
+import importlib.machinery
+import importlib.util
 import json
 import re
+import statistics
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -140,7 +165,22 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _lib import _run, iter_jsonl_dict_records, rate_or_none  # noqa: E402
 
+
+def _load_telemetry():
+    loader = importlib.machinery.SourceFileLoader(
+        "_telemetry", str(Path(__file__).resolve().parent / "_telemetry.py")
+    )
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("_telemetry", loader))
+    loader.exec_module(mod)
+    return mod
+
+
+_TELEMETRY = _load_telemetry()
+
 GH_CALL_TIMEOUT_SECONDS = 30.0
+PR_LOOKAHEAD_DAYS_DEFAULT = 7
+REENTRY_AFTER_MERGE = timedelta(hours=1)
+QA_FAIL_RESULTS = ("FAIL", "PARTIAL")
 PR_PAGE_SIZE = 100
 PR_MAX_PAGES = 50
 # 100 years - generously above any realistic --window-days, but small
@@ -164,7 +204,7 @@ query($q:String!,$pageSize:Int!,$endCursor:String){
   search(query:$q, type: ISSUE, first:$pageSize, after:$endCursor){
     issueCount
     pageInfo{ hasNextPage endCursor }
-    nodes{ ... on PullRequest { number mergedAt commits { totalCount } } }
+    nodes{ ... on PullRequest { number title headRefName mergedAt commits { totalCount } } }
   }
 }
 """
@@ -695,6 +735,66 @@ def _gh_search_datetime(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _merged_pr_search(owner: str, name: str, start: datetime, end: datetime) -> str:
+    """The half-open [start, end) merged-PR search string (see
+    _fetch_pr_window's docstring for the one-second end offset)."""
+    start_str = _gh_search_datetime(start)
+    end_str = _gh_search_datetime(end - timedelta(seconds=1))
+    return f"repo:{owner}/{name} is:pr is:merged merged:{start_str}..{end_str}"
+
+
+def _fetch_merged_pr_nodes(repo: str, q: str) -> tuple[str, list[dict]]:
+    """Paginated `gh api graphql` search for `q`, asserting
+    len(nodes)==issueCount for completeness. Returns (status, nodes) with
+    status OK, GH_UNAVAILABLE (a gh/parse failure) or INCOMPLETE_WINDOW
+    (pagination could not prove completeness); nodes holds whatever was
+    retrieved either way."""
+    nodes: list[dict] = []
+    total_count: int | None = None
+    cursor: str | None = None
+    for _page in range(PR_MAX_PAGES):
+        cmd = [
+            "gh", "api", "graphql",
+            "-f", f"query={_MERGED_PR_QUERY}",
+            "-f", f"q={q}",
+            "-F", f"pageSize={PR_PAGE_SIZE}",
+        ]
+        if cursor is not None:
+            cmd += ["-f", f"endCursor={cursor}"]
+        try:
+            proc = _run(cmd, cwd=repo, timeout=GH_CALL_TIMEOUT_SECONDS)
+        except Exception:  # any gh failure degrades
+            return "GH_UNAVAILABLE", nodes
+        if proc.returncode != 0:
+            return "GH_UNAVAILABLE", nodes
+        try:
+            payload = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            return "GH_UNAVAILABLE", nodes
+        conn = ((payload or {}).get("data") or {}).get("search")
+        if not isinstance(conn, dict):
+            return "GH_UNAVAILABLE", nodes
+        page_total = conn.get("issueCount")
+        if isinstance(page_total, int) and not isinstance(page_total, bool):
+            total_count = page_total
+        page_nodes = conn.get("nodes")
+        if not isinstance(page_nodes, list):
+            return "GH_UNAVAILABLE", nodes
+        nodes.extend(n for n in page_nodes if isinstance(n, dict))
+        page_info = conn.get("pageInfo")
+        if not isinstance(page_info, dict):
+            return "INCOMPLETE_WINDOW", nodes
+        if not page_info.get("hasNextPage"):
+            if total_count is None or len(nodes) != total_count:
+                return "INCOMPLETE_WINDOW", nodes
+            return "OK", nodes
+        next_cursor = page_info.get("endCursor")
+        if not isinstance(next_cursor, str) or not next_cursor:
+            return "INCOMPLETE_WINDOW", nodes
+        cursor = next_cursor
+    return "INCOMPLETE_WINDOW", nodes
+
+
 def _fetch_pr_window(repo: str, owner: str, name: str, start: datetime, end: datetime, now: datetime) -> dict:
     """Fetch merged-PR count and total commits for one repo/window via
     paginated `gh api graphql` `search`, asserting len(nodes)==issueCount
@@ -712,9 +812,7 @@ def _fetch_pr_window(repo: str, owner: str, name: str, start: datetime, end: dat
     `mergedAt` has no sub-second precision to resolve it further - not a
     practical concern at the tool's day-to-week scale of `--window-days`.
     """
-    start_str = _gh_search_datetime(start)
-    end_str = _gh_search_datetime(end - timedelta(seconds=1))
-    q = f"repo:{owner}/{name} is:pr is:merged merged:{start_str}..{end_str}"
+    q = _merged_pr_search(owner, name, start, end)
     source_desc = f"gh api graphql search:{q}"
 
     if end > now:
@@ -727,74 +825,13 @@ def _fetch_pr_window(repo: str, owner: str, name: str, start: datetime, end: dat
             "rows_consumed": 0,
         }
 
-    nodes: list[dict] = []
-    total_count: int | None = None
-    cursor: str | None = None
-    saw_last_page = False
-    for _page in range(PR_MAX_PAGES):
-        cmd = [
-            "gh", "api", "graphql",
-            "-f", f"query={_MERGED_PR_QUERY}",
-            "-f", f"q={q}",
-            "-F", f"pageSize={PR_PAGE_SIZE}",
-        ]
-        if cursor is not None:
-            cmd += ["-f", f"endCursor={cursor}"]
-        try:
-            proc = _run(cmd, cwd=repo, timeout=GH_CALL_TIMEOUT_SECONDS)
-        except Exception:  # noqa: BLE001 - any gh failure degrades
-            return {
-                "status": "GH_UNAVAILABLE", "merged_prs": None, "commits": None,
-                "commits_per_pr": None, "source": source_desc, "rows_consumed": len(nodes),
-            }
-        if proc.returncode != 0:
-            return {
-                "status": "GH_UNAVAILABLE", "merged_prs": None, "commits": None,
-                "commits_per_pr": None, "source": source_desc, "rows_consumed": len(nodes),
-            }
-        try:
-            payload = json.loads(proc.stdout)
-        except json.JSONDecodeError:
-            return {
-                "status": "GH_UNAVAILABLE", "merged_prs": None, "commits": None,
-                "commits_per_pr": None, "source": source_desc, "rows_consumed": len(nodes),
-            }
-        conn = ((payload or {}).get("data") or {}).get("search")
-        if not isinstance(conn, dict):
-            return {
-                "status": "GH_UNAVAILABLE", "merged_prs": None, "commits": None,
-                "commits_per_pr": None, "source": source_desc, "rows_consumed": len(nodes),
-            }
-        page_total = conn.get("issueCount")
-        if isinstance(page_total, int) and not isinstance(page_total, bool):
-            total_count = page_total
-        page_nodes = conn.get("nodes")
-        if not isinstance(page_nodes, list):
-            return {
-                "status": "GH_UNAVAILABLE", "merged_prs": None, "commits": None,
-                "commits_per_pr": None, "source": source_desc, "rows_consumed": len(nodes),
-            }
-        nodes.extend(n for n in page_nodes if isinstance(n, dict))
-        page_info = conn.get("pageInfo")
-        if not isinstance(page_info, dict):
-            return {
-                "status": "INCOMPLETE_WINDOW", "merged_prs": len(nodes),
-                "commits": None, "commits_per_pr": None,
-                "source": source_desc, "rows_consumed": len(nodes),
-            }
-        if not page_info.get("hasNextPage"):
-            saw_last_page = True
-            break
-        next_cursor = page_info.get("endCursor")
-        if not isinstance(next_cursor, str) or not next_cursor:
-            return {
-                "status": "INCOMPLETE_WINDOW", "merged_prs": len(nodes),
-                "commits": None, "commits_per_pr": None,
-                "source": source_desc, "rows_consumed": len(nodes),
-            }
-        cursor = next_cursor
-
-    if not saw_last_page or total_count is None or len(nodes) != total_count:
+    status, nodes = _fetch_merged_pr_nodes(repo, q)
+    if status == "GH_UNAVAILABLE":
+        return {
+            "status": "GH_UNAVAILABLE", "merged_prs": None, "commits": None,
+            "commits_per_pr": None, "source": source_desc, "rows_consumed": len(nodes),
+        }
+    if status == "INCOMPLETE_WINDOW":
         return {
             "status": "INCOMPLETE_WINDOW",
             "merged_prs": len(nodes),
@@ -823,11 +860,16 @@ def _fetch_pr_window(repo: str, owner: str, name: str, start: datetime, end: dat
     }
 
 
+_SLUG_UNRESOLVED = object()
+
+
 def _pr_history_for_repo(
     repo: str, before_start: datetime, before_end: datetime,
     after_start: datetime, after_end: datetime, now: datetime,
+    slug=_SLUG_UNRESOLVED,
 ) -> dict:
-    slug = _gh_repo_slug(repo)
+    if slug is _SLUG_UNRESOLVED:
+        slug = _gh_repo_slug(repo)
     if slug is None:
         # A real git checkout with a resolvable `origin` remote that gh
         # still can't resolve (auth, access, gh missing/erroring) is
@@ -850,6 +892,412 @@ def _pr_history_for_repo(
         if before["commits_per_pr"] is not None and after["commits_per_pr"] is not None:
             delta = after["commits_per_pr"] - before["commits_per_pr"]
     return {"before": before, "after": after, "delta": delta, "note": None}
+
+
+# ---------------------------------------------------------------------------
+# Spawn telemetry (DS-246): agent_model and per_ticket
+# ---------------------------------------------------------------------------
+
+
+def _as_int(value) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isascii() and value.strip().isdigit():
+        return int(value)
+    return None
+
+
+def _collect_spawn_telemetry(repos: list[Path]) -> dict:
+    """Per repo: v2 hook spawn records (legacy rows excluded - see
+    bin/_telemetry.py's normalize_hook_spawns), the ticket ledger and
+    loop-state files. rows_total counts telemetry_v 2 hook spawn rows only,
+    so a store holding nothing newer than DS-246 reports ABSENT; the extent
+    is the INTERSECTION of each repo's own v2-row extent (see
+    _intersect_repo_extents)."""
+    spawns: list[tuple[str, object]] = []
+    ledger: list[tuple[str, dict]] = []
+    loop_states: dict[str, list[dict]] = {}
+    per_repo_extent: dict[str, tuple[datetime, datetime]] = {}
+    rows_total = 0
+    for repo in repos:
+        agentic = repo / ".agentic"
+        rows = _load_jsonl_rows(agentic / "events.jsonl")
+        v2_ts = []
+        for rec in rows:
+            data = rec.get("data")
+            if (rec.get("event") in ("spawn_start", "spawn_complete")
+                    and isinstance(data, dict) and data.get("source") == "hook"
+                    and data.get("telemetry_v") == 2):
+                ts = _parse_ts(rec.get("ts"))
+                if ts is not None:
+                    v2_ts.append(ts)
+        rows_total += len(v2_ts)
+        if v2_ts:
+            per_repo_extent[str(repo)] = (min(v2_ts), max(v2_ts))
+        spawns.extend(
+            (str(repo), rec)
+            for rec in _TELEMETRY.normalize_hook_spawns(rows, include_legacy=False)
+        )
+        ledger.extend((str(repo), row) for row in _load_jsonl_rows(agentic / "ticket-ledger.jsonl"))
+        state_paths = sorted(agentic.glob("loop-state-*.json")) if agentic.is_dir() else []
+        for path in state_paths:
+            try:
+                state = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(state, dict):
+                key = state.get("ticket_id") or path.stem[len("loop-state-"):]
+                loop_states.setdefault(str(key), []).append(state)
+    earliest, latest, limiting_early, limiting_late = _intersect_repo_extents(per_repo_extent)
+    return {
+        "spawns": spawns,
+        "ledger": ledger,
+        "loop_states": loop_states,
+        "earliest_ts": earliest,
+        "latest_ts": latest,
+        "limiting_repo_earliest": limiting_early,
+        "limiting_repo_latest": limiting_late,
+        "rows_total": rows_total,
+    }
+
+
+def _v2_coverage(spawn_data: dict) -> dict:
+    return {
+        "earliest": spawn_data["earliest_ts"].isoformat() if spawn_data["earliest_ts"] else None,
+        "latest": spawn_data["latest_ts"].isoformat() if spawn_data["latest_ts"] else None,
+        "rows_total": spawn_data["rows_total"],
+    }
+
+
+def _price_runs(items: list[tuple[str, dict]], rates: dict) -> dict:
+    """Price (model, run) pairs on each run's own run_tokens. Exact-id and
+    family-priced dollars are kept apart; a run without run_tokens is
+    counted, never priced as zero."""
+    by_model: dict[str, dict[str, int]] = {}
+    tokens_null_runs = 0
+    for model, run in items:
+        if run["run_tokens"] is None:
+            tokens_null_runs += 1
+            continue
+        bands = by_model.setdefault(model, dict.fromkeys(_TELEMETRY.BANDS, 0))
+        for band, count in _TELEMETRY.token_bands(run["run_tokens"]).items():
+            bands[band] += count
+    tokens = dict.fromkeys(_TELEMETRY.BANDS, 0)
+    exact = family = 0.0
+    family_models: set[str] = set()
+    unpriced: set[str] = set()
+    for model, bands in by_model.items():
+        for band, count in bands.items():
+            tokens[band] += count
+        priced = _TELEMETRY.price_tokens(model, bands, rates)
+        if priced is None or priced["total"] is None:
+            unpriced.add(model)
+        elif priced["match"] == "exact":
+            exact += priced["total"]
+        else:
+            family += priced["total"]
+            family_models.add(model)
+    return {
+        "tokens": tokens,
+        "tokens_null_runs": tokens_null_runs,
+        "dollars_exact": round(exact, 6),
+        "dollars_family_estimated": round(family, 6),
+        "family_priced_models": sorted(family_models),
+        "unpriced_models": sorted(unpriced),
+    }
+
+
+def _run_model(rec, run: dict) -> str:
+    return run["model"] or rec.model or "(unknown)"
+
+
+def _agent_model_side(spawn_data: dict, start: datetime, end: datetime,
+                      status: str, note: str | None, rates: dict,
+                      pricing_source: str | None) -> dict:
+    """Runs whose end_ts falls in [start, end), grouped by (agent, model).
+    Every value is null unless status is OK."""
+    side: dict = {"status": status, "note": note, "v2_coverage": _v2_coverage(spawn_data),
+                  "pricing_source": pricing_source}
+    if status != "OK":
+        side.update(rows=None, dollars_exact=None, dollars_family_estimated=None,
+                    family_priced_models=None, unpriced_models=None)
+        return side
+    groups: dict[tuple[str, str], dict] = {}
+    for repo, rec in spawn_data["spawns"]:
+        for run in rec.runs:
+            ts = _parse_ts(run["end_ts"])
+            if ts is None or not (start <= ts < end):
+                continue
+            model = _run_model(rec, run)
+            group = groups.setdefault((rec.agent, model), {"spawns": set(), "runs": []})
+            group["spawns"].add((repo, rec.spawn_id))
+            group["runs"].append(run)
+    rows = []
+    for (agent, model), group in sorted(groups.items()):
+        walls = [r["wall_seconds"] for r in group["runs"] if r["wall_seconds"] is not None]
+        priced = _price_runs([(model, r) for r in group["runs"]], rates)
+        rows.append({
+            "agent": agent,
+            "model": model,
+            "spawns": len(group["spawns"]),
+            "runs": len(group["runs"]),
+            "wall_seconds": sum(walls) if walls else None,
+            "wall_null_runs": len(group["runs"]) - len(walls),
+            **priced,
+        })
+    side.update(
+        rows=rows,
+        dollars_exact=round(sum(r["dollars_exact"] for r in rows), 6),
+        dollars_family_estimated=round(sum(r["dollars_family_estimated"] for r in rows), 6),
+        family_priced_models=sorted({m for r in rows for m in r["family_priced_models"]}),
+        unpriced_models=sorted({m for r in rows for m in r["unpriced_models"]}),
+    )
+    return side
+
+
+def _ticket_index(spawn_data: dict) -> dict[str, dict]:
+    """Every ticket named by a v2 spawn's task_id or a ledger row, with the
+    ts that places it in a window: its first v2 spawn, else its earliest
+    ledger opened_ts."""
+    index: dict[str, dict] = {}
+
+    def entry(ticket: str) -> dict:
+        return index.setdefault(ticket, {"recs": [], "repos": set(), "ledger": [],
+                                         "first_spawn_ts": None, "ledger_opened_ts": None})
+
+    for repo, rec in spawn_data["spawns"]:
+        if not rec.task_id:
+            continue
+        e = entry(str(rec.task_id))
+        e["recs"].append(rec)
+        e["repos"].add(repo)
+        first = _parse_ts(rec.start_ts) or _parse_ts(rec.runs[0]["end_ts"] if rec.runs else None)
+        if first is not None and (e["first_spawn_ts"] is None or first < e["first_spawn_ts"]):
+            e["first_spawn_ts"] = first
+    for repo, row in spawn_data["ledger"]:
+        ticket = row.get("ticket_id")
+        if not ticket:
+            continue
+        e = entry(str(ticket))
+        e["ledger"].append(row)
+        e["repos"].add(repo)
+        opened = _parse_ts(row.get("opened_ts"))
+        if opened is not None and (e["ledger_opened_ts"] is None or opened < e["ledger_opened_ts"]):
+            e["ledger_opened_ts"] = opened
+    return index
+
+
+def _title_matches(ticket: str, title: str) -> bool:
+    t = re.escape(ticket)
+    return re.match(rf"^\s*(?:\[{t}\]:?|{t}\s*:|[a-z]+\({t}\)!?:)", title, re.IGNORECASE) is not None
+
+
+def _branch_matches(ticket: str, head_ref: str) -> bool:
+    segment = head_ref.rsplit("/", 1)[-1]
+    return re.match(rf"^{re.escape(ticket)}(?![0-9])", segment, re.IGNORECASE) is not None
+
+
+def _attribute_prs(pr_nodes: dict[str, list[dict]], ledger: list[tuple[str, dict]],
+                   tickets: set[str]) -> tuple[dict[str, list[dict]], list[dict]]:
+    """A PR number a repo's ledger records is credited to every ledger
+    ticket recording it and leaves that repo's fallback pool. Any other PR
+    is credited by an anchored title prefix, else by the final
+    `/`-separated segment of headRefName; a fallback PR matching more than
+    one ticket is ambiguous and credited to none."""
+    credits: dict[str, list[dict]] = {}
+    ambiguous: list[dict] = []
+    for repo, nodes in pr_nodes.items():
+        ledger_map: dict[int, set[str]] = {}
+        for ledger_repo, row in ledger:
+            number = _as_int(row.get("pr_number"))
+            if ledger_repo == repo and number is not None and row.get("ticket_id"):
+                ledger_map.setdefault(number, set()).add(str(row["ticket_id"]))
+        for node in nodes:
+            number = _as_int(node.get("number"))
+            pr = {"repo": repo, "number": number, "merged_at": _parse_ts(node.get("mergedAt"))}
+            if number in ledger_map:
+                for ticket in ledger_map[number]:
+                    credits.setdefault(ticket, []).append(pr)
+                continue
+            title = node.get("title") or ""
+            hits = [t for t in tickets if _title_matches(t, title)]
+            if not hits:
+                head_ref = node.get("headRefName") or ""
+                hits = [t for t in tickets if _branch_matches(t, head_ref)]
+            if len(hits) == 1:
+                credits.setdefault(hits[0], []).append(pr)
+            elif hits:
+                ambiguous.append({"repo": repo, "number": number, "tickets": sorted(hits)})
+    return credits, ambiguous
+
+
+def _ticket_row(ticket: str, entry: dict, loop_states: list[dict], credited: list[dict],
+                pr_status: str, pr_cutoff: datetime, rates: dict) -> dict:
+    runs = [(rec, run) for rec in entry["recs"] for run in rec.runs]
+    skeptic_runs = [run for rec, run in runs if rec.agent == "skeptic"]
+    reviewed = [run for run in skeptic_runs if run["findings_count"] is not None]
+
+    ledger_rounds = [n for n in (_as_int(r.get("skeptic_rounds")) for r in entry["ledger"]) if n is not None]
+    ledger_skeptic_rounds = max(ledger_rounds) if ledger_rounds else None
+    skeptic_reviews, reviews_source = len(reviewed), "telemetry"
+    if not reviewed and ledger_skeptic_rounds is not None:
+        skeptic_reviews, reviews_source = ledger_skeptic_rounds, "ledger"
+    unit_counts = [n for n in (_as_int(r.get("unit_count")) for r in entry["ledger"]) if n is not None]
+    unit_count = max(max(unit_counts) if unit_counts else 1, 1)
+    findings = None
+    if reviewed:
+        findings = {
+            sev: sum(_as_int(run["findings_count"].get(sev)) or 0 for run in reviewed)
+            for sev in ("critical", "major", "minor")
+        }
+
+    iterations = [n for n in (_as_int(run["iteration"]) for run in skeptic_runs) if n is not None]
+    max_iteration, iteration_source = (max(iterations), "telemetry") if iterations else (None, None)
+    if max_iteration is None:
+        state_iters = [n for n in (_as_int((s.get("loop_state") or {}).get("iteration")) for s in loop_states)
+                       if n is not None]
+        if state_iters:
+            max_iteration, iteration_source = max(state_iters), "loop_state"
+
+    findings_log = [
+        f for s in loop_states for f in ((s.get("loop_state") or {}).get("findings_log") or [])
+        if isinstance(f, dict)
+    ]
+    keyed = [f for f in findings_log if "re_raised" in f]
+    re_raised = sum(1 for f in keyed if f["re_raised"] is True) if keyed else None
+
+    qa_runs = [run for rec, run in runs if rec.agent == "qa-engineer"]
+    qa_fail_backs = sum(1 for run in qa_runs if run["qa_result"] in QA_FAIL_RESULTS)
+
+    row = {
+        "ticket_id": ticket,
+        "first_spawn_ts": entry["first_spawn_ts"].isoformat() if entry["first_spawn_ts"] else None,
+        "skeptic_reviews": skeptic_reviews,
+        "skeptic_reviews_source": reviews_source,
+        "ledger_skeptic_rounds": ledger_skeptic_rounds,
+        "unit_count": unit_count,
+        "max_iteration": max_iteration,
+        "max_iteration_source": iteration_source,
+        "findings": findings,
+        "re_raised": re_raised,
+        "qa_runs": len(qa_runs),
+        "qa_fail_backs": qa_fail_backs,
+        "pr_status": pr_status,
+        "prs_merged": None,
+        "pr_numbers": None,
+        "final_merge_ts": None,
+        "e2e_wall_seconds": None,
+        "follow_up_prs": None,
+        "reentries_after_merge": None,
+        "post_merge_findings": None,
+        "loops": None,
+        **_price_runs([(_run_model(rec, run), run) for rec, run in runs], rates),
+    }
+    if pr_status != "OK":
+        return row
+
+    merged = sorted(
+        (pr for pr in credited if pr["merged_at"] is not None and pr["merged_at"] < pr_cutoff),
+        key=lambda pr: pr["merged_at"],
+    )
+    row["prs_merged"] = len(merged)
+    row["pr_numbers"] = [pr["number"] for pr in merged]
+    row["loops"] = (max(skeptic_reviews - unit_count, 0) + qa_fail_backs
+                    + max(len(merged) - unit_count, 0))
+    if not merged:
+        return row
+    first_merge = merged[0]["merged_at"]
+    final_merge = merged[-1]["merged_at"]
+    row["final_merge_ts"] = final_merge.isoformat()
+    if entry["first_spawn_ts"] is not None:
+        row["e2e_wall_seconds"] = (final_merge - entry["first_spawn_ts"]).total_seconds()
+    row["follow_up_prs"] = sum(1 for pr in merged if pr["merged_at"] > first_merge)
+    row["reentries_after_merge"] = sum(
+        1 for rec in entry["recs"]
+        if (start_ts := _parse_ts(rec.start_ts)) is not None
+        and start_ts > first_merge + REENTRY_AFTER_MERGE
+    )
+    if reviews_source == "telemetry":
+        row["post_merge_findings"] = sum(
+            (_as_int(run["findings_count"].get("critical")) or 0)
+            + (_as_int(run["findings_count"].get("major")) or 0)
+            for run in reviewed
+            if (end_ts := _parse_ts(run["end_ts"])) is not None and first_merge < end_ts < pr_cutoff
+        )
+    return row
+
+
+def _ticket_summary(rows: list[dict]) -> dict:
+    def present(key):
+        return [r[key] for r in rows if r[key] is not None]
+
+    loops = present("loops")
+    e2e = present("e2e_wall_seconds")
+    return {
+        "tickets": len(rows),
+        "loops_total": sum(loops) if loops else None,
+        "loops_mean": statistics.mean(loops) if loops else None,
+        "skeptic_reviews_total": sum(present("skeptic_reviews")),
+        "qa_fail_backs_total": sum(present("qa_fail_backs")),
+        "e2e_wall_seconds_median": statistics.median(e2e) if e2e else None,
+        "dollars_exact_total": round(sum(present("dollars_exact")), 6),
+        "dollars_family_estimated_total": round(sum(present("dollars_family_estimated")), 6),
+    }
+
+
+def _per_ticket_side(spawn_data: dict, index: dict[str, dict], start: datetime, end: datetime,
+                     status: str, note: str | None, credits: dict[str, list[dict]],
+                     ambiguous: list[dict], repo_pr_status: dict[str, str],
+                     pr_cutoff: datetime, rates: dict) -> dict:
+    """Tickets whose first v2 spawn (else earliest ledger opened_ts) falls
+    in [start, end). A ticket whose ledger opened_ts predates the v2
+    extent is listed in excluded_pre_v2, not reported; one with no ledger
+    row cannot be detected as pre-v2 and is anchored at its first v2
+    spawn. Every value is null unless status is OK."""
+    side: dict = {"status": status, "note": note, "v2_coverage": _v2_coverage(spawn_data)}
+    if status != "OK":
+        side.update(tickets=None, summary=None, excluded_pre_v2=None,
+                    ambiguous_prs=None, unattributed_runs=None)
+        return side
+    v2_start = spawn_data["earliest_ts"]
+    rows, excluded = [], []
+    for ticket in sorted(index):
+        entry = index[ticket]
+        anchor = entry["first_spawn_ts"] or entry["ledger_opened_ts"]
+        if anchor is None or not (start <= anchor < end):
+            continue
+        if entry["ledger_opened_ts"] is not None and entry["ledger_opened_ts"] < v2_start:
+            excluded.append(ticket)
+            continue
+        statuses = [repo_pr_status.get(repo, "NOT_FETCHED") for repo in sorted(entry["repos"])]
+        pr_status = next((s for s in statuses if s != "OK"), "OK")
+        rows.append(_ticket_row(ticket, entry, spawn_data["loop_states"].get(ticket, []),
+                                credits.get(ticket, []), pr_status, pr_cutoff, rates))
+    reported = {r["ticket_id"] for r in rows}
+    unattributed_runs = sum(
+        1 for _repo, rec in spawn_data["spawns"] if not rec.task_id
+        for run in rec.runs
+        if (ts := _parse_ts(run["end_ts"])) is not None and start <= ts < end
+    )
+    side.update(
+        tickets=rows,
+        summary=_ticket_summary(rows),
+        excluded_pre_v2=excluded,
+        ambiguous_prs=[a for a in ambiguous if reported & set(a["tickets"])],
+        unattributed_runs=unattributed_runs,
+    )
+    return side
+
+
+def _numeric_delta(before: dict, after: dict, keys: tuple[str, ...]) -> dict | None:
+    if before is None or after is None:
+        return None
+    return {
+        k: (after[k] - before[k]) if before.get(k) is not None and after.get(k) is not None else None
+        for k in keys
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -878,7 +1326,7 @@ def _raw_sum_is_zero(key_sum: str, window: dict) -> bool:
 
 def build_delta(
     repos: list[Path], cut_dt: datetime, window_days: int, now: datetime | None = None,
-    cut_source: str | None = None,
+    cut_source: str | None = None, pr_lookahead_days: int = PR_LOOKAHEAD_DAYS_DEFAULT,
 ) -> dict:
     """Compute the full delta report. `now` is injectable for tests
     (defaults to real wall-clock UTC at call time)."""
@@ -1007,22 +1455,92 @@ def build_delta(
         }
 
     # -- PR history (per repo) -------------------------------------------
+    slugs = {str(repo): _gh_repo_slug(str(repo)) for repo in repos}
     pr_history: dict = {}
     for repo in repos:
         pr_history[str(repo)] = _pr_history_for_repo(
-            str(repo), before_start, before_end, after_start, after_end, now
+            str(repo), before_start, before_end, after_start, after_end, now,
+            slug=slugs[str(repo)],
         )
+
+    # -- agent_model / per_ticket (DS-246 v2 spawn telemetry) --------------
+    spawn_data = _collect_spawn_telemetry(repos)
+    rates, pricing_source = _TELEMETRY.load_rates(True)
+    windows = {"before": (before_start, before_end, False), "after": (after_start, after_end, True)}
+    spawn_status: dict[str, tuple[str, str | None]] = {}
+    for side_name, (start, end, is_after) in windows.items():
+        status, note = _side_status(
+            window_rows_count=0,
+            total_rows_count=spawn_data["rows_total"],
+            earliest_ts=spawn_data["earliest_ts"],
+            latest_ts=spawn_data["latest_ts"],
+            limiting_repo_earliest=spawn_data["limiting_repo_earliest"],
+            limiting_repo_latest=spawn_data["limiting_repo_latest"],
+            window_start=start,
+            window_end=end,
+            now=now,
+            is_after_side=is_after,
+            is_session_ratio=False,
+        )
+        if status == "ABSENT":
+            note = "no telemetry_v 2 hook spawn rows (pre-DS-246 rows are never used)"
+        spawn_status[side_name] = (status, note)
+
+    index = _ticket_index(spawn_data)
+    lookahead = timedelta(days=pr_lookahead_days)
+    credits: dict[str, list[dict]] = {}
+    ambiguous: list[dict] = []
+    repo_pr_status: dict[str, str] = {}
+    if index and any(s == "OK" for s, _ in spawn_status.values()):
+        fetch_end = min(now, after_end + lookahead)
+        pr_nodes: dict[str, list[dict]] = {}
+        for repo in repos:
+            slug = slugs[str(repo)]
+            if slug is None:
+                repo_pr_status[str(repo)] = pr_history[str(repo)]["before"]["status"]
+                continue
+            status, nodes = _fetch_merged_pr_nodes(str(repo), _merged_pr_search(*slug, before_start, fetch_end))
+            repo_pr_status[str(repo)] = status
+            if status == "OK":
+                pr_nodes[str(repo)] = nodes
+        credits, ambiguous = _attribute_prs(pr_nodes, spawn_data["ledger"], set(index))
+
+    agent_model: dict = {}
+    per_ticket: dict = {}
+    for side_name, (start, end, _is_after) in windows.items():
+        status, note = spawn_status[side_name]
+        agent_model[side_name] = _agent_model_side(
+            spawn_data, start, end, status, note, rates, pricing_source
+        )
+        per_ticket[side_name] = _per_ticket_side(
+            spawn_data, index, start, end, status, note, credits, ambiguous,
+            repo_pr_status, min(now, end + lookahead), rates,
+        )
+    agent_model["delta"] = _numeric_delta(
+        agent_model["before"] if agent_model["before"]["status"] == "OK" else None,
+        agent_model["after"] if agent_model["after"]["status"] == "OK" else None,
+        ("dollars_exact", "dollars_family_estimated"),
+    )
+    per_ticket["delta"] = _numeric_delta(
+        per_ticket["before"]["summary"], per_ticket["after"]["summary"],
+        ("tickets", "loops_mean", "e2e_wall_seconds_median", "dollars_exact_total",
+         "dollars_family_estimated_total"),
+    )
 
     meta = {
         "cut_point_iso": cut_dt.isoformat(),
         "cut_source": cut_source,
         "window_days": window_days,
+        "pr_lookahead_days": pr_lookahead_days,
         "before_window": [before_start.isoformat(), before_end.isoformat()],
         "after_window": [after_start.isoformat(), after_end.isoformat()],
         "generated_at": now.isoformat(),
         "repos": [str(r) for r in repos],
     }
-    return {"meta": meta, "metrics": metrics, "pr_history": pr_history}
+    return {
+        "meta": meta, "metrics": metrics, "pr_history": pr_history,
+        "agent_model": agent_model, "per_ticket": per_ticket,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1067,6 +1585,30 @@ def _print_table(report: dict) -> None:
             f"after={_fmt_val(a['merged_prs'])}({a['status']}) "
             f"commits_per_pr_delta={_fmt_val(entry['delta'])}"
         )
+    print()
+    am = report["agent_model"]
+    print("agent_model (dollars exact / family-estimated):")
+    for side_name in ("before", "after"):
+        side = am[side_name]
+        print(
+            f"  {side_name}: {side['status']} "
+            f"${_fmt_val(side['dollars_exact'])} / ${_fmt_val(side['dollars_family_estimated'])}"
+        )
+        for row in side["rows"] or []:
+            print(
+                f"    {row['agent']:<20}{row['model']:<24}runs={row['runs']:<5}"
+                f"${_fmt_val(row['dollars_exact'])} / ${_fmt_val(row['dollars_family_estimated'])}"
+            )
+    pt = report["per_ticket"]
+    print("per_ticket:")
+    for side_name in ("before", "after"):
+        side = pt[side_name]
+        summary = side["summary"] or {}
+        print(
+            f"  {side_name}: {side['status']} tickets={_fmt_val(summary.get('tickets'))} "
+            f"loops_mean={_fmt_val(summary.get('loops_mean'))} "
+            f"e2e_wall_median={_fmt_val(summary.get('e2e_wall_seconds_median'))}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1086,12 +1628,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cut", required=True, help="git SHA or ISO8601 date/datetime")
     parser.add_argument("--cut-repo", default=None, help="repo to resolve --cut SHA against (default: first valid --repo)")
     parser.add_argument("--window-days", type=int, default=14)
+    parser.add_argument("--pr-lookahead-days", type=int, default=PR_LOOKAHEAD_DAYS_DEFAULT,
+                        help="days after a window's end still counted for its tickets' PRs")
     parser.add_argument("--repo", action="append", required=True, dest="repos")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
     if args.window_days <= 0:
         print("error: --window-days must be positive", file=sys.stderr)
+        return 2
+    if not 0 <= args.pr_lookahead_days <= MAX_WINDOW_DAYS:
+        print(f"error: --pr-lookahead-days must be between 0 and {MAX_WINDOW_DAYS}", file=sys.stderr)
         return 2
     if args.window_days > MAX_WINDOW_DAYS:
         print(
@@ -1122,7 +1669,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    report = build_delta(valid_repos, cut_dt, args.window_days, cut_source=cut_source)
+    report = build_delta(valid_repos, cut_dt, args.window_days, cut_source=cut_source,
+                         pr_lookahead_days=args.pr_lookahead_days)
 
     if args.json:
         print(json.dumps(report, indent=2, default=str))

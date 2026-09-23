@@ -23,6 +23,9 @@ ds-cost retro [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--author <handle>] [--j
 ```
 
 The CLI reads `.agentic/events.jsonl` from the current working directory.
+Run from a linked worktree, it also reads the hook `spawn_start`/`spawn_complete`
+rows in the primary checkout's `.agentic/events.jsonl`, where the hooks write
+them since DS-246.
 Output is a fixed-width table sorted by agent name, with a TOTAL row.
 Every output ends with the V1 disclosure footer (see "V1 scope" below).
 
@@ -36,7 +39,7 @@ qa-engineer 1        801      244      3001      9100      88.0
 TOTAL       14       25857    11204    112423    414330    1101.6
 
 Pricing not configured. Create ~/.agentic/pricing.yml to enable dollar columns.
-Note: all agent types are counted (hook-emitted spawn_start for ad-hoc sessions; conductor spawn_complete for /ds-implement-ticket sessions). Hook-spawn tokens render as n/a in the unpriced table (zeros in the priced table) UNLESS a paired hook-emitted spawn_complete resolved a real subagent transcript (post-DS-160 token resolution), in which case the real summed tokens are shown. Hook-spawn wall-time renders as n/a (unpriced table) or 0.0 (priced table) UNLESS a paired hook-emitted spawn_complete (DS-160) supplied a real wall_seconds figure for that spawn, in which case the real duration is shown.
+Note: all agent types are counted (hook-emitted spawn_start for ad-hoc sessions; conductor spawn_complete for /ds-implement-ticket sessions). Hook-spawn tokens render as n/a in the unpriced table (zeros in the priced table) UNLESS a paired hook-emitted spawn_complete resolved a real subagent transcript (post-DS-160 token resolution), in which case the real summed tokens are shown. Hook-spawn wall-time renders as n/a (unpriced table) or 0.0 (priced table) UNLESS a paired DS-246 hook spawn_complete supplied per-run wall_seconds for that spawn, in which case the summed run durations are shown.
 ```
 
 ## Output: pricing present
@@ -59,10 +62,12 @@ role is excluded. Hook-emitted spawns render token columns as `n/a` (or `0`
 in the priced table) unless a paired hook-emitted `spawn_complete` resolved
 a real subagent transcript (post-DS-160 token resolution), in which case the
 real summed tokens are shown. Hook-emitted spawns render wall-time as `n/a`
-(unpriced table) or `0.0` (priced table) unless a paired hook-emitted
-`spawn_complete` (DS-160) supplied a real `wall_seconds` figure for that
-spawn - which does not require transcript resolution - in which case the
-real duration is shown.
+(unpriced table) or `0.0` (priced table) unless a paired DS-246 hook
+`spawn_complete` supplied per-run `wall_seconds` - which does not require
+transcript resolution - in which case the run durations are summed.
+Pre-DS-246 hook wall times are not used. A resumed spawn counts once, with
+tokens taken from its last cumulative value, and its resolved model keys the
+dollar columns.
 
 This footer is appended to every `ds-cost session|task|project` output
 so users see the disclosure without reading the spec.
@@ -77,7 +82,12 @@ THIS SHAPE IS AN ILLUSTRATIVE EXAMPLE ONLY - the model ids below are
 placeholders, not real provider ids.
 Substitute your own current model ids and rates; `/ds-cost` looks up each
 event's recorded model string as a literal key into `models:`, so any id you
-use here works as long as it matches.
+use here works as long as it matches (a trailing `[...]` tag or `-YYYYMMDD`
+date suffix on the recorded id is ignored). A model priced only by family
+(e.g. an `opus` id with no exact entry) is listed as missing, not estimated.
+`cache_creation` is the 5-minute cache-write rate; an optional
+`cache_creation_1h` sets the 1-hour rate, which otherwise defaults to 2x
+`input`.
 
 ```
 updated: 2026-04-15

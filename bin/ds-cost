@@ -36,6 +36,15 @@ Upstream deps: Python 3 stdlib (json, sys, os, argparse, datetime, pathlib,
                bin/tests/test_agentic_cost_subcommands.py's pre-existing
                `_mod.EVENTS_PATH = events_path` monkeypatch contract still
                works.
+               bin/_telemetry.py (DS-246): merges the hook spawn rows the
+               hooks write to the PRIMARY checkout when EVENTS_PATH sits in
+               a linked worktree (PRIMARY_EVENTS_PATH overrides the derived
+               path; None derives it from EVENTS_PATH), folds hook spawns
+               into per-spawn records (model populated, tokens = the last
+               cumulative value, wall = the sum of DS-246 per-run walls;
+               pre-DS-246 hook walls are dropped), and prices tokens.
+               Dollars are exact-id matches only - a family-only match is
+               listed as missing, never estimated.
                Optional pyyaml soft dependency for ~/.agentic/pricing.yml
                parsing; absent pyyaml -> token-only output with the
                "Install pyyaml for pricing support." line.
@@ -82,8 +91,8 @@ V1_FOOTER = (
     "UNLESS a paired hook-emitted spawn_complete resolved a real subagent transcript "
     "(post-DS-160 token resolution), in which case the real summed tokens are shown. "
     "Hook-spawn wall-time renders as n/a (unpriced table) or 0.0 (priced table) UNLESS "
-    "a paired hook-emitted spawn_complete (DS-160) supplied a real wall_seconds figure "
-    "for that spawn, in which case the real duration is shown."
+    "a paired DS-246 hook spawn_complete supplied per-run wall_seconds for that spawn, "
+    "in which case the summed run durations are shown."
 )
 
 def _load_repo_root():
@@ -111,6 +120,21 @@ def _load_repo_root():
 _REPO_ROOT = _load_repo_root()
 
 
+def _load_telemetry():
+    import importlib.machinery as _ilm
+    import importlib.util as _ilu
+
+    loader = _ilm.SourceFileLoader(
+        "_telemetry", str(Path(__file__).resolve().parent / "_telemetry.py")
+    )
+    mod = _ilu.module_from_spec(_ilu.spec_from_loader("_telemetry", loader))
+    loader.exec_module(mod)
+    return mod
+
+
+_TELEMETRY = _load_telemetry()
+
+
 def _agentic_root() -> Path:
     """Resolved repo root anchoring every .agentic/ path below - instead of
     a bare relative Path(".agentic/...") that silently resolves against
@@ -133,25 +157,25 @@ def _agentic_root() -> Path:
 # as `PATH()`.
 EVENTS_PATH = _agentic_root() / ".agentic" / "events.jsonl"
 SESSION_LOG_DIR = _agentic_root() / ".agentic" / "session-log"
+PRIMARY_EVENTS_PATH: Path | None = None
 GLOBAL_SESSION_LOG_DIR = Path(os.path.expanduser("~/.agentic/session-log"))
 PRICING_PATH = Path(os.path.expanduser("~/.agentic/pricing.yml"))
 
 
 def _load_events() -> tuple[list[dict], int]:
-    if not EVENTS_PATH.is_file():
-        return [], 0
     events: list[dict] = []
     skipped = 0
-    with EVENTS_PATH.open("r", encoding="utf-8", errors="replace") as fh:
-        for raw in fh:
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                events.append(json.loads(raw))
-            except json.JSONDecodeError:
-                skipped += 1
-    return events, skipped
+    if EVENTS_PATH.is_file():
+        with EVENTS_PATH.open("r", encoding="utf-8", errors="replace") as fh:
+            for raw in fh:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    events.append(json.loads(raw))
+                except json.JSONDecodeError:
+                    skipped += 1
+    return _TELEMETRY.merge_primary_spawn_rows(EVENTS_PATH, events, PRIMARY_EVENTS_PATH), skipped
 
 
 def _load_pricing() -> tuple[dict | None, str | None, str | None]:
@@ -178,12 +202,16 @@ def _load_pricing() -> tuple[dict | None, str | None, str | None]:
     return models, str(updated) if updated else None, None
 
 
+_TOKEN_KEYS = ("input", "output", "cache_creation", "cache_read",
+               "cache_creation_5m", "cache_creation_1h")
+
+
 def _empty_tokens() -> dict:
-    return {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0}
+    return {k: 0 for k in _TOKEN_KEYS}
 
 
 def _add_tokens(dst: dict, src: dict) -> None:
-    for k in ("input", "output", "cache_creation", "cache_read"):
+    for k in _TOKEN_KEYS:
         dst[k] = dst.get(k, 0) + int(src.get(k, 0) or 0)
 
 
@@ -322,58 +350,16 @@ def _aggregate_by_agent(events: list[dict]) -> dict:
                 _bump(agent, wall, tokens, model)
             continue
 
-        # Pure ad-hoc session: dedup hook-emitted spawn_start events by
-        # spawn_id so each real spawn counts exactly once. Legacy spawn_start
-        # events written before DS-160 (no data.spawn_id) get a synthetic
-        # per-event key so they still count individually - back compat, no
-        # dedup possible without a correlation id.
-        _legacy_synthetic = itertools.count()
-        by_spawn_id: dict[str, dict] = {}
-        for ev in session_events:
-            data = ev.get("data") or {}
-            if ev.get("event") != "spawn_start" or data.get("source") != "hook":
+        # Pure ad-hoc session: one row per hook spawn_start (deduped by
+        # spawn_id; a pre-DS-160 start without one counts individually).
+        # A spawn_complete never creates a spawn count (DS-160 round-2 note
+        # above): a complete with no visible start comes back with
+        # start_ts None and is dropped. Tokens stay ABSENT, not zero-filled,
+        # when no complete resolved a transcript.
+        for rec in _TELEMETRY.normalize_hook_spawns(session_events, include_legacy=True):
+            if rec.start_ts is None:
                 continue
-            sid = data.get("spawn_id") or f"__legacy_{next(_legacy_synthetic)}__"
-            if sid not in by_spawn_id:
-                by_spawn_id[sid] = {
-                    "agent": ev.get("agent") or "(unknown)",
-                    "wall": 0.0,
-                    "tokens": None,
-                }
-        # A spawn_complete NEVER creates a new spawn count (see DS-160
-        # round-2 fix note above) - it only enriches an already-counted
-        # spawn_start's wall_seconds AND tokens (tokens as of the
-        # post-DS-160 token-resolution addition to
-        # hooks/subagent-stop-spawn-emit.js; see that file's header for how
-        # data.tokens is resolved, and why it is ABSENT rather than
-        # zero-filled when unresolvable - `data.get("tokens")` returns None
-        # in that case, which is exactly what keeps this enrichment from
-        # manufacturing a false zero-token contribution). Any other
-        # spawn_complete (unpaired, or paired to a spawn_id not present in
-        # by_spawn_id) is dropped.
-        for ev in session_events:
-            data = ev.get("data") or {}
-            if ev.get("event") != "spawn_complete" or data.get("source") != "hook":
-                continue
-            paired = data.get("paired_spawn_id")
-            if not paired:
-                continue
-            existing = by_spawn_id.get(paired)
-            if not existing:
-                continue
-            # A capped/suspect wall_seconds is emitted as None, not a
-            # fabricated ceiling value; `or 0` naturally contributes 0.
-            existing["wall"] = float(data.get("wall_seconds") or 0)
-            existing["agent"] = ev.get("agent") or existing["agent"]
-            tokens = data.get("tokens")
-            if tokens:
-                existing["tokens"] = tokens
-
-        for rec in by_spawn_id.values():
-            # No model on hook-emitted tokens (the hook does not read model
-            # off the transcript) - per-model dollar breakdown stays
-            # unavailable for hook-only sessions even once tokens resolve.
-            _bump(rec["agent"], rec["wall"], rec["tokens"], None)
+            _bump(rec.agent, rec.wall_seconds or 0.0, rec.tokens, rec.model)
 
     return agg
 
@@ -384,22 +370,25 @@ def _price_row(
     """Compute dollar breakdown for a single agent row keyed by model.
 
     Returns ({in,out,cache_cr,cache_rd,total} or None when any model is
-    unpriced, list_of_missing_model_names).
+    unpriced, list_of_missing_model_names). Only an exact pricing.yml id
+    prices a model; a family-only match is reported as missing.
     """
     dollars = {"input": 0.0, "output": 0.0,
                "cache_creation": 0.0, "cache_read": 0.0}
     missing: list[str] = []
     for model, toks in models_used.items():
-        rates = pricing.get(model)
-        if not isinstance(rates, dict):
+        priced = _TELEMETRY.price_tokens(model, toks, pricing)
+        if priced is None or priced["match"] != "exact":
             missing.append(model)
             continue
-        for k in ("input", "output", "cache_creation", "cache_read"):
-            r = rates.get(k)
-            if r is None:
-                missing.append(f"{model}.{k}")
-                continue
-            dollars[k] += (int(toks.get(k, 0) or 0) / 1_000_000) * float(r)
+        if priced["missing"]:
+            missing.extend(f"{model}.{band}" for band in priced["missing"])
+            continue
+        by_kind = priced["by_kind"]
+        dollars["input"] += by_kind["input"]
+        dollars["output"] += by_kind["output"]
+        dollars["cache_creation"] += by_kind["cache_creation_5m"] + by_kind["cache_creation_1h"]
+        dollars["cache_read"] += by_kind["cache_read"]
     if missing:
         return None, missing
     dollars["total"] = sum(dollars.values())
