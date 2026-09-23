@@ -124,6 +124,10 @@
 
 set -uo pipefail
 
+# -P is required: scenarios 6a and 7a compare REPO_DIR against a
+# `readlink -f` result, so a logical path containing a symlink component
+# (e.g. macOS's /tmp) would fail here on plain `pwd`. CI runs from an
+# unsymlinked path, so nothing there would catch a revert to plain `pwd`.
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd -P)"
 
 # shellcheck source=bin/tests/lib/precommit-hook-guard.sh
