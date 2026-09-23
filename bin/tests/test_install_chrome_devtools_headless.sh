@@ -17,6 +17,8 @@
 #                  prompt (a no-op install would otherwise pass vacuously)
 #            V1c - a refused write (symlinked config) -> the installer still
 #                  completes and the file behind the symlink is untouched
+#            V1d - an unparseable config       -> skipped with a message, never
+#                  replaced
 #
 #          The ae_confirm prompt reads /dev/tty, so each case runs under a real
 #          pseudo-terminal (python3 pty.fork) with the answer written once the
@@ -33,6 +35,7 @@
 #                case reddens
 #            (d) invert the refuse-guard's exit handling -> V1c reddens
 #            (e) drop ensure_ascii=False (re-encode non-ASCII) -> V2 reddens
+#            (f) call an unparseable config "absent" -> V1d reddens
 #          A mutation is a full copy of .claude/install.sh, so it must live in
 #          .claude/ too (REPO_DIR is derived from the script's own path). Those
 #          copies are removed by the exit trap.
@@ -52,9 +55,9 @@
 #                git shim below can escape its sandbox and mutate the LIVE
 #                primary checkout's pre-commit hook symlink - see Seed 5.
 #
-# Performance: ~5 s per install run; 7 install runs per invocation (4 cases
-#              plus 3 of the 4 mutations; the concurrent-writer mutations run
-#              no installer) on a warm tree.
+# Performance: ~5 s per install run; 11 install runs per invocation (5 cases
+#              plus 6 mutation runs of the installer; the concurrent-writer
+#              mutations run no installer) on a warm tree, so ~60 s total.
 
 set -uo pipefail
 
@@ -254,7 +257,9 @@ if pid == 0:
 out = bytearray()
 answered = set()
 eof = False
-deadline = time.time() + 120
+reaped = None
+started = time.time()
+deadline = started + 300
 
 while not eof and time.time() < deadline:
     try:
@@ -274,8 +279,9 @@ while not eof and time.time() < deadline:
             eof = True
             break
     else:
-        done, _ = os.waitpid(pid, os.WNOHANG)
+        done, st = os.waitpid(pid, os.WNOHANG)
         if done == pid:
+            reaped = st
             eof = True
             break
     for needle, answer in answers:
@@ -286,23 +292,55 @@ while not eof and time.time() < deadline:
                 pass
             answered.add(needle)
 
-done, status = os.waitpid(pid, os.WNOHANG)
-if done == 0:
+# The pty reaches EOF a moment before the process is reapable - it closes the
+# slave, then finishes exiting - so a single WNOHANG sample here reports a
+# completed install as a timeout on a loaded machine. Poll for a bounded grace
+# period instead, so only a process that really is stuck is ever killed.
+grace = time.time() + 30
+while reaped is None and time.time() < grace:
+    done, st = os.waitpid(pid, os.WNOHANG)
+    if done == pid:
+        reaped = st
+    else:
+        time.sleep(0.05)
+
+timed_out = reaped is None
+if timed_out:
     os.kill(pid, 9)
     os.waitpid(pid, 0)
-    sys.stdout.write(out.decode("utf-8", "replace"))
-    sys.stderr.write("\n[pty driver] install did not finish within 120s\n")
-    sys.exit(124)
+
+# The install can write its last line and exit inside the 0.25 s window of a
+# not-ready select, so the loop can break with those bytes still unread in the
+# pty buffer. Without this drain an assertion on the installer's final message
+# fails intermittently on a loaded machine.
+while True:
+    try:
+        if not select.select([master], [], [], 0)[0]:
+            break
+        chunk = os.read(master, 65536)
+    except OSError:
+        break
+    if not chunk:
+        break
+    out += chunk
 
 sys.stdout.write(out.decode("utf-8", "replace"))
-if os.WIFEXITED(status):
-    sys.exit(os.WEXITSTATUS(status))
-sys.exit(128 + os.WTERMSIG(status))
+elapsed = time.time() - started
+if timed_out:
+    sys.stderr.write(
+        "\n[pty driver] install did not finish within %ds (%.1fs elapsed)\n"
+        % (int(deadline - started), elapsed))
+    sys.exit(124)
+if elapsed > 30:
+    sys.stderr.write("\n[pty driver] install took %.1fs\n" % elapsed)
+if os.WIFEXITED(reaped):
+    sys.exit(os.WEXITSTATUS(reaped))
+sys.exit(128 + os.WTERMSIG(reaped))
 PYEOF
 }
 
 # ---------------------------------------------------------------------------
-# The three R2 cases.
+# The five installer-driven cases.
 # ---------------------------------------------------------------------------
 
 # V1: no prior chrome-devtools registration.
@@ -485,6 +523,42 @@ case_v1c_refusal_nonfatal() {
   return 0
 }
 
+# V1d: an unparseable config is never rewritten. The chrome-devtools block
+# skips it with a message rather than replacing a file it cannot read.
+case_v1d_unparseable() {
+  local script="$1" out rc
+  local home="$TMP_ROOT/v1d-home"
+  mkdir -p "$home"
+  seed_home "$home"
+  printf '{"mcpServers": {"chrome-devtools": {"args": ["chrome-devtools-mcp@latest"]}\n' > "$home/.claude.json"
+  cp "$home/.claude.json" "$TMP_ROOT/v1d-before.json"
+
+  # The atlassian block runs its own check on the same file and, finding
+  # nothing, prompts. The chrome-devtools answer is listed only so a mutated
+  # installer that wrongly classifies this file as absent cannot hang the pty
+  # for the whole driver deadline; the unmutated run never reaches it.
+  out="$(run_install "$script" "$home" '[["Configure chrome-devtools MCP", "y\n"], ["mcp-atlassian MCP", "n\n"]]')"
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    _fail "V1d: install exited $rc"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if ! grep -q "could not be read as JSON" <<< "$out"; then
+    _fail "V1d: an unparseable config did not produce the skip message"
+    return 1
+  fi
+  if grep -q "Configure chrome-devtools MCP" <<< "$out"; then
+    _fail "V1d: an unparseable config was offered the registration prompt anyway"
+    return 1
+  fi
+  if ! cmp -s "$TMP_ROOT/v1d-before.json" "$home/.claude.json"; then
+    _fail "V1d: an unparseable config was modified"
+    return 1
+  fi
+  return 0
+}
+
 # ---------------------------------------------------------------------------
 # Concurrent-writer guard. The window between the writer's read and its
 # pre-rename re-stat is microseconds, so this runs the SHIPPED writer block
@@ -493,9 +567,21 @@ case_v1c_refusal_nonfatal() {
 # process while it is open.
 # ---------------------------------------------------------------------------
 extract_writer() {
-  awk '/^import json, os, stat, sys, tempfile$/{f=1} f{print} f&&/^PYEOF$/{exit}' "$INSTALL_SH" > "$1"
+  # Stops BEFORE the heredoc's terminating PYEOF, which is shell syntax, not
+  # Python: leaving it in makes the extracted block raise NameError at its last
+  # line, so an unmutated-looking run would fail on a traceback instead of on
+  # the guard under test.
+  awk '
+    /^import json, os, stat, sys, tempfile$/ { f=1 }
+    f && /^PYEOF$/ { exit }
+    f { print }
+  ' "$INSTALL_SH" > "$1"
   if ! grep -q "os.replace(tmp_path, target)" "$1"; then
     _fail "could not extract the shipped writer block from $INSTALL_SH (anchor line moved?)"
+    return 1
+  fi
+  if ! python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$1"; then
+    _fail "the extracted writer block from $INSTALL_SH is not valid Python"
     return 1
   fi
   return 0
@@ -571,8 +657,12 @@ mutate_installer() {
   return 0
 }
 
+# expect_case_fails <label> <case-fn> <install-script> <expected-reason>
+# The case must fail, and it must fail on the assertion the mutation targets.
+# Without the reason check the pty driver's own timeout reddens the case and the
+# mutation gets credited with coverage it never demonstrated.
 expect_case_fails() {
-  local label="$1" fn="$2" script="$3"
+  local label="$1" fn="$2" script="$3" want="$4"
   if ( "$fn" "$script" ) >"$TMP_ROOT/expect-fail.out" 2>"$TMP_ROOT/expect-fail.err"; then
     _fail "$label: the case unexpectedly PASSED against the mutated installer"
     tail -5 "$TMP_ROOT/expect-fail.out" >&2
@@ -582,7 +672,16 @@ expect_case_fails() {
   # unrelated reason cannot be mistaken for targeted coverage.
   local reason
   reason="$(grep '^FAIL:' "$TMP_ROOT/expect-fail.err" | tail -1)"
-  [[ -n "$reason" ]] && echo "    (!) $reason"
+  if [[ -z "$reason" ]]; then
+    _fail "$label: the case failed without naming an assertion"
+    return 1
+  fi
+  echo "    (!) $reason"
+  if [[ "$reason" != *"$want"* ]]; then
+    _fail "$label: reddened for an unrelated reason (wanted '$want')"
+    tail -15 "$TMP_ROOT/expect-fail.err" >&2
+    return 1
+  fi
   return 0
 }
 
@@ -607,6 +706,11 @@ run_case "V1c: the symlink refusal is reported, non-fatal, and leaves the file u
   case_v1c_refusal_nonfatal "$INSTALL_SH"
 
 echo ""
+echo "=== V1d: an unparseable config is never rewritten ==="
+run_case "V1d: a config that is not JSON is skipped, not replaced" \
+  case_v1d_unparseable "$INSTALL_SH"
+
+echo ""
 echo "=== Concurrent-writer guard ==="
 if extract_writer "$TMP_ROOT/writer.py" && inject_delay "$TMP_ROOT/writer.py" "$TMP_ROOT/writer_slow.py"; then
   run_case "concurrent-writer: a file changed under the writer is refused, not clobbered" \
@@ -616,7 +720,8 @@ fi
 echo ""
 echo "=== Mutations (each must redden the case it targets) ==="
 if mutate_installer 's/^    args.append("--headless")$/    pass/' no-headless; then
-  if expect_case_fails "mutation (a) no --headless append" case_v1_fresh "$MUTATE_OUT"; then
+  if expect_case_fails "mutation (a) no --headless append" case_v1_fresh "$MUTATE_OUT" \
+    "V1: the fresh registration does not carry the headless flags"; then
     _pass "mutation (a): dropping the --headless append reddens V1"
   fi
 else
@@ -624,18 +729,30 @@ else
 fi
 
 if mutate_installer 's/^elif "--headless" in args and any(a\.startswith("--user-data-dir=") for a in args):$/elif True:/' short-circuit; then
-  if expect_case_fails "mutation (b) pre-U3 short-circuit" case_v2_accepted "$MUTATE_OUT"; then
+  if expect_case_fails "mutation (b) pre-U3 short-circuit" case_v2_accepted "$MUTATE_OUT" \
+    "V2: the migration prompt was never reached"; then
     _pass "mutation (b): treating any existing key as current reddens V2"
   fi
-  if expect_case_fails "mutation (b) pre-U3 short-circuit" case_v1b_declined "$MUTATE_OUT"; then
+  if expect_case_fails "mutation (b) pre-U3 short-circuit" case_v1b_declined "$MUTATE_OUT" \
+    "V1b: the migration prompt was never reached"; then
     _pass "mutation (b): treating any existing key as current reddens V1b"
   fi
 else
   _fail "mutation (b): the sed pattern no longer matches - the mutation was NOT applied"
 fi
 
+if mutate_installer 's/    print("unreadable")/    print("absent")/' treat-unparseable-as-absent; then
+  if expect_case_fails "mutation (f) unparseable treated as absent" case_v1d_unparseable "$MUTATE_OUT" \
+    "V1d: an unparseable config did not produce the skip message"; then
+    _pass "mutation (f): calling an unparseable config absent reddens V1d"
+  fi
+else
+  _fail "mutation (f): the sed pattern no longer matches - the mutation was NOT applied"
+fi
+
 if mutate_installer 's/indent=2, ensure_ascii=False/indent=2/' ascii-escape; then
-  if expect_case_fails "mutation (e) ensure_ascii default" case_v2_accepted "$MUTATE_OUT"; then
+  if expect_case_fails "mutation (e) ensure_ascii default" case_v2_accepted "$MUTATE_OUT" \
+    "V2: accepting the migration changed something beyond"; then
     _pass "mutation (e): re-encoding non-ASCII reddens V2"
   fi
 else
@@ -643,7 +760,8 @@ else
 fi
 
 if mutate_installer 's/if ! python3 - /if python3 - /' invert-guard; then
-  if expect_case_fails "mutation (d) inverted refuse-guard" case_v1c_refusal_nonfatal "$MUTATE_OUT"; then
+  if expect_case_fails "mutation (d) inverted refuse-guard" case_v1c_refusal_nonfatal "$MUTATE_OUT" \
+    "V1c: install did not report the refusal as a no-op"; then
     _pass "mutation (d): inverting the refuse-guard's exit handling reddens V1c"
   fi
 else
@@ -654,7 +772,8 @@ if [[ -f "$TMP_ROOT/writer_slow.py" ]]; then
   sed 's/^    if moved:$/    if False:/' "$TMP_ROOT/writer_slow.py" > "$TMP_ROOT/writer_unguarded.py"
   if cmp -s "$TMP_ROOT/writer_slow.py" "$TMP_ROOT/writer_unguarded.py"; then
     _fail "mutation (c): could not remove the pre-rename guard (pattern no longer matches)"
-  elif expect_case_fails "mutation (c) no pre-rename guard" case_concurrent_writer "$TMP_ROOT/writer_unguarded.py"; then
+  elif expect_case_fails "mutation (c) no pre-rename guard" case_concurrent_writer "$TMP_ROOT/writer_unguarded.py" \
+    "concurrent-writer: the writer overwrote a file that changed under it"; then
     _pass "mutation (c): dropping the pre-rename re-stat reddens the concurrent-writer case"
   fi
 fi
