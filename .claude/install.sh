@@ -2031,8 +2031,11 @@ if [[ "$CD_MCP_STATE" == "current" ]]; then
 elif [[ "$CD_MCP_STATE" == "unreadable" ]]; then
   echo "  ! $CLAUDE_JSON could not be read as JSON - leaving the chrome-devtools MCP entry untouched"
 else
+  echo "  chrome-devtools launches Chrome HEADLESS: an agent-driven browser opens no window, so watching a"
+  echo "  page load live is gone (screenshots and script evaluation still work). To get the window back,"
+  echo "  remove --headless from its args in $CLAUDE_JSON; the next session picks that up."
   if [[ "$CD_MCP_STATE" == "stale" ]]; then
-    CD_MCP_QUESTION="  Update the existing chrome-devtools MCP registration to launch Chrome headless (no visible window) with a pinned profile root? [y/N] "
+    CD_MCP_QUESTION="  Update the existing chrome-devtools MCP registration to launch Chrome headless with a pinned profile root? [y/N] "
   else
     CD_MCP_QUESTION="  Configure chrome-devtools MCP - inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] "
   fi

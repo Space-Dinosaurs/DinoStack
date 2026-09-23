@@ -36,6 +36,8 @@
 #            (d) invert the refuse-guard's exit handling -> V1c reddens
 #            (e) drop ensure_ascii=False (re-encode non-ASCII) -> V2 reddens
 #            (f) call an unparseable config "absent" -> V1d reddens
+#            (g) drop the trade-off statement printed before the accept prompt
+#                -> V2 and V1 redden
 #          A mutation is a full copy of .claude/install.sh, so it must live in
 #          .claude/ too (REPO_DIR is derived from the script's own path). Those
 #          copies are removed by the exit trap.
@@ -55,9 +57,9 @@
 #                git shim below can escape its sandbox and mutate the LIVE
 #                primary checkout's pre-commit hook symlink - see Seed 5.
 #
-# Performance: ~5 s per install run; 11 install runs per invocation (5 cases
-#              plus 6 mutation runs of the installer; the concurrent-writer
-#              mutations run no installer) on a warm tree, so ~60 s total.
+# Performance: ~5 s per install run; 13 install runs per invocation (5 cases
+#              plus 8 mutation runs of the installer; the concurrent-writer
+#              mutations run no installer) on a warm tree, so ~70 s total.
 
 set -uo pipefail
 
@@ -365,6 +367,10 @@ case_v1_fresh() {
     _fail "V1: the registration prompt was never reached"
     return 1
   fi
+  if ! grep -q "remove --headless from its args" <<< "$out"; then
+    _fail "V1: the trade-off and the way back were not stated at the accept prompt"
+    return 1
+  fi
 
   python3 - "$home/.claude.json" "$(expected_args_json "$home")" <<'PYEOF'
 import json, sys
@@ -408,6 +414,18 @@ case_v2_accepted() {
   fi
   if grep -q "chrome-devtools MCP already configured" <<< "$out"; then
     _fail "V2: install reported the entry as already configured"
+    return 1
+  fi
+
+  # R6: the capability the change removes must be stated WHERE THE OPERATOR IS
+  # ASKED TO ACCEPT IT, together with a one-step way back. Ordering is the
+  # load-bearing half - the same sentence printed after the prompt would not
+  # inform the decision the prompt asks for.
+  local trade_off_at prompt_at
+  trade_off_at="$(grep -n "remove --headless from its args" <<< "$out" | head -1 | cut -d: -f1)"
+  prompt_at="$(grep -n "Update the existing chrome-devtools MCP" <<< "$out" | head -1 | cut -d: -f1)"
+  if [[ -z "$trade_off_at" || -z "$prompt_at" || "$trade_off_at" -ge "$prompt_at" ]]; then
+    _fail "V2: the trade-off and the way back are not stated before the accept prompt"
     return 1
   fi
 
@@ -653,6 +671,16 @@ mutate_installer() {
     MUTATE_OUT=""
     return 1
   fi
+  # A sed range whose end pattern never matches deletes to EOF, and the cases
+  # then redden because the installer is truncated rather than because of the
+  # behaviour under test. Reject a syntactically broken mutation here so that
+  # failure cannot be credited as coverage.
+  if ! bash -n "$out"; then
+    rm -f "$out"
+    MUTATE_OUT=""
+    _fail "mutation $tag produced a script with a shell syntax error"
+    return 1
+  fi
   MUTATE_OUT="$out"
   return 0
 }
@@ -739,6 +767,19 @@ if mutate_installer 's/^elif "--headless" in args and any(a\.startswith("--user-
   fi
 else
   _fail "mutation (b): the sed pattern no longer matches - the mutation was NOT applied"
+fi
+
+if mutate_installer '/^  echo "  chrome-devtools launches Chrome HEADLESS/,/remove --headless from its args/d' drop-trade-off; then
+  if expect_case_fails "mutation (g) drop the R6 trade-off statement" case_v2_accepted "$MUTATE_OUT" \
+    "V2: the trade-off and the way back are not stated before the accept prompt"; then
+    _pass "mutation (g): dropping the trade-off statement reddens V2"
+  fi
+  if expect_case_fails "mutation (g) drop the R6 trade-off statement" case_v1_fresh "$MUTATE_OUT" \
+    "V1: the trade-off and the way back were not stated at the accept prompt"; then
+    _pass "mutation (g): dropping the trade-off statement reddens V1's fresh path too"
+  fi
+else
+  _fail "mutation (g): the sed pattern no longer matches - the mutation was NOT applied"
 fi
 
 if mutate_installer 's/    print("unreadable")/    print("absent")/' treat-unparseable-as-absent; then
