@@ -6002,7 +6002,7 @@ Upstream deps: content/sections/05-qa-gate.md (parent section; read that
                section first for the QA-fires invariant, skip enums,
                diff-read rule, and re-route limits);
                content/agents/qa-engineer.md (track-scoped qa.md resolution);
-               content/references/worktree-lifecycle.md (§Dev-server process
+               content/references/worktree-lifecycle.md (§Agent-spawned process
                lifetime ownership, cited by the dev-server boot pattern above).
 
 Downstream consumers: qa-engineer spawns (boot pattern, fan-out commands);
