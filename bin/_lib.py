@@ -97,9 +97,11 @@ Public API:
     per-test-mutable ceiling (bin/ds-skill-load-rate's
     test_oversize_file_is_unreadable) reassigns its OWN module-level copy
     of the name, exactly as it did before the constant lived here; this
-    module's own value is never touched by that reassignment. Mirrors
-    hooks/subagent-stop-spawn-emit.js's MAX_TRANSCRIPT_BYTES, which cannot
-    share this definition (different language, different process).
+    module's own value is never touched by that reassignment. Deliberately
+    NOT equal to hooks/subagent-stop-spawn-emit.js's MAX_TRANSCRIPT_BYTES
+    (256 MiB since DS-246, which streams the file): these consumers
+    (ds-learnings-retrieval-rate, ds-skill-load-rate) read whole files, so
+    the smaller cap stays.
 
   transcript_is_oversize_or_unreadable(path, max_bytes)
     True iff path.stat() raises OSError, or the stat'd size is >= max_bytes.
