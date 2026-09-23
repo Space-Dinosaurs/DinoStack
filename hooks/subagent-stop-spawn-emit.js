@@ -13,7 +13,7 @@
  *          observed to fire on well under 1% of real spawns (6 of ~1,640
  *          spawn_start records in this repo's own events.jsonl, none after
  *          2026-07-10). This hook closes that gap: it appends a
- *          `spawn_complete` event to [cwd]/.agentic/events.jsonl on every
+ *          `spawn_complete` event to [primary root]/.agentic/events.jsonl on every
  *          subagent completion, with `data.source:"hook"` (same convention
  *          as hooks/pre-tool-use-spawn-emit.js's hook-emitted spawn_start),
  *          independent of whether the conductor also emits its own richer
@@ -29,6 +29,43 @@
  *          hook's own event is still written to disk either way (telemetry
  *          write is unconditional and does not know about session type);
  *          it is the CONSUMER that decides whether to count it.
+ *
+ *          DS-246 (telemetry v2, `data.telemetry_v: 2`). Supersedes the
+ *          pairing, wall and token paragraphs below where they differ:
+ *          - Root: rows go to the PRIMARY checkout's events.jsonl
+ *            (lib/spawn-events.js), so a stop whose cwd is a linked
+ *            isolation worktree is not lost with the worktree.
+ *          - Internal agents: a stop with an empty or absent payload
+ *            `agent_type` and no sidecar file is a harness-internal agent;
+ *            it writes one `subagent_stop_internal` row and never consumes
+ *            a spawn_start. Every other stop yields a spawn_complete, with
+ *            `tokens_note` naming the tiers tried when no transcript
+ *            resolves (resolveSubagentFiles()).
+ *          - Pairing (findMatch()): exact tool_use_id over ALL this
+ *            session's hook starts, paired or not, then FIFO over unpaired
+ *            starts of the SAME agent type; no FIFO without a type.
+ *          - Runs: every completion is one run. `run_index` = prior paired
+ *            hook completions of the start + 1 (`pair_method: "resume"`
+ *            for k > 1); `wall_seconds` covers this run only - from the
+ *            start for run 1, from the transcript's resume boundary
+ *            (`run_start_ts`) for a later run, else null plus `wall_note`.
+ *          - Tokens: deduped per `message.id`, cumulative in `tokens`, this
+ *            run's share in `run_tokens`, both with
+ *            `cache_creation_5m`/`cache_creation_1h`. The transcript cap is
+ *            MAX_TRANSCRIPT_BYTES (256 MiB), read streamed in one pass that
+ *            also yields the run's last assistant text for the Skeptic and
+ *            QA parses (no second read).
+ *          - Model: transcript `message.model` first (never `<synthetic>`),
+ *            else the sidecar alias unless `inherit`; `model_source` says
+ *            which.
+ *          - task_id: copied from the paired start (`task_id_source:
+ *            "paired_start"`), else lib/active-ticket.js with the sidecar's
+ *            `description` and `toolUseId`.
+ *          - qa-engineer: `qa_result` (PASS/FAIL/PARTIAL/INCONCLUSIVE/
+ *            BLOCKED) and `qa_blocking_count` from the run's last text, or
+ *            `qa_result_note`.
+ *          - Label: sidecar `agentType`, then payload `agent_type`
+ *            (`agent_source: "payload"`), then the paired start.
  *
  *          Pairing: this hook does NOT receive the launching PreToolUse
  *          call's `spawn_id` directly from the harness (SubagentStop's
@@ -94,9 +131,10 @@
  *          rather than trusted outright - guards against a stale/mismatched
  *          pairing silently inflating a cost/telemetry rollup.
  *
- * Public API: run() - invoked immediately at module load via run() call at
- *             the bottom of the file. Not imported in production; executed
- *             as a CLI script by the Claude Code SubagentStop hook.
+ * Public API: run() - invoked when executed as a script (require.main ===
+ *             module) by the Claude Code SubagentStop hook. Exported for
+ *             in-process tests only: scanTranscript, findMatch,
+ *             isInternalAgent, parseQaResult, resolveSubagentFiles.
  *
  * Upstream deps: Node built-ins only (fs, path, os via
  *                hooks/lib/config-dir.js, child_process for the M2
@@ -137,7 +175,14 @@
  *                both WRITTEN by hooks/enforce-skeptic-round-cap.py, making
  *                this hook a READ-ONLY consumer of that hook's state, never
  *                a writer of it.
- *                Writes [cwd]/.agentic/events.jsonl via appendFileSync.
+ *                Writes [primary root]/.agentic/events.jsonl via appendFileSync.
+ *                DS-246 additions: lib/spawn-events.js (spawnEventsPath,
+ *                streamLines), lib/repo-root.js resolveMainRepoRoot,
+ *                lib/active-ticket.js (resolveActiveTicket; may write its
+ *                .ticket-scan-<session>.json cache under the cwd root, the
+ *                same place the PreToolUse hook writes it).
+ *                resolveActiveTicket and readRoundState() read the cwd
+ *                root; readRoundState() then falls back to the primary root.
  *
  * Downstream consumers: Claude Code SubagentStop hook (wired by
  *                        .claude/install.sh). hooks/stop-context.js
@@ -240,7 +285,7 @@
  *                `data.tokens_note` is
  *                `"unavailable (transcript unreadable)"`, and no `tokens`
  *                key is emitted either way. A transcript at or above
- *                MAX_TRANSCRIPT_BYTES (20 MiB) is SKIPPED entirely
+ *                MAX_TRANSCRIPT_BYTES (256 MiB) is SKIPPED entirely
  *                (`data.tokens_note: "skipped (transcript too large)"`) -
  *                never partial-summed, same never-fabricate principle as
  *                the `wall_seconds` sanity-cap treatment above. `tokens`
@@ -294,19 +339,17 @@
  *              transcript path), an optional bounded readdirSync scan
  *              (first MAX_PROJECT_DIRS_SCAN entries under
  *              configDir/projects, only on primary-path miss), and one
- *              synchronous fs.readFileSync of the resolved transcript,
- *              size-capped at MAX_TRANSCRIPT_BYTES (20 MiB) - a transcript
+ *              chunked streamLines read of the resolved transcript,
+ *              size-capped at MAX_TRANSCRIPT_BYTES (256 MiB) - a transcript
  *              at or above that size is skipped entirely rather than read.
  *
  *              Round-3 fix (M3): two calibration-only contributors, both
  *              added by DS-178 unit A and both previously undocumented
  *              here, only run for a Skeptic completion (agentName ===
  *              "skeptic"), never for any other agent. (1)
- *              parseSkepticSignoff() performs a SECOND, independent
- *              statSync + readFileSync + full JSONL parse of the SAME
- *              transcript scanTranscript() already read above - measured
- *              48ms on top of scanTranscript's 50ms at a 19 MiB transcript
- *              on the machine this was built on. (2) resolveDiffLines()
+ *              parseSkepticSignoff() parses the run's last assistant text
+ *              that scanTranscript() already extracted (DS-246 removed its
+ *              second read of the transcript). (2) resolveDiffLines()
  *              shells out to `git diff --shortstat` via execFileSync,
  *              bounded by DIFF_SHORTSTAT_TIMEOUT_MS (3000ms) - 60% of the
  *              hook's overall 5s timeout budget on its own, the largest
@@ -346,7 +389,9 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { readStdinGuarded } = require('./lib/stdin-guard.js');
 const { resolveClaudeConfigDir } = require('./lib/config-dir.js');
-const { resolveAgenticCwd } = require('./lib/repo-root.js');
+const { resolveAgenticCwd, resolveMainRepoRoot } = require('./lib/repo-root.js');
+const { spawnEventsPath, streamLines } = require('./lib/spawn-events.js');
+const { resolveActiveTicket } = require('./lib/active-ticket.js');
 
 // Timeout for the best-effort `git diff --shortstat` subprocess used to
 // resolve `data.diff_lines` (M2) - mirrors the bounded-subprocess pattern
@@ -370,7 +415,7 @@ const MAX_PROJECT_DIRS_SCAN = 1000;
 
 // A transcript at or above this size is SKIPPED entirely (never
 // partial-summed) - see the token-resolution doc-comment note above.
-const MAX_TRANSCRIPT_BYTES = 20 * 1024 * 1024;
+const MAX_TRANSCRIPT_BYTES = 256 * 1024 * 1024;
 
 /**
  * Claude Code's cwd->project-hash substitution scheme: every '/' becomes
@@ -381,263 +426,291 @@ function projectHashFromCwd(cwd) {
 }
 
 /**
- * Resolve a subagent-scoped file's path under <configDir>/projects/, or
- * null when unresolvable. Shared by resolveTranscriptPath() (the `.jsonl`
- * transcript) and resolveSidecarPath() (the DS-178 `.meta.json` sidecar) -
- * both files live in the SAME directory (<configDir>/projects/
- * <projectHash(cwd)>/<sessionId>/subagents/), differing only in filename.
- * Requires both sessionId and agentId (the harness-supplied SubagentStop
- * agent_id, best-effort - see the field read in run()); without agentId
- * there is no way to select which file under a session belongs to THIS
- * subagent, so this function does not guess.
- *
- * Primary: <configDir>/projects/<projectHash(cwd)>/<sessionId>/subagents/
- *          <filename>
- * Fallback: the same filename under the first MAX_PROJECT_DIRS_SCAN
- *           entries of readdirSync(<configDir>/projects) - bounded scan,
- *           not an unbounded glob.
+ * DS-246: resolve this subagent's transcript (`agent-<id>.jsonl`) and
+ * `.meta.json` sidecar, each independently, trying in order:
+ *   agent_transcript_path  - the payload's own path (sidecar = sibling)
+ *   parent_session         - <dirname(payload.transcript_path)>/<sid>/subagents/
+ *   cwd_hash               - <configDir>/projects/<hash(cwd)>/<sid>/subagents/
+ *   main_root_hash         - the same under hash(primary checkout root)
+ *   scan                   - the first MAX_PROJECT_DIRS_SCAN project dirs
+ * Returns {transcriptPath, transcriptSource, sidecarPath, tried[]}; paths are
+ * null when unresolved, and `tried` names every tier attempted for the
+ * transcript so an unresolved row can say where it looked. Requires agentId -
+ * without it there is no way to select THIS subagent's files.
  */
-function resolveSubagentFile(configDir, cwd, sessionId, agentId, filename) {
-  if (!sessionId || !agentId) return null;
-
-  const projectHash = projectHashFromCwd(cwd);
-  const primary = path.join(
-    configDir, 'projects', projectHash, sessionId, 'subagents', filename
-  );
-  try {
-    if (fs.statSync(primary).isFile()) return primary;
-  } catch (_) { /* fall through to bounded scan */ }
-
-  const projectsDir = path.join(configDir, 'projects');
-  let entries;
-  try {
-    entries = fs.readdirSync(projectsDir);
-  } catch (_) {
-    return null;
+function resolveSubagentFiles(configDir, payload, cwd, mainRoot, sessionId, agentId) {
+  const out = { transcriptPath: null, transcriptSource: null, sidecarPath: null, tried: [] };
+  if (!agentId) {
+    out.tried.push('agent_id missing');
+    return out;
   }
-  const bounded = entries.slice(0, MAX_PROJECT_DIRS_SCAN);
-  for (const entry of bounded) {
-    const candidate = path.join(projectsDir, entry, sessionId, 'subagents', filename);
-    try {
-      if (fs.statSync(candidate).isFile()) return candidate;
-    } catch (_) { /* continue scanning */ }
+  const tName = `agent-${agentId}.jsonl`;
+  const sName = `agent-${agentId}.meta.json`;
+  const isFile = (p) => { try { return fs.statSync(p).isFile(); } catch (_) { return false; } };
+
+  const tiers = [];
+  if (typeof payload.agent_transcript_path === 'string' && payload.agent_transcript_path.trim()) {
+    const p = payload.agent_transcript_path.trim();
+    tiers.push(['agent_transcript_path', path.dirname(p), p]);
   }
-  return null;
+  if (sessionId && typeof payload.transcript_path === 'string' && payload.transcript_path.trim()) {
+    tiers.push(['parent_session', path.join(path.dirname(payload.transcript_path.trim()), sessionId, 'subagents')]);
+  }
+  if (sessionId && configDir) {
+    tiers.push(['cwd_hash', path.join(configDir, 'projects', projectHashFromCwd(cwd), sessionId, 'subagents')]);
+    if (mainRoot && mainRoot !== cwd) {
+      tiers.push(['main_root_hash', path.join(configDir, 'projects', projectHashFromCwd(mainRoot), sessionId, 'subagents')]);
+    }
+  }
+  const consider = (source, dir, explicitTranscript) => {
+    if (!out.transcriptPath) {
+      out.tried.push(source);
+      const t = explicitTranscript || path.join(dir, tName);
+      if (isFile(t)) { out.transcriptPath = t; out.transcriptSource = source; }
+    }
+    if (!out.sidecarPath) {
+      const s = explicitTranscript ? explicitTranscript.replace(/\.jsonl$/, '.meta.json') : path.join(dir, sName);
+      if (s !== explicitTranscript && isFile(s)) out.sidecarPath = s;
+    }
+  };
+  for (const [source, dir, explicit] of tiers) consider(source, dir, explicit);
+
+  if ((!out.transcriptPath || !out.sidecarPath) && sessionId && configDir) {
+    const projectsDir = path.join(configDir, 'projects');
+    let entries = [];
+    try { entries = fs.readdirSync(projectsDir).slice(0, MAX_PROJECT_DIRS_SCAN); } catch (_) { /* none */ }
+    if (!out.transcriptPath) out.tried.push('scan');
+    for (const entry of entries) {
+      if (out.transcriptPath && out.sidecarPath) break;
+      const dir = path.join(projectsDir, entry, sessionId, 'subagents');
+      if (!out.transcriptPath && isFile(path.join(dir, tName))) {
+        out.transcriptPath = path.join(dir, tName);
+        out.transcriptSource = 'scan';
+      }
+      if (!out.sidecarPath && isFile(path.join(dir, sName))) out.sidecarPath = path.join(dir, sName);
+    }
+  }
+  return out;
 }
 
-/** Resolve the subagent's own transcript path (`.jsonl`) - see
- * resolveSubagentFile() for the shared resolution algorithm. */
-function resolveTranscriptPath(configDir, cwd, sessionId, agentId) {
-  return resolveSubagentFile(configDir, cwd, sessionId, agentId, `agent-${agentId}.jsonl`);
-}
-
-/** Resolve the subagent's own sidecar path (`.meta.json`, DS-178) - the
- * SAME directory and naming convention as the transcript, verified
- * independently against 4,237 live sidecars on this machine before this
- * fix was built: 100% carry `agentType`, 97.9% carry `toolUseId`, ~6%
- * carry `model`. See resolveSubagentFile() for the shared algorithm. */
-function resolveSidecarPath(configDir, cwd, sessionId, agentId) {
-  return resolveSubagentFile(configDir, cwd, sessionId, agentId, `agent-${agentId}.meta.json`);
+function nonBlank(v) {
+  return (typeof v === 'string' && v.trim()) ? v.trim() : null;
 }
 
 /**
- * Read and parse the subagent's `.meta.json` sidecar, or return null when
- * unresolvable, unreadable, empty, or malformed JSON (never throws, never
- * blocks event emission). Returns `{toolUseId, agentType, model}` where
- * each field is the sidecar's own value (string) or null when absent/blank
- * - a successfully-parsed sidecar missing a field yields null for that
- * field, not a null return for the whole object; only a missing/unreadable
- * FILE, or content that fails to parse as a JSON object, returns null
- * overall.
+ * Read and parse a `.meta.json` sidecar, or null when absent, unreadable,
+ * empty, or not a JSON object (never throws). Returns
+ * `{toolUseId, agentType, model, description}`, each the sidecar's own
+ * non-blank string or null.
  */
-function readSidecar(configDir, cwd, sessionId, agentId) {
-  const sidecarPath = resolveSidecarPath(configDir, cwd, sessionId, agentId);
+function readSidecarFile(sidecarPath) {
   if (!sidecarPath) return null;
-
-  let raw;
-  try {
-    raw = fs.readFileSync(sidecarPath, 'utf8');
-  } catch (_) {
-    return null;
-  }
-  if (!raw || !raw.trim()) return null;
-
   let obj;
   try {
+    const raw = fs.readFileSync(sidecarPath, 'utf8');
+    if (!raw || !raw.trim()) return null;
     obj = JSON.parse(raw);
   } catch (_) {
     return null;
   }
   if (!obj || typeof obj !== 'object') return null;
+  return {
+    toolUseId: nonBlank(obj.toolUseId),
+    agentType: nonBlank(obj.agentType),
+    model: nonBlank(obj.model),
+    description: nonBlank(obj.description),
+  };
+}
 
-  const toolUseId = (typeof obj.toolUseId === 'string' && obj.toolUseId.trim())
-    ? obj.toolUseId.trim() : null;
-  const agentType = (typeof obj.agentType === 'string' && obj.agentType.trim())
-    ? obj.agentType.trim() : null;
-  const model = (typeof obj.model === 'string' && obj.model.trim())
-    ? obj.model.trim() : null;
-  return { toolUseId, agentType, model };
+const TOKEN_BANDS = ['input', 'output', 'cache_creation', 'cache_read', 'cache_creation_5m', 'cache_creation_1h'];
+
+function nonNegative(v) {
+  if (v === undefined || v === null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 /**
- * Sum token usage across all assistant turns in a transcript JSONL, or
- * return a descriptive note when unresolvable. Never returns a zero-filled
- * tokens object as a stand-in for "unresolved" - a real zero (genuinely no
- * assistant turns yet) and "we could not read this" are kept distinct by
- * tracking whether at least one assistant record ACTUALLY contributed a
- * usable numeric usage field, not merely whether a `usage` object was
- * present or the file opened without throwing. Round-2 fix: a prior version
- * returned the untouched {0,0,0,0} accumulator as a "success" whenever the
- * file was 0 bytes or wholly unparseable JSONL, which is indistinguishable
- * downstream from a real zero-token measurement - exactly the fabrication
- * this function exists to prevent. Round-3 fix: a prior version counted a
- * record as "parsed" whenever a `usage` OBJECT existed, regardless of
- * whether any field inside it was a real number - so a transcript whose
- * assistant records all carried `usage: {}` (or only non-numeric usage
- * values) silently produced the same {0,0,0,0}-with-no-note fabrication one
- * step over. A record now counts as parsed only when it contributes at
- * least one usable numeric usage field; a negative usage value is treated
- * as unusable (never summed, does not count toward "parsed") rather than
- * silently summed as-is. Malformed/truncated lines mixed with otherwise-
- * valid lines are silently skipped and NOT flagged - see the "Known,
- * documented blemish" note in this module's header doc-comment.
- *
- * Returns { tokens: {input,output,cache_creation,cache_read}, note: null }
- * when at least one assistant record contributed a usable numeric usage
- * field, or { tokens: null, note: <string> } when tokens could not be
- * determined (file missing, oversized, or found but yielding zero usable
- * fields).
- *
- * DS-178 unit A extends this SAME single pass (no extra file opens) to also
- * extract:
- *   - `model`: the first non-blank `message.model` seen on an assistant
- *     record. Independent of the token-parsing outcome - a record whose
- *     `usage` is absent/unusable can still carry a usable `model`.
- *   - `attributionAgent`: the first non-blank top-level `attributionAgent`
- *     field seen on ANY record (not assistant-only - measured present on
- *     every record type in a live transcript). This is a CROSS-CHECK input
- *     against the sidecar/pairing-derived `agent` field - never emitted
- *     under its own name, but run() (round-2 fix, m1) DOES emit
- *     `data.agent_note` when this value disagrees with the resolved
- *     `agent`, a case previously computed here and then silently
- *     discarded (dead code - the value was extracted but never read by
- *     any caller).
- *   - `firstTimestamp`: the first non-blank top-level `timestamp` field
- *     seen on any record - reserved, like `attributionAgent`, as raw
- *     forensic material rather than something this unit acts on; not
- *     emitted into the event.
- *   - `firstUserText` (round-2 addition, M2): the text of the FIRST
- *     `type === "user"` record - the subagent's own original spawn prompt,
- *     which is where the "Diff under review:" line
- *     `content/references/skeptic-protocol.md` Section 4.5 mandates lives.
- *     Used by `resolveDiffLines()` below to derive `data.diff_lines` for a
- *     Skeptic completion; never itself emitted into the event.
- * `model`/`modelNote` follow the exact same mutual-exclusion and
- * never-fabricate discipline as `tokens`/`tokensNote`, using the SAME
- * skip/not-found/unreadable notes (they are read from the same transcript
- * in the same pass, so the same failure necessarily affects both).
+ * Normalize one usage block to the 6 token bands, or null when it carries no
+ * usable (real, non-negative) number. Negative and non-numeric values are
+ * never summed. The 5m/1h split comes from `usage.cache_creation`; a block
+ * without that breakdown books its cache_creation to 5m, the API default TTL.
  */
-function scanTranscript(transcriptPath) {
-  const notFound = {
-    tokens: null, tokensNote: 'unavailable (transcript not found)',
-    model: null, modelNote: 'unavailable (transcript not found)',
+function usageBands(usage) {
+  if (!usage || typeof usage !== 'object') return null;
+  const bands = {
+    input: nonNegative(usage.input_tokens),
+    output: nonNegative(usage.output_tokens),
+    cache_creation: nonNegative(usage.cache_creation_input_tokens),
+    cache_read: nonNegative(usage.cache_read_input_tokens),
+  };
+  if (Object.values(bands).every((v) => v === null)) return null;
+  const split = usage.cache_creation && typeof usage.cache_creation === 'object' ? usage.cache_creation : null;
+  const fiveM = split ? nonNegative(split.ephemeral_5m_input_tokens) : null;
+  const oneH = split ? nonNegative(split.ephemeral_1h_input_tokens) : null;
+  const out = {};
+  for (const k of ['input', 'output', 'cache_creation', 'cache_read']) out[k] = bands[k] || 0;
+  if (fiveM !== null || oneH !== null) {
+    out.cache_creation_5m = fiveM || 0;
+    out.cache_creation_1h = oneH || 0;
+  } else {
+    out.cache_creation_5m = out.cache_creation;
+    out.cache_creation_1h = 0;
+  }
+  return out;
+}
+
+function sumBands(list) {
+  const total = {};
+  for (const k of TOKEN_BANDS) total[k] = 0;
+  for (const b of list) for (const k of TOKEN_BANDS) total[k] += b[k];
+  return total;
+}
+
+function isImageOnly(content) {
+  if (typeof content === 'string') return /^\s*\[Image[^\]]*\]\s*$/.test(content);
+  return Array.isArray(content) && content.length > 0
+    && content.every((b) => b && typeof b === 'object' && b.type === 'image');
+}
+
+function isToolResult(content) {
+  return Array.isArray(content) && content.some((b) => b && typeof b === 'object' && b.type === 'tool_result');
+}
+
+function tsMs(ts) {
+  const n = typeof ts === 'string' ? Date.parse(ts) : NaN;
+  return Number.isNaN(n) ? null : n;
+}
+
+/**
+ * DS-246: one streamed pass over a subagent transcript (capped at maxBytes,
+ * default MAX_TRANSCRIPT_BYTES; a file at or above the cap is skipped whole,
+ * never partial-summed).
+ *
+ * Tokens: chunks sharing a `message.id` repeat one usage block, so only the
+ * LAST usable usage per id counts (a record without an id counts alone).
+ * `tokens` is the deduped cumulative total with the 5m/1h cache split.
+ *
+ * Runs: `lastPriorCompleteTs` is the ts of this spawn's latest earlier paired
+ * completion, or null for run 1. For a later run, `runStartTs` is the first
+ * candidate boundary B where the turn-ending assistant record's ts <=
+ * lastPriorCompleteTs <= B's ts. A candidate is a user record that is not a
+ * tool_result, not `isCompactSummary`, not image-only, and directly follows
+ * an assistant record whose stop_reason is end_turn/stop_sequence, or null on
+ * a message.id with no tool_use chunk. Compaction and image-only records are
+ * skipped when deciding what a record "directly follows". The index of a run is NOT derived here
+ * (compaction, coordinator messages and cut-off re-prompts make transcript
+ * counting unreliable); run() takes it from prior paired completions.
+ * `runTokens` sums ids first seen at or after runStartTs (all ids for run 1;
+ * null when a later run's boundary is not found). `lastText` is the last
+ * assistant text in this run (after lastPriorCompleteTs when the boundary is
+ * missing). `model` is the last `message.model` that is not `<synthetic>`.
+ *
+ * A negative, non-numeric or empty usage block never counts as parsed; a
+ * transcript with none yields tokens null plus a note, never a zero fill.
+ * `readError` is set (to the same note) only when the file itself could not
+ * be read - not found, or at/above the cap.
+ * Malformed lines mixed with valid ones are skipped undisclosed (the
+ * documented blemish in this module's header).
+ */
+function scanTranscript(transcriptPath, lastPriorCompleteTs, maxBytes) {
+  const cap = maxBytes || MAX_TRANSCRIPT_BYTES;
+  const blank = {
+    runStartTs: null, runTokens: null, lastText: null,
     attributionAgent: null, firstTimestamp: null, firstUserText: null,
   };
-  const tooLarge = {
-    tokens: null, tokensNote: 'skipped (transcript too large)',
-    model: null, modelNote: 'skipped (transcript too large)',
-    attributionAgent: null, firstTimestamp: null, firstUserText: null,
-  };
+  const failed = (note) => ({ ...blank, tokens: null, tokensNote: note, model: null, modelNote: note, readError: note });
 
   let stat;
-  try {
-    stat = fs.statSync(transcriptPath);
-  } catch (_) {
-    return notFound;
-  }
-  if (!stat.isFile()) {
-    return notFound;
-  }
-  if (stat.size >= MAX_TRANSCRIPT_BYTES) {
-    return tooLarge;
-  }
+  try { stat = fs.statSync(transcriptPath); } catch (_) { return failed('unavailable (transcript not found)'); }
+  if (!stat.isFile()) return failed('unavailable (transcript not found)');
+  if (stat.size >= cap) return failed('skipped (transcript too large)');
 
-  let raw;
-  try {
-    raw = fs.readFileSync(transcriptPath, 'utf8');
-  } catch (_) {
-    return notFound;
-  }
-
-  const tokens = { input: 0, output: 0, cache_creation: 0, cache_read: 0 };
-  // Maps the tokens accumulator key to the raw usage field name. A record
-  // is only counted as "parsed" (see doc-comment above) when at least one
-  // of these fields is a real, non-negative number.
-  const USAGE_FIELDS = [
-    ['input', 'input_tokens'],
-    ['output', 'output_tokens'],
-    ['cache_creation', 'cache_creation_input_tokens'],
-    ['cache_read', 'cache_read_input_tokens'],
-  ];
-  let parsedCount = 0;
+  const priorMs = tsMs(lastPriorCompleteTs);
+  const usageById = new Map();
+  const toolUseIds = new Set();
+  let noIdCounter = 0;
   let model = null;
   let attributionAgent = null;
   let firstTimestamp = null;
   let firstUserText = null;
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let obj;
-    try { obj = JSON.parse(trimmed); } catch (_) { continue; }
-    if (!obj || typeof obj !== 'object') continue;
+  let prevDialog = null;
+  let runStartTs = null;
+  let lastText = null;
 
-    if (firstTimestamp === null && typeof obj.timestamp === 'string' && obj.timestamp.trim()) {
-      firstTimestamp = obj.timestamp.trim();
-    }
+  const res = streamLines(transcriptPath, 0, (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    let obj;
+    try { obj = JSON.parse(trimmed); } catch (_) { return; }
+    if (!obj || typeof obj !== 'object') return;
+    const ts = typeof obj.timestamp === 'string' && obj.timestamp.trim() ? obj.timestamp.trim() : null;
+    if (firstTimestamp === null && ts) firstTimestamp = ts;
     if (attributionAgent === null && typeof obj.attributionAgent === 'string' && obj.attributionAgent.trim()) {
       attributionAgent = obj.attributionAgent.trim();
     }
-    if (firstUserText === null && obj.type === 'user') {
-      const text = extractAssistantText(obj.message);
-      if (text) firstUserText = text;
-    }
+    const message = obj.message && typeof obj.message === 'object' ? obj.message : null;
 
-    if (obj.type !== 'assistant') continue;
-    const message = obj.message;
-    if (model === null && message && typeof message.model === 'string' && message.model.trim()) {
+    if (obj.type === 'user') {
+      if (firstUserText === null) {
+        const text = extractAssistantText(message);
+        if (text) firstUserText = text;
+      }
+      const content = message ? message.content : null;
+      // Compaction summaries and image-only records never start a run, and
+      // are transparent: the next real user record still "follows" the turn end.
+      if (obj.isCompactSummary || isImageOnly(content)) return;
+      if (priorMs !== null && runStartTs === null && prevDialog && prevDialog.type === 'assistant'
+          && !isToolResult(content)) {
+        const pm = prevDialog.message || {};
+        const ended = pm.stop_reason === 'end_turn' || pm.stop_reason === 'stop_sequence'
+          || ((pm.stop_reason === null || pm.stop_reason === undefined) && !toolUseIds.has(pm.id));
+        const endMs = tsMs(prevDialog.timestamp);
+        const candMs = tsMs(ts);
+        if (ended && endMs !== null && candMs !== null && endMs <= priorMs && priorMs <= candMs) runStartTs = ts;
+      }
+      prevDialog = obj;
+      return;
+    }
+    if (obj.type !== 'assistant') return;
+    prevDialog = obj;
+    if (!message) return;
+    const id = typeof message.id === 'string' && message.id ? message.id : `__noid_${noIdCounter++}`;
+    if (Array.isArray(message.content) && message.content.some((b) => b && b.type === 'tool_use')) toolUseIds.add(id);
+    if (typeof message.model === 'string' && message.model.trim() && message.model.trim() !== '<synthetic>') {
       model = message.model.trim();
     }
-    const usage = message && message.usage;
-    if (!usage || typeof usage !== 'object') continue;
-    let usableFieldFound = false;
-    for (const [key, rawKey] of USAGE_FIELDS) {
-      const val = usage[rawKey];
-      if (val === undefined || val === null) continue;
-      const n = Number(val);
-      // Non-numeric (NaN) and negative values are unusable: never summed,
-      // and never counted toward this record having "parsed". A negative
-      // token count cannot be a real measurement; silently summing it would
-      // corrupt the total in the opposite direction from fabrication.
-      if (!Number.isFinite(n) || n < 0) continue;
-      tokens[key] += n;
-      usableFieldFound = true;
+    const bands = usageBands(message.usage);
+    if (bands) {
+      const prior = usageById.get(id);
+      usageById.set(id, { bands, firstSeen: prior ? prior.firstSeen : ts });
     }
-    if (usableFieldFound) parsedCount += 1;
+    const text = extractAssistantText(message);
+    if (text) {
+      const scopeMs = runStartTs !== null ? tsMs(runStartTs) : priorMs;
+      const recMs = tsMs(ts);
+      if (scopeMs === null || recMs === null || recMs >= scopeMs) lastText = text;
+    }
+  }, { flushTail: true });
+  if (!res) return failed('unavailable (transcript not found)');
+
+  const all = [...usageById.values()];
+  const tokens = all.length ? sumBands(all.map((u) => u.bands)) : null;
+  let runTokens = null;
+  if (tokens && priorMs === null) {
+    runTokens = tokens;
+  } else if (tokens && runStartTs !== null) {
+    const startMs = tsMs(runStartTs);
+    runTokens = sumBands(all.filter((u) => { const m = tsMs(u.firstSeen); return m !== null && m >= startMs; })
+      .map((u) => u.bands));
   }
-
-  const tokensResult = parsedCount === 0
-    // File opened and read fine, but nothing usable parsed out of it - an
-    // empty file, wholly malformed JSONL, and a genuinely turn-less
-    // transcript are all indistinguishable from "we could not determine
-    // this" from the caller's perspective, and must never be reported as
-    // a real zero-token measurement.
-    ? { tokens: null, tokensNote: 'unavailable (transcript unreadable)' }
-    : { tokens, tokensNote: null };
-  const modelResult = model === null
-    ? { model: null, modelNote: 'unavailable (transcript unreadable)' }
-    : { model, modelNote: null };
-
-  return { ...tokensResult, ...modelResult, attributionAgent, firstTimestamp, firstUserText };
+  return {
+    tokens,
+    tokensNote: tokens ? null : 'unavailable (transcript unreadable)',
+    model,
+    modelNote: model ? null : 'unavailable (transcript unreadable)',
+    runStartTs, runTokens, lastText, attributionAgent, firstTimestamp, firstUserText, readError: null,
+  };
 }
 
 /**
@@ -826,38 +899,7 @@ function _resolveVerdictLineAnchored(text) {
  *   or
  *   { calibrationNote: <string> }
  */
-function parseSkepticSignoff(transcriptPath) {
-  let stat;
-  try {
-    stat = fs.statSync(transcriptPath);
-  } catch (_) {
-    return { calibrationNote: 'unavailable (transcript not found)' };
-  }
-  if (!stat.isFile()) {
-    return { calibrationNote: 'unavailable (transcript not found)' };
-  }
-  if (stat.size >= MAX_TRANSCRIPT_BYTES) {
-    return { calibrationNote: 'skipped (transcript too large)' };
-  }
-
-  let raw;
-  try {
-    raw = fs.readFileSync(transcriptPath, 'utf8');
-  } catch (_) {
-    return { calibrationNote: 'unavailable (transcript not found)' };
-  }
-
-  let lastAssistantText = null;
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let obj;
-    try { obj = JSON.parse(trimmed); } catch (_) { continue; }
-    if (!obj || obj.type !== 'assistant') continue;
-    const text = extractAssistantText(obj.message);
-    if (text) lastAssistantText = text;
-  }
-
+function parseSkepticSignoff(lastAssistantText) {
   if (!lastAssistantText) {
     return { calibrationNote: 'unavailable (no sign-off found in transcript)' };
   }
@@ -1162,60 +1204,103 @@ function readRecentEvents(eventsPath) {
 }
 
 /**
- * Find the best-effort matching spawn_start for this SubagentStop, and
- * return { spawnId, startTs, agent } or null when nothing matches.
+ * Find the spawn_start this SubagentStop completes, or null.
  *
- * Matching preference order:
- *   1. Exact data.tool_use_id match (when both sides carry one).
- *   2. FIFO: oldest unmatched hook-emitted spawn_start for this session_uuid,
- *      oldest first (candidates are in file order already, since
- *      events.jsonl is append-only).
- * "Unmatched" excludes any spawn_id already referenced by a prior
- * spawn_complete's data.paired_spawn_id in the scanned window.
+ * DS-246 order:
+ *   1. Exact `data.tool_use_id` match over ALL of this session's hook
+ *      spawn_starts, including ones already paired - a resumed agent keeps
+ *      its original tool_use_id, so its k-th stop must reach the same start.
+ *      pairMethod is 'resume' when that start already has paired hook
+ *      completions, else 'tool_use_id'.
+ *   2. Otherwise FIFO over unpaired starts whose `agent` equals agentType
+ *      ('fifo_same_agent'). With no agentType there is no FIFO: an
+ *      unlabelled stop is left unpaired rather than stealing another
+ *      spawn's start.
+ * Session scoping is REQUIRED: without a sessionId, or for a start with no
+ * `data.session_uuid`, nothing matches (degrades to unpaired, never an
+ * unscoped cross-session guess).
  *
- * Session scoping is REQUIRED, not best-effort: a candidate is only eligible
- * when this SubagentStop's sessionId AND the candidate spawn_start's
- * data.session_uuid are BOTH present and equal. Prior to this fix, a null
- * sessionId (or a candidate with no session_uuid) short-circuited the
- * session filter entirely (`if (sessionId && d.session_uuid && ...)`),
- * allowing FIFO to pair across sessions - and across months, once nothing
- * ahead of it in the scan window carried a session_uuid at all. When either
- * side is missing a session id, this function degrades to unpaired (returns
- * null) rather than guessing.
+ * Returns {spawnId, startTs, agent, toolUseId, taskId, pairMethod,
+ * priorCompletes[]} where priorCompletes are the hook spawn_completes
+ * already paired to that start - run() numbers the run from them.
  */
-function findMatch(events, sessionId, toolUseId) {
+function findMatch(events, sessionId, toolUseId, agentType) {
   if (!sessionId) return null;
 
+  const completesBySpawn = new Map();
   const pairedIds = new Set();
   for (const ev of events) {
-    if (ev && ev.event === 'spawn_complete') {
-      const d = ev.data || {};
-      if (d.paired_spawn_id) pairedIds.add(d.paired_spawn_id);
-    }
+    if (!ev || ev.event !== 'spawn_complete') continue;
+    const d = ev.data || {};
+    if (!d.paired_spawn_id) continue;
+    pairedIds.add(d.paired_spawn_id);
+    if (d.source !== 'hook') continue;
+    if (!completesBySpawn.has(d.paired_spawn_id)) completesBySpawn.set(d.paired_spawn_id, []);
+    completesBySpawn.get(d.paired_spawn_id).push(ev);
   }
 
-  const candidates = [];
+  const starts = [];
   for (const ev of events) {
     if (!ev || ev.event !== 'spawn_start') continue;
     const d = ev.data || {};
-    if (d.source !== 'hook') continue;
-    if (!d.spawn_id || pairedIds.has(d.spawn_id)) continue;
-    // Session scoping is mandatory: both sides must carry a session id and
-    // they must match. A candidate with no session_uuid is never eligible.
+    if (d.source !== 'hook' || !d.spawn_id) continue;
     if (!d.session_uuid || d.session_uuid !== sessionId) continue;
-    candidates.push({ spawnId: d.spawn_id, startTs: ev.ts, agent: ev.agent, toolUseId: d.tool_use_id || null });
+    starts.push({
+      spawnId: d.spawn_id, startTs: ev.ts, agent: ev.agent, toolUseId: d.tool_use_id || null,
+      taskId: typeof ev.task_id === 'string' && ev.task_id ? ev.task_id : null,
+    });
   }
 
-  if (candidates.length === 0) return null;
+  const withPrior = (s, method) => {
+    const priorCompletes = completesBySpawn.get(s.spawnId) || [];
+    const pairMethod = method === 'tool_use_id' && priorCompletes.length ? 'resume' : method;
+    return { ...s, pairMethod, priorCompletes };
+  };
 
   if (toolUseId) {
-    const exact = candidates.find(c => c.toolUseId === toolUseId);
-    if (exact) return exact;
+    const exact = starts.find((s) => s.toolUseId === toolUseId);
+    if (exact) return withPrior(exact, 'tool_use_id');
   }
+  if (!agentType) return null;
+  const fifo = starts.find((s) => !pairedIds.has(s.spawnId) && s.agent === agentType);
+  return fifo ? withPrior(fifo, 'fifo_same_agent') : null;
+}
 
-  // FIFO fallback: candidates are in file order (oldest first) already,
-  // since events.jsonl is append-only.
-  return candidates[0];
+/**
+ * DS-246 internal-agent test: Claude Code also fires SubagentStop for its
+ * own internal agents, which carry an empty or absent `agent_type` and no
+ * sidecar. Those must not consume a real spawn's start. Any other stop -
+ * including one with no resolvable transcript - is a real spawn. `sidecar`
+ * is the resolved sidecar PATH: a sidecar file that exists but fails to
+ * parse still marks a real spawn.
+ */
+function isInternalAgent(payload, sidecar) {
+  const t = payload ? payload.agent_type : undefined;
+  return (t === undefined || t === null || t === '') && !sidecar;
+}
+
+// qa-engineer's pointer return (content/agents/qa-engineer.md) opens with a
+// top-level `result:` line; criteria[] entries repeat `result:` indented, so
+// only an unindented line counts. BLOCKED is accepted although the pointer
+// enum omits it, because the same file's "Overall result rules" define it as
+// an overall result - dropping it would leave a real run unrecorded.
+const _QA_RESULT_RE = /^result:[ \t]*(PASS|FAIL|PARTIAL|INCONCLUSIVE|BLOCKED)[ \t]*$/gm;
+const _QA_BLOCKING_RE = /^blocking_count:[ \t]*(\d+)[ \t]*$/gm;
+
+/**
+ * Parse one qa-engineer run's last assistant text. Returns
+ * {qaResult, qaBlockingCount|null} from the LAST matching top-level lines,
+ * or {qaResultNote} when no result line is present.
+ */
+function parseQaResult(runLastText) {
+  const text = typeof runLastText === 'string' ? runLastText : '';
+  const results = [...text.matchAll(_QA_RESULT_RE)];
+  if (!results.length) return { qaResultNote: 'unavailable (no top-level result line in run)' };
+  const counts = [...text.matchAll(_QA_BLOCKING_RE)];
+  return {
+    qaResult: results[results.length - 1][1],
+    qaBlockingCount: counts.length ? Number(counts[counts.length - 1][1]) : null,
+  };
 }
 
 // Sanity ceiling on wall_seconds: any pairing that would produce a duration
@@ -1238,7 +1323,8 @@ const MAX_SANE_WALL_SECONDS = 86400;
 
 /**
  * Main entry point. Reads SubagentStop payload from stdin, emits a best-effort
- * spawn_complete event to events.jsonl, always exits 0.
+ * spawn_complete (or, for a harness-internal agent, subagent_stop_internal)
+ * event to the primary checkout's events.jsonl, always exits 0.
  */
 async function run() {
   try {
@@ -1246,101 +1332,115 @@ async function run() {
     let payload;
     try { payload = JSON.parse(raw); } catch (_) { process.exit(0); }
 
-    const cwd = (payload && typeof payload.cwd === 'string' && payload.cwd.trim())
-      ? payload.cwd.trim()
-      : null;
+    const cwd = nonBlank(payload && payload.cwd);
     if (!cwd) process.exit(0);
+    const sessionId = nonBlank(payload.session_id);
+    // Measured (DS-178) null on 612/612 real SubagentStop payloads; kept as a
+    // last-resort pairing input behind the sidecar's own toolUseId.
+    const payloadToolUseId = nonBlank(payload.tool_use_id);
+    const agentId = nonBlank(payload.agent_id);
 
-    const sessionId = (payload && typeof payload.session_id === 'string' && payload.session_id.trim())
-      ? payload.session_id.trim()
-      : null;
-    // Best-effort, and measured (DS-178) to be null on 612/612 real
-    // SubagentStop payloads - the SubagentStop payload shape does not
-    // reliably carry this field. Kept as a fallback input only; the
-    // authoritative source is now the `.meta.json` sidecar's `toolUseId`
-    // (see sidecarToolUseId below).
-    const payloadToolUseId = (payload && typeof payload.tool_use_id === 'string' && payload.tool_use_id.trim())
-      ? payload.tool_use_id.trim()
-      : null;
-    // Best-effort: the subagent's own identity, if the harness threads it
-    // through to SubagentStop (mirrors the agent_id convention documented in
-    // hooks/enforce-orchestrator-singularity.py). Required for BOTH the
-    // transcript and the DS-178 sidecar resolution (same directory).
-    const agentId = (payload && typeof payload.agent_id === 'string' && payload.agent_id.trim())
-      ? payload.agent_id.trim()
-      : null;
-
-    const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
+    const mainRoot = resolveMainRepoRoot(cwd).root;
+    const eventsPath = spawnEventsPath(cwd);
+    const agenticDir = path.dirname(eventsPath);
     fs.mkdirSync(agenticDir, { recursive: true });
-    const eventsPath = path.join(agenticDir, 'events.jsonl');
+    const nowIso = new Date().toISOString();
+    const append = (event) => fs.appendFileSync(eventsPath, JSON.stringify(event) + '\n', 'utf8');
 
-    // DS-178: resolve the sidecar FIRST - it is the authoritative source
-    // for both the pairing key (toolUseId) and the agent label
-    // (agentType), replacing the SubagentStop payload's own (measured
-    // always-null) tool_use_id. Wrapped independently and fail-open:
-    // sidecar resolution/parsing failure must never block the completion
-    // signal, same discipline as the pre-existing token resolution below.
+    let files = { transcriptPath: null, transcriptSource: null, sidecarPath: null, tried: [] };
     let sidecar = null;
     let configDir = null;
     try {
       configDir = resolveClaudeConfigDir();
-      sidecar = readSidecar(configDir, cwd, sessionId, agentId);
+      files = resolveSubagentFiles(configDir, payload, cwd, mainRoot, sessionId, agentId);
+      sidecar = readSidecarFile(files.sidecarPath);
     } catch (_) {
       sidecar = null;
     }
-    const sidecarToolUseId = (sidecar && sidecar.toolUseId) ? sidecar.toolUseId : null;
-    // Pairing precedence (DS-178): sidecar toolUseId exact match, then the
-    // pre-existing FIFO fallback, then unpaired. findMatch()'s own
-    // exact-match-then-FIFO logic already implements this once given the
-    // right toolUseId to match against - the fix is sourcing that value
-    // from the sidecar (97.9% present) instead of the broken payload
-    // field. payloadToolUseId is retained only as a last-resort input in
-    // case a future harness version does populate it.
-    const matchToolUseId = sidecarToolUseId || payloadToolUseId;
 
-    const events = readRecentEvents(eventsPath);
-    const match = findMatch(events, sessionId, matchToolUseId);
+    if (isInternalAgent(payload, files.sidecarPath)) {
+      append({
+        ts: nowIso, phase: 'hook', event: 'subagent_stop_internal', agent: null, task_id: null,
+        data: {
+          source: 'hook', telemetry_v: 2, session_uuid: sessionId, agent_id: agentId,
+          reason: payload.agent_type === '' ? 'agent_type empty, no sidecar' : 'agent_type absent, no sidecar',
+        },
+      });
+      process.exit(0);
+    }
 
-    // agent precedence (DS-178): sidecar agentType -> matched start's agent
-    // -> "unknown". Deliberately NOT a new `agent_type` sibling field (see
-    // this hook's module manifest) - this populates the EXISTING `agent`
-    // field with the corrected value. agent_source (round-2 fix, M1)
-    // records the provenance of THIS LABEL specifically - which of the two
-    // precedence tiers actually supplied `agentName` - not which tier
-    // resolved the pairing match. Those are two different questions: a
-    // sidecar can carry a `toolUseId` with no `agentType` (pairs via
-    // sidecar, but the label falls through to the matched start), or carry
-    // an `agentType` with no `toolUseId` (labels via sidecar, but pairs via
-    // FIFO) - a tier-of-pairing definition reports the wrong provenance in
-    // both cases, verified by execution pre-fix. `agentSource` is computed
-    // from the exact same branches that set `agentName`, so the two can
-    // never disagree.
+    const payloadAgentType = nonBlank(payload.agent_type);
+    const matchToolUseId = (sidecar && sidecar.toolUseId) || payloadToolUseId;
+    // Label precedence: sidecar agentType -> payload agent_type -> matched
+    // start's agent -> "unknown"; agent_source names whichever supplied it.
+    const labelType = (sidecar && sidecar.agentType) || payloadAgentType;
+    const match = findMatch(readRecentEvents(eventsPath), sessionId, matchToolUseId, labelType);
+
     let agentName = 'unknown';
-    let agentSource;
+    let agentSource = 'unknown';
     if (sidecar && sidecar.agentType) {
       agentName = sidecar.agentType;
       agentSource = 'sidecar';
+    } else if (payloadAgentType) {
+      agentName = payloadAgentType;
+      agentSource = 'payload';
     } else if (match && match.agent) {
       agentName = match.agent;
       agentSource = 'paired_start';
-    } else {
-      agentSource = 'unknown';
     }
 
-    const nowIso = new Date().toISOString();
+    const priorCompletes = match ? match.priorCompletes : [];
+    const runIndex = match ? priorCompletes.length + 1 : null;
+    const lastPriorCompleteTs = priorCompletes.reduce(
+      (acc, ev) => ((typeof ev.ts === 'string' && (!acc || ev.ts > acc)) ? ev.ts : acc), null);
+
+    let scan = null;
+    let tokensNote = null;
+    try {
+      if (files.transcriptPath) {
+        scan = scanTranscript(files.transcriptPath, lastPriorCompleteTs);
+        tokensNote = scan.tokensNote;
+      } else {
+        tokensNote = `unavailable (transcript not found; tried: ${files.tried.join(', ') || 'none'})`;
+      }
+    } catch (_) {
+      scan = null;
+      tokensNote = 'unavailable (transcript scan error)';
+    }
+
+    let model = null;
+    let modelSource = null;
+    let modelNote = null;
+    if (scan && scan.model) {
+      model = scan.model;
+      modelSource = 'transcript';
+    } else if (sidecar && sidecar.model && sidecar.model !== 'inherit') {
+      model = sidecar.model;
+      modelSource = 'sidecar_alias';
+    } else {
+      modelNote = (scan && scan.modelNote) || tokensNote;
+    }
+
+    // Wall covers THIS run only: run 1 from the spawn_start, a later run from
+    // its resume boundary in the transcript (idle time between runs excluded).
+    let runStartTs = null;
     let wallSeconds = null;
-    let pairedSpawnId = null;
+    let wallNote = null;
     let suspect = false;
     if (match) {
-      pairedSpawnId = match.spawnId;
-      const startMs = Date.parse(match.startTs);
+      if (runIndex === 1) {
+        runStartTs = match.startTs;
+      } else if (scan && scan.runStartTs) {
+        runStartTs = scan.runStartTs;
+      } else {
+        wallNote = files.transcriptPath
+          ? 'unavailable (resume boundary not found in transcript)'
+          : 'unavailable (transcript not found)';
+      }
+      const startMs = runStartTs ? Date.parse(runStartTs) : NaN;
       const nowMs = Date.parse(nowIso);
-      if (!Number.isNaN(startMs) && !Number.isNaN(nowMs) && nowMs >= startMs) {
+      if (!Number.isNaN(startMs) && nowMs >= startMs) {
         wallSeconds = Number(((nowMs - startMs) / 1000).toFixed(3));
-        // Sanity ceiling: null out (never fabricate a ceiling value) and
-        // flag rather than trust a pairing that implies an implausibly
-        // long-running spawn (see MAX_SANE_WALL_SECONDS comment above
-        // findMatch).
         if (wallSeconds > MAX_SANE_WALL_SECONDS) {
           wallSeconds = null;
           suspect = true;
@@ -1348,79 +1448,28 @@ async function run() {
       }
     }
 
-    // Transcript resolution + single-pass scan: tokens, model,
-    // attributionAgent (cross-check only, never emitted), firstTimestamp
-    // (reserved, never emitted). tokens/model are populated ONLY on
-    // success; their *_note is populated ONLY on failure - never both, and
-    // never a fabricated stand-in for "unresolved" (see scanTranscript's
-    // doc-comment).
-    let tokens = null;
-    let tokensNote = null;
-    let model = null;
-    let modelNote = null;
-    let transcriptPath = null;
-    let firstUserText = null;
-    let attributionAgent = null;
-    try {
-      const resolvedConfigDir = configDir || resolveClaudeConfigDir();
-      transcriptPath = resolveTranscriptPath(resolvedConfigDir, cwd, sessionId, agentId);
-      if (transcriptPath) {
-        const scanResult = scanTranscript(transcriptPath);
-        tokens = scanResult.tokens;
-        tokensNote = scanResult.tokensNote;
-        firstUserText = scanResult.firstUserText;
-        attributionAgent = scanResult.attributionAgent;
-        // model precedence (DS-178): sidecar model -> transcript
-        // message.model -> absent + model_note. The sidecar carries
-        // `model` on only ~6-8% of real sidecars, so the transcript is the
-        // usual source; both are genuinely independent measurements of
-        // the same fact.
-        if (sidecar && sidecar.model) {
-          model = sidecar.model;
-        } else {
-          model = scanResult.model;
-          modelNote = scanResult.modelNote;
-        }
-      } else {
-        tokensNote = 'unavailable (transcript not found)';
-        if (sidecar && sidecar.model) {
-          model = sidecar.model;
-        } else {
-          modelNote = 'unavailable (transcript not found)';
-        }
-      }
-    } catch (_) {
-      // Transcript resolution/scan must never block emitting the
-      // completion signal itself - fall through with whatever notes are
-      // already set, defaulting any still-unset one.
-      tokensNote = tokensNote || 'unavailable (transcript not found)';
-      if (!(sidecar && sidecar.model) && model === null) {
-        modelNote = modelNote || 'unavailable (transcript not found)';
-      }
+    const cwdAgenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
+    let ticket;
+    if (match && match.taskId) {
+      ticket = { ticketId: match.taskId, source: 'paired_start', note: null };
+    } else {
+      ticket = resolveActiveTicket({
+        agenticDir: cwdAgenticDir,
+        sessionId,
+        transcriptPath: nonBlank(payload.transcript_path),
+        toolUseId: matchToolUseId,
+        spawnDescription: sidecar ? sidecar.description : '',
+      });
     }
 
-    // Calibration fields (DS-178 unit A/round-2): only meaningful for a
-    // Skeptic spawn - readRoundState()/parseSkepticSignoff()/
-    // resolveDiffLines() are all specifically about the Skeptic round-cap,
-    // sign-off format, and reviewed-diff size. Never attempted for any
-    // other agent (not a "miss" in that case - simply not applicable).
-    //
-    // Round-2 fix (M3): a `readRoundState()` tuid-index miss now ALSO
-    // contributes to `calibration_note`, naming the miss - the plan's own
-    // step 8 mandates "emit neither [unit_key/iteration] plus a
-    // calibration_note naming the miss," which the round-1 cut disclosed
-    // skipping on the (rejected) grounds that it matched
-    // `paired_spawn_id`'s silent-omission treatment. `calibration_note` is
-    // a single SHARED field across all three calibration misses (tuid
-    // index, sign-off parse, diff-range resolution) rather than one note
-    // per miss - when more than one miss occurs on the same completion,
-    // each contributes its own labeled clause, joined with "; ", so no
-    // miss is silently dropped by another miss's note overwriting it.
+    // Calibration fields: Skeptic only. calibration_note is one shared field;
+    // each miss contributes its own labelled clause, joined with "; ".
     let calibrationFields = {};
     const calibrationNoteParts = [];
     if (agentName === 'skeptic') {
       try {
-        const roundState = readRoundState(agenticDir, matchToolUseId);
+        const roundState = readRoundState(cwdAgenticDir, matchToolUseId)
+          || readRoundState(agenticDir, matchToolUseId);
         if (roundState) {
           calibrationFields.unit_key = roundState.unitKey;
           calibrationFields.iteration = roundState.iteration;
@@ -1428,9 +1477,10 @@ async function run() {
           calibrationNoteParts.push('unit_key/iteration: unavailable (tuid-index miss)');
         }
 
-        const signoff = transcriptPath
-          ? parseSkepticSignoff(transcriptPath)
-          : { calibrationNote: 'unavailable (transcript not found)' };
+        let signoff;
+        if (!files.transcriptPath || !scan) signoff = { calibrationNote: 'unavailable (transcript not found)' };
+        else if (scan.readError) signoff = { calibrationNote: scan.readError };
+        else signoff = parseSkepticSignoff(scan.lastText);
         if (Object.prototype.hasOwnProperty.call(signoff, 'findingsCount')) {
           calibrationFields.findings_count = signoff.findingsCount;
           calibrationFields.signed_off = signoff.signedOff;
@@ -1439,18 +1489,13 @@ async function run() {
           calibrationNoteParts.push(`findings_count/signed_off: ${signoff.calibrationNote}`);
         }
 
-        // diff_lines (M2): resolved from the spawn's own prompt text, only
-        // attempted for a Skeptic spawn (same scope as the other two
-        // calibration fields above).
-        const diffResult = resolveDiffLines(cwd, firstUserText);
+        const diffResult = resolveDiffLines(cwd, scan ? scan.firstUserText : null);
         if (diffResult.diffLines !== null) {
           calibrationFields.diff_lines = diffResult.diffLines;
         } else {
           calibrationNoteParts.push(`diff_lines: ${diffResult.diffLinesNote}`);
         }
       } catch (_) {
-        // Calibration resolution must never block emitting the completion
-        // signal itself.
         calibrationFields = {};
         calibrationNoteParts.length = 0;
         calibrationNoteParts.push('unavailable (calibration resolution error)');
@@ -1458,47 +1503,56 @@ async function run() {
     }
     const calibrationNote = calibrationNoteParts.length ? calibrationNoteParts.join('; ') : null;
 
-    // agent_note (round-2 fix, m1): plan step 4's cross-check between the
-    // sidecar/pairing-resolved `agent` and the transcript's own
-    // `attributionAgent` field (the harness's own per-record agent
-    // stamp - see scanTranscript()'s doc-comment) was previously computed
-    // and silently discarded (dead code: `attributionAgent` was extracted
-    // but never read anywhere in run()). A disagreement is forensically
-    // useful precisely because it can indicate a pairing/sidecar
-    // resolution bug independent of this hook's own logic. Only emitted
-    // when BOTH sides carry a real value and they differ - never a note on
-    // a merely-absent attributionAgent (that transcript field's own
-    // absence has no bearing on whether the resolved `agent` is correct).
-    let agentNote = null;
-    if (attributionAgent && agentName !== 'unknown' && attributionAgent !== agentName) {
-      agentNote = `attributionAgent ("${attributionAgent}") disagrees with resolved agent ("${agentName}")`;
+    let qaFields = {};
+    if (agentName === 'qa-engineer') {
+      const qa = scan && scan.lastText ? parseQaResult(scan.lastText)
+        : { qaResultNote: tokensNote || 'unavailable (no assistant text in run)' };
+      qaFields = qa.qaResult
+        ? { qa_result: qa.qaResult, ...(qa.qaBlockingCount !== null ? { qa_blocking_count: qa.qaBlockingCount } : {}) }
+        : { qa_result_note: qa.qaResultNote };
     }
 
-    const event = {
+    // Cross-check (DS-178 m1): the transcript's own attributionAgent stamp
+    // disagreeing with the resolved label can reveal a pairing/sidecar bug.
+    const attributionAgent = scan ? scan.attributionAgent : null;
+    const agentNote = (attributionAgent && agentName !== 'unknown' && attributionAgent !== agentName)
+      ? `attributionAgent ("${attributionAgent}") disagrees with resolved agent ("${agentName}")`
+      : null;
+
+    const tokens = scan && scan.tokens ? scan.tokens : null;
+    const runTokens = scan && scan.runTokens ? scan.runTokens : null;
+    append({
       ts: nowIso,
       phase: 'hook',
       event: 'spawn_complete',
       agent: agentName,
-      task_id: null,
+      task_id: ticket.ticketId,
       data: {
         source: 'hook',
-        session_uuid: sessionId || null,
+        telemetry_v: 2,
+        session_uuid: sessionId,
         tool_use_id: matchToolUseId,
         agent_id: agentId,
         agent_source: agentSource,
         ...(agentNote ? { agent_note: agentNote } : {}),
-        paired_spawn_id: pairedSpawnId,
+        task_id_source: ticket.source,
+        ...(ticket.note ? { task_id_note: ticket.note } : {}),
+        paired_spawn_id: match ? match.spawnId : null,
+        pair_method: match ? match.pairMethod : null,
+        run_index: runIndex,
+        run_start_ts: runStartTs,
         wall_seconds: wallSeconds,
-        suspect: suspect,
-        ...(tokens ? { tokens } : {}),
-        ...(tokensNote ? { tokens_note: tokensNote } : {}),
-        ...(model ? { model } : {}),
-        ...(modelNote ? { model_note: modelNote } : {}),
+        ...(wallNote ? { wall_note: wallNote } : {}),
+        suspect,
+        transcript_source: files.transcriptSource,
+        ...(tokens ? { tokens } : { tokens_note: tokensNote || 'unavailable (transcript unreadable)' }),
+        ...(runTokens ? { run_tokens: runTokens } : {}),
+        ...(model ? { model, model_source: modelSource } : { model_note: modelNote || 'unavailable (transcript unreadable)' }),
+        ...qaFields,
         ...calibrationFields,
         ...(calibrationNote ? { calibration_note: calibrationNote } : {}),
       },
-    };
-    fs.appendFileSync(eventsPath, JSON.stringify(event) + '\n', 'utf8');
+    });
 
     process.exit(0);
   } catch (_) {
@@ -1507,4 +1561,8 @@ async function run() {
   }
 }
 
-run().catch(() => process.exit(0));
+if (require.main === module) {
+  run().catch(() => process.exit(0));
+}
+
+module.exports = { scanTranscript, findMatch, isInternalAgent, parseQaResult, resolveSubagentFiles };

@@ -16,7 +16,7 @@
  *                                        data.tokens key at all (never a
  *                                        zero-filled stand-in).
  *   3. transcript-oversized-skipped:    a transcript at/above
- *                                        MAX_TRANSCRIPT_BYTES (20 MiB) ->
+ *                                        MAX_TRANSCRIPT_BYTES (256 MiB) ->
  *                                        data.tokens_note ===
  *                                        "skipped (transcript too large)",
  *                                        no data.tokens key (never a
@@ -47,8 +47,8 @@
  *                                        key. Same round-2 regression as
  *                                        Test 5, different cause.
  *   7. transcript-exact-boundary-skipped: a transcript of EXACTLY
- *                                        MAX_TRANSCRIPT_BYTES (20 MiB, not
- *                                        20 MiB + padding like Test 3) ->
+ *                                        MAX_TRANSCRIPT_BYTES (256 MiB, not
+ *                                        256 MiB + padding like Test 3) ->
  *                                        still skipped ("skipped
  *                                        (transcript too large)"), pinning
  *                                        the "at or above" boundary
@@ -93,10 +93,14 @@
  *                                        emits a partial `data.tokens` sum
  *                                        with NO disclosure note.
  *  14. transcript-just-under-boundary-summed-not-skipped: a transcript at
- *                                        exactly MAX_TRANSCRIPT_BYTES - 1
- *                                        byte is summed normally, not
- *                                        skipped - pins the opposite edge
- *                                        of Test 7's `>=` boundary.
+ *                                        exactly cap - 1 byte is summed
+ *                                        normally, not skipped, and at
+ *                                        exactly cap is skipped - pins both
+ *                                        edges of Test 7's `>=` boundary.
+ *                                        Calls scanTranscript() in-process
+ *                                        with a 64 KiB cap, since a real
+ *                                        256 MiB - 1 byte fixture would have
+ *                                        to be written and read in full.
  *
  * Run with: node hooks/tests/test-subagent-stop-spawn-emit-tokens.js
  */
@@ -206,6 +210,7 @@ function stopPayload(cwd, sessionId, agentId, overrides) {
     session_id: sessionId,
     agent_id: agentId,
     hook_event_name: 'SubagentStop',
+    agent_type: 'engineer',
   }, overrides || {});
 }
 
@@ -285,20 +290,18 @@ console.log('\nTest 3: transcript-oversized-skipped');
   const dir = path.join(configDir, 'projects', projectHash(projectCwd), sessionId, 'subagents');
   fs.mkdirSync(dir, { recursive: true });
   const transcriptPath = path.join(dir, `agent-${agentId}.jsonl`);
-  // Write a transcript at/above 20 MiB, padded with valid assistant-turn
-  // lines so a naive "sum whatever we read" implementation WOULD produce a
-  // non-zero partial sum if the size cap were not enforced.
+  // A transcript over 256 MiB that opens with a valid assistant turn, so a
+  // naive "sum whatever we read" implementation WOULD produce a non-zero
+  // partial sum if the size cap were not enforced. Sized sparsely
+  // (ftruncate) so the fixture costs no real disk writes.
   const line = assistantTurn(1000, 1000, 0, 0) + '\n';
-  const bytesNeeded = 20 * 1024 * 1024 + 4096;
+  const bytesNeeded = 256 * 1024 * 1024 + 4096;
   const fd = fs.openSync(transcriptPath, 'w');
-  let written = 0;
-  while (written < bytesNeeded) {
-    fs.writeSync(fd, line);
-    written += line.length;
-  }
+  fs.writeSync(fd, line);
+  fs.ftruncateSync(fd, bytesNeeded);
   fs.closeSync(fd);
   const sizeBefore = fs.statSync(transcriptPath).size;
-  assert(sizeBefore >= 20 * 1024 * 1024, `fixture transcript exceeds MAX_TRANSCRIPT_BYTES (got ${sizeBefore} bytes)`);
+  assert(sizeBefore >= 256 * 1024 * 1024, `fixture transcript exceeds MAX_TRANSCRIPT_BYTES (got ${sizeBefore} bytes)`);
 
   const { status } = runHook(
     stopPayload(projectCwd, sessionId, agentId),
@@ -446,9 +449,9 @@ console.log('\nTest 7: transcript-exact-boundary-skipped');
   const dir = path.join(configDir, 'projects', projectHash(projectCwd), sessionId, 'subagents');
   fs.mkdirSync(dir, { recursive: true });
   const transcriptPath = path.join(dir, `agent-${agentId}.jsonl`);
-  // Exactly MAX_TRANSCRIPT_BYTES (20 MiB), no more, no less - pins the
+  // Exactly MAX_TRANSCRIPT_BYTES (256 MiB), no more, no less - pins the
   // "at or above" boundary (>=) that Test 3's padded fixture cannot.
-  const MAX_TRANSCRIPT_BYTES = 20 * 1024 * 1024;
+  const MAX_TRANSCRIPT_BYTES = 256 * 1024 * 1024;
   const fd = fs.openSync(transcriptPath, 'w');
   fs.ftruncateSync(fd, MAX_TRANSCRIPT_BYTES);
   fs.closeSync(fd);
@@ -706,48 +709,22 @@ console.log('\nTest 13: transcript-partial-valid-plus-malformed-summed-undisclos
 // ---------------------------------------------------------------------------
 console.log('\nTest 14: transcript-just-under-boundary-summed-not-skipped');
 {
-  const projectCwd = makeTmpDir('ae-tok-proj-');
-  const configDir = makeTmpDir('ae-tok-cfg-');
-  fs.mkdirSync(path.join(projectCwd, '.agentic'), { recursive: true });
-  const sessionId = 'sess-tok-014';
-  const agentId = 'agent-tok-014';
-  const dir = path.join(configDir, 'projects', projectHash(projectCwd), sessionId, 'subagents');
-  fs.mkdirSync(dir, { recursive: true });
-  const transcriptPath = path.join(dir, `agent-${agentId}.jsonl`);
-  // Exactly MAX_TRANSCRIPT_BYTES - 1 byte, so the `>=` boundary must NOT
-  // trip - pins the opposite edge from Test 7.
-  const MAX_TRANSCRIPT_BYTES = 20 * 1024 * 1024;
+  const { scanTranscript } = require(hookPath);
+  const dir = makeTmpDir('ae-tok-cap-');
+  const transcriptPath = path.join(dir, 'agent-cap.jsonl');
+  const cap = 64 * 1024;
   const turnLine = assistantTurn(3, 2, 0, 0) + '\n';
-  const padTarget = MAX_TRANSCRIPT_BYTES - 1 - turnLine.length;
-  const padding = 'x'.repeat(Math.max(0, padTarget));
-  const fd = fs.openSync(transcriptPath, 'w');
-  fs.writeSync(fd, turnLine);
-  fs.writeSync(fd, padding);
-  fs.closeSync(fd);
-  const sizeBefore = fs.statSync(transcriptPath).size;
-  assert(sizeBefore === MAX_TRANSCRIPT_BYTES - 1,
-    `fixture transcript is exactly MAX_TRANSCRIPT_BYTES - 1 (got ${sizeBefore} bytes)`);
-
-  const { status } = runHook(
-    stopPayload(projectCwd, sessionId, agentId),
-    projectCwd,
-    { CLAUDE_CONFIG_DIR: configDir, AGENTIC_CONFIG_DIR: '' }
-  );
-  assert(status === 0, 'hook exits 0');
-  const events = readEvents(projectCwd);
-  const complete = events.find(e => e.event === 'spawn_complete');
-  assert(!!complete, 'spawn_complete emitted');
-  if (complete) {
-    const data = complete.data || {};
-    assert(!!data.tokens, `data.tokens present, not skipped, one byte under the boundary (got: ${JSON.stringify(data.tokens)})`);
-    if (data.tokens) {
-      assert(data.tokens.input === 3, `tokens summed just under the size boundary (got: ${data.tokens.input})`);
-    }
-    assert(data.tokens_note === undefined,
-      `no tokens_note when just under the size boundary (got: ${JSON.stringify(data.tokens_note)})`);
-  }
-  cleanup(projectCwd);
-  cleanup(configDir);
+  fs.writeFileSync(transcriptPath, turnLine + 'x'.repeat(cap - 1 - turnLine.length));
+  assert(fs.statSync(transcriptPath).size === cap - 1, 'fixture transcript is exactly cap - 1 bytes');
+  const under = scanTranscript(transcriptPath, null, cap);
+  assert(!!under.tokens && under.tokens.input === 3,
+    `tokens summed one byte under the cap (got: ${JSON.stringify(under.tokens)})`);
+  assert(under.tokensNote === null, `no tokens note under the cap (got: ${JSON.stringify(under.tokensNote)})`);
+  fs.appendFileSync(transcriptPath, 'x');
+  const at = scanTranscript(transcriptPath, null, cap);
+  assert(at.tokens === null && at.tokensNote === 'skipped (transcript too large)',
+    `skipped at exactly the cap (got: ${JSON.stringify(at.tokensNote)})`);
+  cleanup(dir);
 }
 
 // ---------------------------------------------------------------------------

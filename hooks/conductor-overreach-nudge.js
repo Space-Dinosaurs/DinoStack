@@ -90,7 +90,8 @@
  *                payload.transcript_path itself, bounded by a size
  *                ceiling), hooks/lib/repo-root.js (resolveAgenticCwd -
  *                anchors both reads/writes below to the repo root instead
- *                of the raw payload cwd). Reads
+ *                of the raw payload cwd), hooks/lib/prune-aged.js
+ *                (pruneAgedFiles, the sentinel sweep). Reads
  *                [resolved root]/.agentic/config.json (optional,
  *                conductor_overreach_threshold key; config-reversible) and,
  *                for the Layer 2 sentinel, checks for the existence of
@@ -143,6 +144,7 @@ const path = require('path');
 const { readStdinGuarded } = require('./lib/stdin-guard.js');
 const { computeOverreach, DEFAULT_THRESHOLD } = require('./lib/overreach-detector.js');
 const { resolveAgenticCwd } = require('./lib/repo-root.js');
+const { pruneAgedFiles } = require('./lib/prune-aged.js');
 
 /**
  * @param {string} cwd
@@ -239,22 +241,9 @@ function _sentinelPath(cwd, sessionId) {
 function _pruneAgedSentinels(cwd) {
   try {
     const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
-    const now = Date.now();
-    for (const name of fs.readdirSync(agenticDir)) {
-      if (!name.startsWith(_SENTINEL_PREFIX)) continue;
-      const entryPath = path.join(agenticDir, name);
-      try {
-        const stat = fs.statSync(entryPath);
-        if (now - stat.mtimeMs > _SENTINEL_RETENTION_MS) {
-          fs.unlinkSync(entryPath);
-        }
-      } catch (_) {
-        // Per-entry best-effort: a stat/unlink race or permission error on
-        // one entry must not abort the sweep of the rest.
-      }
-    }
+    pruneAgedFiles(agenticDir, _SENTINEL_PREFIX, _SENTINEL_RETENTION_MS);
   } catch (_) {
-    // .agentic/ unreadable, or any other error - silent, non-fatal.
+    // Root resolution failed - silent, non-fatal.
   }
 }
 

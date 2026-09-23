@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Unit tests: hooks/lib/repo-root.js (resolveAgenticCwdWithDiagnostics /
- * resolveAgenticCwd).
+ * resolveAgenticCwd, and DS-246 resolveMainRepoRoot with a parity check
+ * against hooks/lib/git_worktree.py resolve_worktree_primary_root).
  *
  * Consumes the SHARED cross-language fixture
  * hooks/tests/fixtures/repo-root-cases.json - the SAME cases drive
@@ -152,6 +153,122 @@ assert(
     }
   })(),
   'resolveAgenticCwd never throws on a wholly nonexistent path'
+);
+
+// ---------------------------------------------------------------------------
+// DS-246: resolveMainRepoRoot (JS mirror of git_worktree.py
+// resolve_worktree_primary_root), plus a parity check against the Python
+// helper for every case whose shape it recognizes.
+// ---------------------------------------------------------------------------
+const { spawnSync } = require('child_process');
+
+function git(cwd, args) {
+  return spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args],
+    { cwd, encoding: 'utf8' });
+}
+
+const pythonOk = spawnSync('python3', ['-c', 'import sys'], { encoding: 'utf8' }).status === 0;
+const gitWorktreePy = path.resolve(__dirname, '..', 'lib', 'git_worktree.py');
+
+function pythonPrimary(callerRoot) {
+  const code = [
+    'import importlib.util, sys',
+    `spec = importlib.util.spec_from_file_location("gw", ${JSON.stringify(gitWorktreePy)})`,
+    'm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)',
+    'print(m.resolve_worktree_primary_root(sys.argv[1]) or "")',
+  ].join('\n');
+  const r = spawnSync('python3', ['-c', code, callerRoot], { encoding: 'utf8' });
+  return (r.stdout || '').trim() || null;
+}
+
+function mainRootCase(id, build, expectMode, expectRootRel, parity = true) {
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'repo-main-js-')));
+  try {
+    const start = build(tmp);
+    const got = repoRoot.resolveMainRepoRoot(start);
+    assert(got.mode === expectMode, `${id}: mode === ${expectMode} (got ${got.mode})`);
+    const expectRoot = path.join(tmp, expectRootRel);
+    assert(fs.realpathSync(got.root) === fs.realpathSync(expectRoot),
+      `${id}: root === <tmp>/${expectRootRel} (got ${got.root})`);
+    if (pythonOk && parity) {
+      const callerRoot = repoRoot.resolveAgenticCwd(start);
+      const py = pythonPrimary(callerRoot);
+      const jsLinked = got.mode === 'linked' ? fs.realpathSync(got.root) : null;
+      assert((py ? fs.realpathSync(py) : null) === jsLinked,
+        `${id}: parity with git_worktree.resolve_worktree_primary_root (py ${py}, js ${jsLinked})`);
+    } else {
+      console.log(`  SKIP: ${id} parity (${parity ? 'python3 unavailable' : 'commondir-only shape'})`);
+    }
+  } finally {
+    cleanup(tmp);
+  }
+}
+
+console.log('\nresolveMainRepoRoot tests\n');
+
+mainRootCase('main-checkout', (tmp) => {
+  git(tmp, ['init', '-q']);
+  fs.mkdirSync(path.join(tmp, 'sub', 'dir'), { recursive: true });
+  return path.join(tmp, 'sub', 'dir');
+}, 'main', '');
+
+mainRootCase('real-linked-worktree', (tmp) => {
+  const main = path.join(tmp, 'main');
+  fs.mkdirSync(main);
+  git(main, ['init', '-q']);
+  git(main, ['commit', '-q', '--allow-empty', '-m', 'init']);
+  git(main, ['worktree', 'add', '-q', path.join(tmp, 'wt'), '-b', 'wt']);
+  fs.mkdirSync(path.join(tmp, 'wt', 'deep'), { recursive: true });
+  return path.join(tmp, 'wt', 'deep');
+}, 'linked', 'main');
+
+mainRootCase('relative-gitdir-no-commondir', (tmp) => {
+  fs.mkdirSync(path.join(tmp, 'main', '.git', 'worktrees', 'w'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, 'wt'));
+  fs.writeFileSync(path.join(tmp, 'wt', '.git'), 'gitdir: ../main/.git/worktrees/w\n');
+  return path.join(tmp, 'wt');
+}, 'linked', 'main');
+
+mainRootCase('commondir-relative-dotdot', (tmp) => {
+  // Admin dir outside any `/.git/worktrees/` path, so only commondir can
+  // resolve it (the Python helper, which ignores commondir, returns None).
+  fs.mkdirSync(path.join(tmp, 'main', '.git'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, 'admin', 'w'), { recursive: true });
+  fs.writeFileSync(path.join(tmp, 'admin', 'w', 'commondir'), '../../main/.git\n');
+  fs.mkdirSync(path.join(tmp, 'wt'));
+  fs.writeFileSync(path.join(tmp, 'wt', '.git'), `gitdir: ${path.join(tmp, 'admin', 'w')}\n`);
+  return path.join(tmp, 'wt');
+}, 'linked', 'main', false);
+
+mainRootCase('submodule-is-fallback', (tmp) => {
+  fs.mkdirSync(path.join(tmp, 'super', '.git', 'modules', 'sub'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, 'super', 'sub'));
+  fs.writeFileSync(path.join(tmp, 'super', 'sub', '.git'), 'gitdir: ../.git/modules/sub\n');
+  return path.join(tmp, 'super', 'sub');
+}, 'fallback', 'super/sub');
+
+mainRootCase('non-git-is-fallback', (tmp) => {
+  fs.mkdirSync(path.join(tmp, 'plain'));
+  return path.join(tmp, 'plain');
+}, 'fallback', 'plain');
+
+mainRootCase('candidate-without-git-dir-is-fallback', (tmp) => {
+  fs.mkdirSync(path.join(tmp, 'gone', 'x', '.git', 'worktrees', 'w'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, 'wt'));
+  // Pointer names a primary whose own `.git` is NOT a directory.
+  fs.writeFileSync(path.join(tmp, 'wt', '.git'), `gitdir: ${path.join(tmp, 'ghost', '.git', 'worktrees', 'w')}\n`);
+  return path.join(tmp, 'wt');
+}, 'fallback', 'wt');
+
+assert(
+  (() => {
+    try {
+      return repoRoot.resolveMainRepoRoot('/definitely/does/not/exist/anywhere').mode === 'fallback';
+    } catch (_) {
+      return false;
+    }
+  })(),
+  'resolveMainRepoRoot never throws and falls back on a wholly nonexistent path'
 );
 
 console.log(`\n${passed} passed, ${failed} failed.`);

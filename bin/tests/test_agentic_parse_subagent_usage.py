@@ -354,6 +354,47 @@ def test_resolve_transcript_honors_claude_config_dir_env():
     print("PASS test_resolve_transcript_honors_claude_config_dir_env")
 
 
+def test_parse_file_dedupes_message_id_and_splits_cache_ttl():
+    """DS-246: chunks sharing a message.id repeat one usage block, so only the
+    last one counts; the 5m/1h cache split comes from usage.cache_creation,
+    and a <synthetic> model is never reported."""
+    def chunk(msg_id, output, model="claude-opus-5"):
+        return json.dumps({
+            "type": "assistant",
+            "timestamp": "2026-05-01T10:00:00Z",
+            "message": {
+                "id": msg_id,
+                "model": model,
+                "usage": {
+                    "input_tokens": 2,
+                    "output_tokens": output,
+                    "cache_creation_input_tokens": 300,
+                    "cache_read_input_tokens": 1000,
+                    "cache_creation": {"ephemeral_5m_input_tokens": 100, "ephemeral_1h_input_tokens": 200},
+                },
+            },
+        })
+
+    lines = [
+        chunk("msg_a", 5, model="<synthetic>"),
+        chunk("msg_a", 5),
+        chunk("msg_a", 405),
+        chunk("msg_b", 7),
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "agent.jsonl"
+        path.write_text("\n".join(lines) + "\n")
+        result = _mod._parse_file(str(path))
+    t = result["tokens"]
+    assert t["input"] == 4, f"two distinct message ids, got input {t['input']}"
+    assert t["output"] == 412, f"last chunk per id (405 + 7), got {t['output']}"
+    assert t["cache_read"] == 2000, f"cache_read counted once per id, got {t['cache_read']}"
+    assert t["cache_creation"] == 600
+    assert t["cache_creation_5m"] == 200 and t["cache_creation_1h"] == 400, t
+    assert result["model"] == "claude-opus-5", result["model"]
+    print("PASS test_parse_file_dedupes_message_id_and_splits_cache_ttl")
+
+
 if __name__ == "__main__":
     test_missing_args_returns_error_json()
     test_transcript_not_found_returns_error_json()
@@ -369,4 +410,5 @@ if __name__ == "__main__":
     test_parse_iso_invalid_returns_none()
     test_resolve_transcript_primary_path()
     test_resolve_transcript_honors_claude_config_dir_env()
+    test_parse_file_dedupes_message_id_and_splits_cache_ttl()
     print("All agentic-parse-subagent-usage tests passed.")

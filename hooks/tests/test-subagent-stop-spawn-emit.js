@@ -6,7 +6,8 @@
  * sidecar, so every pairing test below (5, 6, 7, 8, 10, 11, 12, 13, 14)
  * exercises the FIFO FALLBACK path exclusively, not the sidecar-exact-match
  * path DS-178 added - `data.agent_source` on every completion emitted by
- * this file is `"paired_start"` or `"unknown"`, never `"sidecar"`. The
+ * this file is `"payload"` (DS-246: every fixture payload carries
+ * `agent_type`, as real stops do), never `"sidecar"`. The
  * sidecar-exact-match path (and the calibration fields it enables) is
  * covered separately in
  * hooks/tests/test-subagent-stop-spawn-emit-calibration.js.
@@ -113,6 +114,7 @@ function stopPayload(cwd, sessionId, overrides = {}) {
     cwd,
     session_id: sessionId,
     hook_event_name: 'SubagentStop',
+    agent_type: 'engineer',
   }, overrides);
 }
 
@@ -224,8 +226,8 @@ console.log('\nTest 5: pairs-with-spawn-start');
     const wall = (complete.data || {}).wall_seconds;
     assert(typeof wall === 'number' && wall > 0, `wall_seconds is a positive number (got: ${wall})`);
     assert(complete.agent === 'engineer', `agent copied from matched spawn_start (got: ${complete.agent})`);
-    assert((complete.data || {}).agent_source === 'paired_start',
-      `agent_source === "paired_start" (no sidecar in this fixture, DS-178) (got: ${(complete.data || {}).agent_source})`);
+    assert((complete.data || {}).agent_source === 'payload',
+      `agent_source === "payload" (no sidecar; label from the payload agent_type, DS-246) (got: ${(complete.data || {}).agent_source})`);
   }
   cleanup(cwd);
 }
@@ -243,8 +245,8 @@ console.log('\nTest 6: unpaired-still-emits');
   if (complete) {
     assert((complete.data || {}).paired_spawn_id === null, 'paired_spawn_id is null when unmatched');
     assert((complete.data || {}).wall_seconds === null, 'wall_seconds is null when unmatched');
-    assert((complete.data || {}).agent_source === 'unknown',
-      `agent_source === "unknown" when unpaired (got: ${(complete.data || {}).agent_source})`);
+    assert((complete.data || {}).agent_source === 'payload',
+      `agent_source === "payload" when unpaired (got: ${(complete.data || {}).agent_source})`);
   }
   cleanup(cwd);
 }
@@ -303,7 +305,7 @@ console.log('\nTest 10: null-session-id-never-pairs');
   const cwd = makeTmpProject();
   appendRaw(cwd, hookSpawnStart('sess-010', 'spawn-010', 'engineer'));
   // SubagentStop payload with NO session_id at all.
-  const payload = { cwd, hook_event_name: 'SubagentStop' };
+  const payload = { cwd, hook_event_name: 'SubagentStop', agent_type: 'engineer' };
   const { status } = runHook(payload, cwd);
   assert(status === 0, 'hook exits 0');
   const events = readEvents(cwd);

@@ -78,8 +78,7 @@ Failure modes: never raises, never exits nonzero. A missing config dir, a
                missing projects/ dir, or zero discovered transcripts exits 0
                with error="no_transcripts" and one human line naming the
                harness limitation. A transcript that parses to zero records,
-               or is >= 20 MiB (MAX_TRANSCRIPT_BYTES, mirroring
-               hooks/subagent-stop-spawn-emit.js), counts as `unreadable`:
+               or is >= 20 MiB (bin/_lib.py MAX_TRANSCRIPT_BYTES), counts as `unreadable`:
                a run the tool could not read. `unreadable` is excluded from
                both the numerator and the denominator of `rate` and is NEVER
                folded into `not_fired`. Row identity is total -

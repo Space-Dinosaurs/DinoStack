@@ -2,7 +2,7 @@
 
 /**
  * Purpose: Claude Code PreToolUse(Task/Agent) hook. On every subagent spawn,
- *          appends a spawn_start event to [cwd]/.agentic/events.jsonl with
+ *          appends a spawn_start event to [primary root]/.agentic/events.jsonl with
  *          source:"hook" so the telemetry substrate is populated even in ad-hoc
  *          sessions that do not run /ds-implement-ticket (which emits conductor-side
  *          spawn_complete events). This provides deterministic events.jsonl
@@ -18,6 +18,14 @@
  *          NOT at subagent completion, so there is no wall-time or token data
  *          available from hook payloads. This hook emits spawn_start only, with
  *          tokens_note:"unavailable (harness)" marking the limitation.
+ *
+ *          DS-246: the event is appended to the PRIMARY checkout's
+ *          events.jsonl (hooks/lib/spawn-events.js spawnEventsPath), carries
+ *          `data.telemetry_v: 2`, and sets top-level `task_id` plus
+ *          `data.task_id_source` (and `data.task_id_note` when none) from
+ *          hooks/lib/active-ticket.js, given this spawn's tool_use_id and
+ *          `tool_input.description`. The architect sentinel stays at the
+ *          cwd root.
  *
  *          DS-160 correlation fields (pairs with hooks/subagent-stop-spawn-emit.js):
  *          each emitted event now carries a self-generated `data.spawn_id`
@@ -46,10 +54,15 @@
  *                diagnostic fields on the emitted event.
  *                Reads PreToolUse payload from stdin (fd 0) via the bounded
  *                reader (see Failure modes).
- *                Writes [resolved root]/.agentic/events.jsonl via appendFileSync.
+ *                hooks/lib/spawn-events.js (spawnEventsPath) and
+ *                hooks/lib/active-ticket.js (resolveActiveTicket; reads
+ *                batch-state.json and the parent transcript, writes its
+ *                .ticket-scan-<session>.json cache under the cwd root).
+ *                Writes [primary root]/.agentic/events.jsonl via appendFileSync.
  *                Writes [resolved root]/.agentic/.last-architect-spawn via
  *                writeFileSync when agentName === 'architect'.
- *                Never reads other .agentic/ files.
+ *                Reads no other .agentic/ files beyond the active-ticket.js
+ *                reads named above.
  *
  * Downstream consumers: Claude Code PreToolUse(Task/Agent) hook (wired by
  *                        .claude/install.sh; matchers "Task" and "Agent").
@@ -86,7 +99,12 @@
  *              max-bytes cap - see that module for current defaults) rather
  *              than a single synchronous read; run() is async end-to-end
  *              (await readStdinGuarded(), then one JSON.parse, one mkdir,
- *              one appendFileSync). Runs on the PreToolUse critical path but
+ *              one appendFileSync). resolveActiveTicket adds, on a
+ *              session's first spawn, a streamed scan of up to the last
+ *              256 MiB of the parent transcript (only lines naming
+ *              ds-implement-ticket or "tool_use" are parsed); later spawns
+ *              read only the bytes appended since the cached offset.
+ *              Runs on the PreToolUse critical path but
  *              never blocks it indefinitely - a slow or silent stdin
  *              resolves via one of stdin-guard's bounded routes instead of
  *              hanging.
@@ -99,6 +117,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { readStdinGuarded } = require('./lib/stdin-guard.js');
 const { resolveAgenticCwdWithDiagnostics } = require('./lib/repo-root.js');
+const { spawnEventsPath } = require('./lib/spawn-events.js');
+const { resolveActiveTicket } = require('./lib/active-ticket.js');
 
 /**
  * Main entry point. Reads PreToolUse payload from stdin, emits spawn_start
@@ -155,6 +175,19 @@ async function run() {
     const rootDiag = resolveAgenticCwdWithDiagnostics(cwd);
     const agenticDir = path.join(rootDiag.root, '.agentic');
     fs.mkdirSync(agenticDir, { recursive: true });
+    const eventsPath = spawnEventsPath(cwd);
+    fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
+
+    let ticket = { ticketId: null, source: 'none', note: 'resolver_error' };
+    try {
+      ticket = resolveActiveTicket({
+        agenticDir,
+        sessionId,
+        transcriptPath: typeof payload.transcript_path === 'string' ? payload.transcript_path : null,
+        toolUseId,
+        spawnDescription: typeof toolInput.description === 'string' ? toolInput.description : '',
+      });
+    } catch (_) { /* keep the resolver_error default */ }
 
     // Build and append the spawn_start event.
     const event = {
@@ -162,9 +195,12 @@ async function run() {
       phase: 'hook',
       event: 'spawn_start',
       agent: agentName,
-      task_id: null,
+      task_id: ticket.ticketId,
       data: {
         source: 'hook',
+        telemetry_v: 2,
+        task_id_source: ticket.source,
+        ...(ticket.note ? { task_id_note: ticket.note } : {}),
         session_uuid: sessionId || null,
         tokens_note: 'unavailable (harness)',
         spawn_id: spawnId,
@@ -174,7 +210,6 @@ async function run() {
         agentic_root_found_git: rootDiag.foundGitAncestor,
       },
     };
-    const eventsPath = path.join(agenticDir, 'events.jsonl');
     fs.appendFileSync(eventsPath, JSON.stringify(event) + '\n', 'utf8');
 
     // Write architect sentinel so the planning-artifact advisory hook can

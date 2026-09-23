@@ -7,6 +7,17 @@
  *
  * Public API: resolveAgenticCwdWithDiagnostics(startDir) -> { root, driftLevels, foundGitAncestor }
  *             resolveAgenticCwd(startDir) -> string
+ *             resolveMainRepoRoot(startDir) -> { root, mode: 'main'|'linked'|'fallback' }
+ *               (DS-246) the PRIMARY checkout root when startDir is inside a
+ *               linked git worktree, so spawn telemetry lands in one file
+ *               that survives worktree removal. JS mirror of
+ *               hooks/lib/git_worktree.py resolve_worktree_primary_root() -
+ *               a change to either requires the other; parity is pinned by
+ *               hooks/tests/test-repo-root.js. Unlike the Python helper it
+ *               also honours `<gitdir>/commondir`. Returns mode 'fallback'
+ *               with root === resolveAgenticCwd(startDir) on any other
+ *               shape (non-git, submodule, unreadable pointer, or a
+ *               candidate whose own `.git` is not a directory).
  *
  * Upstream deps: node:fs (realpathSync, existsSync), node:path
  *
@@ -15,7 +26,8 @@
  *   hooks/conductor-overreach-nudge.js, hooks/post-tool-use-capture-nudge.js,
  *   hooks/session-end-wrap.js, hooks/wrap-daemon.js,
  *   hooks/lib/skill-candidate-detector.js, hooks/lib/state-mark.js,
- *   hooks/lib/capture-gap.js, hooks/lib/context-rollup.js,
+ *   hooks/lib/capture-gap.js,
+ *   hooks/lib/spawn-events.js (resolveMainRepoRoot, DS-246),
  *   bin/ds-wrap-acquire-lock, bin/ds-wrap-release-lock,
  *   .copilot/hooks/stop-context-copilot.js,
  *   .github/hooks/stop-context-copilot.js,
@@ -143,8 +155,53 @@ function resolveAgenticCwd(startDir) {
   return resolveAgenticCwdWithDiagnostics(startDir).root;
 }
 
+function isDir(p) {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch (_err) {
+    return false;
+  }
+}
+
+function resolveMainRepoRoot(startDir) {
+  const fallback = { root: resolveAgenticCwd(startDir), mode: 'fallback' };
+  try {
+    const base = fallback.root;
+    const gitPath = path.join(base, '.git');
+    const stat = fs.statSync(gitPath);
+    if (stat.isDirectory()) return { root: base, mode: 'main' };
+    if (!stat.isFile()) return fallback;
+
+    const pointer = /^[ \t]*gitdir:[ \t]*(.+?)[ \t]*$/m.exec(fs.readFileSync(gitPath, 'utf8'));
+    if (!pointer) return fallback;
+    const gitdir = path.resolve(base, pointer[1].replace(/\\/g, '/'));
+
+    let common = gitdir;
+    try {
+      const raw = fs.readFileSync(path.join(gitdir, 'commondir'), 'utf8').trim();
+      if (raw) common = path.resolve(gitdir, raw);
+    } catch (_err) { /* no commondir: fall through to the marker */ }
+
+    let candidate = null;
+    if (path.basename(common) === '.git') {
+      candidate = path.dirname(common);
+    } else {
+      const marker = '/.git/worktrees/';
+      const idx = gitdir.indexOf(marker);
+      if (idx !== -1) candidate = gitdir.slice(0, idx);
+    }
+    if (candidate && isDir(path.join(candidate, '.git'))) {
+      return { root: candidate, mode: 'linked' };
+    }
+    return fallback;
+  } catch (_err) {
+    return fallback;
+  }
+}
+
 module.exports = {
   resolveAgenticCwdWithDiagnostics,
   resolveAgenticCwd,
+  resolveMainRepoRoot,
   MAX_DEPTH,
 };

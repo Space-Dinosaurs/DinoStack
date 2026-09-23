@@ -59,15 +59,16 @@
  *                                       omission, not a notable failure
  *                                       (mirrors paired_spawn_id:null on
  *                                       an unmatched spawn).
- *  12. model-precedence-sidecar-wins:  sidecar carries a model AND the
- *                                       transcript carries a DIFFERENT
- *                                       model -> the emitted model is the
- *                                       SIDECAR's value.
+ *  12. model-precedence-transcript-wins (DS-246): sidecar carries a model
+ *                                       alias AND the transcript carries a
+ *                                       DIFFERENT resolved model -> the
+ *                                       emitted model is the TRANSCRIPT's,
+ *                                       model_source "transcript".
  *  13. model-precedence-transcript-fallback: sidecar carries no model ->
  *                                       the emitted model comes from the
  *                                       transcript.
  *  14. model-transcript-too-large-path: a transcript at/above
- *                                       MAX_TRANSCRIPT_BYTES (20 MiB), no
+ *                                       MAX_TRANSCRIPT_BYTES (256 MiB), no
  *                                       sidecar model -> model absent,
  *                                       model_note === "skipped
  *                                       (transcript too large)".
@@ -287,13 +288,15 @@ console.log('\nTest 2: sidecar-miss-falls-back-to-fifo');
   // No sidecar file written at all.
   const startTs = new Date(Date.now() - 3000).toISOString();
   appendRaw(cwd, hookSpawnStart(sessionId, 'spawn-cal-002', 'skeptic', null, startTs));
-  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  // DS-246: a real stop always carries a non-empty payload agent_type; with
+  // neither that nor a sidecar it is a harness-internal agent (R3).
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId, { agent_type: 'skeptic' }), cwd, configDir);
   assert(status === 0, 'hook exits 0');
   const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
   assert(!!complete, 'spawn_complete emitted');
   if (complete) {
-    assert(complete.agent === 'skeptic', `agent falls back to the matched spawn_start's agent (got: ${complete.agent})`);
-    assert((complete.data || {}).agent_source === 'paired_start', `agent_source === "paired_start" (got: ${(complete.data || {}).agent_source})`);
+    assert(complete.agent === 'skeptic', `agent falls back to the payload's agent_type (got: ${complete.agent})`);
+    assert((complete.data || {}).agent_source === 'payload', `agent_source === "payload" (got: ${(complete.data || {}).agent_source})`);
   }
   cleanup(cwd); cleanup(configDir);
 }
@@ -653,7 +656,7 @@ console.log('\nTest 11b: calibration-note-separator-pinned (round-3, m3)');
 }
 
 // ---------------------------------------------------------------------------
-console.log('\nTest 12: model-precedence-sidecar-wins');
+console.log('\nTest 12: model-precedence-transcript-wins');
 {
   const cwd = makeTmpDir('ae-calib-test-');
   const configDir = makeTmpDir('ae-calib-config-');
@@ -670,8 +673,9 @@ console.log('\nTest 12: model-precedence-sidecar-wins');
   const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
   assert(!!complete, 'spawn_complete emitted');
   if (complete) {
-    assert((complete.data || {}).model === 'claude-opus-5',
-      `model === sidecar's "claude-opus-5", NOT the transcript's "claude-sonnet-5" (got: ${(complete.data || {}).model})`);
+    assert((complete.data || {}).model === 'claude-sonnet-5',
+      `model === transcript's resolved "claude-sonnet-5", NOT the sidecar alias "claude-opus-5" (got: ${(complete.data || {}).model})`);
+    assert((complete.data || {}).model_source === 'transcript', `model_source === "transcript" (got: ${(complete.data || {}).model_source})`);
     assert((complete.data || {}).model_note === undefined, 'no model_note when model is present');
   }
   cleanup(cwd); cleanup(configDir);
@@ -713,16 +717,13 @@ console.log('\nTest 14: model-transcript-too-large-path');
   const dir = subagentsDir(configDir, cwd, sessionId);
   const transcriptPath = path.join(dir, `agent-${agentId}.jsonl`);
   const filler = JSON.stringify(assistantRecord('x'.repeat(500))) + '\n';
-  const targetBytes = 20 * 1024 * 1024 + 4096; // just over MAX_TRANSCRIPT_BYTES
+  const targetBytes = 256 * 1024 * 1024 + 4096; // just over MAX_TRANSCRIPT_BYTES
   const fd = fs.openSync(transcriptPath, 'w');
-  let written = 0;
-  while (written < targetBytes) {
-    fs.writeSync(fd, filler);
-    written += filler.length;
-  }
+  fs.writeSync(fd, filler);
+  fs.ftruncateSync(fd, targetBytes); // sparse: sized over the cap without writing it
   fs.closeSync(fd);
   const sizeBefore = fs.statSync(transcriptPath).size;
-  assert(sizeBefore >= 20 * 1024 * 1024, `fixture transcript exceeds MAX_TRANSCRIPT_BYTES (got ${sizeBefore} bytes)`);
+  assert(sizeBefore >= 256 * 1024 * 1024, `fixture transcript exceeds MAX_TRANSCRIPT_BYTES (got ${sizeBefore} bytes)`);
 
   const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
   assert(status === 0, 'hook exits 0');
@@ -815,7 +816,8 @@ console.log('\nTest 17: M1-agent-source-labels-provenance-not-pairing-tier-agent
     // no toolUseId field
   });
   const startTs = new Date(Date.now() - 3000).toISOString();
-  appendRaw(cwd, hookSpawnStart(sessionId, 'spawn-cal-017', 'engineer', null, startTs));
+  // DS-246: FIFO only pairs a start of the SAME agent type.
+  appendRaw(cwd, hookSpawnStart(sessionId, 'spawn-cal-017', 'qa-engineer', null, startTs));
   const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
   assert(status === 0, 'hook exits 0');
   const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');

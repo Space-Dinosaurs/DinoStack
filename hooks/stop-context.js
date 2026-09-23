@@ -101,7 +101,10 @@
  *                [cwd]/.agentic/config.json (read-only, deferred_wrap_daemon +
  *                skill_candidate_detection toggles),
  *                [cwd]/.agentic/events.jsonl (read-only for capture-gap backstop and
- *                skill-candidate scan),
+ *                skill-candidate scan) merged with this session's hook
+ *                spawn_start/spawn_complete rows from the PRIMARY checkout's
+ *                events.jsonl via lib/spawn-events.js readSessionEventsRaw
+ *                (DS-246; identical to the cwd file when the roots agree),
  *                [cwd]/.agentic/learnings.md (read-only for capture-gap backstop and
  *                skill-candidate scan),
  *                [cwd]/.agentic/.capture-gap-last-sweep (pagination cursor; atomic
@@ -309,6 +312,7 @@ const { execSync, spawnSync } = require('child_process');
 // Anchors .agentic/ writes to the repo root instead of the raw payload cwd
 // (see hooks/lib/repo-root.js manifest for full rationale).
 const { resolveAgenticCwd, resolveAgenticCwdWithDiagnostics } = require('./lib/repo-root.js');
+const { readSessionEventsRaw } = require('./lib/spawn-events.js');
 
 // Single source of truth for the deferred-/ds-wrap marker state machine, lock,
 // heartbeat, and sentinel. The local helpers that previously lived in this file
@@ -739,7 +743,11 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
       // A capped/suspect wall_seconds (see hooks/subagent-stop-spawn-emit.js)
       // is emitted as null, not a fabricated ceiling value; Number(null)||0
       // naturally contributes 0 here rather than injecting a false duration.
-      existing.wall = Number(data.wall_seconds) || 0;
+      // DS-246: a v2 row's wall covers ONE run of a possibly resumed spawn,
+      // so runs sum; a legacy row's wall is the whole span, so last wins.
+      // Tokens are cumulative either way, so they stay last-wins.
+      if (data.telemetry_v === 2) existing.wall += Number(data.wall_seconds) || 0;
+      else existing.wall = Number(data.wall_seconds) || 0;
       existing.agent = obj.agent || existing.agent;
       // data.tokens is present ONLY when the hook resolved a real
       // transcript; absent (not zero-filled) otherwise - `|| null` here
@@ -1346,13 +1354,9 @@ async function run() {
   // re-reading the file. null = file absent or unreadable (consumers treat it
   // identically to a missing file). This eliminates 3-4 redundant full reads
   // per session exit on large events files (#267).
-  const eventsPath = cwd ? path.join(resolveAgenticCwd(cwd), '.agentic', 'events.jsonl') : null;
-  let cachedEventsRaw = null;
-  if (eventsPath) {
-    try {
-      if (fs.existsSync(eventsPath)) cachedEventsRaw = fs.readFileSync(eventsPath, 'utf8');
-    } catch (_) { /* silent - stays null, consumers treat null as absent */ }
-  }
+  // DS-246: hook spawn rows live at the primary checkout root, so a session
+  // rooted in a linked worktree merges its own rows back in here.
+  const cachedEventsRaw = cwd ? readSessionEventsRaw(cwd, sessionId) : null;
 
   // --- 3b. Touch this session's heartbeat (per-turn liveness signal) ---
   // Two consumers, only one of which is daemon-scoped:
