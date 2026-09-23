@@ -2,9 +2,15 @@
 """
 Purpose: Read a Claude Code subagent transcript JSONL and emit compact JSON
          {tokens, model, wall_seconds} for use by the conductor at
-         spawn_complete time. Sums token usage across all assistant turns
+         spawn_complete time. Sums token usage across assistant messages
          in the subagent file and computes wall_seconds from the first
-         and last timestamp.
+         and last timestamp. DS-246: transcript chunks that share one
+         `message.id` repeat the same usage block, so only the LAST usage
+         per id is counted (a record with no id counts alone), and
+         `tokens` also carries cache_creation_5m/cache_creation_1h from
+         `usage.cache_creation` (a block without that breakdown books its
+         cache_creation to 5m, the API default TTL). `model` skips
+         `<synthetic>`.
 
 Public API: ds-parse-subagent-usage <session_uuid> <agent_id>
             Prints compact JSON to stdout. Exits 0 in all cases (errors are
@@ -130,8 +136,36 @@ def _parse_iso(ts: str) -> _dt.datetime | None:
         return None
 
 
+def _usage_bands(usage: dict) -> dict:
+    def num(v) -> int:
+        try:
+            n = int(v or 0)
+        except (TypeError, ValueError):
+            return 0
+        return n if n >= 0 else 0
+
+    bands = {
+        "input": num(usage.get("input_tokens")),
+        "output": num(usage.get("output_tokens")),
+        "cache_creation": num(usage.get("cache_creation_input_tokens")),
+        "cache_read": num(usage.get("cache_read_input_tokens")),
+    }
+    split = usage.get("cache_creation")
+    if isinstance(split, dict):
+        bands["cache_creation_5m"] = num(split.get("ephemeral_5m_input_tokens"))
+        bands["cache_creation_1h"] = num(split.get("ephemeral_1h_input_tokens"))
+    else:
+        bands["cache_creation_5m"] = bands["cache_creation"]
+        bands["cache_creation_1h"] = 0
+    return bands
+
+
 def _parse_file(path: str) -> dict:
-    tokens = {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0}
+    tokens = {
+        "input": 0, "output": 0, "cache_creation": 0, "cache_read": 0,
+        "cache_creation_5m": 0, "cache_creation_1h": 0,
+    }
+    usage_by_id: dict = {}
     model = None
     first_ts = None
     last_ts = None
@@ -159,18 +193,18 @@ def _parse_file(path: str) -> dict:
             usage = msg.get("usage") or {}
             if not isinstance(usage, dict):
                 continue
-            tokens["input"] += int(usage.get("input_tokens", 0) or 0)
-            tokens["output"] += int(usage.get("output_tokens", 0) or 0)
-            tokens["cache_creation"] += int(
-                usage.get("cache_creation_input_tokens", 0) or 0
-            )
-            tokens["cache_read"] += int(
-                usage.get("cache_read_input_tokens", 0) or 0
-            )
+            if usage:
+                msg_id = msg.get("id")
+                key = msg_id if isinstance(msg_id, str) and msg_id else f"__noid_{len(usage_by_id)}"
+                usage_by_id[key] = _usage_bands(usage)
             if model is None:
                 m = msg.get("model")
-                if isinstance(m, str) and m:
+                if isinstance(m, str) and m and m != "<synthetic>":
                     model = m
+
+    for bands in usage_by_id.values():
+        for k, v in bands.items():
+            tokens[k] += v
 
     wall_seconds = 0.0
     if first_ts is not None and last_ts is not None and last_ts > first_ts:

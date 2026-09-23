@@ -23,7 +23,9 @@
  * Upstream deps: Node built-ins only (fs, path, child_process), plus
  *                ./repo-root.js (resolveAgenticCwd - anchors every .agentic/
  *                read below to the repo root instead of the raw cwd
- *                argument). Reads
+ *                argument) and ./spawn-events.js (readSessionEventsRaw - the
+ *                uncached events read also merges this session's hook spawn
+ *                rows from the primary checkout root, DS-246). Reads
  *                [cwd]/.agentic/events.jsonl (learning-worthy events),
  *                [cwd]/.agentic/learnings.md (today-dated LRN/KNW suppression),
  *                [cwd]/.agentic/.capture-gap-last-sweep (pagination cursor, READ
@@ -59,6 +61,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { resolveAgenticCwd } = require('./repo-root.js');
+const { readSessionEventsRaw } = require('./spawn-events.js');
 
 // ---------------------------------------------------------------------------
 // Capture-gap detector
@@ -124,7 +127,8 @@ function _tokenize(str) {
  *   run()'s single read. When provided (non-undefined), the file is NOT re-read;
  *   null means the file was absent or unreadable at read time (treated same as
  *   missing file: function returns no-nudge immediately). When omitted (undefined),
- *   falls back to reading eventsPath directly for back-compat with callers that
+ *   falls back to readSessionEventsRaw() (the cwd-root file plus this
+ *   session's primary-root hook spawn rows, DS-246) for back-compat with callers that
  *   do not thread the cache (e.g. the PostToolUse hook).
  * @returns {{ shouldNudge: boolean, residualOnly: boolean, lastEventTs: string|null }}
  */
@@ -133,8 +137,6 @@ function detectCaptureGap(cwd, sessionId, cachedEventsRaw) {
     if (!sessionId) return { shouldNudge: false, residualOnly: false, lastEventTs: null };
 
     // --- (a) Scan events.jsonl for learning-worthy events this session ---
-    const eventsPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'events.jsonl');
-
     // Pagination: read only lines after the last sweep cursor.
     let lastSweepTs = '';
     try {
@@ -150,12 +152,9 @@ function detectCaptureGap(cwd, sessionId, cachedEventsRaw) {
       if (cachedEventsRaw === null) return { shouldNudge: false, residualOnly: false, lastEventTs: null };
       rawEvents = cachedEventsRaw;
     } else {
-      // Back-compat: no cache provided, read the file directly.
-      try {
-        if (fs.existsSync(eventsPath)) {
-          rawEvents = fs.readFileSync(eventsPath, 'utf8');
-        }
-      } catch (_) { return { shouldNudge: false, residualOnly: false, lastEventTs: null }; }
+      // Back-compat: no cache provided. DS-246: merge this session's
+      // primary-root hook spawn rows so a worktree-rooted session sees them.
+      rawEvents = readSessionEventsRaw(cwd, sessionId) || '';
     }
 
     const eventLines = rawEvents.split('\n');
