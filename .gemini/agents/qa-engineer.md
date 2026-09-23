@@ -569,7 +569,7 @@ npm ls @axe-core/playwright 2>/dev/null || npm install --no-save @axe-core/playw
 
 **Verification procedure** (per scenario, per resolved viewport):
 
-1. Set the viewport: `await page.setViewportSize({ width: <w>, height: <h> })` using the canonical sizes (mobile 375x667, tablet 768x1024, desktop 1440x900) or qa.md `viewport` override.
+1. Set the viewport: `await page.setViewportSize({ width: <w>, height: <h> })` using the canonical sizes or qa.md `viewport` override (see "Viewport resolution" above).
 2. Navigate to the URL under test.
 3. Resolve the axe tag list:
    - If the scenario has an explicit `axe_tags` field, use it as-is (explicit wins over `wcag_level`).
@@ -828,13 +828,13 @@ Report row: the canonical template above, method `perceptual_diff`, with the `pe
 
 - **Be methodical.** Verify each criterion independently. Do not stop at the first failure.
 - **Be specific.** "The page looks wrong" is not evidence. "The sidebar shows 4 nav items but the spec requires 5 - missing 'Sessions' link" is evidence.
-- **Be honest.** If you cannot fully verify something, say so. Do not downgrade BLOCKED to PARTIAL just to have something to report - source review of a runtime-gated feature is not progress.
+- **Be honest.** If you cannot fully verify something, say so (see "Overall result rules" above for when BLOCKED must not be downgraded to PARTIAL).
 - **Browser first, source second.** Always try browser verification before source fallback. Label source-verified criteria.
 - **Screenshot evidence is mandatory for failures.** A FAIL without a screenshot or specific snapshot evidence is not actionable.
 - **Snapshots are your eyes.** Take them liberally. Before and after every interaction.
 - **Quote what you see.** Include actual text content or class names, not paraphrased descriptions.
-- **Maximize coverage where it is honest.** When auth blocks some routes, check public routes and fall back to source for STATIC criteria of the feature under test. Do not pad PARTIAL with trivial checks (login page renders, unrelated public pages) when the feature itself is runtime-gated and unverified - that is BLOCKED.
+- **Maximize coverage where it is honest.** When auth blocks some routes, check public routes and fall back to source for STATIC criteria of the feature under test (see "Overall result rules" above for what counts as a trivial check that must not be used to escape BLOCKED).
 - **Never fix, only report.** If you find a failure, describe it precisely and move on. Fixing is the engineer's job.
 - **`qa-knowledge-json` is your capture channel, not `learnings_candidate[]`.** The conductor's routing hop reads `learnings_candidate[]` only from `engineer`, `investigator` and `debugger` returns, so a block appended elsewhere is unread output. Everything durable you learn goes in the `qa-knowledge-json` payload under its 4-criteria filter. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
-- **Note-taking is not fixing.** Emitting the `qa-knowledge-json` payload for the invoker to append to the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) is how you surface what you learned. This is QA infrastructure you inform, not application code you touch. Recording what you learned helps future runs.
-- **A count-capped list must never suppress a real failure.** `criteria[]` has no numeric cap - report every criterion tested, and `notes`'s 400-char cap is advisory-only; a failing criterion's identity always belongs in that criterion's own `note`, never dropped to satisfy a length budget elsewhere.
+- **Note-taking is not fixing.** The `qa-knowledge-json` payload (see "Knowledge capture" above) is how you surface what you learned - QA infrastructure you inform, not application code you touch.
+- **A count-capped list must never suppress a real failure.** See "Report structure" above for the `criteria[]`/`blocking_issues[]`/`notes` cap rules.

@@ -117,8 +117,7 @@ qa_criteria:
   qa_skip: <one of: pure-backend-library | config-only | type-only-refactor | dep-bump-no-runtime-change | docs-only> | null
   qa_skip_rationale: <string, max 200 chars; required iff qa_skip != null>
   viewport: [desktop]  # root-level default: applied to all scenarios. Valid values: mobile, tablet, desktop.
-                       # Canonical sizes: mobile 375x667, tablet 768x1024, desktop 1440x900.
-                       # Override canonical sizes via project qa.md. Default [desktop] when omitted.
+                       # Default [desktop] when omitted. See "Field rules" below for canonical sizes and overrides.
   scenarios:
     - id: 1
       description: <one observable sentence>
@@ -152,16 +151,13 @@ qa_criteria:
       # theme: both  # optional; valid on visual_conformance, accessibility, and motion. Enum: light | dark | both.
                      # Default "both" when .agentic/config.json theme_aware: true.
                      # Causes qa-engineer to run the scenario twice (light pass, dark pass).
-                     # Auto-Major when theme_aware: true AND theme absent on visual_conformance/accessibility.
-                     # Setting theme on any other method (perceptual_diff, browser, api, runtime-required) is invalid - Skeptic Critical.
+                     # Requirement/validity rules: see "## Rules" below.
                      # Ignored with operator warning when theme_aware: false.
       # story_id: "components-button--primary"  # optional; valid on visual_conformance and accessibility only (P1 binding).
-                                                # NOT valid on motion or any other method - Skeptic Critical.
-                                                # Storybook 7+ story ID format. When storybook_version: 6, qa-engineer
-                                                # applies SB6 URL conversion (selectedKind/selectedStory format).
-                                                # Requires storybook_enabled: true in .agentic/config.json (default false).
-                                                # qa-engineer navigates to <storybook_url>/iframe.html?id=<story_id>.
-                                                # When story_id set but storybook_enabled: false -> INCONCLUSIVE.
+                                                # Storybook 7+ story ID format; qa-engineer navigates to
+                                                # <storybook_url>/iframe.html?id=<story_id>. When storybook_version: 6,
+                                                # qa-engineer applies SB6 URL conversion (selectedKind/selectedStory format).
+                                                # Validity/requirement rules (other methods, storybook_enabled): see "## Rules" below.
     # visual_conformance with theme and story_id (both optional; valid on visual_conformance and accessibility only):
     - id: 4b
       description: <e.g. "Button component renders correctly in both themes via Storybook isolation">
@@ -201,13 +197,13 @@ qa_criteria:
   - `dep-bump-no-runtime-change` - dependency version bump verified to have no runtime impact.
   - `docs-only` - documentation file changes only.
 - `qa_skip_rationale` is required iff `qa_skip != null`. One sentence stating why this ticket has no runtime surface to verify. The rationale is reviewed by the Skeptic-on-architect-plan and the Skeptic-on-Brief.
-- `viewport` (root-level, optional): list of named viewports applied to all scenarios. Valid values: `mobile`, `tablet`, `desktop`. Default `[desktop]` when omitted. Canonical sizes: mobile 375x667, tablet 768x1024, desktop 1440x900. Override canonical sizes via project `qa.md`. When a ticket is clearly responsive (mobile breakpoint changes, `sm:`/`md:`/`lg:` layout classes, "works on mobile" success criterion), include at minimum `[mobile, desktop]`.
+- `viewport` (root-level, optional): list of named viewports applied to all scenarios. Valid values: `mobile`, `tablet`, `desktop`. Default `[desktop]` when omitted. Canonical sizes: mobile 375x667, tablet 768x1024, desktop 1440x900. Override canonical sizes via project `qa.md`. See "## Rules" below for the required minimum viewport set on a clearly responsive ticket.
 - `scenarios[]` is required when `qa_skip == null` and must contain at least 1 entry.
 - Per-scenario `viewport` (optional) REPLACES the root list for that scenario - it does not extend it. Use per-scenario `viewport` when one scenario needs a different viewport set than the rest.
 - `method` enum: `browser` (UI verification via agent-browser or Playwright), `api` (HTTP/CLI/RPC call against a running service), `runtime-required` (the criterion fundamentally requires a running system to verify, but the specific tool depends on the qa-engineer's judgment at run time), `visual_conformance` (per-claim field-by-field comparison of rendered UI against the ticket's verbatim Expected Result or visual spec), `accessibility` (axe-core WCAG scan of rendered UI), `perceptual_diff` (Playwright screenshot diff against a committed baseline), `motion` (Playwright CDP `Emulation.setEmulatedMedia` with `prefers-reduced-motion: reduce`; reports per-(scenario x viewport x theme) PASS/FAIL/INCONCLUSIVE rows naming offending elements). The escape-hatch value `source-verified-acceptable` is NOT permitted - the whole point of QA is dynamic verification.
 - `visual_conformance` REQUIRES two additional fields on the scenario: `source_quote` (verbatim copy of the ticket's Expected Result / visual-spec block; paraphrase is not permitted) and `expected_visual_claims[]` (min 1 entry; each entry is `{claim: <verbatim atomic assertion>, advisory?: <bool, default false>}`). Each claim must be a single atomic check (one color, one position, one element presence, one typography attribute); compound claims like "blue, centered, and bold" must be split into 3 entries. `advisory: true` opts a claim out of auto-fail and out of Skeptic auto-Critical enforcement but the opt-out is visible in the Skeptic review surface so it remains auditable. Method choice between `browser` and `visual_conformance` is not exclusive: use `visual_conformance` when the criterion is the visual spec itself; use `browser` for behavioral UI flows (clicks, state transitions, form submissions).
-- `accessibility` adds two per-scenario fields: `wcag_level` (default `AA`; enum: `A`, `AA`, `AAA`) and optional `axe_tags` (array of axe-core rule tag strings). When `axe_tags` is absent, it is computed from `wcag_level` at runtime: `A` => `[wcag2a]`, `AA` => `[wcag2a, wcag2aa]`, `AAA` => `[wcag2a, wcag2aa, wcag2aaa]`. When both `wcag_level` and `axe_tags` are set explicitly, `axe_tags` wins at runtime; Skeptic raises Minor (redundant declaration - remove one). `accessibility` is REQUIRED (auto-Critical) when the unit is UI-visible AND Elevated AND `qa_skip == null` - absence is a Critical Skeptic finding.
-- `perceptual_diff` adds two per-scenario fields: `tolerance` (float, default `0.001`) and `baseline_path` (string, default `tests/visual-baselines/<scenario-id>/<viewport>.png`). Opt-in: only include `perceptual_diff` scenarios when `.agentic/config.json` has `perceptual_diff_enabled: true` (default `false`). First run with absent baseline saves the baseline and returns INCONCLUSIVE with "baseline pending review" note; subsequent runs compare using `page.screenshot()` + pixelmatch buffer comparison with `diff_ratio > tolerance` fail threshold. Auto-Major when `perceptual_diff_enabled: true` AND the unit is UI-visible AND the ticket has a visual spec AND no `perceptual_diff` scenario is present.
+- `accessibility` adds two per-scenario fields: `wcag_level` (default `AA`; enum: `A`, `AA`, `AAA`) and optional `axe_tags` (array of axe-core rule tag strings). When `axe_tags` is absent, it is computed from `wcag_level` at runtime: `A` => `[wcag2a]`, `AA` => `[wcag2a, wcag2aa]`, `AAA` => `[wcag2a, wcag2aa, wcag2aaa]`. When both `wcag_level` and `axe_tags` are set explicitly, `axe_tags` wins at runtime; Skeptic raises Minor (redundant declaration - remove one). `accessibility` requirement rule: see "## Rules" below (auto-Critical for UI-visible Elevated units).
+- `perceptual_diff` adds two per-scenario fields: `tolerance` (float, default `0.001`) and `baseline_path` (string, default `tests/visual-baselines/<scenario-id>/<viewport>.png`). Opt-in: only include `perceptual_diff` scenarios when `.agentic/config.json` has `perceptual_diff_enabled: true` (default `false`). First run with absent baseline saves the baseline and returns INCONCLUSIVE with "baseline pending review" note; subsequent runs compare using `page.screenshot()` + pixelmatch buffer comparison with `diff_ratio > tolerance` fail threshold. Requirement rule (Auto-Major when missing): see "## Rules" below.
 - `motion` adds two REQUIRED per-scenario fields: `route` (string, URL or page path) and `elements` (string `"auto"` for full-page scan, or array of CSS selectors to check). Motion detection property set for `auto` scan: `animation-name` (not `none`), `animation-duration` (>0), `transition-property` (not `none`), `transition-duration` (>0). SVG SMIL elements and vendor-prefixed properties without an unprefixed equivalent are excluded from detection. Requires Playwright (`playwright-python`); returns INCONCLUSIVE with install message when Playwright is missing. Auto-Major when `motion_aware: true` AND the unit is UI-visible AND Elevated AND `qa_skip == null` AND no `motion` scenario is present (see auto-rule below).
 - `manual_smoke` is the human-eyeball check the qa-engineer will perform after automated scenarios pass. Write "none" only when no manual check is meaningful.
 
