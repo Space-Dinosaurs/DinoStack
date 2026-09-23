@@ -1008,9 +1008,9 @@ def _gh_stub(nodes: list[dict], gh_ok: bool = True):
     return run
 
 
-def _ticket_report(repos: list[Path], gh_ok: bool = True) -> dict:
+def _ticket_report(repos: list[Path], gh_ok: bool = True, prs: list[dict] | None = None) -> dict:
     orig_run, orig_pricing = _mod._run, _mod._TELEMETRY.PRICING_PATH
-    _mod._run = _gh_stub(_TICKET_PRS, gh_ok)
+    _mod._run = _gh_stub(_TICKET_PRS if prs is None else prs, gh_ok)
     _mod._TELEMETRY.PRICING_PATH = repos[0] / "no-pricing.yml"
     try:
         return _mod.build_delta(repos, CUT_DT, 14, now=NOW)
@@ -1067,13 +1067,14 @@ def test_per_ticket_rows_loops_qa_and_escaped_defects():
     assert t["pr_status"] == "OK"
     assert t["prs_merged"] == 2 and t["pr_numbers"] == [900, 905]
     assert t["follow_up_prs"] == 1
-    assert t["loops"] == 2 + 1 + 1
+    assert t["unit_count"] == 1 and t["ledger_skeptic_rounds"] is None
+    assert t["loops"] == (2 - 1) + 1 + (2 - 1)
     assert t["final_merge_ts"] == "2026-09-03T00:00:00+00:00"
     assert t["e2e_wall_seconds"] == 8 * 86400
     assert t["reentries_after_merge"] == 1
     assert t["post_merge_findings"] == 1
     assert abs(t["dollars_exact"] - 5.644) < 1e-9 and t["dollars_family_estimated"] == 20.0
-    assert after["summary"]["tickets"] == 1 and after["summary"]["loops_mean"] == 4
+    assert after["summary"]["tickets"] == 1 and after["summary"]["loops_mean"] == 3
     assert after["unattributed_runs"] == 0
 
 
@@ -1097,6 +1098,76 @@ def test_per_ticket_pr_attribution_ledger_first_then_anchored_prefix():
     assert before["unattributed_runs"] == 1
     after_numbers = _rows_by_ticket(report["per_ticket"]["after"])["AUT-700"]["pr_numbers"]
     assert 906 not in after_numbers and 907 not in after_numbers
+
+
+def test_ledger_string_pr_number_is_credited_and_leaves_fallback_pool():
+    """Skeptic Major 1: a ledger pr_number stored as "726" is the ledger's PR."""
+    nodes = {"r": [{"number": 726, "title": "[AUT-10] other", "headRefName": "x",
+                    "mergedAt": "2026-09-01T00:00:00Z"}]}
+    credits, ambiguous = _mod._attribute_prs(
+        nodes, [("r", {"ticket_id": "AUT-9", "pr_number": "726"})], {"AUT-9", "AUT-10"})
+    assert [pr["number"] for pr in credits.get("AUT-9", [])] == [726], credits
+    assert "AUT-10" not in credits and ambiguous == []
+
+
+def _loops_repo(tmp: Path, reviews: int, qa_fails: int, ledger: dict | None) -> Path:
+    events = [fx.v2_start("2026-08-10T00:00:00Z", "investigator", "anchor-a"),
+              fx.v2_start("2026-09-09T00:00:00Z", "investigator", "anchor-b"),
+              fx.v2_start("2026-08-26T00:00:00Z", "engineer", "e", "AUT-800"),
+              fx.v2_complete("2026-08-26T01:00:00Z", "engineer", "e", "AUT-800")]
+    for i in range(reviews):
+        events += [fx.v2_start(f"2026-08-27T0{i}:00:00Z", "skeptic", f"k{i}", "AUT-800"),
+                   fx.v2_complete(f"2026-08-27T0{i}:30:00Z", "skeptic", f"k{i}", "AUT-800",
+                                  findings_count={"critical": 0, "major": 0, "minor": 0},
+                                  iteration=1, signed_off=True)]
+    for i in range(qa_fails):
+        events += [fx.v2_start(f"2026-08-28T0{i}:00:00Z", "qa-engineer", f"q{i}", "AUT-800"),
+                   fx.v2_complete(f"2026-08-28T0{i}:30:00Z", "qa-engineer", f"q{i}", "AUT-800",
+                                  qa_result="FAIL")]
+    fx.write_jsonl(tmp / ".agentic" / "events.jsonl", events)
+    if ledger is not None:
+        fx.write_jsonl(tmp / ".agentic" / "ticket-ledger.jsonl",
+                       [{"ticket_id": "AUT-800", "opened_ts": "2026-08-26T00:00:00Z", **ledger}])
+    return tmp
+
+
+def _loops_row(reviews: int, qa_fails: int, prs: int, ledger: dict | None) -> dict:
+    nodes = [{"number": 1000 + i, "title": f"feat(AUT-800): unit {i}", "headRefName": "x",
+              "mergedAt": f"2026-09-0{i + 1}T00:00:00Z"} for i in range(prs)]
+    with tempfile.TemporaryDirectory() as tmp:
+        report = _ticket_report([_loops_repo(Path(tmp), reviews, qa_fails, ledger)], prs=nodes)
+    return _rows_by_ticket(report["per_ticket"]["after"])["AUT-800"]
+
+
+def test_loops_clean_single_unit_ticket_is_zero():
+    """Skeptic Major 2: one review and one PR is no rework."""
+    t = _loops_row(reviews=1, qa_fails=0, prs=1, ledger=None)
+    assert t["unit_count"] == 1 and t["skeptic_reviews"] == 1 and t["prs_merged"] == 1
+    assert t["loops"] == 0, t
+
+
+def test_loops_clean_two_unit_ticket_is_zero():
+    """Skeptic Major 2: one review and one PR per planned unit is no rework."""
+    t = _loops_row(reviews=2, qa_fails=0, prs=2, ledger={"unit_count": 2, "skeptic_rounds": 2})
+    assert t["unit_count"] == 2 and t["skeptic_reviews"] == 2 and t["prs_merged"] == 2
+    assert t["loops"] == 0, t
+
+
+def test_loops_count_only_rework_beyond_units_and_surface_ledger_rounds():
+    """Skeptic Major 2 and Minor 1: extra reviews, QA fail-backs and extra PRs are loops;
+    a larger ledger skeptic_rounds is shown beside the telemetry count."""
+    t = _loops_row(reviews=4, qa_fails=1, prs=3, ledger={"unit_count": "2", "skeptic_rounds": 5})
+    assert t["unit_count"] == 2 and t["skeptic_reviews"] == 4 and t["prs_merged"] == 3
+    assert t["skeptic_reviews_source"] == "telemetry" and t["ledger_skeptic_rounds"] == 5
+    assert t["loops"] == (4 - 2) + 1 + (3 - 2), t
+
+
+def test_pr_lookahead_days_out_of_range_exits_2():
+    """Skeptic Minor 3: --pr-lookahead-days outside 0..MAX_WINDOW_DAYS exits 2."""
+    with tempfile.TemporaryDirectory() as tmp:
+        for bad in ("-1", str(_mod.MAX_WINDOW_DAYS + 1)):
+            rc = _mod.main(["--cut", "2026-01-01", "--pr-lookahead-days", bad, "--repo", tmp])
+            assert rc == 2, (bad, rc)
 
 
 def test_pr_title_and_branch_matchers():

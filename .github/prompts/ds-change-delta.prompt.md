@@ -63,11 +63,16 @@ a store with no v2 rows is `ABSENT`, both with `null` values.
   `re_raised` (`null` when no `findings_log` entry records it), QA runs and
   fail-backs (FAIL or PARTIAL), merged and follow-up PRs, re-entries more
   than 1h after the first merge, Critical+Major findings after it (`null`
-  when the review count fell back to the ledger's `skeptic_rounds`), loops
-  (`skeptic_reviews + qa_fail_backs + max(prs_merged - 1, 0)`), end-to-end
-  wall (final merge minus first spawn) and dollars. A ticket whose ledger
-  `opened_ts` predates the v2 extent is listed in `excluded_pre_v2`
-  instead.
+  when the review count fell back to the ledger's `skeptic_rounds`),
+  `ledger_skeptic_rounds` (shown beside a telemetry count so an undercount
+  is visible), `unit_count` (from the ledger, default 1), rework loops
+  (`max(skeptic_reviews - unit_count, 0) + qa_fail_backs +
+  max(prs_merged - unit_count, 0)`, so a clean ticket with one review and
+  one PR per unit reports 0), end-to-end wall (final merge minus first
+  spawn) and dollars. A ticket whose ledger `opened_ts` predates the v2
+  extent is listed in `excluded_pre_v2` instead; a ticket with no ledger
+  row that began before the v2 extent cannot be detected, so it is
+  anchored at its first v2 spawn with a short wall and fewer reviews.
 - PR attribution: a PR number in a repo's `ticket-ledger.jsonl` counts
   for every ticket recording it. Any other PR counts for T only when its
   title starts with `T:`, `[T]`, `[T]:` or `type(T):`, or else when the

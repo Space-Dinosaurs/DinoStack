@@ -904,6 +904,8 @@ def _as_int(value) -> int | None:
         return None
     if isinstance(value, int):
         return value
+    if isinstance(value, str) and value.strip().isascii() and value.strip().isdigit():
+        return int(value)
     return None
 
 
@@ -1137,11 +1139,13 @@ def _ticket_row(ticket: str, entry: dict, loop_states: list[dict], credited: lis
     skeptic_runs = [run for rec, run in runs if rec.agent == "skeptic"]
     reviewed = [run for run in skeptic_runs if run["findings_count"] is not None]
 
+    ledger_rounds = [n for n in (_as_int(r.get("skeptic_rounds")) for r in entry["ledger"]) if n is not None]
+    ledger_skeptic_rounds = max(ledger_rounds) if ledger_rounds else None
     skeptic_reviews, reviews_source = len(reviewed), "telemetry"
-    if not reviewed:
-        ledger_rounds = [n for n in (_as_int(r.get("skeptic_rounds")) for r in entry["ledger"]) if n is not None]
-        if ledger_rounds:
-            skeptic_reviews, reviews_source = max(ledger_rounds), "ledger"
+    if not reviewed and ledger_skeptic_rounds is not None:
+        skeptic_reviews, reviews_source = ledger_skeptic_rounds, "ledger"
+    unit_counts = [n for n in (_as_int(r.get("unit_count")) for r in entry["ledger"]) if n is not None]
+    unit_count = max(max(unit_counts) if unit_counts else 1, 1)
     findings = None
     if reviewed:
         findings = {
@@ -1172,6 +1176,8 @@ def _ticket_row(ticket: str, entry: dict, loop_states: list[dict], credited: lis
         "first_spawn_ts": entry["first_spawn_ts"].isoformat() if entry["first_spawn_ts"] else None,
         "skeptic_reviews": skeptic_reviews,
         "skeptic_reviews_source": reviews_source,
+        "ledger_skeptic_rounds": ledger_skeptic_rounds,
+        "unit_count": unit_count,
         "max_iteration": max_iteration,
         "max_iteration_source": iteration_source,
         "findings": findings,
@@ -1198,7 +1204,8 @@ def _ticket_row(ticket: str, entry: dict, loop_states: list[dict], credited: lis
     )
     row["prs_merged"] = len(merged)
     row["pr_numbers"] = [pr["number"] for pr in merged]
-    row["loops"] = skeptic_reviews + qa_fail_backs + max(len(merged) - 1, 0)
+    row["loops"] = (max(skeptic_reviews - unit_count, 0) + qa_fail_backs
+                    + max(len(merged) - unit_count, 0))
     if not merged:
         return row
     first_merge = merged[0]["merged_at"]
@@ -1246,8 +1253,9 @@ def _per_ticket_side(spawn_data: dict, index: dict[str, dict], start: datetime, 
                      pr_cutoff: datetime, rates: dict) -> dict:
     """Tickets whose first v2 spawn (else earliest ledger opened_ts) falls
     in [start, end). A ticket whose ledger opened_ts predates the v2
-    extent is listed in excluded_pre_v2, not reported. Every value is null
-    unless status is OK."""
+    extent is listed in excluded_pre_v2, not reported; one with no ledger
+    row cannot be detected as pre-v2 and is anchored at its first v2
+    spawn. Every value is null unless status is OK."""
     side: dict = {"status": status, "note": note, "v2_coverage": _v2_coverage(spawn_data)}
     if status != "OK":
         side.update(tickets=None, summary=None, excluded_pre_v2=None,
