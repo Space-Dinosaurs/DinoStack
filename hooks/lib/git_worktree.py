@@ -48,6 +48,11 @@ Public API (module-level functions, no class):
         per-worktree scoping; changing it would be a much larger-blast-
         radius change than this ticket's fire-log-only fix calls for.
 
+        Mirrored in JS by hooks/lib/repo-root.js resolveMainRepoRoot()
+        (DS-246, spawn telemetry): a change to either requires the other.
+        The JS side additionally honours `<gitdir>/commondir`; parity on
+        every other shape is pinned by hooks/tests/test-repo-root.js.
+
         A real linked worktree's `.git` is a FILE containing a line of the
         form `gitdir: <path>`, where <path> contains a `/worktrees/`
         segment (it points into the shared repo's
