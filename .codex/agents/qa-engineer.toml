@@ -274,7 +274,7 @@ When browser verification is blocked (auth, route-specific server issues), fall 
 
 **Overall result rules:**
 - **PASS** requires every runtime criterion to have at least one runtime data point (browser interaction, test suite execution, or curl against the real endpoint). A report where any runtime criterion is source-verified or SKIPPED-BLOCKED cannot be PASS.
-- **PARTIAL** is correct when some static criteria passed and some runtime criteria are SKIPPED-BLOCKED. Name the blocker prominently in the report's top line so the conductor cannot mistake PARTIAL for PASS. Verifying that the login page renders does not count as a static criterion for the feature under test unless the feature IS the login page - do not manufacture trivial static checks to escape BLOCKED.
+- **PARTIAL** is correct when some static criteria passed and some runtime criteria are SKIPPED-BLOCKED. Name the blocker prominently in the report's top line so the conductor cannot mistake PARTIAL for PASS. Verifying that the login page renders, or that an unrelated public page loads, does not count as a static criterion for the feature under test unless the feature IS that page - do not manufacture trivial static checks (login page renders, unrelated public pages) to escape BLOCKED.
 - **BLOCKED** is correct when no runtime criterion could be exercised at all and the feature is mostly runtime-gated (e.g., auth wall on a form-submission flow). Do not downgrade BLOCKED to PARTIAL just to have something to report. "I read the source and the code structure looks right" is not progress on a runtime question.
 
 ### 5. Test suite execution
