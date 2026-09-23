@@ -35,9 +35,9 @@ CITATION_TO_TITLE_KEYWORD = {
 
 
 class TestEngineerCitationsLocateSkepticSteps(unittest.TestCase):
-    """Step citations in engineer.md ("step 4.5", "step 4.6", "step 11.5",
-    "step 7", "step 10.5") still locate a step in skeptic.md bearing the expected title
-    keyword - catches renumbering/retitling on the skeptic.md side."""
+    """Step citations in engineer.md still locate a step in skeptic.md bearing
+    the expected title keyword - catches renumbering/retitling on the skeptic.md
+    side."""
 
     def setUp(self):
         self.engineer_text = ENGINEER_MD.read_text(encoding="utf-8")
