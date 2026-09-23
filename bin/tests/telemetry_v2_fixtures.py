@@ -5,8 +5,8 @@ Purpose: Builders for DS-246 telemetry_v 2 hook spawn rows, shared by
          subagent-stop-spawn-emit.js) must emit: a field renamed here is a
          field the U2 readers stop seeing.
 
-Public API: tokens(...), v2_start(...), v2_complete(...), legacy_complete(...),
-            internal_stop(...), write_jsonl(path, rows),
+Public API: tokens(...), v2_start(...), v2_complete(...), unpaired_complete(...),
+            legacy_complete(...), internal_stop(...), write_jsonl(path, rows),
             make_linked_worktree(tmp) -> (main_root, worktree_root)
 
 Upstream deps: git (make_linked_worktree only).
@@ -112,6 +112,15 @@ def v2_complete(ts, agent, spawn_id, task_id=None, *, run_index=1, run_start_ts=
     data.update(extra)
     return {"ts": ts, "phase": "hook", "event": "spawn_complete", "agent": agent,
             "task_id": task_id, "data": data}
+
+
+def unpaired_complete(ts, agent, agent_id, cumulative, task_id=None, tool_use_id=None) -> dict:
+    """A U1 stop that matched no spawn_start: run_index, pair_method and
+    wall are null, and run_tokens repeats the cumulative tokens."""
+    row = v2_complete(ts, agent, None, task_id, run_index=None, pair_method=None, wall_seconds=None,
+                      cumulative=cumulative, model="claude-fable-5-1")
+    row["data"].update(tool_use_id=tool_use_id, agent_id=agent_id)
+    return row
 
 
 def legacy_complete(ts, agent, spawn_id, task_id=None, wall_seconds=31.0, cumulative=None,

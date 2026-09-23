@@ -56,6 +56,13 @@ def test_price_tokens_without_split_prices_cache_writes_as_5m():
     assert priced["by_kind"]["cache_creation_1h"] == 0
 
 
+def test_fable_cache_read_is_flat_quarter_dollar_not_tenth_of_input():
+    priced = tel.price_tokens("claude-fable-5-1", {"cache_read": 1_000_000, "cache_creation_1h": 1_000_000},
+                              tel.DEFAULT_RATES)
+    assert priced["by_kind"]["cache_read"] == pytest.approx(0.25)
+    assert priced["by_kind"]["cache_creation_1h"] == pytest.approx(20.0)
+
+
 def test_price_tokens_family_and_unpriced():
     family = tel.price_tokens("claude-opus-5", {"output": 1_000_000}, tel.DEFAULT_RATES)
     assert family["match"] == "family"
@@ -143,6 +150,20 @@ def test_normalize_orphan_complete_has_no_start():
     assert rec.start_ts is None
     assert rec.spawn_id == "orphan:gone"
     assert rec.task_id == "AUT-2"
+
+
+def test_normalize_unpaired_resumed_stops_charge_token_growth_not_cumulative():
+    events = [
+        fx.unpaired_complete("2026-09-01T10:00:00Z", "investigator", "agent-inv",
+                             fx.tokens(input=3, output=4), tool_use_id="tu_lost"),
+        fx.unpaired_complete("2026-09-01T11:00:00Z", "investigator", "agent-inv",
+                             fx.tokens(input=4, output=5), tool_use_id="tu_lost"),
+    ]
+    (rec,) = tel.normalize_hook_spawns(events, include_legacy=False)
+    assert rec.start_ts is None and rec.wall_seconds is None and rec.wall_null_runs == 2
+    assert [r["run_index"] for r in rec.runs] == [None, None]
+    assert [r["run_tokens"]["output"] for r in rec.runs] == [4, 1]
+    assert rec.tokens["output"] == 5
 
 
 def test_normalize_run1_falls_back_to_cumulative_tokens_and_skips_synthetic_model():

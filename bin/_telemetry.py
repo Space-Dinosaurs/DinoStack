@@ -9,8 +9,7 @@ Purpose: DS-246 shared spawn-telemetry reader for bin/ds-cost, bin/ds-calibrate
 
 Public API:
     DEFAULT_RATES: dict - built-in USD-per-MTok table from the DS-246 ticket
-        (platform.claude.com pricing, 2026-09-22). Haiku 4.5 and Fable 5.1
-        cache_read are 0.1x input (the ticket lists no cache-read price).
+        (platform.claude.com pricing, 2026-09-22).
     load_rates(include_defaults, pricing_path=PRICING_PATH) -> (rates, source)
         `~/.agentic/pricing.yml` `models:` entries override DEFAULT_RATES.
         include_defaults=False returns pricing.yml entries only.
@@ -24,7 +23,9 @@ Public API:
     normalize_hook_spawns(events, include_legacy) -> list[SpawnRec]
         include_legacy=False keeps only `data.telemetry_v == 2` rows.
         A complete with no visible start becomes a SpawnRec with
-        start_ts=None (callers that count spawns skip it).
+        start_ts=None (callers that count spawns skip it). A later unpaired
+        (run_index null) stop of the same orphan gets run_tokens = its
+        growth over the previous stop, not the cumulative total.
     primary_root(start) -> Path
     merge_primary_spawn_rows(cwd_events_path, events, primary_events_path=None) -> list
         Appends the primary root's hook spawn_start/spawn_complete rows when
@@ -59,7 +60,7 @@ DEFAULT_RATES: dict[str, dict[str, float]] = {
     "claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_read": 0.20},
     "claude-sonnet-5": {"input": 2.0, "output": 10.0, "cache_read": 0.20},
     "claude-haiku-4-5": {"input": 1.0, "output": 5.0, "cache_read": 0.10},
-    "claude-fable-5-1": {"input": 10.0, "output": 50.0, "cache_read": 1.00},
+    "claude-fable-5-1": {"input": 10.0, "output": 50.0, "cache_read": 0.25},
 }
 _FAMILY_DEFAULT_KEY = {
     "opus": "claude-opus-5-5",
@@ -304,9 +305,15 @@ def normalize_hook_spawns(events: list[dict], include_legacy: bool) -> list[Spaw
         known_walls = [r["wall_seconds"] for r in rec.runs if r["wall_seconds"] is not None]
         rec.wall_seconds = sum(known_walls) if known_walls else None
         rec.wall_null_runs = len(rec.runs) - len(known_walls)
+        prev_tokens = None
         for run in rec.runs:
-            if run["tokens"] is not None:
-                rec.tokens = run["tokens"]
+            tokens = run["tokens"]
+            # An unpaired stop has no run boundary, so its run_tokens is the
+            # cumulative total; charge only the growth since the prior stop.
+            if run["run_index"] is None and run["run_tokens"] is not None and tokens and prev_tokens:
+                run["run_tokens"] = {k: max(0, _num(v) - _num(prev_tokens.get(k))) for k, v in tokens.items()}
+            if tokens is not None:
+                rec.tokens = prev_tokens = tokens
             if run["model"]:
                 rec.model = run["model"]
     return list(recs.values())
