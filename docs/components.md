@@ -66,7 +66,7 @@ DinoStack/
   .opencode/            OpenCode adapter (skill, agents, commands, install/uninstall)
   .pi/                  Pi coding agent adapter (skill, prompts, install/uninstall)
   .omp/                 Pi (oh-my-pi) adapter (skill, install/uninstall)
-  .hermes/               Hermes Agent adapter (skill, METHODOLOGY.md, install/uninstall)
+  .hermes/               Hermes Agent adapter (skill, install/uninstall)
   .openclaw/            OpenClaw adapter (skill tree, METHODOLOGY.md, install/uninstall)
   hooks/                Shared hook scripts
   docs/                 Documentation and reference HTML
