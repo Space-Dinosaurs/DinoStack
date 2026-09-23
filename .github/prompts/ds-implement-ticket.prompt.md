@@ -1758,7 +1758,7 @@ After all engineers return, append an output-only entry per unit: write `worker_
 
 **Per-unit Skeptic spawning (when `SKEPTIC_STRATEGY: per-unit`).** After each unit's engineer returns `done`, spawn a Skeptic for that unit's diff (unit worktree diff against `BASE_BRANCH`), including the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5, field 6 = `$UNIT_KEY | ` + diff; field 7 per §4.5) alongside the adversarial brief. Per-unit Skeptics for independent units can be spawned in parallel (single message - they are reviewing non-overlapping diffs). Each unit's Skeptic integrates with the P0 persistence loop (Engineer -> Skeptic -> fix loop within the unit's worktree). A unit is `status: done` only after its Skeptic signs off, not after the engineer's first commit. After each unit's Skeptic/QA loop resolves, update the task entry to terminal status and populate `loop_state`, `outputs.skeptic_status`, and `outputs.skeptic_findings_count`.
 
-**Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. Run the Merge phase below NOW - the ONE time it runs here. Replaces the old separate, non-`FEATURE_BRANCH` scratch branch: provisionality now comes from staying unpushed until Phase 8, not branch identity. Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to `$INTEGRATION_WORKTREE`'s `HEAD`, including the Global-context input set (`## Global-context inputs` block per Section 4.5, field 6 = `$UNIT_KEY | ` + diff; field 7 per §4.5). This Skeptic IS the Phase 6 gate here (see below). Pass it the orchestration-planner's independence annotation as the brief hint.
+**Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. Run the Merge phase below NOW - the ONE time it runs here. Replaces the old separate, non-`FEATURE_BRANCH` scratch branch: provisionality now comes from staying unpushed until Phase 8, not branch identity. Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to `$INTEGRATION_WORKTREE`'s `HEAD`, including the Global-context input set (`## Global-context inputs` block per Section 4.5, field 6 = `$UNIT_KEY | ` + diff; field 7 per §4.5). This Skeptic IS the Phase 6 gate here (see below); attach the Phase 6 Step 1 draft PR text to its Worker output. Pass it the orchestration-planner's independence annotation as the brief hint.
 
 **Multi-dimensional Skeptic spawning (when `SKEPTIC_STRATEGY: multi-dimensional`).** Before spawning, declare per `content/references/skeptic-protocol.md` Section 13's Declaration format: `Risk: Elevated (multi-dimensional review) - [specific signal]` / `Tier: 3 (Opus)`. After each unit's engineer returns `done`, fan out `correctness-Skeptic + security-auditor + perf-analyst` in one message (parallel, background), reviewing that unit's diff (unit worktree diff against `BASE_BRANCH`), per `content/references/skeptic-protocol.md` Section 13's Workflow. The `correctness-Skeptic` spawn includes the Global-context input set (`## Global-context inputs` block per Section 4.5, field 6 = `$UNIT_KEY | ` + diff; field 7 per §4.5) - Step 0 BLOCKS without it. The `security-auditor` and `perf-analyst` spawns instead include the `## Supplemental context` block per §Supplemental-context block for multi-dimensional supplemental reviewers (informational only, not Step-0 enforced). A unit is `status: done` only after all three reviewers clear (Section 13 step 4) - a single open Critical or Major from any reviewer blocks completion. Section 13 defines only this per-unit gate, not cross-unit integration review, so merge-phase and Phase 6 timing follow the `per-unit` rules immediately below. Once all three reviewers clear, update the task entry to terminal status in a single append and populate `loop_state`, `outputs.skeptic_status` (the aggregate across the three reviewers - clear only when correctness-Skeptic, security-auditor, and perf-analyst have each cleared), and `outputs.skeptic_findings_count` (the summed count of findings across all three reviewers); per `content/references/task-state-file.md`'s field-level last-write-wins rule, `outputs.*` is session-scoped and overwritten on each write, so this composed value must land in one write, not three separate per-reviewer appends.
 
@@ -1932,7 +1932,7 @@ Emit the inline breadcrumb:
 
 **Loop entry (repeat until termination):**
 
-**Step 1.** Spawn `skeptic` with adversarial brief. On iteration 2+, prepend the "Prior iteration findings" block to the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`.
+**Step 1.** Spawn `skeptic` with adversarial brief. On iteration 2+, prepend the "Prior iteration findings" block to the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`. Add the draft PR body free text (Summary bullets, North Star, Test plan - drafted on iteration 1, updated when a round changes what it describes) to the Worker output. Apply its `Comment discipline:` findings to the draft yourself and mark them `closed`; never route them to an engineer. Phase 9 uses that draft.
 
 **Telemetry emit (V1):** Bracket the Skeptic `Agent` tool call with:
 ```
@@ -2708,18 +2708,9 @@ Run:
 DEVELOPER=${DEVELOPER:-$(ds-identity show 2>/dev/null | awk '/^developer_id:/{print $NF}')}
 if ds-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
 
-# Engineer model for the PR Model: attribution line (DS-166). Source-of-truth is
-# .agentic/tasks.jsonl, NOT a conductor-held variable: author_model is the durable record
-# appended on the Phase 5 ownership claim, recorded on BOTH claim sites - the sequential
-# single-engineer claim (:1674, which writes a claim record to tasks.jsonl whenever the plan
-# is multi-unit - single-unit plans never create the file) and the fan-out per-unit claim
-# (:1702, which appends to tasks.jsonl) - each also carrying ticket_id so this read can scope
-# by ticket, so the read survives context loss and a resumed session (mirrors how DEVELOPER
-# re-resolves from ds-identity at this point). Dedupe distinct non-null values so a multi-unit
-# PR lists every model that contributed; the line is omitted (like Developer) when task state
-# is absent, author_model is null (model unknown / routing off), or ticket_id is empty
-# (null-ticket projects). The pipeline records no per-task harness slug - author_model is the
-# only model identifier - so the attribution line is Model: carrying the model id(s).
+# Model: line source is author_model on this ticket's engineer claims in .agentic/tasks.jsonl
+# (written at both Phase 5 claim sites), so it survives a resumed session. Single-unit plans
+# write no tasks.jsonl, so the line is omitted there, as it is when the model is unknown.
 ENGINEER_MODEL=$(jq -sr --arg t "$TICKET_ID" '
   [.[] | select(.ticket_id == $t and .assigned_agent == "engineer"
     and .author_model != null and (.status == "in_progress" or .status == "done"))
@@ -2746,7 +2737,7 @@ Lead the PR body with `## QA Evidence` so reviewers see runtime confirmation fir
 
 Use the existing Summary-first body and append QA evidence after PR creation.
 
-**Filling the free-text slots (binding, both cases).** The templates below are lean; `[bullet N]` and `[step N]` are where a PR body bloats. Fill them under `content/rules/conventions.md` §Writing Style (lead with the primary information, write for the permanent audience - so no review-round or QA-round narration) and the per-surface rules in `content/references/conventions-detail.md` §External Comment Discipline and §Assembled PR bodies.
+**Filling the free-text slots (binding, both cases).** Start from the Phase 6-reviewed draft if one exists (none on Trivial or after a resumed session). The templates below are lean; `[bullet N]` and `[step N]` are where a PR body bloats. Fill them under `content/rules/conventions.md` §Writing Style (lead with the primary information, write for the permanent audience - so no review-round or QA-round narration) and the per-surface rules in `content/references/conventions-detail.md` §External Comment Discipline and §Assembled PR bodies.
 
 **`## North Star alignment` (binding, both cases).** Never leave `[pillar]` or `[trade-off]` literal - an unfilled placeholder counts as an absent section. With no `docs/overview/vision.md` in the ticket repo, fill the section `N/A - no docs/overview/vision.md in this repository`. With one, fill from the architect plan's pillars - including those cutting AGAINST the change, not only the supporting ones - or `N/A - <reason>` under the rule `.github/PULL_REQUEST_TEMPLATE.md` states for its own copy. Emit at `gh pr create` time, not a later `gh pr edit`: `--body-file` bypasses that template, which only populates web-UI PRs. `check-vision-alignment` gates this on the DinoStack repo; elsewhere it may not gate at all.
 
@@ -3104,7 +3095,7 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 > - `TICKET_ID`: e.g. `[TICKET_PREFIX]-NNN`
 > - `PR_URL`: `https://github.com/[GH_REPO]/pull/[PR_NUMBER]`
 > - `TEST_URL`: extracted from CI (or the literal string `pending — see PR` if Phase 10 timed out)
-> - `qa_summary`: Per §External Comment Discipline in `content/rules/conventions.md`: lead with status + PR link, then bullet only what the reviewer cannot see from the PR itself (QA caveats, known limitations, what to focus testing on). Omit restating the ticket.
+> - `qa_summary`: before posting, the subagent keeps the leading status line and QA caveats and deletes any other line that restates the ticket or PR, narrates process, or cites review rounds; it never adds or rewords. Per §External Comment Discipline in `content/rules/conventions.md`: lead with status + PR link, then bullet only what the reviewer cannot see from the PR itself (QA caveats, known limitations, what to focus testing on). Omit restating the ticket.
 > - `target_state`: `$TRACKER_STATE_QA` (resolved in Setup; defaults to `"Testing"` for Linear, `"QA"` for Jira)
 > - `forward_only_guard`: `true`
 > - `tracker_state_values`: `{ "IN_PROGRESS": "$TRACKER_STATE_IN_PROGRESS", "IN_REVIEW": "$TRACKER_STATE_IN_REVIEW", "QA": "$TRACKER_STATE_QA", "DEV_COMPLETE": "$TRACKER_STATE_DEV_COMPLETE", "BLOCKED": "$TRACKER_STATE_BLOCKED", "DONE": "$TRACKER_STATE_DONE" }`
