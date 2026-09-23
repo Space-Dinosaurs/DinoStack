@@ -36,7 +36,7 @@ Purpose: PreToolUse hook that mechanically enforces exactly two
          check, not a phrase scan.** Field 7's own mandated label
          (content/agents/skeptic.md) is "claim-bearing text only," and
          content/sections/04-risk-classification.md's provenance test
-         already requires every claim to carry one of three canonical
+         already requires every claim to carry one of four canonical
          tags. `field7_violation()` enforces that contract directly: any
          non-exempt sentence in field 7 that carries no provenance tag, no
          attribution marker, and no self-referential ticket mention is
@@ -123,7 +123,7 @@ Purpose: PreToolUse hook that mechanically enforces exactly two
          its deny path permanently unreachable), OR (b)
          content/agents/skeptic.md's field-7 provenance mandate is itself
          deleted or narrowed to no longer require every claim to carry one
-         of the three canonical tags. The brief-region categories B and C
+         of the four canonical tags. The brief-region categories B and C
          retire independently, on a separate condition: when the deferred
          brief-region structural-conformance follow-up ticket (see
          "Categories A, D, E: deleted, with rationale" above) ships and
@@ -237,16 +237,29 @@ Failure modes:
       an otherwise-compliant sentence). No real-session evidence yet
       shows a seventh form recurring; extend the list if that changes.
     - `_PROVENANCE_RE` false negative (disclosed, NOT fixed): matches the
-      literal substring `[verified:` / `[verified-local:` anywhere in a
-      sentence, so a sentence that merely quotes tag syntax as an example
-      (rather than genuinely carrying a tag of its own) reads as exempt -
-      DIRECTION: false negative (a bypass, not a false deny). Fixing it
-      requires parsing the wrapping bracket's own well-formedness (e.g.
-      confirming the tag is the sentence's own trailing annotation, not
-      prose describing tag syntax) - a materially larger structural
-      change than any round to date has scoped; tracked as a named
-      residual, not silently absorbed. Re-verified by execution this
-      round (see `bin/tests/test_enforce_skeptic_neutrality.py`'s
+      literal substring for each canonical tag - `[verified:`,
+      `[verified-local:`, `[verified-by-execution:` / `[verified-by-execution,`,
+      and `[per <agent>, unverified]` - anywhere in a sentence, so a sentence
+      that merely quotes any one of them as an example (rather than genuinely
+      carrying a tag of its own) reads as exempt - DIRECTION: false negative
+      (a bypass, not a false deny); this predates the fourth tag and also
+      covers an empty-detail quote for the first two, e.g. `[verified:]`,
+      `[verified: ]`, `[verified-local:]`, or `[verified-local: ]`, which
+      read as exempt the same way despite naming no real location.
+      `[verified-by-execution` additionally requires `:` or `,` followed by
+      at least one non-whitespace detail character before this residual
+      applies to it (a bare or empty-detail
+      `[verified-by-execution]`/`[verified-by-execution:]`/
+      `[verified-by-execution,]`, quoted or not, denies), narrowing but not
+      eliminating this class for that tag; `[verified:`, `[verified-local:`,
+      and `[per <agent>, unverified]` carry no equivalent narrowing and are
+      equally bypassable by a quoted mention. Fixing it requires parsing the
+      wrapping bracket's own well-formedness (e.g. confirming the tag is the
+      sentence's own trailing annotation, not prose describing tag syntax) -
+      a materially larger structural change than any round to date has
+      scoped; tracked as a named residual, not silently absorbed.
+      Re-verified by execution this round (see
+      `bin/tests/test_enforce_skeptic_neutrality.py`'s
       `test_round3_residual_provenance_re_substring_match_false_negative`).
     - `_SENT_SPLIT_RE` scans raw characters with no awareness of bracket
       nesting, so sentence-ending punctuation or whitespace occurring
@@ -683,7 +696,7 @@ def extract_field7(prompt: str) -> list[str] | None:
 # --------------------------------------------------------------------------- #
 # Shared exemption markers (provenance tag, attribution, self-ref ticket)
 # --------------------------------------------------------------------------- #
-_PROVENANCE_RE = re.compile(r'\[verified:|\[verified-local:|\[per\s+\S+.*?,\s*unverified\]',
+_PROVENANCE_RE = re.compile(r'\[verified:|\[verified-local:|\[verified-by-execution[:,]\s*[^\s\]]|\[per\s+\S+.*?,\s*unverified\]',
                              re.IGNORECASE)
 
 # content/agents/skeptic.md:30 states the attribution carve-out is OPEN,
@@ -1080,9 +1093,10 @@ def _field7_deny_reason(sentence: str) -> str:
         f"Agent/Task spawn blocked: field 7 (Conductor spawn brief) contains an "
         f"untagged sentence: {sentence!r}. Field 7's own mandated label is "
         "'claim-bearing text only' - per content/sections/04-risk-classification.md's "
-        "provenance test, every claim in it must carry one of the three canonical "
+        "provenance test, every claim in it must carry one of the four canonical "
         "tags ([verified: file:line] / [per <agent>, unverified] / "
-        "[verified-local: <path> - reason]) or be attributed to a named subagent "
+        "[verified-local: <path> - reason] / [verified-by-execution: <command> - result]) "
+        "or be attributed to a named subagent "
         "('Per <Agent>' / DONE_WITH_CONCERNS). Fix: add the appropriate tag, or "
         "replace the field with 'n/a - <reason>' if there is nothing claim-bearing "
         "to disclose. A sentence describing the conductor's OWN process (e.g. "

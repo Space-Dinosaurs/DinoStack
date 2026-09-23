@@ -322,6 +322,16 @@
       "source_token": "METHODOLOGY.md"
     },
     {
+      "expected_target": ".gitignore",
+      "generated_token": "$AE_PROJECT_DIR/.gitignore",
+      "kind": "operational",
+      "occurrence_hash": "2196be833938445c8ad88f9133cf0b6627e2c14c6a5764efc68dffeb4b8e7af1",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".gitignore"
+    },
+    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -370,6 +380,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
+      "expected_target": "content/sections/02-delegation.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
+      "kind": "operational",
+      "occurrence_hash": "2a3e8b85cf78fbc9f420aa3ba86844e7e38a2fe89d8692cb9170f10959986da3",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/02-delegation.md"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
@@ -500,16 +520,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
-      "expected_target": "content/references/subagent-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/subagent-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "3965a53f5b3d1c99b6e8402d25196bb5144ddeb85562ff7ede00d58aeb1eecd1",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/subagent-protocol.md"
     },
     {
       "expected_target": "content/sections/04-risk-classification.md",
@@ -652,6 +662,16 @@
       "source_token": "content/references/events-log.md"
     },
     {
+      "expected_target": ".agentic/**",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/**",
+      "kind": "operational",
+      "occurrence_hash": "4883a3353c449ca7b8d65edaf4d018e07abe029926d4314be857487943d1256f",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/**"
+    },
+    {
       "expected_target": "content/sections/02-delegation.md",
       "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
       "kind": "operational",
@@ -780,16 +800,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "hooks/enforce-worktree-read.py"
-    },
-    {
-      "expected_target": ".gitignore",
-      "generated_token": "$AE_PROJECT_DIR/.gitignore",
-      "kind": "operational",
-      "occurrence_hash": "57eb3a96619f4e6a282988e7a8013552404963e3e957133a7b787e90c05328c1",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".gitignore"
     },
     {
       "expected_target": "one bounded direct question after default derivation",
@@ -932,16 +942,6 @@
       "source_token": "content/sections/04-risk-classification.md"
     },
     {
-      "expected_target": ".agentic/**",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/**",
-      "kind": "operational",
-      "occurrence_hash": "670ae5ced778df91e756f9b6afab354c85a0273701b6f62bd1a757d78fd73123",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/**"
-    },
-    {
       "expected_target": "content/references/spawn-presets.md",
       "generated_token": "$AE_REPO_DIR/content/references/spawn-presets.md",
       "kind": "operational",
@@ -980,6 +980,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "METHODOLOGY.md"
+    },
+    {
+      "expected_target": "content/references/subagent-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/subagent-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "69116a098fe22d409190e4fe881e940f68105e99a661776803f12669cb685ace",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/subagent-protocol.md"
     },
     {
       "expected_target": "filesystem read",
@@ -1370,16 +1380,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/commands/ds-brief.md"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "97d6b95cd3d65ff55917db633b72c3d9ea989162adb1ea733e5a4816884abb5d",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
     },
     {
       "expected_target": "METHODOLOGY.md",
@@ -1782,6 +1782,16 @@
       "source_token": "content/sections/06-capability-preflight.md"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "c3b7144f41b53114f59fb9199521c249b92876b60e6945f5e94982f22e33cb86",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -1810,6 +1820,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/risk-config-and-tiers.md"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "c4e47a3653c88f1e19b5271a361927b83f5c9a3b6902677ddcd03d3f099f1f52",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
     },
     {
       "expected_target": "dinostack-codex",
@@ -2102,16 +2122,6 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
-      "expected_target": "content/sections/02-delegation.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
-      "kind": "operational",
-      "occurrence_hash": "df309eeace94f8abdff56bade3d1e7a3f2ec7413deeb8736ba1a995084797791",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/02-delegation.md"
-    },
-    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -2170,16 +2180,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/rules/conventions.md"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "e524c9b93e5b1594cf648d2230d274265c56d81e1118718229d70036d0aeb37c",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
     },
     {
       "expected_target": "spawn_agent",
