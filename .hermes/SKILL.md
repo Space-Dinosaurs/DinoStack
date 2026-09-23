@@ -9405,6 +9405,8 @@ Public API: Read-only reference document. Cross-referenced from:
             paragraph, "Commit each fix immediately during testing"),
             content/sections/04-risk-classification.md §Trivial signals
             (pointer to the Implicit Trivial batching section),
+            content/references/code-standards-detail.md (browser-verification
+            pointer to §Agent-spawned process lifetime ownership),
             content/references/qa-gate.md (dev-server boot pattern pointer
             to §Agent-spawned process lifetime ownership),
             content/agents/qa-engineer.md (dev-server start caveat pointer
@@ -9435,9 +9437,11 @@ Downstream consumers: conductor preflight (session-start prune script and
                       this obligation, never a substitute for it);
                       content/references/qa-gate.md (dev-server boot pattern);
                       content/agents/qa-engineer.md (dev-server start caveat);
-                      content/agents/engineer.md (runtime smoke-test caveat) -
-                      all three cross-referencing the Dev-server process
-                      lifetime ownership section.
+                      content/agents/engineer.md (runtime smoke-test caveat);
+                      content/references/code-standards-detail.md
+                      (browser-verification pointer) - all four
+                      cross-referencing the Agent-spawned process lifetime
+                      ownership section.
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
