@@ -48,7 +48,7 @@ If `last_run` is null (no prior run recorded), skip both nudges - there is nothi
 
 ## Step 1 - Spawn the prune analyst
 
-Before spawning, the **conductor** (not the Worker) runs `bin/ds-hook-fire-report --json --days 90` and captures the output. This feeds Signal 8 below. `--days 90` widens the fire-count window well past the tool's 14-day default, so a genuinely quiet hook actually has a chance to reach Signal 8's MEDIUM confidence tier - the default `--days` invocation could never do so (see Signal 8's confidence rule below for why `--days` and confidence are separate axes). The analyst Worker's `tool_scope` has no Bash - this ticket does not widen it - so the conductor runs the command and passes the JSON verbatim into the spawn prompt; the analyst never shells out to it itself. Also pass any carried-over candidates read from the ledger at Step 0.5, per that step's instruction.
+Before spawning, the **conductor** (not the Worker) runs `bin/ds-hook-fire-report --json --days 90` and captures the output. This feeds Signal 8 below. `--days 90` widens the fire-count window well past the tool's 14-day default, so a genuinely quiet hook actually has a chance to reach Signal 8's MEDIUM confidence tier - the default `--days` invocation could never do so (see Signal 8's confidence rule below for why `--days` and confidence are separate axes). The analyst Worker's `tool_scope` has no Bash - this ticket does not widen it - so the conductor runs the command and passes the JSON verbatim into the spawn prompt; the analyst never shells out to it itself. Also pass any carried-over candidates read from the ledger at Step 0.5, per that step's instruction. Also pass any model-capability measurement the operator supplies for a dial candidate - without one, model-driven dial candidates fail the pre-filter below.
 
 Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`). Every section of this spawn prompt that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**".
 
@@ -66,7 +66,7 @@ Pass the signal checklist verbatim in the spawn prompt (see Signal Checklist bel
 
 ## Mandatory pre-filter - floor vs. dial
 
-Before including any candidate, apply the floor-vs-dial test from `content/references/obsolescence-signal.md`. A rule/hook that enforces a floor is never a candidate regardless of which signals fired; only harness-driven vestiges are retirement candidates. This pre-filter runs before the signal checklist below - a candidate that fails it is excluded before Signal 1 is even applied, not flagged and then discarded.
+Before including any candidate, apply the floor-vs-dial test from `content/references/obsolescence-signal.md`. Floors are never candidates, regardless of driver; a harness-driven dial (or a pure harness workaround with no floor role at all), or a model-driven dial measured against the weakest model actually assigned to the agent carrying it, may proceed to the signal checklist. Because the analyst cannot itself run a model-capability measurement, that measurement must be cited in the evidence provided to this pass - without one, a model-driven dial candidate fails the pre-filter. This pre-filter runs before the signal checklist below - a candidate that fails it is excluded before Signal 1 is even applied, not flagged and then discarded.
 
 ## Signal checklist (verbatim - this is the binding contract)
 
