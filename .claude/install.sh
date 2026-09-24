@@ -1984,27 +1984,30 @@ done
 echo ""
 CLAUDE_JSON="$HOME/.claude.json"
 
-# The registration launches Chrome headless against a pinned profile root.
+# The registration launches Chrome headless on an isolated profile.
 # The stdio server opens a visible window by default (`headless: {default:
 # false}` in browser-options.js; only the unrelated --viaCli variant flips it),
-# which is the desktop clutter this block exists to prevent. The pinned root
-# is the path the MCP's own default resolves to, so pinning changes no
-# behavior but stops a future upstream default change from moving the
-# directory that identifies an agent-launched browser. That default is
-# channel-suffixed for any non-stable channel (`chrome-profile-canary` under
-# --channel=canary), so the pinned path carries the same suffix. --isolated is
-# not passed: the option schema declares it conflicting with --user-data-dir.
+# which is the desktop clutter this block exists to prevent. --isolated gives
+# each server its own throwaway profile, so concurrent runs stop contending for
+# one profile directory - sharing one, a second server's first page-scoped call
+# fails with "The browser is already running for <path>", lazily, after
+# initialize has already succeeded. The cost is that profile state does not
+# survive a run, and a server killed without cleanup can leave its temp profile
+# directory behind.
 #
 # An entry whose args carry an argument this migration does not write is
-# reported and left alone, whatever that argument is. Adding the pin alongside
-# a browser connection or an isolated profile is what made the server refuse to
-# start ("Arguments userDataDir and browserUrl are mutually exclusive"), and no
-# list of the spellings to refuse can stay complete - the server takes a `no-`
-# negation, a uniform-case variant, kebab or camel, and a `=value` or a
-# following-token value for one option. So an entry is a migration target only
-# when every one of its args is the package below or an option below, decided
-# by the option name the server itself reads off the token: a spelling the
-# server ignores is a skip.
+# reported and left alone, whatever that argument is. The rule is the whole
+# option set rather than a list of spellings to refuse, because no such list
+# can stay complete - the server takes a `no-` negation, a uniform-case
+# variant, kebab or camel, and a `=value` for one option. So an entry is a
+# migration target only when every one of its args is the package below or an
+# option below, decided by the option name the server itself reads off the
+# token: a spelling the server ignores is a skip. Both options are bare flags,
+# so an argument carrying a value for one of them is not a spelling this
+# migration writes either, and a registration that sets its own browser
+# connection (--browser-url, --ws-endpoint, --auto-connect) keeps it: the
+# server never reads --headless there, so the append would be inert while the
+# installer reported the entry configured.
 #
 # State is detected rather than testing only "is the key present", because a
 # registration written before the headless default shipped has the key but
@@ -2016,27 +2019,27 @@ CLAUDE_JSON="$HOME/.claude.json"
 # whose args do not invoke the package being configured. The migration's whole
 # edit is an args append, so such an entry - a `{"command": "npx"}` one, an
 # empty args list, a bare `{}` - would gain the flags alone: `npx --headless
-# --user-data-dir=...`, a registration that cannot launch, which would then
-# classify current so the installer never offered again. Those entries are
-# reported as themselves instead; the file is left as it is.
+# --isolated`, a registration that cannot launch, which would then classify
+# current so the installer never offered again. Those entries are reported as
+# themselves instead; the file is left as it is.
 #
-# The package the migration writes, the options it writes or reads, and the
-# subset of those that takes a value. Single-sourced here because two separate
-# python blocks consult them - the classifier to predict the writer's decision,
-# the writer to refuse that registration if it ever reaches it - and the three
-# must not drift. An option is named here the way the server names it, which is
-# the form option_name() below derives from a token.
+# The package the migration writes and the options it writes or reads.
+# Single-sourced here because two separate python blocks consult them - the
+# classifier to predict the writer's decision, the writer to refuse that
+# registration if it ever reaches it - and the two must not drift. An option is
+# named here the way the server names it, which is the form option_name() below
+# derives from a token. --user-data-dir and --channel are deliberately not
+# among them: an entry carrying either is now a flag this installer does not
+# know, so it is reported and left byte-identical rather than migrated.
 CD_MCP_PACKAGE="chrome-devtools-mcp"
-CD_MCP_OPTIONS="headless,channel,userDataDir"
-CD_MCP_VALUED="channel,userDataDir"
+CD_MCP_OPTIONS="headless,isolated"
 
-CD_MCP_STATE="$(python3 - "$CLAUDE_JSON" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" "$CD_MCP_VALUED" <<'PYEOF' 2>/dev/null
+CD_MCP_STATE="$(python3 - "$CLAUDE_JSON" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" <<'PYEOF' 2>/dev/null
 import json, re, sys
 
 target = sys.argv[1]
 package = sys.argv[2]
 options = set(sys.argv[3].split(","))
-valued = set(sys.argv[4].split(","))
 
 
 def option_name(arg):
@@ -2073,35 +2076,22 @@ def option_name(arg):
 
 def survey(args):
     # (the first arg this migration does not write, the options it does write).
-    # A value-taking option spelled without `=` consumes the next token as its
-    # value rather than reading it as an argument of its own - but only when
-    # that token is not itself a flag. The server reads `--channel --isolated`
-    # as an empty channel and refuses that registration, so the `-`-prefixed
-    # token is the argument it is and the option takes no value.
     present = set()
-    i = 0
-    while i < len(args):
-        arg = args[i]
+    for arg in args:
         if arg != package and not arg.startswith(package + "@"):
             if not arg.startswith("-"):
                 return arg, present
             name = option_name(arg)
             if name not in options:
                 return arg, present
-            # An option this migration writes as a bare flag, written with a
-            # value instead, is not a spelling it writes: `--headless=false` is
-            # the window asked for by name, and the pin appended beside it would
+            # Both options this migration writes are bare flags, so a value on
+            # one of them is not a spelling it writes: `--headless=false` is the
+            # window asked for by name, and the flags appended beside it would
             # leave that entry headed while the installer reported it
             # configured. Read as the foreign argument it is.
-            if name not in valued and "=" in arg:
+            if "=" in arg:
                 return arg, present
             present.add(name)
-            if name in valued and "=" not in arg:
-                if i + 1 >= len(args):
-                    return arg, present
-                if not args[i + 1].startswith("-"):
-                    i += 1
-        i += 1
     return None, present
 
 
@@ -2144,7 +2134,7 @@ elif not any(a == package or a.startswith(package + "@") for a in args):
     print("args-not-our-package")
 elif foreign is not None:
     print("foreign-args")
-elif "headless" in present and "userDataDir" in present:
+elif "headless" in present and "isolated" in present:
     print("current")
 else:
     print("stale")
@@ -2179,7 +2169,7 @@ else
   echo "  page load live is gone (screenshots and script evaluation still work). To get the window back,"
   echo "  remove --headless from its args in $CLAUDE_JSON; the next session picks that up."
   if [[ "$CD_MCP_STATE" == "stale" ]]; then
-    CD_MCP_QUESTION="  Update the existing chrome-devtools MCP registration to launch Chrome headless with a pinned profile root? [y/N] "
+    CD_MCP_QUESTION="  Update the existing chrome-devtools MCP registration to launch Chrome headless on an isolated profile? [y/N] "
   else
     CD_MCP_QUESTION="  Configure chrome-devtools MCP - inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] "
   fi
@@ -2188,13 +2178,12 @@ else
     # same-directory temp file followed by os.replace, so an interrupted run
     # cannot truncate the operator's ~/.claude.json. The caller tolerates the
     # non-zero exit: a refusal is not a reason to fail the whole install.
-    if ! python3 - "$CLAUDE_JSON" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" "$CD_MCP_VALUED" <<'PYEOF'
+    if ! python3 - "$CLAUDE_JSON" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" <<'PYEOF'
 import json, os, re, stat, sys, tempfile
 
 target = sys.argv[1]
 package = sys.argv[2]
 options = set(sys.argv[3].split(","))
-valued = set(sys.argv[4].split(","))
 
 
 def option_name(arg):
@@ -2222,28 +2211,19 @@ def option_name(arg):
 
 def survey(args):
     # (the first arg this migration does not write, the options it does write).
-    # A `-`-prefixed token in a value position is not a value for the option
-    # before it, and a bare flag spelled with a value is not an option this
-    # migration writes - see the classifier for why.
+    # A bare flag spelled with a value is not an option this migration writes -
+    # see the classifier for why.
     present = set()
-    i = 0
-    while i < len(args):
-        arg = args[i]
+    for arg in args:
         if arg != package and not arg.startswith(package + "@"):
             if not arg.startswith("-"):
                 return arg, present
             name = option_name(arg)
             if name not in options:
                 return arg, present
-            if name not in valued and "=" in arg:
+            if "=" in arg:
                 return arg, present
             present.add(name)
-            if name in valued and "=" not in arg:
-                if i + 1 >= len(args):
-                    return arg, present
-                if not args[i + 1].startswith("-"):
-                    i += 1
-        i += 1
     return None, present
 
 
@@ -2263,24 +2243,6 @@ def refuse(shape):
         "    Fix that value by hand (or remove it) and re-run this installer.",
     ]) + "\n")
     sys.exit(1)
-
-
-def channel_suffix(args):
-    # The MCP's own default profile dir is channel-suffixed for any non-stable
-    # channel (`chrome-profile-canary` under --channel=canary). A pinned path
-    # without that suffix is not the directory the server would have used, so
-    # pinning it would move the profile rather than match it. Upstream tests
-    # the channel for truthiness (`channel && channel !== 'stable'`), so an
-    # empty value takes the unsuffixed branch there and has to take it here.
-    channel = None
-    for i, a in enumerate(args):
-        if option_name(a) != "channel":
-            continue
-        if "=" in a:
-            channel = a.split("=", 1)[1]
-        elif i + 1 < len(args):
-            channel = args[i + 1]
-    return "" if not channel or channel == "stable" else "-" + channel
 
 
 if os.path.islink(target):
@@ -2348,13 +2310,10 @@ if foreign is not None:
     refuse("the chrome-devtools entry passes an argument this installer does"
            " not write (" + foreign + ")")
 
-# Append only what is missing, so an entry that already pins its own profile
-# root keeps it.
 if "headless" not in present:
     args.append("--headless")
-if "userDataDir" not in present:
-    args.append("--user-data-dir=" + os.path.expanduser(
-        "~/.cache/chrome-devtools-mcp/chrome-profile") + channel_suffix(args))
+if "isolated" not in present:
+    args.append("--isolated")
 entry["args"] = args
 
 fd, tmp_path = tempfile.mkstemp(

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Purpose: Drive the real .claude/install.sh against a scratch HOME and assert
 #          the chrome-devtools MCP registration it writes launches Chrome
-#          headless against a pinned profile root (U1), and that an operator
-#          whose registration predates those flags is migrated rather than
+#          headless on an isolated profile (U1), and that an operator whose
+#          registration predates those flags is migrated rather than
 #          short-circuited as "already configured" (U3).
 #
 #          The R2 cases, each a separate install run:
 #            V1  - no prior chrome-devtools registration  -> entry created with
-#                  --headless and --user-data-dir=<HOME>/.cache/.../chrome-profile
+#                  --headless and --isolated
 #            V2  - prior registration, operator accepts  -> args gain the flags;
 #                  every sibling key of that entry, every other mcpServers
 #                  entry, and every other top-level key is byte-identical
@@ -28,19 +28,17 @@
 #            V4  - the same shapes driven straight at the writer block (the
 #                  last guard before a temp file exists) -> non-zero exit, the
 #                  shape named, the file byte-identical
-#            V5  - a stale entry carrying --channel=canary -> the pinned root
-#                  carries the same channel suffix the MCP appends, an empty
-#                  --channel= takes the unsuffixed path upstream's truthiness
-#                  test takes, and --channel=stable is the control against
-#                  over-suffixing
-#            V6  - a registration that already sets one of the flags the option
-#                  schema declares conflicting with --user-data-dir
-#                  (--browser-url, --ws-endpoint, --isolated, and the -u alias)
-#                  -> reported by name, no prompt and no write, because
-#                  appending the pin is what makes the server refuse to start;
-#                  the report has to name --headless and the class it does not
-#                  apply to, since it is read only where the server launches
-#                  Chrome itself
+#            V5  - a canonical entry driven straight at the extracted writer ->
+#                  both flags are appended; an entry already carrying one of
+#                  them gains only the other; one carrying both is left
+#                  byte-identical rather than gaining a second copy
+#            V6  - a registration that connects to a browser the operator
+#                  already runs (--browser-url, --ws-endpoint, the camelCase
+#                  spelling, and the -u alias) -> reported by name, no prompt
+#                  and no write, because appending the flags there is what
+#                  makes the server refuse to start; the report has to name
+#                  --headless and the class it does not apply to, since it is
+#                  read only where the server launches Chrome itself
 #            V7  - a top-level JSON document that is not an object (array,
 #                  string, number, null) -> named and skipped, never replaced
 #            V8  - a JSON document deep enough to blow the decoder's recursion
@@ -71,44 +69,35 @@
 #                  it. The safety rule is now the set of options the migration
 #                  writes or reads, matched by normalized option name, so the
 #                  case asserts the generality rather than any one spelling
-#            V14 - an alternate spelling of the migration's own options
-#                  (--userDataDir, and --user-data-dir as a separate token) ->
-#                  read as the pinned root rather than re-pinned over, since the
-#                  server takes those spellings and the migration used to
-#                  append a second --user-data-dir over the operator's
-#            V14b - the same rule driven at the extracted writer, whose own
-#                  copy of it is what would do the appending
-#            V15 - a flag in the value position of a value-taking option
-#                  (--channel --isolated, --channel --no-isolated,
-#                  --channel --browser-url=..., --user-data-dir --isolated)
-#                  -> left alone and reported. The server reads those as an
-#                  empty value and refuses the registration (rc 1, v1.10.1), and
-#                  the fix is that a `-`-prefixed token there is the argument it
-#                  is, not a value. Before it, the token was consumed and never
-#                  surveyed, the entry classified stale, and the pin was
-#                  appended beside a flag it conflicts with
+#            V14 - an option the migration no longer writes or reads
+#                  (--user-data-dir in its `=` and separate-token spellings,
+#                  the --userDataDir camel spelling, and --channel either way)
+#                  -> reported by name and left byte-identical. Nothing falls
+#                  out of the option set shrinking: an argument outside it is
+#                  the same refusal it always was, so an entry an older install
+#                  pinned is not migrated and not damaged
+#            V14b - the writer's own copy of the option-name rule, driven at the
+#                  extracted writer, whose copy is what would do the appending:
+#                  an entry spelling --headless the way the server ignores
+#                  (--Headless) is refused there too
+#            V15 - the shipped form: an entry carrying --headless and
+#                  --isolated classifies "already configured" and is left
+#                  byte-identical
 #            V16 - --headless=false, the flag this migration writes spelled with
 #                  a value -> reported and left alone, never called "already
 #                  configured (headless)". The server accepts it (rc 0) and
 #                  opens the window, so the report the operator got was the
-#                  opposite of their state; the entry is one the migration
-#                  cannot make headless, since the argument to rewrite is not
-#                  one it writes
-#            V17 - --channel canary, the same value in two tokens -> migrated,
-#                  with the pin carrying the canary suffix. The control for V15:
-#                  a rule that stopped consuming the token after every
-#                  value-taking option would break this entry, and V5 drives
-#                  only the `=` spellings
+#                  opposite of their state. Both flags are bare, so the same
+#                  rule refuses --isolated=false
+#            V17 - an entry carrying only one of the two flags -> migrated to
+#                  the other alone, so the append is per-flag rather than a
+#                  fixed pair
 #            V18 - the option-name rule against the server's own reader. A case
 #                  variant the server ignores (--Headless, --HEADLESS), a
 #                  single-dash short-flag bundle (-headless) and an
 #                  underscore-only name (--user_data_dir) are left alone and
 #                  reported, because the server reads none of them as the
-#                  option they name. In the other direction a dashed spelling
-#                  the server does read (--user-data-dir, and --USER-DATA-DIR,
-#                  whose uniform case the server lowercases) is still read as
-#                  the pinned root, so an entry already pinned in the spelling
-#                  this migration itself writes is not re-pinned over
+#                  option they name
 #            plus the two V4 cases for the new rules, driven at the extracted
 #            writer, whose own copies of them are what would do the appending
 #
@@ -124,6 +113,7 @@
 #
 #          Mutation coverage (each mutation is run, not merely named):
 #            (a) drop the --headless append           -> V1 reddens
+#            (al) drop the --isolated append          -> V1 reddens
 #            (b) report "current" for any existing key (the pre-U3
 #                short-circuit)                       -> V2 and V1b redden
 #            (c) drop the pre-rename re-stat guard    -> the concurrent-writer
@@ -144,15 +134,11 @@
 #                -> V4's container case reddens
 #            (l) disable the writer's entry guard -> V4's entry case reddens
 #            (m) disable the writer's args guard -> V4's args cases redden
-#            (n) pin the unsuffixed root for every channel (channel-blind)
-#                -> V5 reddens on its canary iteration
 #            (o) collapse a non-object top level into "absent" -> V7 reddens
 #            (p) drop RecursionError from the classifier's except tuple
 #                -> V8 reddens
 #            (q) drop that except clause and the classifier's 2>/dev/null
 #                -> V8 reddens on the traceback assertion itself
-#            (r) restore the pre-fix channel test (skip only 'stable') -> V5
-#                reddens on its empty-channel iteration
 #            (s) disable the mcp-atlassian writer's mcpServers guard -> V10
 #                reddens
 #            (t) drop the mcp-atlassian exit-status capture -> V10 reddens
@@ -175,13 +161,9 @@
 #                name --headless and the classes it does not apply to -> V13
 #                reddens
 #            (ac) case-fold an option name that carries no dash, restoring the
-#                pre-fix normalization -> V14 reddens, V14b reddens on the
-#                writer's own copy of that rule (the two are separate blocks
-#                and can drift), and V18 reddens on a case variant the server
-#                ignores
-#            (ad) restore the pre-fix value-token rule (a value-taking option
-#                consumes the next token whatever it is) -> V15 reddens, and
-#                so does the writer's own copy of it (V4's value-position case)
+#                pre-fix normalization -> V18 reddens on a case variant the
+#                server ignores, and V14b reddens on the writer's own copy of
+#                that rule (the two are separate blocks and can drift)
 #            (ae) fold a bare flag spelled with a value back to the option name
 #                (the pre-fix reading of --headless=false) -> V16 reddens, and
 #                so does the writer's own copy of it (V4's --headless=false
@@ -191,16 +173,9 @@
 #                reddens
 #            (ag) drop the way-out line covering --headless=false -> V16
 #                reddens
-#            (ah) treat a dashed option name as if it carried no dash -> V18
-#                reddens: a spelling the server does read stops being read as
-#                the pin it is
-#            (ai) drop the uniform-case lowering -> V18 reddens on
-#                --USER-DATA-DIR, whose case the server does normalize
 #            (aj) let a single-dash token through as a long option -> V18
 #                reddens on -headless, which the server reads as a bundle of
 #                single-letter flags
-#            (ak) return a dashed name unfolded -> V18 reddens on
-#                --user-data-dir, the spelling this migration itself writes
 #          A mutation is a full copy of .claude/install.sh, so it must live in
 #          .claude/ too (REPO_DIR is derived from the script's own path). Those
 #          copies are removed by the exit trap.
@@ -220,14 +195,14 @@
 #                git shim below can escape its sandbox and mutate the live
 #                primary checkout's pre-commit hook symlink - see Seed 5.
 #
-# Performance: 62 install runs per invocation (35 of the cases plus 27 mutation
+# Performance: 72 install runs per invocation (40 of the cases plus 32 mutation
 #              runs of the installer), counted by shimming every `bash
-#              <install.sh> --mode=...` invocation on PATH, measured at ~230 s
-#              total on a warm tree. The concurrent-writer, V4, V5, V12 and the
-#              (c)/(x)/(aa) mutations run the extracted writer instead, at
-#              negligible cost, as do V4's value-position and --headless=false
-#              cases and the writer halves of (ad)/(ae) - none of those costs an
-#              install run.
+#              <install.sh|.mutation-install-*.sh> --mode=...` invocation on
+#              PATH. On a warm tree that run takes ~245 s. The
+#              concurrent-writer, V4, V5, V12, V14b and the (c)/(k)/(l)/(m)/
+#              (v)/(x)/(aa) mutations run the extracted writer instead, at
+#              negligible cost, as do the writer halves of (ac) and (ae) - none
+#              of those costs an install run.
 
 set -uo pipefail
 
@@ -235,16 +210,14 @@ REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 INSTALL_SH="$REPO_DIR/.claude/install.sh"
 MUTATION_GLOB="$REPO_DIR/.claude/.mutation-install-$$-*"
 
-# The package an entry has to name, the options the migration writes or reads,
-# and the subset of those that takes a value - all read out of the installer
-# rather than retyped. install.sh passes them to both python blocks as
-# arguments and the writer blocks extracted below take them the same way, so
-# retyping them here would let the V4/V6/V9 assertions pass against a set the
-# installer does not use.
+# The package an entry has to name and the options the migration writes or
+# reads - both read out of the installer rather than retyped. install.sh passes
+# them to both python blocks as arguments and the writer blocks extracted below
+# take them the same way, so retyping them here would let the V4/V6/V9
+# assertions pass against a set the installer does not use.
 CD_MCP_PACKAGE="$(sed -n 's/^CD_MCP_PACKAGE="\(.*\)"$/\1/p' "$INSTALL_SH")"
 CD_MCP_OPTIONS="$(sed -n 's/^CD_MCP_OPTIONS="\(.*\)"$/\1/p' "$INSTALL_SH")"
-CD_MCP_VALUED="$(sed -n 's/^CD_MCP_VALUED="\(.*\)"$/\1/p' "$INSTALL_SH")"
-for pair in CD_MCP_PACKAGE CD_MCP_OPTIONS CD_MCP_VALUED; do
+for pair in CD_MCP_PACKAGE CD_MCP_OPTIONS; do
   if [[ -z "${!pair}" ]]; then
     echo "FAIL: could not read $pair out of $INSTALL_SH" >&2
     exit 1
@@ -403,10 +376,9 @@ write_stale_config() {
 EOF
 }
 
-# The args the installer is expected to write for <home>, built exactly as the
-# installer builds them (os.path.expanduser resolves HOME at install time).
+# The args the installer is expected to write for a migrated entry.
 expected_args_json() {
-  printf '["chrome-devtools-mcp@latest", "--headless", "--user-data-dir=%s/.cache/chrome-devtools-mcp/chrome-profile"]' "$1"
+  printf '["chrome-devtools-mcp@latest", "--headless", "--isolated"]'
 }
 
 # ---------------------------------------------------------------------------
@@ -556,7 +528,7 @@ case_v1_fresh() {
     return 1
   fi
 
-  python3 - "$home/.claude.json" "$(expected_args_json "$home")" <<'PYEOF'
+  python3 - "$home/.claude.json" "$(expected_args_json)" <<'PYEOF'
 import json, sys
 data = json.load(open(sys.argv[1]))
 entry = data["mcpServers"]["chrome-devtools"]
@@ -613,7 +585,7 @@ case_v2_accepted() {
     return 1
   fi
 
-  python3 - "$home/.claude.json" "$TMP_ROOT/v2-before.json" "$(expected_args_json "$home")" <<'PYEOF'
+  python3 - "$home/.claude.json" "$TMP_ROOT/v2-before.json" "$(expected_args_json)" <<'PYEOF'
 import json, sys
 after = json.load(open(sys.argv[1], encoding="utf-8"))
 before = json.load(open(sys.argv[2], encoding="utf-8"))
@@ -766,15 +738,13 @@ case_v1d_unparseable() {
 # Each one was coerced before this fix - a non-object mcpServers was replaced
 # outright (both legacy servers lost), a non-object entry was replaced, and an
 # args value that is not a list of strings was discarded and then overwritten
-# with the flags alone. For the string form that yields
-# `npx --headless --user-data-dir=...`, a registration that cannot launch.
+# with the flags alone. For the string form that yields `npx --headless
+# --isolated`, a registration that cannot launch.
 #
 # A fourth fixture is the opposite case: a registration that is well formed but
-# already selects its own browser connection (or its own throwaway profile).
-# browser-options.js declares --user-data-dir conflicting with each of those,
-# and the server exits with "Arguments userDataDir and browserUrl are mutually
-# exclusive" instead of starting, so appending the pin there produces a
-# registration that cannot launch.
+# connects to a browser the operator already runs. Its browser connection is an
+# argument this migration does not write, so the entry is reported and left
+# alone rather than gaining two flags the server would never read there.
 # ---------------------------------------------------------------------------
 write_conflict_config() {
   local path="$1"
@@ -805,15 +775,23 @@ write_shape_config() {
   conflict)
     write_conflict_config "$path" "--browser-url=http://127.0.0.1:9222"
     ;;
-  value-position)
-    # A flag where a value-taking option's value would go, which the server
-    # reads as an empty value and refuses.
-    write_conflict_config "$path" "--channel" "--isolated"
-    ;;
   headless-false)
     # The flag this migration writes, spelled with the value that asks for the
     # window.
     write_conflict_config "$path" "--headless=false"
+    ;;
+  isolated-false)
+    # The other bare flag, spelled the same way.
+    write_conflict_config "$path" "--isolated=false"
+    ;;
+  user-data-dir)
+    # The option an older install pinned the profile root with, which this
+    # migration no longer writes or reads.
+    write_conflict_config "$path" "--headless" "--user-data-dir=/tmp/legacy-profile"
+    ;;
+  channel)
+    # Its sibling, likewise out of the option set now.
+    write_conflict_config "$path" "--headless" "--channel=canary"
     ;;
   container)
     cat > "$path" <<'EOF'
@@ -925,7 +903,7 @@ shape_needle() {
   case "$1" in
   container) printf 'mcpServers is not a JSON object' ;;
   entry) printf 'the chrome-devtools entry is not a JSON object' ;;
-  conflict | value-position | headless-false)
+  conflict | headless-false | isolated-false | user-data-dir | channel)
     printf 'passes an argument this installer does not write' ;;
   no-args | empty-args | empty-entry) printf 'args do not name the package this installer writes (%s)' "$CD_MCP_PACKAGE" ;;
   *) printf "the chrome-devtools entry has an args value that is not a list of strings" ;;
@@ -935,7 +913,7 @@ shape_needle() {
 # ---------------------------------------------------------------------------
 # V9: a registration whose args do not invoke the package. The migration's edit
 # is an args append, so on one of these it writes the flags alone - `npx
-# --headless --user-data-dir=...`, a registration that cannot launch - and the
+# --headless --isolated`, a registration that cannot launch - and the
 # entry then classifies current, so the installer never offers again. Before
 # this fix all three classified "stale", the catch-all else of a chain whose
 # other members were absent, a refused-flag state and current.
@@ -1077,7 +1055,7 @@ case_concurrent_writer() {
   write_stale_config "$home/.claude.json"
   : > "$err"
 
-  ( python3 "$writer" "$home/.claude.json" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" "$CD_MCP_VALUED" 2>"$err" ) &
+  ( python3 "$writer" "$home/.claude.json" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" 2>"$err" ) &
   local wpid=$!
   sleep 0.7
   printf '{"mcpServers":{},"changedByAnotherWriter":true}\n' > "$home/.claude.json"
@@ -1122,7 +1100,7 @@ case_writer_refuses() {
     return 1
   fi
   : > "$err"
-  ( python3 "$py" "$home/.claude.json" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" "$CD_MCP_VALUED" 2>"$err" )
+  ( python3 "$py" "$home/.claude.json" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" 2>"$err" )
   rc=$?
   if [[ "$rc" == "0" ]]; then
     _fail "$shape: the writer accepted a container it cannot edit surgically (exit 0)"
@@ -1145,62 +1123,65 @@ case_writer_entry() { case_writer_refuses "$1" entry; }
 case_writer_args_string() { case_writer_refuses "$1" args-string; }
 case_writer_args_element() { case_writer_refuses "$1" args-element; }
 case_writer_conflict() { case_writer_refuses "$1" conflict; }
-case_writer_value_position() { case_writer_refuses "$1" value-position; }
 case_writer_headless_false() { case_writer_refuses "$1" headless-false; }
+case_writer_isolated_false() { case_writer_refuses "$1" isolated-false; }
+case_writer_user_data_dir() { case_writer_refuses "$1" user-data-dir; }
+case_writer_channel() { case_writer_refuses "$1" channel; }
 case_writer_no_args() { case_writer_refuses "$1" no-args; }
 case_writer_empty_args() { case_writer_refuses "$1" empty-args; }
 case_writer_empty_entry() { case_writer_refuses "$1" empty-entry; }
 
-# V5: the pinned profile root must be the directory the server itself would
-# have chosen. Its default is channel-suffixed for any non-stable channel, so a
-# fixed unsuffixed pin moves a canary operator's profile instead of matching it.
-# The two control fixtures say which way an implementation can be wrong: stable
-# reddens one that suffixes unconditionally, and the empty --channel= reddens
-# one that reads "is it stable" where upstream tests the channel for
-# truthiness (`channel && channel !== 'stable'`).
-write_channel_config() {
-  local path="$1" channel_arg="$2"
-  cat > "$path" <<EOF
-{
-  "mcpServers": {
-    "chrome-devtools": {
-      "type": "stdio",
-      "command": "npx",
-      "args": [
-        "chrome-devtools-mcp@latest",
-        "$channel_arg"
-      ],
-      "env": {}
-    },
-    "mcp-atlassian": {}
-  }
-}
-EOF
-}
-
-case_writer_channel_suffix() {
+# ---------------------------------------------------------------------------
+# V5: the append itself, driven straight at the extracted writer, one entry per
+# row. Both flags are bare and independent, so the append is per-flag rather
+# than a fixed pair: an entry carrying one of them must gain only the other,
+# and one carrying both must come back byte-identical rather than with a second
+# copy of each. The classifier never reaches the second and third rows (it
+# short-circuits on "current" and on "stale" it would append the missing flag
+# anyway), so this is the case that holds the writer's own append to account.
+# ---------------------------------------------------------------------------
+case_writer_appends() {
   local script="$1"
-  local py="$TMP_ROOT/writer-channel.py"
-  local got want rc
+  local py="$TMP_ROOT/writer-append.py"
+  local home="$TMP_ROOT/writer-append-home"
+  local got want rc entry extra present
+  mkdir -p "$home"
   if ! extract_writer "$script" "$py"; then
     return 1
   fi
-  for pair in "--channel=canary:chrome-profile-canary" "--channel=stable:chrome-profile" \
-              "--channel=:chrome-profile"; do
-    local channel_arg="${pair%%:*}" dirname="${pair##*:}"
-    local home="$TMP_ROOT/channel-${channel_arg#--channel=}-home"
-    mkdir -p "$home"
-    write_channel_config "$home/.claude.json" "$channel_arg"
-    ( HOME="$home" python3 "$py" "$home/.claude.json" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" "$CD_MCP_VALUED" ) >/dev/null 2>&1
+  for entry in \
+    '[]|["--headless", "--isolated"]' \
+    '["--headless"]|["--isolated"]' \
+    '["--isolated"]|["--headless"]' \
+    '["--headless", "--isolated"]|[]'; do
+    extra="${entry%%|*}"
+    present="${entry##*|}"
+    python3 - "$home/.claude.json" "$extra" <<'PYEOF'
+import json, sys
+path, extra = sys.argv[1], json.loads(sys.argv[2])
+json.dump({
+    "numStartups": 42,
+    "mcpServers": {
+        "chrome-devtools": {
+            "type": "stdio", "command": "npx",
+            "args": ["chrome-devtools-mcp@latest"] + extra, "env": {},
+        },
+        "mcp-atlassian": {},
+    },
+}, open(path, "w"), indent=2)
+PYEOF
+    ( HOME="$home" python3 "$py" "$home/.claude.json" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" ) >/dev/null 2>&1
     rc=$?
     if [[ "$rc" -ne 0 ]]; then
-      _fail "$channel_arg: the writer exited $rc on a legitimate stale entry"
+      _fail "writer append: the writer exited $rc on a migration target ($extra)"
       return 1
     fi
-    want="[\"chrome-devtools-mcp@latest\", \"$channel_arg\", \"--headless\", \"--user-data-dir=$home/.cache/chrome-devtools-mcp/$dirname\"]"
+    want="$(python3 -c '
+import json, sys
+print(json.dumps(["chrome-devtools-mcp@latest"] + json.loads(sys.argv[1]) + json.loads(sys.argv[2])))' "$extra" "$present")"
     got="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["mcpServers"]["chrome-devtools"]["args"]))' "$home/.claude.json")"
     if [[ "$got" != "$want" ]]; then
-      _fail "$channel_arg: the pinned profile root is wrong (want $want, got $got)"
+      _fail "writer append: an entry carrying $extra migrated to the wrong args (want $want, got $got)"
       return 1
     fi
   done
@@ -1208,43 +1189,44 @@ case_writer_channel_suffix() {
 }
 
 # ---------------------------------------------------------------------------
-# V14b: the same normalization, driven straight at the extracted writer. V14
-# only proves the classifier reads an alternate spelling of the pin; the writer
-# carries its own copy of that rule and is what would append a second
-# --user-data-dir over the operator's, so the append is asserted directly.
+# V14b: the writer's own copy of the option-name rule, driven straight at the
+# extracted writer. The classifier refuses a spelling the server ignores before
+# the writer is ever reached, so V18 cannot exercise the writer's copy; this
+# case does, because the writer's own copy is what would do the appending.
 # ---------------------------------------------------------------------------
-case_writer_alternate_spelling_pin() {
+case_writer_alternate_spelling() {
   local script="$1"
   local py="$TMP_ROOT/writer-altspell.py"
   local home="$TMP_ROOT/writer-altspell-home"
-  local got want rc
+  local before="$TMP_ROOT/writer-altspell-before.json"
+  local rc
   mkdir -p "$home"
   if ! extract_writer "$script" "$py"; then
     return 1
   fi
-  write_conflict_config "$home/.claude.json" "--headless" "--userDataDir=/tmp/alternate-spelling-profile"
-  ( HOME="$home" python3 "$py" "$home/.claude.json" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" "$CD_MCP_VALUED" ) >/dev/null 2>&1
+  # --Headless is not the --headless option: yargs reads a long option whose
+  # name carries no dash verbatim, so `.lower()` folding it would make the
+  # writer append --isolated and leave the entry headed while reporting success.
+  write_conflict_config "$home/.claude.json" "--Headless"
+  cp "$home/.claude.json" "$before"
+  ( HOME="$home" python3 "$py" "$home/.claude.json" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" ) >/dev/null 2>&1
   rc=$?
-  if [[ "$rc" -ne 0 ]]; then
-    _fail "writer alternate spelling: the writer exited $rc on an entry it can edit"
+  if [[ "$rc" == "0" ]]; then
+    _fail "writer alternate spelling: the writer accepted a spelling the server ignores"
     return 1
   fi
-  want='["chrome-devtools-mcp@latest", "--headless", "--userDataDir=/tmp/alternate-spelling-profile"]'
-  got="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["mcpServers"]["chrome-devtools"]["args"]))' "$home/.claude.json")"
-  if [[ "$got" != "$want" ]]; then
-    _fail "writer alternate spelling: the operator's own pinned root was not left alone (want $want, got $got)"
+  if ! cmp -s "$before" "$home/.claude.json"; then
+    _fail "writer alternate spelling: the writer modified an entry it refused"
     return 1
   fi
   return 0
 }
 
 # ---------------------------------------------------------------------------
-# V6: a registration that already sets a flag the schema declares conflicting
-# with --user-data-dir must be left alone. Before this fix the classifier said
-# "stale", the writer exited 0 after appending --user-data-dir, the real server
-# then refused to start ("Arguments userDataDir and browserUrl are mutually
-# exclusive"; same for wsEndpoint and isolated), and the entry re-classified as
-# "current" - so the installer never offered again.
+# V6: a registration that connects to a browser the operator already runs must
+# be left alone. Before this fix the classifier said "stale" and the writer
+# exited 0 after appending, so the entry re-classified as "current" and the
+# installer never offered again - with flags the server does not read there.
 # ---------------------------------------------------------------------------
 case_conflict_left_alone() {
   local script="$1" label="$2"
@@ -1280,16 +1262,16 @@ case_conflict_left_alone() {
     _fail "$label: the conflicting registration was modified (expected byte-identical)"
     return 1
   fi
-  # The pin is what breaks the server, so its absence is asserted directly
+  # The flags are what would be appended, so their absence is asserted directly
   # rather than only through byte-identity.
-  if grep -q -- "--user-data-dir=" "$home/.claude.json"; then
-    _fail "$label: a --user-data-dir was written alongside a conflicting flag"
+  if grep -q -- "--headless\|--isolated" "$home/.claude.json"; then
+    _fail "$label: the migration's flags were written alongside a browser connection"
     return 1
   fi
   # --headless is honored only where the server launches Chrome itself, so the
-  # report has to name it and the class it does not apply to - the withheld pin
-  # is not what the operator was after, and an unscoped "add --headless" is
-  # inert for a registration that connects to a browser already running.
+  # report has to name it and the class it does not apply to - an unscoped "add
+  # --headless" is inert for a registration that connects to a browser already
+  # running.
   if ! grep -q -- "--headless" <<< "$out"; then
     _fail "$label: the report did not name the flag that would remove the window"
     return 1
@@ -1303,7 +1285,6 @@ case_conflict_left_alone() {
 
 case_conflict_browser_url() { case_conflict_left_alone "$1" browser-url "--browser-url=http://127.0.0.1:9222"; }
 case_conflict_ws_endpoint() { case_conflict_left_alone "$1" ws-endpoint "--ws-endpoint=ws://127.0.0.1:9222/devtools/browser/abc"; }
-case_conflict_isolated() { case_conflict_left_alone "$1" isolated "--isolated"; }
 case_conflict_camel() { case_conflict_left_alone "$1" camel "--browserUrl=http://127.0.0.1:9222"; }
 case_conflict_alias() { case_conflict_left_alone "$1" alias "-u" "http://127.0.0.1:9222"; }
 
@@ -1352,12 +1333,12 @@ case_foreign_args_left_alone() {
     _fail "$label: the registration was modified (expected byte-identical)"
     return 1
   fi
-  # The pin is what breaks the server, so a new one is asserted directly rather
-  # than only through byte-identity. A fixture that already carries one keeps
-  # it, which is why the count is compared rather than required to be zero.
-  if [[ "$(grep -c -- "--user-data-dir=" "$home/.claude.json")" \
-        != "$(grep -c -- "--user-data-dir=" "$before")" ]]; then
-    _fail "$label: a --user-data-dir was written beside an argument the migration does not write"
+  # No flag is appended to an entry the migration refused, so the count is
+  # compared rather than required to be zero: a fixture that carries one of
+  # them already keeps exactly what it had.
+  if [[ "$(grep -c -e "--headless" -e "--isolated" "$home/.claude.json")" \
+        != "$(grep -c -e "--headless" -e "--isolated" "$before")" ]]; then
+    _fail "$label: a flag was written beside an argument the migration does not write"
     return 1
   fi
   # The way out has to name --headless, scope it to the class it does not work
@@ -1413,56 +1394,99 @@ case_conflict_unlisted_spelling() {
 }
 
 # ---------------------------------------------------------------------------
-# V15: a flag in the value position of a value-taking option. `--channel` and
-# `--user-data-dir` consume the next token as their value only when it is not
-# itself a flag - the server reads `--channel --isolated` as an empty channel
-# and refuses that registration (rc 1, v1.10.1) - so the `-`-prefixed token is
-# an argument in its own right. Before this fix it was consumed as the option's
-# value and never surveyed, so an entry carrying a flag the pin conflicts with
-# classified "stale" and the migration appended the pin beside it.
+# V14: the options an older install wrote and this migration no longer does.
+# --user-data-dir (its `=` and separate-token spellings, and the --userDataDir
+# camel one the server reads as the same option) and --channel are outside the
+# option set now, so an entry carrying either gets the same refusal any other
+# unknown argument gets: reported by name, no prompt, left byte-identical. The
+# entry is not migrated and not damaged, and the report names the argument that
+# stopped it.
 # ---------------------------------------------------------------------------
-case_value_position_flag() {
+case_former_option_left_alone() {
   local script="$1"
-  case_conflict_unlisted_one "$script" value-position-isolated --channel --isolated || return 1
-  case_conflict_unlisted_one "$script" value-position-no-isolated --channel --no-isolated || return 1
-  case_conflict_unlisted_one "$script" value-position-browser-url --channel --browser-url=http://127.0.0.1:9222 || return 1
-  case_conflict_unlisted_one "$script" value-position-pin --user-data-dir --isolated || return 1
+  case_conflict_unlisted_one "$script" former-user-data-dir --headless --user-data-dir=/tmp/legacy-profile || return 1
+  case_conflict_unlisted_one "$script" former-user-data-dir-token --headless --user-data-dir /tmp/legacy-profile || return 1
+  case_conflict_unlisted_one "$script" former-user-data-dir-camel --headless --userDataDir=/tmp/legacy-profile || return 1
+  case_conflict_unlisted_one "$script" former-channel --headless --channel=canary || return 1
+  case_conflict_unlisted_one "$script" former-channel-token --headless --channel canary || return 1
   return 0
 }
 
 # ---------------------------------------------------------------------------
-# V16: --headless=false, the flag this migration writes spelled with a value.
-# The server takes it (rc 0, v1.10.1) and opens the window, so an entry
-# carrying it is not one the migration can make headless: the argument it would
-# have to rewrite is not one it writes. Before this fix the `=false` folded
-# away, so an entry carrying it and a pinned root classified "current" and the
-# installer told that operator the registration was already configured headless
-# - the one report it must never print for an entry that asks for the window.
+# V15: the form this migration writes. An entry already carrying both flags is
+# "already configured": no prompt, and the file byte-identical. The pair is not
+# what makes it current - the classifier asks for each flag on its own - so this
+# is the case that reddens when the current-check is left pointing at the option
+# set this migration used to write.
 # ---------------------------------------------------------------------------
-case_headless_false_left_alone() {
-  local script="$1" forbid="already configured (headless)"
-  case_foreign_args_left_alone "$script" headless-false-pinned "$forbid" \
-    "--headless=false" "--user-data-dir=/tmp/headed-profile" || return 1
-  case_foreign_args_left_alone "$script" headless-false "$forbid" \
-    "--headless=false" || return 1
-  return 0
-}
-
-# ---------------------------------------------------------------------------
-# V17: the control for V15. `--channel canary` writes the same value in two
-# tokens, which the option's own parser does read as its value, so the entry is
-# a migration target and the pinned root carries the suffix that value selects.
-# A rule that stopped consuming the token after every value-taking option -
-# rather than only after one that is not a flag - breaks this entry, and
-# nothing else here notices: V5 drives the `=` spellings.
-# ---------------------------------------------------------------------------
-case_channel_separated_value() {
-  local script="$1" out rc got want
-  local home="$TMP_ROOT/channel-separated-home"
+case_current_form() {
+  local script="$1" out rc
+  local home="$TMP_ROOT/current-home"
+  local before="$TMP_ROOT/current-before.json"
   mkdir -p "$home"
   seed_home "$home"
-  write_conflict_config "$home/.claude.json" "--channel" "canary"
-  cp "$home/.claude.json" "$TMP_ROOT/channel-separated-before.json"
+  write_conflict_config "$home/.claude.json" "--headless" "--isolated"
+  cp "$home/.claude.json" "$before"
+
+  # Both migration prompts are seeded so a mutated installer that goes back to
+  # offering one cannot hang the pty for the whole driver deadline. The
+  # unmutated run reaches neither.
+  out="$(run_install "$script" "$home" '[["Configure chrome-devtools MCP", "y\n"], ["Update the existing chrome-devtools MCP", "y\n"]]')"
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    _fail "V15: install exited $rc"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if ! grep -q "chrome-devtools MCP already configured" <<< "$out"; then
+    _fail "V15: an entry carrying --headless and --isolated was not read as already configured"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if grep -q "Configure chrome-devtools MCP\|Update the existing chrome-devtools MCP" <<< "$out"; then
+    _fail "V15: an already-configured registration was offered a prompt"
+    return 1
+  fi
+  if ! cmp -s "$before" "$home/.claude.json"; then
+    _fail "V15: an already-current registration was rewritten"
+    return 1
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# V16: a value on a flag this migration writes bare. Both flags are bare, so
+# --headless=false and --isolated=false are each a spelling the migration does
+# not write: the server accepts them (rc 0) and opens the window, so calling
+# such an entry "already configured (headless)" is the one report it must never
+# print. The first fixture is the sharp one: beside --isolated, a folded
+# --headless=false is exactly the pair the current-check looks for, so before
+# this fix that entry was reported configured and never offered the migration.
+# ---------------------------------------------------------------------------
+case_valued_flag_left_alone() {
+  local script="$1" forbid="already configured (headless)"
+  case_foreign_args_left_alone "$script" headless-false-isolated "$forbid" \
+    "--headless=false" "--isolated" || return 1
+  case_foreign_args_left_alone "$script" headless-false "$forbid" \
+    "--headless=false" || return 1
+  case_foreign_args_left_alone "$script" isolated-false "$forbid" \
+    "--isolated=false" || return 1
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# V17: the append is per-flag. An entry carrying only one of the two is still a
+# migration target and gains only the other - a check that called either flag
+# alone "current" would leave that entry unmigrated, and an unconditional pair
+# append would leave it carrying a duplicate.
+# ---------------------------------------------------------------------------
+case_partial_migration() {
+  local script="$1" out rc got want
+  local home="$TMP_ROOT/partial-home"
+  mkdir -p "$home"
+  seed_home "$home"
+  write_conflict_config "$home/.claude.json" "--headless"
+  cp "$home/.claude.json" "$TMP_ROOT/partial-before.json"
 
   out="$(run_install "$script" "$home" '[["Update the existing chrome-devtools MCP", "y\n"]]')"
   rc=$?
@@ -1472,82 +1496,38 @@ case_channel_separated_value() {
     return 1
   fi
   if ! grep -q "Update the existing chrome-devtools MCP" <<< "$out"; then
-    _fail "V17: an entry whose --channel takes its value in the next token was not offered the migration"
+    _fail "V17: an entry carrying one of the two flags was not offered the migration"
     tail -20 <<< "$out" >&2
     return 1
   fi
-  want="[\"chrome-devtools-mcp@latest\", \"--channel\", \"canary\", \"--headless\", \"--user-data-dir=$home/.cache/chrome-devtools-mcp/chrome-profile-canary\"]"
+  want='["chrome-devtools-mcp@latest", "--headless", "--isolated"]'
   got="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["mcpServers"]["chrome-devtools"]["args"]))' "$home/.claude.json")"
   if [[ "$got" != "$want" ]]; then
-    _fail "V17: the separated channel value was not read as the pin's channel (want $want, got $got)"
+    _fail "V17: the missing flag was not appended on its own (want $want, got $got)"
     return 1
   fi
   return 0
 }
 
 # ---------------------------------------------------------------------------
-# V18: the option-name rule has to agree with the server's own reader in both
-# directions. The server is yargs (v1.10.1): it reads one leading dash as a
-# bundle of single-letter flags and two or more as a long option, and it
-# expands a long option's spelling only when that name contains a dash -
-# lowercasing it then only if its case is uniform, and folding a dash or an
-# underscore to the next character's upper case. So `--Headless` and
-# `--HEADLESS` are unknown flags to the server (it prints "Unknown arguments:
-# --Headless" and launches headed), `-headless` is the single-letter flags
-# h-e-a-d-l-e-s-s, and `--user_data_dir` is not camelized at all. Folding case
-# unconditionally read all of those as the options the migration writes, so an
-# entry carrying one was migrated without ever gaining --headless while the
-# installer reported it configured headless - the report this migration must
-# never print for an entry that still opens the window.
-#
-# The second half is the other direction, and it is what keeps the rule from
-# being tightened into a refusal of spellings the server does read:
-# --USER-DATA-DIR is one of them, because the server lowercases a name whose
-# case is uniform before camelizing it.
+# V18: the option-name rule against the server's own reader. The server is yargs
+# (v1.10.1): it reads one leading dash as a bundle of single-letter flags, and
+# takes a long option's spelling verbatim when that name carries no dash - so
+# `--Headless` and `--HEADLESS` are unknown flags to it (it prints "Unknown
+# arguments: --Headless" and launches headed), `-headless` is the single-letter
+# flags h-e-a-d-l-e-s-s, and `--user_data_dir` is not the --user-data-dir option
+# either. Folding case unconditionally read the first two as the headless option
+# this migration writes, so an entry carrying one was migrated without ever
+# gaining the window-removing flag while the installer reported it configured -
+# the report this migration must never print for an entry that still opens the
+# window.
 # ---------------------------------------------------------------------------
-# case_spelling_current <script> <label> <pin> - the entry pins its own root
-# using <pin>, which the server does read as the userDataDir option, so it is
-# already current: reported as configured, and the file left byte-identical.
-case_spelling_current() {
-  local script="$1" label="$2" pin="$3"
-  local home="$TMP_ROOT/spelling-$label-home"
-  local before="$TMP_ROOT/spelling-$label-before.json"
-  local out rc
-  mkdir -p "$home"
-  seed_home "$home"
-  write_conflict_config "$home/.claude.json" "--headless" "$pin"
-  cp "$home/.claude.json" "$before"
-
-  # Both migration prompts are seeded so a mutated installer that goes back to
-  # offering one cannot hang the pty for the whole driver deadline. The
-  # unmutated run reaches neither.
-  out="$(run_install "$script" "$home" '[["Configure chrome-devtools MCP", "y\n"], ["Update the existing chrome-devtools MCP", "y\n"]]')"
-  rc=$?
-  if [[ "$rc" -ne 0 ]]; then
-    _fail "$label: install exited $rc"
-    tail -20 <<< "$out" >&2
-    return 1
-  fi
-  if ! grep -q "chrome-devtools MCP already configured" <<< "$out"; then
-    _fail "$label: an entry pinning its root as '$pin' was not read as already configured"
-    tail -20 <<< "$out" >&2
-    return 1
-  fi
-  if ! cmp -s "$before" "$home/.claude.json"; then
-    _fail "$label: an already-current registration was rewritten"
-    return 1
-  fi
-  return 0
-}
-
 case_option_name_matches_server() {
   local script="$1"
   case_foreign_args_left_alone "$script" case-variant-headless "" "--Headless" || return 1
   case_foreign_args_left_alone "$script" upper-case-headless "" "--HEADLESS" || return 1
   case_foreign_args_left_alone "$script" short-flag-bundle "" "-headless" || return 1
   case_foreign_args_left_alone "$script" underscore-name "" "--user_data_dir=/tmp/underscore-profile" || return 1
-  case_spelling_current "$script" kebab-pin "--user-data-dir=/tmp/spelling-profile" || return 1
-  case_spelling_current "$script" upper-kebab-pin "--USER-DATA-DIR=/tmp/spelling-profile" || return 1
   return 0
 }
 
@@ -1555,44 +1535,7 @@ case_option_name_matches_server() {
 # foreign entry gets the same report, so the entry does not matter. A named
 # function because expect_case_fails passes a single argument to the case.
 case_way_out_advice() {
-  case_conflict_unlisted_one "$1" way-out --isolated
-}
-
-# ---------------------------------------------------------------------------
-# V14: an alternate spelling of the migration's OWN options. The server takes
-# --userDataDir as well as --user-data-dir, and `--user-data-dir /path` as well
-# as `--user-data-dir=/path`, so an entry that already pins its own root in one
-# of those forms is current. Before the normalization rule both forms read as
-# "no pinned root" and the migration appended a second --user-data-dir over the
-# operator's.
-# ---------------------------------------------------------------------------
-case_alternate_spelling_current() {
-  local script="$1"
-  local home="$TMP_ROOT/altspell-home"
-  local before="$TMP_ROOT/altspell-before.json"
-  local out rc
-  mkdir -p "$home"
-  seed_home "$home"
-  write_conflict_config "$home/.claude.json" "--headless" "--userDataDir=/tmp/alternate-spelling-profile"
-  cp "$home/.claude.json" "$before"
-
-  out="$(run_install "$script" "$home" '[["Configure chrome-devtools MCP", "y\n"], ["Update the existing chrome-devtools MCP", "y\n"]]')"
-  rc=$?
-  if [[ "$rc" -ne 0 ]]; then
-    _fail "alternate spelling: install exited $rc"
-    tail -20 <<< "$out" >&2
-    return 1
-  fi
-  if ! grep -q "chrome-devtools MCP already configured" <<< "$out"; then
-    _fail "alternate spelling: an entry carrying this package, --headless and its own --userDataDir was not read as already configured"
-    tail -20 <<< "$out" >&2
-    return 1
-  fi
-  if ! cmp -s "$before" "$home/.claude.json"; then
-    _fail "alternate spelling: an already-current registration was rewritten"
-    return 1
-  fi
-  return 0
+  case_conflict_unlisted_one "$1" way-out --isolated --channel=canary
 }
 
 # ---------------------------------------------------------------------------
@@ -1778,7 +1721,7 @@ atlassian_write_fixture() {
       "args": [
         "chrome-devtools-mcp@latest",
         "--headless",
-        "--user-data-dir=/tmp/ae-test-chrome-profile"
+        "--isolated"
       ],
       "env": {}
     }
@@ -1826,8 +1769,7 @@ assert data["mcpServers"]["mcp-atlassian"] == {
     "type": "stdio", "command": "uvx", "args": ["mcp-atlassian"], "env": {}}, \
     data["mcpServers"]
 assert data["mcpServers"]["chrome-devtools"]["args"] == [
-    "chrome-devtools-mcp@latest", "--headless",
-    "--user-data-dir=/tmp/ae-test-chrome-profile"], data["mcpServers"]
+    "chrome-devtools-mcp@latest", "--headless", "--isolated"], data["mcpServers"]
 assert stat.S_IMODE(os.stat(after_path).st_mode) == 0o644, \
     oct(stat.S_IMODE(os.stat(after_path).st_mode))
 leftovers = sorted(n for n in os.listdir(home) if n.startswith(".claude.json."))
@@ -1986,7 +1928,7 @@ expect_case_fails() {
 
 echo ""
 echo "=== V1: no prior chrome-devtools registration ==="
-run_case "V1: a fresh install writes the entry with --headless and the pinned profile root" \
+run_case "V1: a fresh install writes the entry with --headless and --isolated" \
   case_v1_fresh "$INSTALL_SH"
 
 echo ""
@@ -2039,27 +1981,32 @@ run_case "V4: the writer refuses an args list containing a non-string" \
   case_writer_args_element "$INSTALL_SH"
 run_case "V4: the writer refuses a registration carrying a conflicting flag" \
   case_writer_conflict "$INSTALL_SH"
-run_case "V4: the writer refuses a flag in a value-taking option's value position" \
-  case_writer_value_position "$INSTALL_SH"
 run_case "V4: the writer refuses a --headless=false spelling" \
   case_writer_headless_false "$INSTALL_SH"
+run_case "V4: the writer refuses an --isolated=false spelling" \
+  case_writer_isolated_false "$INSTALL_SH"
+run_case "V4: the writer refuses a --user-data-dir spelling" \
+  case_writer_user_data_dir "$INSTALL_SH"
+run_case "V4: the writer refuses a --channel spelling" \
+  case_writer_channel "$INSTALL_SH"
 run_case "V4: the writer refuses a registration with no args key" \
   case_writer_no_args "$INSTALL_SH"
 run_case "V4: the writer refuses a registration with an empty args list" \
   case_writer_empty_args "$INSTALL_SH"
 run_case "V4: the writer refuses a bare {} registration" \
   case_writer_empty_entry "$INSTALL_SH"
-run_case "V5: the pinned profile root carries the entry's own channel suffix" \
-  case_writer_channel_suffix "$INSTALL_SH"
 
 echo ""
-echo "=== V6: a registration carrying a flag the pin conflicts with is left alone ==="
-run_case "V6: --browser-url is reported and the pin is withheld" \
+echo "=== V5: the flags a canonical entry gains, one per missing flag ==="
+run_case "V5: the writer appends both flags, only the missing one, and none to an entry carrying both" \
+  case_writer_appends "$INSTALL_SH"
+
+echo ""
+echo "=== V6: a registration that connects to a browser already running is left alone ==="
+run_case "V6: --browser-url is reported and the flags are withheld" \
   case_conflict_browser_url "$INSTALL_SH"
-run_case "V6: --ws-endpoint is reported and the pin is withheld" \
+run_case "V6: --ws-endpoint is reported and the flags are withheld" \
   case_conflict_ws_endpoint "$INSTALL_SH"
-run_case "V6: --isolated is reported and the pin is withheld" \
-  case_conflict_isolated "$INSTALL_SH"
 run_case "V6: the camelCase --browserUrl spelling is recognised too" \
   case_conflict_camel "$INSTALL_SH"
 run_case "V6: the -u alias is recognised too" \
@@ -2071,30 +2018,30 @@ run_case "V13: --no-isolated, --BROWSER-URL=, --isolated=1 and --no-headless are
   case_conflict_unlisted_spelling "$INSTALL_SH"
 
 echo ""
-echo "=== V14: an alternate spelling of a flag this migration writes ==="
-run_case "V14: --userDataDir is read as the pin, so the entry is already current" \
-  case_alternate_spelling_current "$INSTALL_SH"
-run_case "V14b: the writer does not append a second --user-data-dir over an alternate spelling" \
-  case_writer_alternate_spelling_pin "$INSTALL_SH"
+echo "=== V14: the options this migration no longer writes or reads ==="
+run_case "V14: --user-data-dir in both spellings, its camel form, and --channel either way are all left alone" \
+  case_former_option_left_alone "$INSTALL_SH"
+run_case "V14b: the writer refuses a --Headless spelling the server ignores" \
+  case_writer_alternate_spelling "$INSTALL_SH"
 
 echo ""
-echo "=== V15: a flag in a value-taking option's value position ==="
-run_case "V15: --channel --isolated, --channel --no-isolated, --channel --browser-url=... and --user-data-dir --isolated are all left alone" \
-  case_value_position_flag "$INSTALL_SH"
+echo "=== V15: the form this migration writes ==="
+run_case "V15: an entry carrying --headless and --isolated is already configured and left byte-identical" \
+  case_current_form "$INSTALL_SH"
 
 echo ""
-echo "=== V16: --headless=false is a spelling the migration does not write ==="
-run_case "V16: an entry that asks for the window by name is reported, not called configured headless" \
-  case_headless_false_left_alone "$INSTALL_SH"
+echo "=== V16: a value on a flag this migration writes bare ==="
+run_case "V16: --headless=false and --isolated=false are reported, not called configured headless" \
+  case_valued_flag_left_alone "$INSTALL_SH"
 
 echo ""
-echo "=== V17: a separated channel value is still read as the value ==="
-run_case "V17: --channel canary still migrates and the pin carries the canary suffix" \
-  case_channel_separated_value "$INSTALL_SH"
+echo "=== V17: an entry carrying one of the two flags ==="
+run_case "V17: one flag present migrates to the other alone" \
+  case_partial_migration "$INSTALL_SH"
 
 echo ""
 echo "=== V18: the option names the migration reads are the ones the server reads ==="
-run_case "V18: a case variant, a short-flag bundle and an underscore-only name are left alone; a dashed spelling the server reads is still the pin" \
+run_case "V18: a case variant, a short-flag bundle and an underscore-only name are all left alone" \
   case_option_name_matches_server "$INSTALL_SH"
 
 echo ""
@@ -2149,7 +2096,32 @@ else
   _fail "mutation (a): the sed pattern no longer matches - the mutation was not applied"
 fi
 
-if mutate_installer 's/^elif "headless" in present and "userDataDir" in present:$/elif True:/' short-circuit; then
+if mutate_installer 's/^    args.append("--isolated")$/    pass/' no-isolated-append; then
+  if expect_case_fails "mutation (al) no --isolated append" case_v1_fresh "$MUTATE_OUT" \
+    "V1: the fresh registration does not carry the headless flags"; then
+    _pass "mutation (al): dropping the --isolated append reddens V1"
+  fi
+  if expect_case_fails "mutation (al) no --isolated append" case_partial_migration "$MUTATE_OUT" \
+    "V17: the missing flag was not appended on its own"; then
+    _pass "mutation (al): the same drop reddens V17's one-flag entry"
+  fi
+else
+  _fail "mutation (al): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+# (am): the current-check left pointing at the option set this migration used to
+# write. The entry the migration itself produces then classifies "stale", so the
+# installer offers the migration again on every run.
+if mutate_installer 's/^elif "headless" in present and "isolated" in present:$/elif "headless" in present and "userDataDir" in present:/' stale-current-check; then
+  if expect_case_fails "mutation (am) current-check on the old option set" case_current_form "$MUTATE_OUT" \
+    "V15: an entry carrying --headless and --isolated was not read as already configured"; then
+    _pass "mutation (am): leaving the current-check on userDataDir reddens V15"
+  fi
+else
+  _fail "mutation (am): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+if mutate_installer 's/^elif "headless" in present and "isolated" in present:$/elif True:/' short-circuit; then
   if expect_case_fails "mutation (b) pre-U3 short-circuit" case_v2_accepted "$MUTATE_OUT" \
     "V2: the migration prompt was never reached"; then
     _pass "mutation (b): treating any existing key as current reddens V2"
@@ -2247,15 +2219,6 @@ else
   _fail "mutation (m): the sed pattern no longer matches - the mutation was not applied"
 fi
 
-if mutate_installer 's/^    return "" if not channel or channel == "stable" else "-" + channel$/    return ""/' channel-blind; then
-  if expect_case_fails "mutation (n) channel-blind pinned root" case_writer_channel_suffix "$MUTATE_OUT" \
-    "the pinned profile root is wrong"; then
-    _pass "mutation (n): pinning the unsuffixed root for every channel reddens V5"
-  fi
-else
-  _fail "mutation (n): the sed pattern no longer matches - the mutation was not applied"
-fi
-
 if mutate_installer 's/indent=2, ensure_ascii=False/indent=2/' ascii-escape; then
   if expect_case_fails "mutation (e) ensure_ascii default" case_v2_accepted "$MUTATE_OUT" \
     "V2: accepting the migration changed something beyond"; then
@@ -2320,17 +2283,6 @@ else
   _fail "mutation (q): the sed pattern no longer matches - the mutation was not applied"
 fi
 
-# (r): the pre-fix channel test skipped only 'stable' by name, so an empty
-# --channel= took the suffixed branch where upstream's truthiness test does not.
-if mutate_installer 's/^    return "" if not channel or channel == "stable" else "-" + channel$/    return "" if channel in (None, "stable") else "-" + channel/' binary-channel-test; then
-  if expect_case_fails "mutation (r) pre-fix channel test" case_writer_channel_suffix "$MUTATE_OUT" \
-    "--channel=: the pinned profile root is wrong"; then
-    _pass "mutation (r): restoring the pre-fix channel test reddens V5's empty-channel iteration"
-  fi
-else
-  _fail "mutation (r): the sed pattern no longer matches - the mutation was not applied"
-fi
-
 # (s)/(t): the two halves of the mcp-atlassian fix. (s) removes the shape guard
 # (the array is clobbered); (t) removes the exit-status capture (a refusal
 # aborts the install). Both are range-limited to the atlassian block, because
@@ -2382,22 +2334,16 @@ fi
 
 # (ac): the normalization rule itself, with the foreign-args guard left in
 # place. Case-folding a name that carries no dash is the pre-fix reading: it
-# turns `--userDataDir`, which the server does read as the pin, into a name the
-# server never derives, so the entry is reported as carrying a foreign argument
-# instead of being read as already current - and it turns `--Headless`, an
-# unknown flag to the server, into the headless option this migration writes.
-# Both guards return the name verbatim, and the sed hits both so the two blocks
-# cannot drift apart under it.
+# turns `--Headless`, an unknown flag to the server, into the headless option
+# this migration writes, so the entry is migrated without ever gaining the
+# flag that removes the window while the installer reports it configured. Both
+# blocks return the name verbatim, and the sed hits both so the two cannot
+# drift apart under it.
 if mutate_installer 's/^        return name$/        return name.lower()/' fold-option-names; then
-  if expect_case_fails "mutation (ac) option names case-folded" \
-    case_alternate_spelling_current "$MUTATE_OUT" \
-    "already configured"; then
-    _pass "mutation (ac): case-folding a dash-free name reddens V14"
-  fi
   if expect_case_fails "mutation (ac) the writer's copy of the fold" \
-    case_writer_alternate_spelling_pin "$MUTATE_OUT" \
-    "the writer exited"; then
-    _pass "mutation (ac): the same fold reddens V14b on the writer's own copy"
+    case_writer_alternate_spelling "$MUTATE_OUT" \
+    "the writer accepted a spelling the server ignores"; then
+    _pass "mutation (ac): case-folding a dash-free name reddens V14b on the writer's own copy"
   fi
   if expect_case_fails "mutation (ac) the classifier reads a spelling the server ignores" \
     case_option_name_matches_server "$MUTATE_OUT" \
@@ -2481,29 +2427,13 @@ else
   _fail "mutation (ab): the sed pattern no longer matches - the mutation was not applied"
 fi
 
-# (ad): the pre-fix value-token rule, restored in both copies at once. A
-# value-taking option consumed the next token whatever it was, so a flag in
-# that position was never surveyed and the entry classified "stale".
-if mutate_installer 's/^                if not args\[i \+ 1\]\.startswith("-"):$/                if True:/' value-token-unguarded; then
-  if expect_case_fails "mutation (ad) a value-taking option consumes a following flag" \
-    case_value_position_flag "$MUTATE_OUT" \
-    "was offered a prompt"; then
-    _pass "mutation (ad): consuming a flag as a value reddens V15"
-  fi
-  if expect_case_fails "mutation (ad) the writer's own copy of the rule" \
-    case_writer_value_position "$MUTATE_OUT" \
-    "the writer accepted a container it cannot edit surgically"; then
-    _pass "mutation (ad): the writer's copy of the rule reddens V4's value-position case"
-  fi
-else
-  _fail "mutation (ad): the sed pattern no longer matches - the mutation was not applied"
-fi
-
 # (ae): the fold that read `--headless=false` as the option the migration
 # writes, which left the report claiming the entry was configured headless.
-if mutate_installer 's/^            if name not in valued and "=" in arg:$/            if False:/' fold-negated-bare-flag; then
+# Both blocks carry the rule, so this sed hits the classifier's copy and the
+# writer's at once - a fix applied to only one of them is not a way to pass.
+if mutate_installer 's/^            if "=" in arg:$/            if False:/' fold-negated-bare-flag; then
   if expect_case_fails "mutation (ae) a bare flag spelled with a value folds to the option name" \
-    case_headless_false_left_alone "$MUTATE_OUT" \
+    case_valued_flag_left_alone "$MUTATE_OUT" \
     "was not reported as carrying an argument the migration does not write"; then
     _pass "mutation (ae): folding --headless=false to the option name reddens V16"
   fi
@@ -2533,7 +2463,7 @@ fi
 # entry spells the window out by name gets.
 if mutate_installer '/^  echo "  One that writes --headless=false/d' drop-negation-way-out; then
   if expect_case_fails "mutation (ag) the report omits the --headless=false spelling" \
-    case_headless_false_left_alone "$MUTATE_OUT" \
+    case_valued_flag_left_alone "$MUTATE_OUT" \
     "did not cover a --headless=false spelling"; then
     _pass "mutation (ag): dropping the negation way-out line reddens V16"
   fi
@@ -2541,29 +2471,11 @@ else
   _fail "mutation (ag): the sed pattern no longer matches - the mutation was not applied"
 fi
 
-# (ah)-(ak): one mutation per rule the option-name reader applies, all four
-# driven at V18. Each sed pattern matches both python blocks, so a rule that
-# survives in only one of them is not a way to pass.
-if mutate_installer 's/^    if "-" not in name:$/    if True:/' ignore-dash-presence; then
-  if expect_case_fails "mutation (ah) a dashed name treated as a dash-free one" \
-    case_option_name_matches_server "$MUTATE_OUT" \
-    "was not read as already configured"; then
-    _pass "mutation (ah): refusing to expand a dashed name reddens V18's --user-data-dir case"
-  fi
-else
-  _fail "mutation (ah): the sed pattern no longer matches - the mutation was not applied"
-fi
-
-if mutate_installer 's/^    if name == name\.lower() or name == name\.upper():$/    if False:/' keep-name-case; then
-  if expect_case_fails "mutation (ai) uniform-case option name left as written" \
-    case_option_name_matches_server "$MUTATE_OUT" \
-    "was not read as already configured"; then
-    _pass "mutation (ai): dropping the uniform-case lowering reddens V18's --USER-DATA-DIR case"
-  fi
-else
-  _fail "mutation (ai): the sed pattern no longer matches - the mutation was not applied"
-fi
-
+# (aj): the rule that decides whether a token is a long option at all. `-headless`
+# is the single-letter flag bundle h-e-a-d-l-e-s-s to the server, so reading it
+# as a long option makes the migration treat a spelling the server ignores as
+# the headless option it writes. The sed pattern matches both python blocks, so
+# a rule that survives in only one of them is not a way to pass.
 if mutate_installer 's/^    if not name\.startswith("--"):$/    if False:/' read-short-flags-as-long; then
   if expect_case_fails "mutation (aj) a single-dash token read as a long option" \
     case_option_name_matches_server "$MUTATE_OUT" \
@@ -2572,16 +2484,6 @@ if mutate_installer 's/^    if not name\.startswith("--"):$/    if False:/' read
   fi
 else
   _fail "mutation (aj): the sed pattern no longer matches - the mutation was not applied"
-fi
-
-if mutate_installer 's/^    return "".join(folded)$/    return name/' unfold-option-name; then
-  if expect_case_fails "mutation (ak) a dashed name returned unfolded" \
-    case_option_name_matches_server "$MUTATE_OUT" \
-    "was not read as already configured"; then
-    _pass "mutation (ak): returning a dashed name unfolded reddens V18's --user-data-dir case"
-  fi
-else
-  _fail "mutation (ak): the sed pattern no longer matches - the mutation was not applied"
 fi
 
 # ---------------------------------------------------------------------------
