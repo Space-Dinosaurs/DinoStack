@@ -436,8 +436,8 @@ Failure modes:
       to be closed; it fails toward over-counting (extra rounds charged),
       never toward under-counting a genuine cap violation, and never
       toward a deny on malfunction. NOTE this is distinct from the
-      SEPARATE tuid-index file below, which DOES now have a best-effort
-      lock (M4, round-2 fix) around its own read-merge-write.
+      SEPARATE tuid-index file below, which DOES have a bounded-wait
+      lock (M4) around its own read-merge-write.
     - Best-effort dynamic import of `lib/enforcement_log.py` for
       `log_fire()`; any import error falls back to a no-op, matching every
       other enforce-*.py hook's fire-logging pattern.
@@ -448,15 +448,18 @@ Failure modes:
       fail-open no-ops - the round-cap allow/deny decision and the
       round-state write are already committed before either runs and are
       never rolled back or retried on this failure. `_update_tuid_index()`'s
-      own read-merge-write is now guarded by a short, best-effort `flock`
-      (M4, round-2 fix - see `_tuid_index_lock()`): bounded at
-      `_TUID_INDEX_LOCK_TIMEOUT_S` (0.2s), degrading to an UNLOCKED
-      read-merge-write (not a skipped write) on timeout or when `fcntl` is
-      unavailable (non-POSIX platforms). This closes the common case
-      (measured pre-fix: 6 parallel writers produced 4 entries, losing 2)
-      but is not a hard guarantee against a genuinely simultaneous race
-      landing inside the same lock-wait window on two different processes
-      that both time out - a residual, not claimed to be fully closed.
+      own read-merge-write is guarded by an `flock` (M4 - see
+      `_tuid_index_lock()`) with a bounded wait of
+      `_TUID_INDEX_LOCK_TIMEOUT_S` (2s, well inside the 5s timeout
+      `.claude/install.sh` registers this hook with). If the lock is not
+      acquired within that budget, or the lock file cannot be opened, the
+      index write is SKIPPED: this spawn's entry is simply absent, so
+      `readRoundState()` returns `null` for it. An unlocked write is never
+      made on that path, because it would `os.replace` over whatever a
+      concurrent locked writer just wrote and silently drop that writer's
+      entry. Only on a platform without `fcntl` (non-POSIX), where no
+      process can hold the lock at all, does the read-merge-write run
+      unlocked.
 
 Performance: measured median ~39 ms per Skeptic spawn (N=60, subprocess
              invocation via `sys.executable`, all four `_SIBLING_MODULES`
@@ -465,6 +468,8 @@ Performance: measured median ~39 ms per Skeptic spawn (N=60, subprocess
              this hook's own logic (no subprocess of its own; one small
              JSON read/write under `.agentic/`, plus up to four dynamic
              `importlib` loads of sibling modules on the allow path).
+             Under tuid-index lock contention the index write can add up
+             to `_TUID_INDEX_LOCK_TIMEOUT_S` (2s) of waiting.
 """
 
 from __future__ import annotations
@@ -1237,12 +1242,10 @@ def _append_tool_use_id(state: dict, tool_use_id: str | None) -> dict:
 
 _TUID_INDEX_NAME = "skeptic-tuid-index.json"
 _TUID_INDEX_CAP = 500
-# Bounds the best-effort lock wait below (M4) - a short, bounded budget, not
-# a real blocking lock: this hook must never meaningfully delay a Skeptic
-# spawn over index-maintenance contention, which is why the total wait is
-# capped well under this hook's own <5ms performance target's neighborhood
-# (10ms retry interval, up to 20 attempts).
-_TUID_INDEX_LOCK_TIMEOUT_S = 0.2
+# Bounded poll for the index lock (M4): 10ms retries for up to 2s. Must stay
+# well under the 5s hook timeout `.claude/install.sh` registers; on expiry the
+# index write is skipped, never made unlocked.
+_TUID_INDEX_LOCK_TIMEOUT_S = 2.0
 _TUID_INDEX_LOCK_RETRY_S = 0.01
 
 
@@ -1296,28 +1299,31 @@ def _update_tuid_index(agentic_dir: Path, tool_use_id: str | None, unit_key: str
         never resolves one to a hit - a legacy entry simply sits inert
         until it ages out of the FIFO cap or is overwritten by a fresh
         pinned-shape write for the same `tool_use_id`.
-      - M4: the read-merge-write sequence below is now guarded by a
-        short, best-effort `flock` (POSIX only - see
-        `_tuid_index_lock()`), closing the concurrent-write data loss a
+      - M4: the read-merge-write sequence below is guarded by an `flock`
+        (POSIX only - see `_tuid_index_lock()`), closing the
+        concurrent-write data loss a
         parallel multi-dimensional fan-out (several Skeptic-family spawns
         reviewing the same unit, each with its own SubagentStop) could
         previously produce: two processes could both read the
         pre-update index, each add their own entry, and whichever wrote
         LAST would silently clobber the other's entry entirely (measured:
-        6 parallel writers produced 4 entries and lost 2). The lock is
-        best-effort and bounded (`_TUID_INDEX_LOCK_TIMEOUT_S`) - on lock
-        acquisition failure (timeout, or no `fcntl` on this platform),
-        the read-merge-write still runs UNLOCKED rather than skipping the
-        write outright, which is strictly no worse than the pre-fix
-        behavior and still closes the common case where writers do not
-        arrive in the exact same instant."""
+        6 parallel writers produced 4 entries and lost 2). The lock wait
+        is bounded (`_TUID_INDEX_LOCK_TIMEOUT_S`); when the lock cannot be
+        acquired (timeout, or the lock file cannot be opened) the write is
+        SKIPPED, because an unlocked write would clobber a concurrent
+        locked writer's entry. A skipped write is a missing entry, which
+        the reader already treats as a miss. Only when `fcntl` is
+        unavailable does the write run unlocked."""
     if not isinstance(tool_use_id, str) or not tool_use_id.strip():
         return
     tid = tool_use_id.strip()
     index_path = agentic_dir / _TUID_INDEX_NAME
     try:
         agentic_dir.mkdir(parents=True, exist_ok=True)
-        with _tuid_index_lock(agentic_dir):
+        lock = _tuid_index_lock(agentic_dir)
+        if lock is None:
+            return
+        with lock:
             index: dict = {}
             if index_path.is_file():
                 try:
@@ -1345,9 +1351,8 @@ def _update_tuid_index(agentic_dir: Path, tool_use_id: str | None, unit_key: str
 
 
 class _NullLock:
-    """No-op context manager - used when a real lock cannot be acquired
-    (timeout, or `fcntl` unavailable on this platform). The caller's
-    read-merge-write still runs, unlocked, rather than being skipped."""
+    """No-op context manager, used only when `fcntl` is unavailable
+    (non-POSIX), where no process can hold the index lock."""
 
     def __enter__(self) -> "_NullLock":
         return self
@@ -1357,16 +1362,13 @@ class _NullLock:
 
 
 def _tuid_index_lock(agentic_dir: Path):
-    """Best-effort `flock`-based mutual exclusion (M4) around the tuid
-    index's read-merge-write sequence, bounded by
-    `_TUID_INDEX_LOCK_TIMEOUT_S`. Returns a real lock context manager on
-    success, or `_NullLock()` when `fcntl` is unavailable (non-POSIX) or
-    the lock could not be acquired within the timeout - in both cases the
-    caller proceeds unlocked rather than skipping the write. This is
-    intentionally NOT a hard guarantee: see `_update_tuid_index`'s
-    docstring for why a bounded best-effort lock is judged sufficient
-    here (closes the common case; a genuinely simultaneous race is still
-    possible and no worse than the pre-fix behavior)."""
+    """`flock`-based mutual exclusion (M4) around the tuid index's
+    read-merge-write sequence, polling for up to
+    `_TUID_INDEX_LOCK_TIMEOUT_S`. Returns a held lock context manager on
+    success, `_NullLock()` when `fcntl` is unavailable (non-POSIX), or
+    `None` when the lock file cannot be opened or the lock is not acquired
+    within the budget. On `None` the caller must skip the write: writing
+    unlocked would overwrite a concurrent locked writer's entry."""
     try:
         import fcntl as _fcntl
     except Exception:
@@ -1376,11 +1378,11 @@ def _tuid_index_lock(agentic_dir: Path):
     try:
         fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
     except Exception:
-        return _NullLock()
+        return None
 
-    deadline = time.time() + _TUID_INDEX_LOCK_TIMEOUT_S
+    deadline = time.monotonic() + _TUID_INDEX_LOCK_TIMEOUT_S
     locked = False
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         try:
             _fcntl.flock(fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
             locked = True
@@ -1393,7 +1395,7 @@ def _tuid_index_lock(agentic_dir: Path):
             os.close(fd)
         except Exception:
             pass
-        return _NullLock()
+        return None
 
     class _FlockLock:
         def __enter__(self) -> "_FlockLock":

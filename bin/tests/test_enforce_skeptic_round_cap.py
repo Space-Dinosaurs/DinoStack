@@ -182,11 +182,13 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -292,7 +294,9 @@ def _skeptic_payload(
     return payload
 
 
-def _run_hook(payload: dict, run_cwd: str | None = None) -> tuple[int, dict | None]:
+def _run_hook(
+    payload: dict, run_cwd: str | None = None, timeout: float | None = None
+) -> tuple[int, dict | None]:
     """Invoke the hook as a subprocess. *run_cwd* pins the SUBPROCESS's own
     OS-level cwd - distinct from payload["cwd"], the JSON field the hook's
     own logic reads. Default None preserves prior behavior (inherits the
@@ -307,6 +311,7 @@ def _run_hook(payload: dict, run_cwd: str | None = None) -> tuple[int, dict | No
         capture_output=True,
         text=True,
         cwd=run_cwd,
+        timeout=timeout,
     )
     out = result.stdout.strip()
     parsed = json.loads(out) if out else None
@@ -1659,7 +1664,8 @@ def test_tuid_index_concurrent_writes_not_lost():
                 _skeptic_payload(
                     tmp, unit, what_to_review="concurrent round",
                     extra={"tool_use_id": f"toolu_concurrent_{i}"},
-                )
+                ),
+                timeout=30,
             )
 
         threads = [threading.Thread(target=_spawn, args=(i,)) for i in range(n)]
@@ -1680,6 +1686,103 @@ def test_tuid_index_concurrent_writes_not_lost():
         assert not missing, f"lost {len(missing)}/{n} concurrent writer entries: {missing} (full index: {index})"
         for i in range(n):
             assert index[f"toolu_concurrent_{i}"]["unit_key"] == _unit_key(unit)
+
+
+def _hold_tuid_index_lock(agentic_dir: Path):
+    """Take the hook's own index lock from the test process. Returns
+    `(fcntl, fd)`; the caller releases with `fcntl.flock(fd, LOCK_UN)` and
+    `os.close(fd)`."""
+    fcntl = pytest.importorskip("fcntl")
+
+    agentic_dir.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(agentic_dir / "skeptic-tuid-index.json.lock"), os.O_CREAT | os.O_RDWR)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    return fcntl, fd
+
+
+def _start_hook(payload: dict, payload_dir: str) -> subprocess.Popen:
+    payload_path = Path(payload_dir) / "payload.json"
+    payload_path.write_text(json.dumps(payload))
+    with payload_path.open() as stdin:
+        return subprocess.Popen(
+            [sys.executable, str(_HOOK_PATH)],
+            stdin=stdin,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+
+def test_tuid_index_waits_for_held_lock_instead_of_writing_unlocked():
+    """A writer that holds the index lock for 1s (longer than the old 0.2s
+    budget, shorter than the 2s budget) and then writes a read-merge-write
+    based on what it read BEFORE the hook ran must not lose the hook's
+    entry: the hook waits for the lock and merges on top. Red on the old
+    0.2s budget with unlocked fallback, where the hook writes unlocked
+    and the holder's stale write then drops its entry."""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        agentic = Path(tmp) / ".agentic"
+        index_path = agentic / "skeptic-tuid-index.json"
+        fcntl, fd = _hold_tuid_index_lock(agentic)
+        try:
+            stale = {"toolu_seed": {"unit_key": "seed", "iteration": 1}}
+            index_path.write_text(json.dumps(stale))
+            proc = _start_hook(
+                _skeptic_payload(
+                    tmp, "feature/tuid-lock-wait",
+                    extra={"tool_use_id": "toolu_child"},
+                ),
+                tmp,
+            )
+            time.sleep(1.0)
+            stale["toolu_holder"] = {"unit_key": "holder", "iteration": 1}
+            tmp_path = index_path.with_suffix(".tmp.holder")
+            tmp_path.write_text(json.dumps(stale))
+            os.replace(tmp_path, index_path)
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+        proc.communicate(timeout=30)
+
+        index = json.loads(index_path.read_text())
+        assert "toolu_holder" in index, index
+        assert "toolu_seed" in index, index
+        assert index.get("toolu_child") == {
+            "unit_key": _unit_key("feature/tuid-lock-wait"), "iteration": 1,
+        }, index
+
+
+def test_tuid_index_write_skipped_when_lock_held_past_budget():
+    """When the index lock stays held for the hook's whole run, the hook
+    skips the index write (fail-open: no entry, index bytes unchanged)
+    and still allows the spawn. Red on the old unlocked fallback, which
+    rewrites the index without the lock."""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        agentic = Path(tmp) / ".agentic"
+        index_path = agentic / "skeptic-tuid-index.json"
+        fcntl, fd = _hold_tuid_index_lock(agentic)
+        try:
+            index_path.write_text(json.dumps({"toolu_seed": {"unit_key": "seed", "iteration": 1}}))
+            before = index_path.read_bytes()
+            proc = _start_hook(
+                _skeptic_payload(
+                    tmp, "feature/tuid-lock-skip",
+                    extra={"tool_use_id": "toolu_child"},
+                ),
+                tmp,
+            )
+            out, _ = proc.communicate(timeout=30)
+            after = index_path.read_bytes()
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+        parsed = json.loads(out) if out.strip() else None
+        assert proc.returncode == 0
+        assert not _is_denied(parsed)
+        assert after == before
 
 
 def test_state_file_preserves_unknown_keys_round_trip():
