@@ -2007,7 +2007,7 @@ CLAUDE_JSON="$HOME/.claude.json"
 #
 # State is detected rather than testing only "is the key present", because a
 # registration written before the headless default shipped has the key but
-# lacks the flags - a short-circuit there would leave that operator headless
+# lacks the flags - a short-circuit there would leave that operator's window up
 # forever. absent | stale | current are the states this writer can edit; every
 # other state below leaves the file untouched, and none is rewritten blind.
 #
@@ -2049,7 +2049,10 @@ def option_name(arg):
 def survey(args):
     # (the first arg this migration does not write, the options it does write).
     # A value-taking option spelled without `=` consumes the next token as its
-    # value rather than reading it as an argument of its own.
+    # value rather than reading it as an argument of its own - but only when
+    # that token is not itself a flag. The server reads `--channel --isolated`
+    # as an empty channel and refuses that registration, so the `-`-prefixed
+    # token is the argument it is and the option takes no value.
     present = set()
     i = 0
     while i < len(args):
@@ -2060,11 +2063,19 @@ def survey(args):
             name = option_name(arg)
             if name not in options:
                 return arg, present
+            # An option this migration writes as a bare flag, written with a
+            # value instead, is not a spelling it writes: `--headless=false` is
+            # the window asked for by name, and the pin appended beside it would
+            # leave that entry headed while the installer reported it
+            # configured. Read as the foreign argument it is.
+            if name not in valued and "=" in arg:
+                return arg, present
             present.add(name)
             if name in valued and "=" not in arg:
-                i += 1
-                if i >= len(args):
+                if i + 1 >= len(args):
                     return arg, present
+                if not args[i + 1].startswith("-"):
+                    i += 1
         i += 1
     return None, present
 
@@ -2123,7 +2134,8 @@ elif [[ "$CD_MCP_STATE" == "undetermined" ]]; then
   echo "  ! $CLAUDE_JSON could not be classified - leaving the chrome-devtools MCP entry untouched"
 elif [[ "$CD_MCP_STATE" == "foreign-args" ]]; then
   echo "  = chrome-devtools MCP's registration passes an argument this installer does not write, so it is left untouched: a pinned profile root conflicts with a browser connection or an isolated profile, and neither is distinguishable from a flag this installer has never seen"
-  echo "  To lose the window by hand, $CLAUDE_JSON takes --headless where the server launches Chrome itself. A registration that sets --browser-url, --ws-endpoint or --auto-connect attaches to a browser you already run and never reads --headless; one that sets --isolated launches its own throwaway profile, so dropping --isolated for --headless is what removes the window there."
+  echo "  To lose the window by hand, $CLAUDE_JSON takes --headless where the server launches Chrome itself. A registration that sets --browser-url, --ws-endpoint or --auto-connect attaches to a browser you already run and never reads --headless; one that sets --isolated launches its own throwaway profile, which --headless does not conflict with, so adding --headless beside --isolated removes the window and --isolated can stay."
+  echo "  One that writes --headless=false has asked for the window by name, so replacing that argument with --headless is what removes it."
 elif [[ "$CD_MCP_STATE" == "args-not-our-package" ]]; then
   echo "  = chrome-devtools MCP registration's args do not name the package this installer writes ($CD_MCP_PACKAGE); leaving that registration untouched"
 elif [[ "$CD_MCP_STATE" == "not-json-object" || "$CD_MCP_STATE" == "mcp-servers-not-object" || "$CD_MCP_STATE" == "entry-not-object" || "$CD_MCP_STATE" == "args-not-string-list" ]]; then
@@ -2168,6 +2180,9 @@ def option_name(arg):
 
 def survey(args):
     # (the first arg this migration does not write, the options it does write).
+    # A `-`-prefixed token in a value position is not a value for the option
+    # before it, and a bare flag spelled with a value is not an option this
+    # migration writes - see the classifier for why.
     present = set()
     i = 0
     while i < len(args):
@@ -2178,11 +2193,14 @@ def survey(args):
             name = option_name(arg)
             if name not in options:
                 return arg, present
+            if name not in valued and "=" in arg:
+                return arg, present
             present.add(name)
             if name in valued and "=" not in arg:
-                i += 1
-                if i >= len(args):
+                if i + 1 >= len(args):
                     return arg, present
+                if not args[i + 1].startswith("-"):
+                    i += 1
         i += 1
     return None, present
 
