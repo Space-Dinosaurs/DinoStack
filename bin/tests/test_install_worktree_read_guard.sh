@@ -70,10 +70,15 @@ EOF
 
 # ---------------------------------------------------------------------------
 # Seed 2: ~/.claude.json with both MCP servers pre-configured -> suppresses
-# both MCP ae_confirm gates (they check $HOME/.claude.json).
+# both MCP ae_confirm gates (they check $HOME/.claude.json). The
+# chrome-devtools entry must classify as already configured (it names the
+# package and carries both flags the migration writes, --headless and
+# --isolated), not merely exist: anything the migration would rewrite is
+# offered a prompt, and that prompt reads /dev/tty, which blocks an
+# interactive run.
 # ---------------------------------------------------------------------------
 cat > "$FAKE_HOME/.claude.json" <<'EOF'
-{"mcpServers":{"chrome-devtools":{},"mcp-atlassian":{}}}
+{"mcpServers":{"chrome-devtools":{"type":"stdio","command":"npx","args":["chrome-devtools-mcp@latest","--headless","--isolated"],"env":{}},"mcp-atlassian":{}}}
 EOF
 
 # ---------------------------------------------------------------------------

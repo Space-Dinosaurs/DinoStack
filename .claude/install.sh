@@ -1983,43 +1983,385 @@ done
 # chrome-devtools MCP
 echo ""
 CLAUDE_JSON="$HOME/.claude.json"
-if [[ -f "$CLAUDE_JSON" ]] && python3 -c "
-import json, sys
-with open('$CLAUDE_JSON') as f:
-    d = json.load(f)
-sys.exit(0 if 'chrome-devtools' in d.get('mcpServers', {}) else 1)
-" 2>/dev/null; then
-  echo "  = chrome-devtools MCP already configured"
-else
-  if ae_confirm "  Configure chrome-devtools MCP — inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] "; then
-    python3 - <<'PYEOF'
-import json, os, sys
 
-target = os.path.expanduser("~/.claude.json")
-if os.path.exists(target):
-    with open(target) as f:
+# The registration launches Chrome headless on an isolated profile.
+# The stdio server opens a visible window by default (`headless: {default:
+# false}` in browser-options.js; only the unrelated --viaCli variant flips it),
+# which is the desktop clutter this block exists to prevent. --isolated gives
+# each server its own throwaway profile, so concurrent runs stop contending for
+# one profile directory - sharing one, a second server's first page-scoped call
+# fails with "The browser is already running for <path>", lazily, after
+# initialize has already succeeded. The cost is that profile state does not
+# survive a run, and a server killed without cleanup can leave its temp profile
+# directory behind.
+#
+# An entry whose args carry an argument this migration does not write is
+# reported and left alone, whatever that argument is. The rule is the whole
+# option set rather than a list of spellings to refuse, because no such list
+# can stay complete - the server takes a `no-` negation, a uniform-case
+# variant, kebab or camel, and a `=value` for one option. So an entry is a
+# migration target only when every one of its args is the package below or an
+# option below, decided by the option name the server itself reads off the
+# token: a spelling the server ignores is a skip. Both options are bare flags,
+# so an argument carrying a value for one of them is not a spelling this
+# migration writes either, and a registration that sets its own browser
+# connection (--browser-url, --ws-endpoint, --auto-connect) keeps it: the
+# server never reads --headless there, so the append would be inert while the
+# installer reported the entry configured.
+#
+# State is detected rather than testing only "is the key present", because a
+# registration written before the headless default shipped has the key but
+# lacks the flags - a short-circuit there would leave that operator's window up
+# forever. absent | stale | current are the states this writer can edit; every
+# other state below leaves the file untouched, and none is rewritten blind.
+#
+# On top of that, none of the flag-based states below is reachable for an entry
+# whose args do not invoke the package being configured. The migration's whole
+# edit is an args append, so such an entry - a `{"command": "npx"}` one, an
+# empty args list, a bare `{}` - would gain the flags alone: `npx --headless
+# --isolated`, a registration that cannot launch, which would then classify
+# current so the installer never offered again. Those entries are reported as
+# themselves instead; the file is left as it is.
+#
+# The package the migration writes and the options it writes or reads.
+# Single-sourced here because two separate python blocks consult them - the
+# classifier to predict the writer's decision, the writer to refuse that
+# registration if it ever reaches it - and the two must not drift. An option is
+# named here the way the server names it, which is the form option_name() below
+# derives from a token. --user-data-dir and --channel are deliberately not
+# among them: an entry carrying either is now a flag this installer does not
+# know, so it is reported and left byte-identical rather than migrated.
+CD_MCP_PACKAGE="chrome-devtools-mcp"
+CD_MCP_OPTIONS="headless,isolated"
+
+CD_MCP_STATE="$(python3 - "$CLAUDE_JSON" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" <<'PYEOF' 2>/dev/null
+import json, re, sys
+
+target = sys.argv[1]
+package = sys.argv[2]
+options = set(sys.argv[3].split(","))
+
+
+def option_name(arg):
+    # The option the server reads off this arg, which is what decides whether
+    # it is one the migration writes: a name the server does not read as an
+    # option is a flag this installer does not know, not one it writes. The
+    # server parses with yargs, which reads one leading dash as a bundle of
+    # single-letter flags, takes a long option whose name holds no dash
+    # verbatim (`--userDataDir` is the option; `--UserDataDir` and
+    # `--user_data_dir` are not), and otherwise lowercases a uniform-case name
+    # and folds each dash or underscore to the next character's upper case. A
+    # `no-` negation folds to a name nothing below writes, which is the safe
+    # direction - a negation inverts the meaning of the flag it names.
+    name = arg.split("=", 1)[0]
+    if not name.startswith("--"):
+        return name
+    name = name.lstrip("-")
+    if "-" not in name:
+        return name
+    if name == name.lower() or name == name.upper():
+        name = name.lower()
+    folded = []
+    upper_next = False
+    for i, ch in enumerate(name):
+        if upper_next:
+            upper_next = False
+            ch = ch.upper()
+        if i != 0 and ch in "-_":
+            upper_next = True
+        elif ch not in "-_":
+            folded.append(ch)
+    return "".join(folded)
+
+
+def survey(args):
+    # (the first arg this migration does not write, the options it does write).
+    present = set()
+    for arg in args:
+        if arg != package and not arg.startswith(package + "@"):
+            if not arg.startswith("-"):
+                return arg, present
+            name = option_name(arg)
+            if name not in options:
+                return arg, present
+            # Both options this migration writes are bare flags, so a value on
+            # one of them is not a spelling it writes: `--headless=false` is the
+            # window asked for by name, and the flags appended beside it would
+            # leave that entry headed while the installer reported it
+            # configured. Read as the foreign argument it is.
+            if "=" in arg:
+                return arg, present
+            present.add(name)
+    return None, present
+
+
+try:
+    with open(target, encoding="utf-8") as f:
         data = json.load(f)
-else:
-    data = {}
+except FileNotFoundError:
+    print("absent")
+    sys.exit(0)
+except (OSError, ValueError, RecursionError):
+    print("unreadable")
+    sys.exit(0)
 
-servers = data.setdefault("mcpServers", {})
-if "chrome-devtools" not in servers:
-    servers["chrome-devtools"] = {
+# A container this writer cannot edit surgically is reported as itself, never
+# collapsed into absent: absent runs the create path, which would write over
+# content the operator owns (a legacy server list, an array standing where an
+# entry belongs).
+if not isinstance(data, dict):
+    print("not-json-object")
+    sys.exit(0)
+servers = data.get("mcpServers")
+if "mcpServers" in data and not isinstance(servers, dict):
+    print("mcp-servers-not-object")
+    sys.exit(0)
+entry = servers.get("chrome-devtools") if isinstance(servers, dict) else None
+if isinstance(servers, dict) and "chrome-devtools" in servers and not isinstance(entry, dict):
+    print("entry-not-object")
+    sys.exit(0)
+raw_args = entry.get("args") if isinstance(entry, dict) else None
+args_ok = isinstance(raw_args, list) and all(isinstance(a, str) for a in raw_args)
+if isinstance(entry, dict) and "args" in entry and not args_ok:
+    print("args-not-string-list")
+    sys.exit(0)
+args = [a for a in raw_args if isinstance(a, str)] if isinstance(raw_args, list) else []
+
+foreign, present = survey(args)
+if entry is None:
+    print("absent")
+elif not any(a == package or a.startswith(package + "@") for a in args):
+    print("args-not-our-package")
+elif foreign is not None:
+    print("foreign-args")
+elif "headless" in present and "isolated" in present:
+    print("current")
+else:
+    print("stale")
+PYEOF
+)" || CD_MCP_STATE="undetermined"
+
+if [[ "$CD_MCP_STATE" == "current" ]]; then
+  echo "  = chrome-devtools MCP already configured (headless)"
+elif [[ "$CD_MCP_STATE" == "unreadable" ]]; then
+  echo "  ! $CLAUDE_JSON could not be read as JSON - leaving the chrome-devtools MCP entry untouched"
+elif [[ "$CD_MCP_STATE" == "undetermined" ]]; then
+  echo "  ! $CLAUDE_JSON could not be classified - leaving the chrome-devtools MCP entry untouched"
+elif [[ "$CD_MCP_STATE" == "foreign-args" ]]; then
+  echo "  = chrome-devtools MCP's registration passes an argument this installer does not write, so it is left untouched: the migration only appends the flags it writes, and only to a registration whose every argument is the package or one of those flags"
+  echo "  To lose the window by hand, $CLAUDE_JSON takes --headless where the server launches Chrome itself. A registration that sets --browser-url, --ws-endpoint or --auto-connect attaches to a browser you already run and never reads --headless; one that sets --isolated launches its own throwaway profile, which --headless does not conflict with, so adding --headless beside --isolated removes the window and --isolated can stay."
+  echo "  One that writes --headless=false has asked for the window by name, so replacing that argument with --headless is what removes it."
+elif [[ "$CD_MCP_STATE" == "args-not-our-package" ]]; then
+  echo "  = chrome-devtools MCP registration's args do not name the package this installer writes ($CD_MCP_PACKAGE); leaving that registration untouched"
+elif [[ "$CD_MCP_STATE" == "not-json-object" || "$CD_MCP_STATE" == "mcp-servers-not-object" || "$CD_MCP_STATE" == "entry-not-object" || "$CD_MCP_STATE" == "args-not-string-list" ]]; then
+  # Refuse rather than coerce. The writer below has no surgical edit for any
+  # of these shapes, so it is never reached and the file stays untouched.
+  CD_MCP_SHAPE=""
+  case "$CD_MCP_STATE" in
+    not-json-object) CD_MCP_SHAPE="the file's top level is not a JSON object" ;;
+    mcp-servers-not-object) CD_MCP_SHAPE="mcpServers is not a JSON object" ;;
+    entry-not-object) CD_MCP_SHAPE="the chrome-devtools entry is not a JSON object" ;;
+    args-not-string-list) CD_MCP_SHAPE="the chrome-devtools entry has an args value that is not a list of strings" ;;
+  esac
+  echo "  ! $CLAUDE_JSON: $CD_MCP_SHAPE - leaving the chrome-devtools MCP entry untouched; fix that value by hand and re-run this installer"
+else
+  echo "  chrome-devtools launches Chrome headless on an isolated profile: an agent-driven browser opens no"
+  echo "  window, so watching a page load live is gone (screenshots and script evaluation still work), and"
+  echo "  profile state (cookies, logins, local storage) does not persist between runs. To get profile state"
+  echo "  back, remove --isolated from its args in $CLAUDE_JSON and the next session picks that up. To get"
+  echo "  the window back, remove --headless from its args and the next session picks that up too."
+  if [[ "$CD_MCP_STATE" == "stale" ]]; then
+    CD_MCP_QUESTION="  Update the existing chrome-devtools MCP registration to launch Chrome headless on an isolated profile? [y/N] "
+  else
+    CD_MCP_QUESTION="  Configure chrome-devtools MCP - inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] "
+  fi
+  if ae_confirm "$CD_MCP_QUESTION"; then
+    # Every refusal exits non-zero without writing, and the write lands in a
+    # same-directory temp file followed by os.replace, so an interrupted run
+    # cannot truncate the operator's ~/.claude.json. The caller tolerates the
+    # non-zero exit: a refusal is not a reason to fail the whole install.
+    if ! python3 - "$CLAUDE_JSON" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" <<'PYEOF'
+import json, os, re, stat, sys, tempfile
+
+target = sys.argv[1]
+package = sys.argv[2]
+options = set(sys.argv[3].split(","))
+
+
+def option_name(arg):
+    # The option the server reads off this arg - see the classifier.
+    name = arg.split("=", 1)[0]
+    if not name.startswith("--"):
+        return name
+    name = name.lstrip("-")
+    if "-" not in name:
+        return name
+    if name == name.lower() or name == name.upper():
+        name = name.lower()
+    folded = []
+    upper_next = False
+    for i, ch in enumerate(name):
+        if upper_next:
+            upper_next = False
+            ch = ch.upper()
+        if i != 0 and ch in "-_":
+            upper_next = True
+        elif ch not in "-_":
+            folded.append(ch)
+    return "".join(folded)
+
+
+def survey(args):
+    # (the first arg this migration does not write, the options it does write).
+    # A bare flag spelled with a value is not an option this migration writes -
+    # see the classifier for why.
+    present = set()
+    for arg in args:
+        if arg != package and not arg.startswith(package + "@"):
+            if not arg.startswith("-"):
+                return arg, present
+            name = option_name(arg)
+            if name not in options:
+                return arg, present
+            if "=" in arg:
+                return arg, present
+            present.add(name)
+    return None, present
+
+
+def ask_manual(reason, entry_args):
+    sys.stderr.write("\n".join([
+        "  ! " + reason,
+        "    To apply it by hand, set",
+        '    mcpServers["chrome-devtools"]["args"] to:',
+        "      " + json.dumps(entry_args),
+        "    and re-run this installer.",
+    ]) + "\n")
+
+
+def refuse(shape):
+    sys.stderr.write("\n".join([
+        "  ! " + target + ": " + shape + ", so nothing was written.",
+        "    Fix that value by hand (or remove it) and re-run this installer.",
+    ]) + "\n")
+    sys.exit(1)
+
+
+if os.path.islink(target):
+    sys.stderr.write("  ! refusing to write through symlink: " + target + "\n")
+    sys.exit(1)
+
+data = {}
+before = None
+if os.path.exists(target):
+    try:
+        with open(target, encoding="utf-8") as f:
+            data = json.load(f)
+            before = os.fstat(f.fileno())
+    except (OSError, ValueError):
+        sys.stderr.write("  ! " + target + " is not readable JSON - left untouched\n")
+        sys.exit(1)
+    if not isinstance(data, dict):
+        sys.stderr.write("  ! " + target + " is not a JSON object - left untouched\n")
+        sys.exit(1)
+
+# Each shape below has no surgical edit: the code after the guard can only
+# replace the container wholesale, which loses whatever it held. Refusing
+# leaves the file byte-identical instead.
+if "mcpServers" in data and not isinstance(data["mcpServers"], dict):
+    refuse("mcpServers is not a JSON object")
+servers = data.get("mcpServers")
+if not isinstance(servers, dict):
+    servers = {}
+    data["mcpServers"] = servers
+
+if "chrome-devtools" in servers and not isinstance(servers["chrome-devtools"], dict):
+    refuse("the chrome-devtools entry is not a JSON object")
+entry = servers.get("chrome-devtools")
+created = not isinstance(entry, dict)
+if created:
+    entry = {
         "type": "stdio",
         "command": "npx",
-        "args": ["chrome-devtools-mcp@latest"],
-
-        "env": {}
+        "args": [package + "@latest"],
+        "env": {},
     }
-    if os.path.islink(target):
-        sys.stderr.write(f"refusing to write through symlink: {target}\n")
+    servers["chrome-devtools"] = entry
+
+raw_args = entry.get("args")
+args_ok = isinstance(raw_args, list) and all(isinstance(a, str) for a in raw_args)
+if "args" in entry and not args_ok:
+    refuse("the chrome-devtools entry has an args value that is not a list of strings")
+
+args = [a for a in raw_args if isinstance(a, str)] if isinstance(raw_args, list) else []
+
+# The append below can only migrate an entry that already invokes this
+# package. On anything else it writes the flags alone, which is a registration
+# that cannot launch. The classifier reports the same entries, so a real
+# install does not reach this.
+if not any(a == package or a.startswith(package + "@") for a in args):
+    refuse("the chrome-devtools entry's args do not name the package this"
+           " installer writes (" + package + ")")
+
+# An argument this migration does not write leaves the entry alone, whatever it
+# is - see the classifier for why. Refused rather than migrated with the pin
+# skipped: that would report a migration whose edit was not made. The
+# classifier reports the same entries, so a real install does not reach this.
+foreign, present = survey(args)
+if foreign is not None:
+    refuse("the chrome-devtools entry passes an argument this installer does"
+           " not write (" + foreign + ")")
+
+if "headless" not in present:
+    args.append("--headless")
+if "isolated" not in present:
+    args.append("--isolated")
+entry["args"] = args
+
+fd, tmp_path = tempfile.mkstemp(
+    dir=os.path.dirname(os.path.abspath(target)), prefix=".claude.json.")
+try:
+    # ensure_ascii=False and an explicit utf-8 encoding keep the round trip
+    # byte-identical for every key the migration does not touch: the default
+    # escapes each non-ASCII character, which rewrites unrelated values all
+    # over the operator's file.
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    if before is not None:
+        # mkstemp creates the temp file 0600 regardless of the target's own
+        # mode; carry the operator's mode over so the swap does not narrow it.
+        os.chmod(tmp_path, stat.S_IMODE(before.st_mode))
+    # On the create path there is no operator mode to carry, so the new file
+    # lands 0600 - narrower than the umask default this installer's write
+    # produced before it went through a temp file, and the right side to err
+    # on for ~/.claude.json, which can hold credentials.
+    # Claude Code writes this file too. Re-check it immediately before the
+    # rename and refuse rather than clobber an update landing in the window.
+    now = os.stat(target) if os.path.exists(target) else None
+    if before is None:
+        moved = now is not None
+    else:
+        moved = now is None or (
+            now.st_size, now.st_mtime_ns) != (before.st_size, before.st_mtime_ns)
+    if moved:
+        ask_manual(
+            target + " changed while this installer was preparing its update,"
+            " so nothing was written.",
+            args)
         sys.exit(1)
-    with open(target, "w") as f:
-        json.dump(data, f, indent=2)
-    print("  + chrome-devtools MCP configured in ~/.claude.json")
+    os.replace(tmp_path, target)
+finally:
+    if os.path.exists(tmp_path):
+        os.unlink(tmp_path)
+
+if created:
+    print("  + chrome-devtools MCP configured (headless) in " + target)
 else:
-    print("  = chrome-devtools MCP already configured")
+    print("  + chrome-devtools MCP updated to launch headless in " + target)
 PYEOF
+    then
+      echo "  - chrome-devtools MCP registration left unchanged"
+    fi
   else
     echo "  - skipped chrome-devtools MCP"
   fi
@@ -2036,17 +2378,44 @@ sys.exit(0 if 'mcp-atlassian' in d.get('mcpServers', {}) else 1)
   echo "  = mcp-atlassian MCP already configured"
 else
   if ae_confirm "  Configure mcp-atlassian MCP — interact with Jira and Confluence from Claude Code? [y/N] "; then
-    python3 - <<'PYEOF'
-import json, os, sys
+    # Same shape as the chrome-devtools writer: a container this block cannot
+    # edit surgically is refused rather than coerced, and the write goes
+    # through a same-directory temp file and os.replace so an interrupted run
+    # cannot truncate the operator's ~/.claude.json. The exit status is
+    # captured rather than left to `set -e`, so a refusal - which is a normal
+    # outcome for a malformed config file - cannot abort the whole install.
+    AE_ATLASSIAN_RC=0
+    python3 - "$CLAUDE_JSON" <<'PYEOF' || AE_ATLASSIAN_RC=$?
+import json, os, stat, sys, tempfile
 
-target = os.path.expanduser("~/.claude.json")
+target = sys.argv[1]
+
+
+def refuse(shape):
+    sys.stderr.write("\n".join([
+        "  ! " + target + ": " + shape + ", so nothing was written.",
+        "    Fix that value by hand (or remove it) and re-run this installer.",
+    ]) + "\n")
+    sys.exit(1)
+
+
+data = {}
 if os.path.exists(target):
-    with open(target) as f:
-        data = json.load(f)
-else:
-    data = {}
+    try:
+        with open(target, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError, RecursionError):
+        refuse("the file is not readable JSON")
+    if not isinstance(data, dict):
+        refuse("the file's top level is not a JSON object")
 
-servers = data.setdefault("mcpServers", {})
+if "mcpServers" in data and not isinstance(data["mcpServers"], dict):
+    refuse("mcpServers is not a JSON object")
+servers = data.get("mcpServers")
+if not isinstance(servers, dict):
+    servers = {}
+    data["mcpServers"] = servers
+
 if "mcp-atlassian" not in servers:
     servers["mcp-atlassian"] = {
         "type": "stdio",
@@ -2057,12 +2426,31 @@ if "mcp-atlassian" not in servers:
     if os.path.islink(target):
         sys.stderr.write(f"refusing to write through symlink: {target}\n")
         sys.exit(1)
-    with open(target, "w") as f:
-        json.dump(data, f, indent=2)
+    before = os.stat(target) if os.path.exists(target) else None
+    fd, tmp_path = tempfile.mkstemp(
+        dir=os.path.dirname(os.path.abspath(target)), prefix=".claude.json.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        if before is not None:
+            # mkstemp creates the temp file 0600 regardless of the target's
+            # own mode; carry the operator's mode over so the swap does not
+            # narrow it.
+            os.chmod(tmp_path, stat.S_IMODE(before.st_mode))
+        # On the create path the file lands 0600, which is narrower than the
+        # umask default this installer's write produced before it went through
+        # a temp file - see the chrome-devtools writer for why that is kept.
+        os.replace(tmp_path, target)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
     print("  + mcp-atlassian MCP configured in ~/.claude.json")
 else:
     print("  = mcp-atlassian MCP already configured")
 PYEOF
+    if [[ "$AE_ATLASSIAN_RC" -ne 0 ]]; then
+      echo "  - mcp-atlassian MCP registration left unchanged"
+    fi
   else
     echo "  - skipped mcp-atlassian MCP"
   fi
