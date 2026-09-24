@@ -2044,10 +2044,12 @@ def option_name(arg):
     # it is one the migration writes: a name the server does not read as an
     # option is a flag this installer does not know, not one it writes. The
     # server parses with yargs, which reads one leading dash as a bundle of
-    # single-letter flags, keeps a long option's case unless that case is
-    # uniform, and folds a dash or an underscore to the next character's upper
-    # case. A `no-` negation folds to a name nothing below writes, which is the
-    # safe direction - a negation inverts the meaning of the flag it names.
+    # single-letter flags, takes a long option whose name holds no dash
+    # verbatim (`--userDataDir` is the option; `--UserDataDir` and
+    # `--user_data_dir` are not), and otherwise lowercases a uniform-case name
+    # and folds each dash or underscore to the next character's upper case. A
+    # `no-` negation folds to a name nothing below writes, which is the safe
+    # direction - a negation inverts the meaning of the flag it names.
     name = arg.split("=", 1)[0]
     if not name.startswith("--"):
         return name
