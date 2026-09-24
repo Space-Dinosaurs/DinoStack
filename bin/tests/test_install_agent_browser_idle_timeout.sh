@@ -42,6 +42,11 @@
 #            B5 - the writer killed inside its write window -> the operator's
 #                 file is still byte-identical, because the write lands in a
 #                 temp file and os.replace rather than truncating the target
+#            B6 - the target replaced by rename from another process between the
+#                 writer's read and the stat it compares against -> the writer
+#                 refuses and the other writer's content survives. This is the
+#                 window the read/observation ordering closes; B4's is the
+#                 write window after it
 #
 #          Mutation coverage (each mutation is run, not merely named):
 #            (a) replace the env object instead of setting into it -> A1 and
@@ -59,6 +64,11 @@
 #            (i) drop the mode carry-over             -> B1 reddens
 #            (j) drop the cost sentence printed before the accept prompt -> A1
 #                reddens
+#            (k) take the compared stat from the path after the read instead of
+#                from the descriptor the read came through -> B6 reddens
+#          (d), (e) and (i) name lines in the shared write helper
+#          ae_json_write_helper, which the installer splices in ahead of this
+#          writer's own body; the extraction below follows that splice.
 #          A mutation is a full copy of .claude/install.sh, so it must live in
 #          .claude/ too (REPO_DIR is derived from the script's own path). Those
 #          copies are removed by the exit trap.
@@ -537,13 +547,27 @@ PYEOF
 # still exercised, which is what would matter if the file changed between the
 # classifier's read and the writer's.
 # ---------------------------------------------------------------------------
-# extract_writer <source-install-sh> <output.py>
-extract_writer() {
-  awk '
-    /^import json, os, sys, tempfile$/ { f=1 }
-    f && /^PYEOF$/ { exit }
+# extract_heredoc <source-install-sh> <heredoc-tag>
+# Prints the body of the `cat <<'PYEOF_<tag>'` heredoc. A writer is spliced
+# together from two of them - the shared atomic-write helper and the writer's
+# own body - and each site's delimiter is its own, so an extraction identifies
+# its region without depending on a line an edit can move.
+extract_heredoc() {
+  awk -v tag="$2" '
+    $0 ~ ("cat <<.PYEOF_" tag ".") { f=1; next }
+    f && $0 == ("PYEOF_" tag) { exit }
     f { print }
-  ' "$1" > "$2"
+  ' "$1"
+}
+
+# extract_writer <source-install-sh> <output.py>
+# The shared helper first, then the writer body: the installer splices them in
+# that order, and the helper defines the function the body calls.
+extract_writer() {
+  {
+    extract_heredoc "$1" SHARED
+    extract_heredoc "$1" IDLE
+  } > "$2"
   if ! grep -qF 'env["AGENT_BROWSER_IDLE_TIMEOUT_MS"] = value' "$2" ||
     ! grep -qF 'os.replace(tmp_path, target)' "$2"; then
     _fail "could not extract the shipped idle-timeout writer block from $1 (anchor line moved?)"
@@ -562,9 +586,9 @@ extract_writer() {
 # B4 rewrites through and B5 kills inside.
 inject_delay() {
   awk '
-    /^import json, os, sys, tempfile$/ { print; print "import time"; next }
-    $0 == "        os.chmod(tmp_path, before.st_mode & 0o7777)" {
-      print; print "        time.sleep(5)"; next }
+    /^import os, stat, sys, tempfile$/ { print; print "import time"; next }
+    $0 == "            os.chmod(tmp_path, stat.S_IMODE(before.st_mode))" {
+      print; print "            time.sleep(5)"; next }
     { print }
   ' "$1" > "$2"
   if ! grep -q "time.sleep(5)" "$2"; then
@@ -574,14 +598,36 @@ inject_delay() {
   return 0
 }
 
-# wait_for_write_window <home> <pid> - returns 0 once the writer's temp file
-# exists, meaning it is inside the window. The temp file is the marker; without
-# waiting for it a kill or a rewrite could land before the write and the case
-# would pass while proving nothing.
-wait_for_write_window() {
-  local home="$1" pid="$2" tries=0
+# inject_read_delay <source.py> <output.py>
+# Holds the writer open between its read and the stat it compares against, which
+# is the window B6 rewrites through. The marker it drops is how the case knows
+# the writer has arrived there: unlike the write window, this one is held before
+# any temp file exists, so there is nothing else to poll for.
+inject_read_delay() {
+  awk '
+    /^import json, os, sys$/ { print; print "import time"; next }
+    $0 == "        data = json.load(f)" {
+      print
+      print "        open(target + \".read\", \"w\").close()"
+      print "        time.sleep(5)"
+      next }
+    { print }
+  ' "$1" > "$2"
+  if ! grep -q 'time.sleep(5)' "$2" || ! grep -q '"\.read"' "$2"; then
+    _fail "could not inject the read-window delay into $1 (anchor line moved?)"
+    return 1
+  fi
+  return 0
+}
+
+# wait_for_path <path-or-glob> <pid> - returns 0 once the path exists, meaning
+# the writer has reached the point the caller is about to race it at. Without
+# waiting for that marker, a kill or a rewrite could land before the writer gets
+# there and the case would pass while proving nothing.
+wait_for_path() {
+  local marker="$1" pid="$2" tries=0
   while [[ "$tries" -lt 200 ]]; do
-    if ls "$home"/.settings.json.* >/dev/null 2>&1; then
+    if ls $marker >/dev/null 2>&1; then
       return 0
     fi
     if ! kill -0 "$pid" 2>/dev/null; then
@@ -717,7 +763,7 @@ case_writer_concurrent() {
 
   ( AE_SETTINGS_PATH="$home/settings.json" python3 "$py.delayed" "$IDLE_DEFAULT" 2>"$home/err.txt" ) &
   wpid=$!
-  if ! wait_for_write_window "$home" "$wpid"; then
+  if ! wait_for_path "$home"/.settings.json.* "$wpid"; then
     kill -9 "$wpid" 2>/dev/null
     wait "$wpid" 2>/dev/null
     _fail "B4: the writer never reached its write window"
@@ -771,7 +817,7 @@ case_writer_interrupted() {
 
   ( AE_SETTINGS_PATH="$home/settings.json" python3 "$py.delayed" "$IDLE_DEFAULT" ) >/dev/null 2>&1 &
   pid=$!
-  if ! wait_for_write_window "$home" "$pid"; then
+  if ! wait_for_path "$home"/.settings.json.* "$pid"; then
     kill -9 "$pid" 2>/dev/null
     wait "$pid" 2>/dev/null
     _fail "B5: the writer never reached its write window"
@@ -786,6 +832,60 @@ case_writer_interrupted() {
 
   if ! cmp -s "$home/before.json" "$home/settings.json"; then
     _fail "B5: the operator's settings file was modified by a run that never finished"
+    return 1
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# B6: the state the writer compares against is the state it READ. A stat taken
+# from the path after the read describes whatever landed in the meantime, so the
+# pre-rename comparison sees no change and the concurrent update is overwritten
+# with the pre-write document. This is the window the two-line ordering of the
+# stat against the read closes; the write window B4 covers is a different one.
+# ---------------------------------------------------------------------------
+case_writer_read_window() {
+  local script="$1"
+  local py="$TMP_ROOT/writer-read.py"
+  local home="$TMP_ROOT/b6-home"
+  local rc wpid
+  mkdir -p "$home"
+  if ! extract_writer "$script" "$py"; then
+    return 1
+  fi
+  if ! inject_read_delay "$py" "$py.delayed"; then
+    return 1
+  fi
+  write_settings_fixture "$home/settings.json" ""
+  : > "$home/err.txt"
+
+  ( AE_SETTINGS_PATH="$home/settings.json" python3 "$py.delayed" "$IDLE_DEFAULT" 2>"$home/err.txt" ) &
+  wpid=$!
+  if ! wait_for_path "$home/settings.json.read" "$wpid"; then
+    kill -9 "$wpid" 2>/dev/null
+    wait "$wpid" 2>/dev/null
+    _fail "B6: the writer never reached its read window"
+    return 1
+  fi
+  # A rename, not a truncate: the point of the comparison is that the path
+  # stops naming the inode the document was read from, which is how the other
+  # writer this guard exists for - and this installer - lands its update.
+  printf '{"changedByAnotherWriter":true}\n' > "$home/next.json"
+  mv "$home/next.json" "$home/settings.json"
+  wait "$wpid"
+  rc=$?
+
+  if [[ "$rc" == "0" ]]; then
+    _fail "B6: the writer accepted a target that changed between its read and its write"
+    return 1
+  fi
+  if ! grep -q "changed while this installer was preparing its update" "$home/err.txt"; then
+    _fail "B6: no manual-edit message was printed"
+    cat "$home/err.txt" >&2
+    return 1
+  fi
+  if ! grep -q "changedByAnotherWriter" "$home/settings.json"; then
+    _fail "B6: the other writer's update was lost"
     return 1
   fi
   return 0
@@ -901,6 +1001,11 @@ run_case "B5: the file is byte-identical after the writer is killed inside its w
   case_writer_interrupted "$INSTALL_SH"
 
 echo ""
+echo "=== B6: the compared state is the state that was read ==="
+run_case "B6: an update landing between the read and the write is refused, not overwritten" \
+  case_writer_read_window "$INSTALL_SH"
+
+echo ""
 echo "=== Mutations ==="
 # (a) the env object is replaced rather than set into.
 ENV_REPLACED='s|^env = data.setdefault("env", {})$|env = {}; data["env"] = env|'
@@ -914,17 +1019,16 @@ expect_mutation_fails 's|^if not isinstance(data, dict):$|if False:|' \
 # (c)
 expect_mutation_fails 's|^if "env" in data and not isinstance(data\["env"\], dict):$|if False:|' \
   "env-guard-disabled" "$INSTALL_SH" case_writer_env_not_object "did not name the shape"
-# (d)
-expect_mutation_fails 's|^    if moved:$|    if False:|' \
+# (d) the shared pre-rename comparison, disabled in the one place all three
+# writers take it from.
+expect_mutation_fails 's|^            if moved:$|            if False:|' \
   "restat-guard-disabled" "$INSTALL_SH" case_writer_concurrent "overwrote a file that changed under it"
 # (e) the content lands in the target itself, the shape an interrupted run
-# truncates. The pattern carries the block's 4-space indent, which is what
-# keeps it off the mcp-atlassian writer's identically spelled line one nesting
-# level deeper.
-expect_mutation_fails 's|^    with os.fdopen(fd, "w", encoding="utf-8") as f:$|    with open(target, "w", encoding="utf-8") as f:|' \
+# truncates.
+expect_mutation_fails 's|^        with os.fdopen(fd, "w", encoding="utf-8") as f:$|        with open(target, "w", encoding="utf-8") as f:|' \
   "in-place-write-restored" "$INSTALL_SH" case_writer_interrupted "modified by a run that never finished"
 # (f)
-expect_mutation_fails 's|json.dump(data, f, indent=2, ensure_ascii=False)|json.dump(data, f, indent=2)|' \
+expect_mutation_fails 's|json.dumps(data, indent=2, ensure_ascii=False)|json.dumps(data, indent=2)|' \
   "ensure-ascii-restored" "$INSTALL_SH" case_writer_preserves_bytes "re-encoded as escapes"
 # (g)
 expect_mutation_fails 's|print("set" if "AGENT_BROWSER_IDLE_TIMEOUT_MS" in env else "absent")|print("absent")|' \
@@ -933,12 +1037,17 @@ expect_mutation_fails 's|print("set" if "AGENT_BROWSER_IDLE_TIMEOUT_MS" in env e
 # deciding anything.
 expect_mutation_fails 's@\(Set AGENT_BROWSER_IDLE_TIMEOUT_MS in \$SETTINGS? \[y/N\] "\); then@\1 || true; then@' \
   "confirm-gate-ignored" "$INSTALL_SH" case_install_declined "the declined key was written anyway"
-# (i)
-expect_mutation_fails 's|^        os.chmod(tmp_path, before.st_mode & 0o7777)$|        pass|' \
+# (i) the mode carry-over in the shared write.
+expect_mutation_fails 's|^            os.chmod(tmp_path, stat.S_IMODE(before.st_mode))$|            pass|' \
   "mode-carryover-dropped" "$INSTALL_SH" case_writer_preserves_bytes "the file mode was not carried over"
 # (j)
 expect_mutation_fails 's|^  echo "  The cost: .*$|  true|' \
   "cost-sentence-dropped" "$INSTALL_SH" case_install_preserves_siblings "was never stated"
+# (k) the pre-fix observation: the stat is taken from the path after the read
+# instead of from the descriptor the read came through, so a rewrite landing in
+# between is compared against itself and the writer clobbers it.
+expect_mutation_fails 's|^        before = os.fstat(f.fileno())$|        before = os.stat(target)|' \
+  "read-window-stat" "$INSTALL_SH" case_writer_read_window "the writer accepted a target that changed"
 
 # ---------------------------------------------------------------------------
 # The git shim must have kept the ambient hooks dir out of this test's reach.

@@ -475,7 +475,7 @@ hr {
 <p>An agent-driven browser opens no window on your desktop, and neither path leaves one running indefinitely:</p>
 <ul>
 <li><strong>MCP path</strong> - <code>chrome-devtools</code> is registered <code>--headless --isolated</code>: no window, and a throwaway profile per server</li>
-<li><strong>CLI path</strong> - <code>agent-browser</code> daemons are session-scoped: <code>AGENT_BROWSER_IDLE_TIMEOUT_MS</code> shuts a daemon and its browser down after 30 minutes of inactivity</li>
+<li><strong>CLI path</strong> - <code>agent-browser</code> daemons detach from the session that starts them, so one outlives its run: <code>AGENT_BROWSER_IDLE_TIMEOUT_MS</code> shuts a daemon and its browser down after 30 minutes of inactivity</li>
 </ul>
 <div class="callout">
 That timeout bounds a leftover browser rather than removing it: after a run ends, its daemon and browser stay up for up to 30 minutes.

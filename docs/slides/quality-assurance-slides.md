@@ -192,7 +192,7 @@ Static review (Skeptic) + runtime review (qa-engineer) = the protocol's two-pass
 An agent-driven browser opens no window on your desktop, and neither path leaves one running indefinitely:
 
 - **MCP path** - `chrome-devtools` is registered `--headless --isolated`: no window, and a throwaway profile per server
-- **CLI path** - `agent-browser` daemons are session-scoped: `AGENT_BROWSER_IDLE_TIMEOUT_MS` shuts a daemon and its browser down after 30 minutes of inactivity
+- **CLI path** - `agent-browser` daemons detach from the session that starts them, so one outlives its run: `AGENT_BROWSER_IDLE_TIMEOUT_MS` shuts a daemon and its browser down after 30 minutes of inactivity
 
 <div class="callout">
 That timeout bounds a leftover browser rather than removing it: after a run ends, its daemon and browser stay up for up to 30 minutes.
