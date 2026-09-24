@@ -472,13 +472,13 @@ hr {
 ;" data-marpit-pagination-total="13">
 <h2 id="browser-paths-leave-no-window">Browser paths leave no window</h2>
 
-<p>An agent-driven browser opens no window on your desktop, and neither path leaves one running indefinitely:</p>
+<p>An agent-driven browser opens no window on your desktop, and the CLI path's daemon does not have to outlive its run indefinitely:</p>
 <ul>
 <li><strong>MCP path</strong> - <code>chrome-devtools</code> is registered <code>--headless --isolated</code>: no window, and a throwaway profile per server</li>
-<li><strong>CLI path</strong> - <code>agent-browser</code> daemons detach from the session that starts them, so one outlives its run: <code>AGENT_BROWSER_IDLE_TIMEOUT_MS</code> shuts a daemon and its browser down after 30 minutes of inactivity</li>
+<li><strong>CLI path</strong> - <code>agent-browser</code> daemons detach from the session that starts them, so one outlives its run: the installer offers to set <code>AGENT_BROWSER_IDLE_TIMEOUT_MS</code>, which shuts a daemon and its browser down after 30 minutes of inactivity</li>
 </ul>
 <div class="callout">
-That timeout bounds a leftover browser rather than removing it: after a run ends, its daemon and browser stay up for up to 30 minutes.
+That timeout is opt-in - declining the installer's prompt, the default answer, leaves a daemon a run leaves behind with no upper bound. When it is set, it bounds a leftover browser rather than removing it: after a run ends, its daemon and browser stay up for up to 30 minutes.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="4" data-marpit-scope-s003="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

@@ -219,14 +219,15 @@ Key points:
 - `settings.local.json` is gitignored; use it for secrets and local env values.
 - Hooks are wired by the installer into `~/.claude/settings.json`; do not move
   or rename them.
-- The installer also sets `env.AGENT_BROWSER_IDLE_TIMEOUT_MS` to `"1800000"`
-  (30 minutes), so an `agent-browser` daemon a run leaves behind shuts itself
-  and its browser down once no command has arrived for that long. It sets the
-  key into the existing `env` object and leaves every other key there alone. A
-  value already present is reported and left as it is, whatever it is, so
-  raising it is a durable change rather than one the next install undoes. Cost,
-  and the way back, are in
-  [`.claude/README.md`](../.claude/README.md) under Recommended Tools.
+- The installer also offers to set `env.AGENT_BROWSER_IDLE_TIMEOUT_MS` to
+  `"1800000"` (30 minutes), so an `agent-browser` daemon a run leaves behind
+  shuts itself and its browser down once no command has arrived for that long.
+  The prompt defaults to declining, so an unattended install leaves the
+  variable unset and such a daemon unbounded. It sets the key into the existing
+  `env` object and leaves every other key there alone. A value already present
+  is reported and left as it is, whatever it is, so raising it is a durable
+  change rather than one the next install undoes. Cost, and the way back, are
+  in [`.claude/README.md`](../.claude/README.md) under Recommended Tools.
 
 ---
 

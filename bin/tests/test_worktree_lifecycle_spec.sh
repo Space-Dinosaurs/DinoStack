@@ -155,13 +155,17 @@ content/references/qa-gate.md
 content/references/code-standards-detail.md"
 
 # Claims measured false against the shipped mechanism (the process reparents to
-# launchd and outlives the agent's run), plus the retired section title.
+# launchd and outlives the agent's run), plus the retired section title. This is
+# a denylist: it can only catch a phrasing someone already added here, so a
+# claim a later fix falsifies stays invisible to it unless that fix adds the old
+# wording in the same commit.
 RETIRED_LIFETIME_CLAIMS="$RETIRED_LIFETIME_TITLE
 will not survive
 run-scoped only
 survive the agent's run on this harness
 lingers (visibly)
-browser lingers open"
+browser lingers open
+nothing here bounds how long it stays up"
 
 SCRATCH="$(mktemp -d)"
 
