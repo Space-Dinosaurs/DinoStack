@@ -41,6 +41,11 @@ Covers:
     claim, Phase 11's per-tracker Linear/Jira manual behavior, the
     single-ticket spawn paragraph reachable from both mode branches, and the
     corrected `bin/ds-tracker` and README statements.
+  - (m) round-4 rework: the Resume check's own resolve-and-print obligation
+    for `TRACKER_TRANSITIONS_MODE` (every resume entry point jumps past
+    Setup, so the kill switch previously fell back to `auto` on that path),
+    and the containment claim corrected in both files to cover fresh and
+    resumed runs rather than naming Setup alone.
 
 Run with: python3 -m pytest bin/tests/test_tracker_transitions_kill_switch_spec.py -q
 """
@@ -277,7 +282,13 @@ def test_fire_and_forget_sites_emit_no_per_skip_line_and_name_no_session_state()
     to "exactly ONE line per conductor session" while naming no state location
     and no session boundary, unlike every other cross-invocation flag in this
     repo. Replaced with a bound needing no persisted state: no line at all,
-    with /ds-implement-ticket Setup's one print as the guaranteed indication."""
+    with the one per-run print as the guaranteed indication.
+
+    The zero-state bound is kept rather than traded for a bounded per-site
+    line, and its guarantee is stated to cover BOTH run shapes: a fresh run
+    prints from Setup, a resumed run from the Resume check (which never
+    reaches Setup). The earlier wording named Setup alone, which was false on
+    the resume path."""
     for path in (CANONICAL_PATH, HELPER_PATH):
         text = _text(path)
         assert "emit NO stderr line for this status" in text, path
@@ -286,14 +297,45 @@ def test_fire_and_forget_sites_emit_no_per_skip_line_and_name_no_session_state()
         assert "ONE line per conductor session" not in text, path
         assert "ONE stderr line per conductor session" not in text, path
         assert "further transition-skip lines suppressed this session" not in text, path
+        # The guarantee must not rest on Setup alone.
+        assert "every such run prints `TRACKER_TRANSITIONS_MODE`" in text, path
+        assert "never reaches Setup" in text, path
 
-    # The operator is never left with zero indication: Setup's print carries
+    # The operator is never left with zero indication: the print carries
     # the consequence when the mode is manual.
     kernel = _text(CANONICAL_PATH)
     assert (
         "TRACKER_TRANSITIONS_MODE:   manual - no automatic tracker state "
         "transition will fire this run."
     ) in kernel
+
+
+def test_resume_path_resolves_and_prints_transitions_mode():
+    """Major regression: every resume entry point sits downstream of W1-W7 and
+    Phase 11, and the resume path jumps straight past Setup - so a resumed
+    session left TRACKER_TRANSITIONS_MODE unresolved and the Helper's
+    transitions_mode defaulted to `auto`, firing the transitions a
+    `transitions: manual` operator had explicitly disabled. The Resume check
+    must now resolve and print it before jumping to any entry point."""
+    kernel = _text(CANONICAL_PATH)
+
+    marker = (
+        "**After resuming - resolve and print `TRACKER_TRANSITIONS_MODE` "
+        "before jumping to any entry point.**"
+    )
+    assert marker in kernel
+
+    block = kernel[kernel.index(marker) : kernel.index(marker) + 1400]
+    # It must say WHY (the auto fallback fires suppressed transitions) ...
+    assert "falls back to its `auto` default" in block
+    # ... HOW to resolve it (Setup's own rule, not a second algorithm) ...
+    assert "ds-tracker resolve --json" in block
+    assert "`no_tracker` carve-out" in block
+    # ... and that it prints the same line Setup prints.
+    assert "print the same `TRACKER_TRANSITIONS_MODE:` line Setup prints" in block
+
+    # The obligation has to sit in the Resume check, ahead of Setup.
+    assert kernel.index(marker) < kernel.index("## Setup: Read project config")
 
 
 def test_pending_merge_print_and_record_decisions_do_not_contradict():
@@ -308,6 +350,14 @@ def test_pending_merge_print_and_record_decisions_do_not_contradict():
     # The bare contradiction must be gone.
     assert "no `attempts` touched, no print this sweep" not in sync
     assert "no entry in `.agentic/pending-merge-state.jsonl` and no `attempts` touched" in sync
+
+    # Round-4 minor: (j)'s "one line per transition attempt" left it open
+    # whether a manual skip counts as an attempt, so a direct invocation could
+    # print (f)'s line AND (j)'s. (j) is now scoped to exclude it.
+    j_start = sync.index("**j. Output.**")
+    j_block = sync[j_start : sync.index("\n\n", j_start)]
+    assert "is NOT a transition attempt and gets no line from this step" in j_block
+    assert "would double-print it" in j_block
 
 
 def test_single_ticket_manual_branch_claims_no_comment_or_assignee():
