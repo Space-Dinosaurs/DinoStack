@@ -486,7 +486,7 @@ Critical/Major found? ──&gt; Route to new Worker ──&gt; Loop back
 </code></pre>
 <ol>
 <li>The <strong>primary agent</strong> orchestrates - it never implements Elevated work itself</li>
-<li>Each <strong>Worker</strong> is a fresh spawn with accumulated context from prior rounds</li>
+<li>Each <strong>Worker</strong> is a fresh spawn (never a resumed one), briefed with prior rounds' context</li>
 <li>Each <strong>Skeptic</strong> is a fresh spawn - never continued, never resumed</li>
 <li>The loop repeats until the Skeptic grants sign-off or the re-route limit is hit</li>
 </ol>

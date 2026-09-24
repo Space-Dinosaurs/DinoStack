@@ -642,7 +642,7 @@ These are starting templates. Adapt them for your specific domain, threat model,
 
 The primary agent's role is coordination, not implementation. It stays available and responsive at all times. It delegates non-trivial work to Workers and orchestrates Skeptic review of the results.
 
-**The primary agent drives the Skeptic loop.** It spawns Workers, reads their output, spawns fresh Skeptics, reads their findings, and routes findings back to Workers. This is conductor work — the primary agent does not implement, but it does actively manage the review cycle.
+**The primary agent drives the Skeptic loop.** It spawns Workers, reads their output, spawns fresh Skeptics, reads their findings, and routes findings to new Workers. This is conductor work - the primary agent does not implement, but it does actively manage the review cycle.
 
 **The primary agent never implements directly** unless the task is Low risk: a single-file read, a one-line edit, a factual answer retrievable from memory without any risk of error.
 
