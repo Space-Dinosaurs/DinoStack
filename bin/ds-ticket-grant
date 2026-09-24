@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
 Purpose: CLI for writing a one-shot, operator-attributable exception to
-         `hooks/enforce-ticket-batching.py`'s same-session ticket-batching
-         cap (see content/references/delegation-detail.md §Follow-up Ticket
-         Creation Discipline). That hook silently allows the 1st tracker-
-         ticket creation in a session, allows the 2nd with an advisory, and
-         DENIES the 3rd and every subsequent one - and until this CLI
-         existed, there was no way to lift that deny mid-session: the
+         `hooks/enforce-ticket-batching.py`'s deny on agent-initiated
+         tracker-ticket creation (see content/references/delegation-detail.md
+         §Follow-up Ticket Creation Discipline). That hook silently allows
+         one creation per session only while the transcript shows no
+         subagent spawn other than learnings-agent or product-discovery and
+         no existing-ticket arrival (the Ticket-offer gate's create), and
+         DENIES every other creation - and without this CLI there is no way to lift that deny mid-session: the
          hook's only kill switch (`AE_TICKET_BATCH_GUARD_DISABLE=1`) is an
          environment variable the hook-runner process reads at its own
          launch, and a conductor's `export` in a Bash tool call never
@@ -17,7 +18,7 @@ Purpose: CLI for writing a one-shot, operator-attributable exception to
          on the very next denied creation.
 
          **Why one-shot, not a bounded count or an expiry window.** The
-         batching cap exists because a conductor creating many tickets in
+         hook's deny exists because a conductor creating many tickets in
          one session is the failure mode this whole mechanism defends
          against (see the hook's own module docstring: a single session
          once minted 5 tickets over ~14 hours). A grant that persists -
@@ -97,7 +98,7 @@ Data model:
   hook reads and enforces it: a grant older than its own
   `_GRANT_TTL_SECONDS` (10 minutes, as of this CLI's writing) is treated
   as no grant at all and pruned on the next read, rather than sitting
-  around indefinitely to fire on whatever unrelated 3rd+ creation happens
+  around indefinitely to fire on whatever unrelated denied creation happens
   to arrive later in the session (including after `--resume`). See the
   hook's own module docstring, "Operator-granted mid-session exception",
   for why a short TTL - not a bounded count - is the mechanism's only
@@ -121,7 +122,7 @@ Downstream consumers: hooks/enforce-ticket-batching.py
                       (`_load_and_consume_grant` validates, TTL-checks,
                       and deletes the file this CLI writes, atomically, in
                       a single call - only on what would otherwise be a
-                      3rd+ creation deny); content/references/
+                      creation deny); content/references/
                       delegation-detail.md §Follow-up Ticket Creation
                       Discipline (documents this CLI as the mid-session
                       escape hatch); the hook's own DENY message (cites
@@ -157,9 +158,14 @@ Performance: Single small JSON write via `bin/_lib.atomic_write`. No
 from __future__ import annotations
 
 import argparse
+import importlib.machinery as _ilm
+import importlib.machinery as _ilm2
+import importlib.util as _ilu
+import importlib.util as _ilu2
 import json
 import re
 import sys
+import sys as _sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -168,10 +174,6 @@ from pathlib import Path
 # grant -> repo bin/ds-ticket-grant, as created by install.sh) back to the
 # real bin/ directory so _lib.py is found on a bare invocation - see
 # bin/ds-defer's identical comment for the DS-66 bug class this avoids.
-import sys as _sys
-import importlib.util as _ilu
-import importlib.machinery as _ilm
-
 _LIB_PATH = Path(__file__).resolve().parent / "_lib.py"
 if "_lib" in _sys.modules:
     _lib_mod = _sys.modules["_lib"]
@@ -199,9 +201,6 @@ del _sys, _ilu, _ilm, _lib_mod
 # import-machinery way as `_lib` above; a load failure is a hard error
 # here (unlike the hook's own best-effort loader), since writing an
 # unresolved grant is worse than refusing to write one at all.
-import importlib.util as _ilu2
-import importlib.machinery as _ilm2
-
 _REPO_ROOT_PATH = Path(__file__).resolve().parent.parent / "hooks" / "lib" / "repo_root.py"
 try:
     _rr_loader = _ilm2.SourceFileLoader("repo_root", str(_REPO_ROOT_PATH))
@@ -293,7 +292,7 @@ def main(argv: list[str]) -> int:
         prog="ds-ticket-grant",
         description=(
             "Write a one-shot, operator-attributable exception to "
-            "hooks/enforce-ticket-batching.py's same-session ticket-batching cap."
+            "hooks/enforce-ticket-batching.py's deny on agent-initiated ticket creation."
         ),
     )
     sub = p.add_subparsers(dest="cmd", required=True)

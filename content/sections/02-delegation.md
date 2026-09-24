@@ -41,7 +41,7 @@ that work through the applicable protocol rather than silently expanding it.
 <!-- corpus:end -->
 
 <!-- corpus:begin full medium | trigger: the ticket-offer gate has fired and its mode, resolution, or exemptions must be applied -->
-**Ticket-offer gate.** Trigger: `TRACKER != none` AND `ticket_driven` active AND net-new work that did NOT arrive as an existing ticket ID is about to spawn any subagent not on the exemption list (`content/references/delegation-detail.md` §Ticket-Offer Gate - Exemption Set) -> conductor runs the Tracker Create Helper (cross-ref `content/commands/ds-implement-ticket.md` §Tracker Create Helper) before proceeding. Mid-session discoveries: `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline.
+**Ticket-offer gate.** Trigger: `TRACKER != none` AND `ticket_driven` active AND net-new work that did NOT arrive as an existing ticket ID is about to spawn any subagent not on the exemption list (`content/references/delegation-detail.md` §Ticket-Offer Gate - Exemption Set) -> conductor runs the Tracker Create Helper (cross-ref `content/commands/ds-implement-ticket.md` §Tracker Create Helper) before proceeding. Any other ticket (a follow-up, a split of the current ticket, a spin-off, tech-debt, out-of-scope work) is created only on an explicit operator yes: `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline.
 
 **`ticket_driven` resolution (CRITICAL):** an explicit `ticket_driven` value in `.agentic/config.json` always wins. When the key is ABSENT: `TRACKER != none` -> effective `offer`; `TRACKER == none` -> effective `off`. This makes "tracker connected => offer by default" true with zero migration - no config change needed on existing projects with a connected tracker.
 

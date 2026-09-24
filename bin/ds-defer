@@ -3,14 +3,16 @@
 Purpose: CLI for managing the repo-scoped deferred-work sink
          (<repo>/.agentic/deferred-work.jsonl) used to record mid-session
          discoveries that failed the Follow-up Ticket Creation Discipline's
-         promotion bar, or that arrived via a manual out-of-band call -
-         never bar-passing items, which are governed by the absolute
-         batching rule instead (see content/references/delegation-detail.md
+         promotion bar, arrived via a manual out-of-band call, or are
+         ticket candidates (including deferred Skeptic findings) the
+         operator has not said yes to - the conductor never creates a
+         ticket without that yes (see content/references/delegation-detail.md
          §Follow-up Ticket Creation Discipline).
 
 Public API:
   ds-defer append --repo <path> --description <str> --reason
-      {failed_promotion_bar,out_of_band_manual_discovery}
+      {failed_promotion_bar,out_of_band_manual_discovery,
+       unconfirmed_ticket_candidate}
       [--parent-ticket <id>] [--session-id <id>]
   ds-defer list --repo <path> [--status {open,acknowledged}]
   ds-defer count --repo <path> [--status open]      # bare integer to stdout
@@ -29,7 +31,8 @@ Data model:
     description        caller-supplied via --description at append time;
                        one-line string.
     reason             caller-supplied via --reason at append time; one of
-                       "failed_promotion_bar", "out_of_band_manual_discovery".
+                       "failed_promotion_bar", "out_of_band_manual_discovery",
+                       "unconfirmed_ticket_candidate".
     status             (CLI-owned) one of "open", "acknowledged"; assigned
                        "open" on append, changed only via `ack`.
     pattern_hash        (CLI-owned) sha256[:16] of the lowercase,
@@ -41,12 +44,14 @@ Data model:
   overwrite; the CLI always assigns these three fields itself.
 
   Enums:
-    reason: failed_promotion_bar | out_of_band_manual_discovery
+    reason: failed_promotion_bar | out_of_band_manual_discovery |
+            unconfirmed_ticket_candidate
       NOTE: "budget_exceeded" was a considered-and-rejected enum value under
       an earlier design where a budget branch competed with the batching
       rule; it never shipped and is deliberately absent from this enum, the
-      CLI's validation, and the test suite. There is no branch under which a
-      bar-passing discovery is recorded here - see the batching rule.
+      CLI's validation, and the test suite. A bar-passing discovery is
+      recorded here as unconfirmed_ticket_candidate until the operator says
+      yes; on a yes the ticket is created and the entry acked.
     status: open | acknowledged
 
 --repo is REQUIRED on all four subcommands and is a store LOCATOR (which
@@ -116,10 +121,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.machinery as _ilm
+import importlib.util as _ilu
 import json
-import os
 import re
 import sys
+import sys as _sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -130,10 +137,6 @@ from pathlib import Path
 # so _lib.py is found on a bare `ds-defer` invocation. The bare `.parent`
 # form (no `.resolve()`) is the DS-66 bug class - it resolves to a missing
 # ~/.local/bin/_lib.py and raises FileNotFoundError.
-import sys as _sys
-import importlib.util as _ilu
-import importlib.machinery as _ilm
-
 _LIB_PATH = Path(__file__).resolve().parent / "_lib.py"
 if "_lib" in _sys.modules:
     _lib_mod = _sys.modules["_lib"]
@@ -148,7 +151,7 @@ acquire_exclusive_lock = _lib_mod.acquire_exclusive_lock
 atomic_write = _lib_mod.atomic_write
 del _sys, _ilu, _ilm, _lib_mod
 
-REASON_VALUES = ("failed_promotion_bar", "out_of_band_manual_discovery")
+REASON_VALUES = ("failed_promotion_bar", "out_of_band_manual_discovery", "unconfirmed_ticket_candidate")
 STATUS_VALUES = ("open", "acknowledged")
 
 STORE_FILENAME = "deferred-work.jsonl"

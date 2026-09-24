@@ -5,14 +5,20 @@ Regression tests for hooks/enforce-ticket-batching.py.
 Test groups:
   1. test_first_creation_allows_silently        - 1st creation -> allow, no
                                                     stdout, no fire-log entry.
-  2. test_second_creation_allows_with_advisory   - 2nd creation -> allow WITH
-                                                    an `allow_advisory` fire-log
-                                                    entry and a non-empty
-                                                    permissionDecisionReason.
-  3. test_third_creation_denies                  - 3rd creation -> deny.
-  4. test_fourth_creation_still_denies            - a denied call never
-                                                    advances state, so a 4th
-                                                    attempt also denies.
+  2. test_second_pre_spawn_creation_denies_without_grant - 2nd creation
+                                                    -> deny, even with no
+                                                    spawn in the transcript.
+  3. test_repeated_denies_never_advance_state     - a denied call never
+                                                    advances state, so every
+                                                    retry also denies.
+  4. Agent-initiated create detection (the tests between
+     `_SPAWN_RECORD` and `test_bash_get_never_matches`): a non-exempt
+     Agent/Task spawn or an existing-ticket arrival (`/ds-implement-ticket
+     <key or tracker URL>` record, or a Skill call of it) denies the 1st
+     creation; an exempt-role spawn, freeform command input, a
+     tool_result quoting either record, and an unreadable or over-cap
+     transcript do not. The deny text names ds-defer, the one-line
+     mention, and ds-ticket-grant; the advisory decision is gone.
   5. test_bash_get_never_matches                 - a GET to the Jira issue
                                                     endpoint is never classified
                                                     as a creation.
@@ -48,8 +54,8 @@ Test groups:
                                                     allow, no state written.
  16. test_kill_switch_disables                   - AE_TICKET_BATCH_GUARD_DISABLE=1
                                                     -> allow unconditionally,
-                                                    even on what would be the
-                                                    3rd creation.
+                                                    even on what would be a
+                                                    denied creation.
  17. test_non_creation_tool_passthrough           - Read/Write tool_name ->
                                                     allow, no state written.
  18. test_malformed_stdin_failopen                - bad JSON on stdin -> exit 0.
@@ -67,7 +73,8 @@ Test groups:
                                                     literal "issueCreate" token
                                                     never matches (Critical:
                                                     used to deny on the 3rd
-                                                    such call).
+                                                    such call under the old
+                                                    3-create threshold).
  23. test_bash_git_show_pipe_grep_never_matches    - `git show <sha> | grep
                                                     issueCreate` never matches.
  24. test_bash_echo_mentioning_token_never_matches - an `echo` merely
@@ -207,13 +214,6 @@ def _is_denied(parsed: dict | None) -> bool:
     return parsed.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
 
 
-def _is_advisory(parsed: dict | None) -> bool:
-    if not parsed:
-        return False
-    out = parsed.get("hookSpecificOutput", {})
-    return out.get("permissionDecision") == "allow" and bool(out.get("permissionDecisionReason"))
-
-
 def _jira_payload(cwd: str, session_id: str = "sess-1") -> dict:
     return {
         "tool_name": "mcp__mcp-atlassian__jira_create_issue",
@@ -289,43 +289,408 @@ def test_first_creation_allows_silently():
         assert state["count"] == 1
 
 
-def test_second_creation_allows_with_advisory():
+def test_second_pre_spawn_creation_denies_without_grant():
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
-        _run_hook(_jira_payload(tmp))
-        rc, parsed = _run_hook(_jira_payload(tmp))
-        assert rc == 0
-        assert not _is_denied(parsed)
-        assert _is_advisory(parsed)
-        fires = _fires_path(tmp).read_text().strip().splitlines()
-        assert len(fires) == 1
-        entry = json.loads(fires[0])
-        assert entry["decision"] == "allow_advisory"
-        assert entry["hook"] == "enforce-ticket-batching"
-
-
-def test_third_creation_denies():
-    with tempfile.TemporaryDirectory() as tmp:
-        _ensure_git_marker(tmp)
-        _run_hook(_jira_payload(tmp))
         _run_hook(_jira_payload(tmp))
         rc, parsed = _run_hook(_jira_payload(tmp))
         assert rc == 0
         assert _is_denied(parsed)
         fires = _fires_path(tmp).read_text().strip().splitlines()
-        assert len(fires) == 2
-        assert json.loads(fires[-1])["decision"] == "deny"
+        assert len(fires) == 1
+        entry = json.loads(fires[0])
+        assert entry["decision"] == "deny"
+        assert entry["hook"] == "enforce-ticket-batching"
 
 
-def test_fourth_creation_still_denies():
+def test_repeated_denies_never_advance_state():
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
         for _ in range(4):
             rc, parsed = _run_hook(_jira_payload(tmp))
         assert _is_denied(parsed)
-        # State never advanced past 2 (deny branch does not persist).
         state = json.loads(_state_path(tmp, "sess-1").read_text())
-        assert state["count"] == 2
+        assert state["count"] == 1
+
+
+# --- Agent-initiated create detection (spawn / existing-ticket arrival) ---
+
+_SPAWN_RECORD = json.dumps({
+    "type": "assistant",
+    "message": {
+        "role": "assistant",
+        "content": [
+            {"type": "text", "text": "Spawning the investigator."},
+            {
+                "type": "tool_use",
+                "id": "toolu_01",
+                "name": "Agent",
+                "input": {"subagent_type": "investigator", "prompt": "..."},
+            },
+        ],
+    },
+})
+
+# Shape copied from a live transcript (2026-09-24): an operator-typed
+# `/ds-implement-ticket SDI-163` is a string-content user record.
+_IMPLEMENT_TICKET_RECORD = json.dumps({
+    "type": "user",
+    "message": {
+        "role": "user",
+        "content": (
+            "<command-message>ds-implement-ticket</command-message>\n"
+            "<command-name>/ds-implement-ticket</command-name>\n"
+            "<command-args>SDI-163</command-args>"
+        ),
+    },
+})
+
+_PLAIN_USER_RECORD = json.dumps({
+    "type": "user",
+    "message": {"role": "user", "content": "please look into the Klarna error"},
+})
+
+
+def _payload_with_transcript(tmp: str, records: list[str]) -> dict:
+    payload = _jira_payload(tmp)
+    payload["transcript_path"] = _transcript_with_records(tmp, records)
+    return payload
+
+
+def test_first_creation_after_agent_spawn_denies():
+    """DINO-1962 regression: a split created after investigation spawns
+    is agent-initiated and is denied on the session's FIRST create."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        payload = _payload_with_transcript(tmp, [_PLAIN_USER_RECORD, _SPAWN_RECORD])
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert _is_denied(parsed)
+        reason = parsed["hookSpecificOutput"]["permissionDecisionReason"]
+        assert "bin/ds-defer append" in reason
+        assert "unconfirmed_ticket_candidate" in reason
+        assert "bin/ds-ticket-grant grant" in reason
+        assert "mention it to the operator" in reason
+        assert "split or follow-up of the current ticket never counts" in reason
+        assert "operator's own words" in reason
+        assert not _state_path(tmp, "sess-1").exists()
+
+
+def test_task_tool_use_counts_as_spawn():
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        task = _SPAWN_RECORD.replace('"name": "Agent"', '"name": "Task"')
+        assert '"name": "Task"' in task
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [task]))
+        assert _is_denied(parsed)
+
+
+def test_first_creation_pre_spawn_allows_silently():
+    """The Ticket-offer gate's create: no spawn and no existing-ticket
+    arrival yet in the transcript."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [_PLAIN_USER_RECORD]))
+        assert rc == 0
+        assert parsed is None
+        assert not _fires_path(tmp).exists()
+        assert json.loads(_state_path(tmp, "sess-1").read_text())["count"] == 1
+
+
+def test_grant_allows_post_spawn_first_creation():
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        grant_path = _write_grant(tmp, "sess-1", "operator: yes, create the cartridge ticket")
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [_SPAWN_RECORD]))
+        assert rc == 0
+        out = parsed["hookSpecificOutput"]
+        assert out["permissionDecision"] == "allow"
+        assert "yes, create the cartridge ticket" in out["permissionDecisionReason"]
+        assert not grant_path.exists()
+        assert json.loads(_state_path(tmp, "sess-1").read_text())["count"] == 1
+        fires = _fires_path(tmp).read_text().strip().splitlines()
+        assert json.loads(fires[-1])["decision"] == "allow_grant"
+
+
+def test_tool_result_text_naming_agent_is_not_a_spawn():
+    """Bash output that quotes a spawn record lands in a list-content
+    user record (a tool_result), which never counts as a spawn."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        tool_result = json.dumps({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_02",
+                    "content": _SPAWN_RECORD + ' {"type":"tool_use","name":"Agent"}',
+                }],
+            },
+        })
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [tool_result]))
+        assert parsed is None
+        assert json.loads(_state_path(tmp, "sess-1").read_text())["count"] == 1
+
+
+def test_unreadable_transcript_first_creation_allows():
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        payload = _jira_payload(tmp)
+        payload["transcript_path"] = str(Path(tmp) / "no-such-transcript.jsonl")
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert parsed is None
+        assert json.loads(_state_path(tmp, "sess-1").read_text())["count"] == 1
+
+
+def test_triage_exempt_after_spawn():
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        triage = json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": "<command-name>/ds-feedback-triage</command-name>"},
+        })
+        payload = _payload_with_transcript(tmp, [triage, _SPAWN_RECORD])
+        for _ in range(3):
+            rc, parsed = _run_hook(payload)
+            assert rc == 0
+            assert parsed is None
+        assert not _state_path(tmp, "sess-1").exists()
+
+
+def test_never_logs_allow_advisory():
+    hook = _load_hook_module()
+    assert not hasattr(hook, "_ADVISORY_TEMPLATE")
+    assert not hasattr(hook, "_ADVISORY_AT_COUNT")
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        for _ in range(3):
+            _run_hook(_jira_payload(tmp))
+        _write_grant(tmp, "sess-1", "operator: yes")
+        _run_hook(_jira_payload(tmp))
+        decisions = [
+            json.loads(line)["decision"]
+            for line in _fires_path(tmp).read_text().strip().splitlines()
+        ]
+        assert decisions == ["deny", "deny", "allow_grant"]
+        assert "allow_advisory" not in decisions
+
+
+def test_spawn_scan_delegates_to_iter_capped_lines():
+    hook = _load_hook_module()
+    calls = []
+    original = hook._iter_capped_lines
+
+    def _spy(fh):
+        calls.append(fh)
+        yield from original(fh)
+
+    hook._iter_capped_lines = _spy
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "transcript.jsonl"
+            transcript.write_text(_SPAWN_RECORD + "\n")
+            result = hook._first_create_is_agent_initiated(str(transcript))
+    finally:
+        hook._iter_capped_lines = original
+    assert result is True
+    assert len(calls) == 1
+
+
+def test_spawn_scan_fails_open_past_read_cap():
+    hook = _load_hook_module()
+    original = hook._TRANSCRIPT_READ_CAP_BYTES
+    hook._TRANSCRIPT_READ_CAP_BYTES = 10
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript = Path(tmp) / "transcript.jsonl"
+            transcript.write_text(_PLAIN_USER_RECORD + "\n" + _SPAWN_RECORD + "\n")
+            assert hook._first_create_is_agent_initiated(str(transcript)) is False
+    finally:
+        hook._TRANSCRIPT_READ_CAP_BYTES = original
+
+
+def test_deny_template_reasons_are_valid_ds_defer_reasons():
+    import importlib.machinery
+
+    defer_path = Path(__file__).parent.parent / "ds-defer"
+    loader = importlib.machinery.SourceFileLoader("ds_defer_for_batching", str(defer_path))
+    spec = importlib.util.spec_from_loader("ds_defer_for_batching", loader)
+    defer = importlib.util.module_from_spec(spec)
+    loader.exec_module(defer)
+    hook = _load_hook_module()
+    templates = [hook._DENY_TEMPLATE, hook._GRANT_ALLOW_TEMPLATE]
+    reasons = [r for t in templates for r in re.findall(r"--reason (\w+)", t)]
+    assert reasons, "the deny template must name a ds-defer --reason"
+    for reason in reasons:
+        assert reason in defer.REASON_VALUES, reason
+
+
+def test_first_creation_in_existing_ticket_session_denies():
+    """An existing-ticket arrival skips the Ticket-offer gate, so the
+    first create in that session is agent-initiated even with no spawn."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [_IMPLEMENT_TICKET_RECORD]))
+        assert rc == 0
+        assert _is_denied(parsed)
+        assert not _state_path(tmp, "sess-1").exists()
+
+
+def test_existing_ticket_url_arrival_denies():
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        url_record = _IMPLEMENT_TICKET_RECORD.replace(
+            "SDI-163", "https://solara6.atlassian.net/browse/DS-42"
+        )
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [url_record]))
+        assert _is_denied(parsed)
+
+
+def test_freeform_implement_ticket_is_not_existing_ticket():
+    """`/ds-implement-ticket` with freeform input (no ticket key) is
+    net-new work that goes through the Ticket-offer gate."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        freeform = _IMPLEMENT_TICKET_RECORD.replace(
+            "SDI-163", "add a dark mode toggle to the settings page"
+        )
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [freeform]))
+        assert parsed is None
+        assert json.loads(_state_path(tmp, "sess-1").read_text())["count"] == 1
+
+
+def test_skill_invocation_with_ticket_key_denies_first_creation():
+    """A conductor-invoked Skill of ds-implement-ticket leaves no
+    command-name record, only the assistant tool_use (verified live)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        skill = json.dumps({
+            "type": "assistant",
+            "message": {"role": "assistant", "content": [{
+                "type": "tool_use", "id": "toolu_03", "name": "Skill",
+                "input": {"skill": "ds-implement-ticket", "args": "SDI-169"},
+            }]},
+        })
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [skill]))
+        assert _is_denied(parsed)
+
+
+def test_implement_ticket_marker_in_tool_result_is_not_an_arrival():
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        tool_result = json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": [{
+                "type": "tool_result", "tool_use_id": "toolu_04",
+                "content": json.loads(_IMPLEMENT_TICKET_RECORD)["message"]["content"],
+            }]},
+        })
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [tool_result]))
+        assert parsed is None
+
+
+def test_exempt_role_spawn_keeps_silent_first_create():
+    """learnings-agent can spawn before the Ticket-offer gate fires; it is
+    on the gate's exemption list, so it does not count as a spawn."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        learnings = _SPAWN_RECORD.replace('"investigator"', '"learnings-agent"')
+        assert '"learnings-agent"' in learnings
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [learnings]))
+        assert parsed is None
+        assert json.loads(_state_path(tmp, "sess-1").read_text())["count"] == 1
+
+
+def test_gate_exempt_roles_are_a_subset_of_delegation_detail_exemption_set():
+    hook = _load_hook_module()
+    text = (Path(__file__).parent.parent.parent / "content" / "references" / "delegation-detail.md").read_text()
+    section = text.split("### Ticket-Offer Gate - Exemption Set", 1)[1].split("\n## ", 1)[0]
+    listed = set(re.findall(r"^- `([a-z-]+)` - ", section, re.MULTILINE))
+    assert listed, "no exemption-set roles parsed from delegation-detail.md"
+    assert set(hook._GATE_EXEMPT_ROLES) <= listed
+
+
+def _spawn_record_with_input(tinput: dict) -> str:
+    return json.dumps({
+        "type": "assistant",
+        "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "toolu_09", "name": "Agent", "input": tinput},
+        ]},
+    })
+
+
+def test_post_work_exempt_role_spawn_denies_first_create():
+    """skeptic and wrap-ticket only run once work exists, so a create
+    after either is a follow-up even though the gate exempts them."""
+    for role in ("skeptic", "wrap-ticket"):
+        with tempfile.TemporaryDirectory() as tmp:
+            _ensure_git_marker(tmp)
+            record = _spawn_record_with_input({"subagent_type": role, "prompt": "..."})
+            rc, parsed = _run_hook(_payload_with_transcript(tmp, [record]))
+            assert _is_denied(parsed), role
+
+
+def test_spawn_without_subagent_type_counts():
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        record = _spawn_record_with_input({"prompt": "..."})
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [record]))
+        assert _is_denied(parsed)
+
+
+def test_namespaced_exempt_role_counts_as_spawn():
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        record = _spawn_record_with_input({"subagent_type": "foo:learnings-agent"})
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [record]))
+        assert _is_denied(parsed)
+
+
+def test_key_followed_by_word_characters_is_not_a_key():
+    hook = _load_hook_module()
+    for args in ("DINO-639x", "DINO-639-beta", "https://acme.atlassian.net/browse/DINO-12abc"):
+        assert hook._args_name_existing_ticket(args) is False, args
+    assert hook._args_name_existing_ticket("DINO-639") is True
+
+
+def test_non_exempt_spawn_after_exempt_spawn_still_denies():
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        learnings = _SPAWN_RECORD.replace('"investigator"', '"learnings-agent"')
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [learnings, _SPAWN_RECORD]))
+        assert _is_denied(parsed)
+
+
+def _implement_ticket_record_with_args(args: str) -> str:
+    return _IMPLEMENT_TICKET_RECORD.replace("SDI-163", args)
+
+
+def test_freeform_args_with_key_like_tokens_are_not_existing_ticket():
+    for args in ("fix the UTF-8 bug", "update the SHA-256 checksum", "switch the model to GPT-4"):
+        with tempfile.TemporaryDirectory() as tmp:
+            _ensure_git_marker(tmp)
+            payload = _payload_with_transcript(tmp, [_implement_ticket_record_with_args(args)])
+            rc, parsed = _run_hook(payload)
+            assert parsed is None, args
+            assert json.loads(_state_path(tmp, "sess-1").read_text())["count"] == 1
+
+
+def test_key_and_tracker_url_args_are_existing_ticket():
+    for args in (
+        "MY_PROJ-12",
+        "DINO-1957",
+        "DINO-639, DINO-638",
+        "SDI-131 we got interrupted",
+        "https://crocsinc.atlassian.net/browse/DINO-1957",
+        "https://linear.app/acme/issue/ENG-42/fix-login",
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            _ensure_git_marker(tmp)
+            payload = _payload_with_transcript(tmp, [_implement_ticket_record_with_args(args)])
+            rc, parsed = _run_hook(payload)
+            assert _is_denied(parsed), args
 
 
 def test_bash_get_never_matches():
@@ -1473,14 +1838,13 @@ def test_state_resolution_fails_open_with_no_git_ancestor():
 # --- Operator-granted mid-session exception (bin/ds-ticket-grant) ---
 
 
-def test_grant_allows_third_creation():
-    """A valid grant present at the 3rd creation ALLOWS it (not denied),
-    persists state to count==3, deletes the grant file, and logs
+def test_grant_allows_second_creation():
+    """A valid grant present at the 2nd creation ALLOWS it (not denied),
+    persists state to count==2, deletes the grant file, and logs
     "allow_grant" via log_fire - the end-to-end demonstration the ticket
     asks for."""
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
-        _run_hook(_jira_payload(tmp))
         _run_hook(_jira_payload(tmp))
         grant_path = _write_grant(tmp, "sess-1", "operator said: create it, I need this tracked now")
         rc, parsed = _run_hook(_jira_payload(tmp))
@@ -1490,36 +1854,35 @@ def test_grant_allows_third_creation():
         assert out["permissionDecision"] == "allow"
         assert "operator said: create it" in out["permissionDecisionReason"]
         state = json.loads(_state_path(tmp, "sess-1").read_text())
-        assert state["count"] == 3
+        assert state["count"] == 2
         assert not grant_path.exists(), "grant must be consumed (deleted) on use"
         fires = _fires_path(tmp).read_text().strip().splitlines()
         assert json.loads(fires[-1])["decision"] == "allow_grant"
 
 
-def test_grant_consumed_does_not_allow_fourth():
-    """The same grant that unblocked the 3rd creation must not also
-    unblock a 4th - it was deleted on first use, so the 4th falls back to
+def test_grant_consumed_does_not_allow_next():
+    """The same grant that unblocked one creation must not also unblock
+    the next - it was deleted on first use, so the next falls back to
     the ordinary deny path."""
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
         _run_hook(_jira_payload(tmp))
-        _run_hook(_jira_payload(tmp))
         _write_grant(tmp, "sess-1", "operator authorized one more")
         rc, parsed = _run_hook(_jira_payload(tmp))
-        assert not _is_denied(parsed)  # 3rd: granted
+        assert not _is_denied(parsed)  # 2nd: granted
         rc, parsed = _run_hook(_jira_payload(tmp))
         assert rc == 0
-        assert _is_denied(parsed), "a consumed grant must not allow a 4th creation"
-        assert "4th" in parsed["hookSpecificOutput"]["permissionDecisionReason"]
+        assert _is_denied(parsed), "a consumed grant must not allow the next creation"
+        state = json.loads(_state_path(tmp, "sess-1").read_text())
+        assert state["count"] == 2
 
 
 def test_malformed_grant_file_denies_like_no_grant():
-    """A grant file that exists but is not valid JSON must leave 3rd+
+    """A grant file that exists but is not valid JSON must leave deny
     behavior byte-identical to the absent-grant case: denied, state
     unchanged."""
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
-        _run_hook(_jira_payload(tmp))
         _run_hook(_jira_payload(tmp))
         grant_path = _grant_path(tmp, "sess-1")
         grant_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1528,7 +1891,7 @@ def test_malformed_grant_file_denies_like_no_grant():
         assert rc == 0
         assert _is_denied(parsed)
         state = json.loads(_state_path(tmp, "sess-1").read_text())
-        assert state["count"] == 2
+        assert state["count"] == 1
         # A malformed grant is left in place (never "consumed") - the
         # hook never reached a state where consuming it would apply.
         assert grant_path.exists()
@@ -1540,7 +1903,6 @@ def test_empty_reason_grant_denies_like_no_grant():
     absent."""
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
-        _run_hook(_jira_payload(tmp))
         _run_hook(_jira_payload(tmp))
         _write_grant(tmp, "sess-1", "   ")
         rc, parsed = _run_hook(_jira_payload(tmp))
@@ -1555,7 +1917,6 @@ def test_absent_grant_file_denies():
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
         _run_hook(_jira_payload(tmp))
-        _run_hook(_jira_payload(tmp))
         rc, parsed = _run_hook(_jira_payload(tmp))
         assert rc == 0
         assert _is_denied(parsed)
@@ -1564,13 +1925,12 @@ def test_absent_grant_file_denies():
 
 def test_grant_for_different_session_does_not_apply():
     """A grant written for one session_id must never unblock a different
-    session's 3rd creation - the grant file is session-scoped by
+    session's denied creation - the grant file is session-scoped by
     filename, same as the counter itself."""
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
         payload_a = _jira_payload(tmp, session_id="sess-A")
         payload_b = _jira_payload(tmp, session_id="sess-B")
-        _run_hook(payload_a)
         _run_hook(payload_a)
         _write_grant(tmp, "sess-B", "grant meant for a different session")
         rc, parsed = _run_hook(payload_a)
@@ -1604,7 +1964,7 @@ def test_unreadable_agentic_dir_exits_cleanly():
 
     Strengthened beyond `rc == 0` (a Skeptic Minor: the original assertion
     would pass a mutation that turned this path into an ALLOW, an
-    ALLOW_ADVISORY, or even an allow_grant - `rc` is 0 on every one of
+    or even an allow_grant - `rc` is 0 on every one of
     those, not just on the correct silent-allow-with-no-state-write this
     call is supposed to produce as the 1st creation this session).
     `parsed is None` pins the DECISION (silent allow, no
@@ -1627,7 +1987,7 @@ def test_unreadable_agentic_dir_exits_cleanly():
 
 def test_grant_consumption_atomic_under_concurrency():
     """M1 (Skeptic Critical-adjacent fix): four hook processes racing
-    against ONE grant file at the 3rd-creation point must produce exactly
+    against ONE grant file at a denied-creation point must produce exactly
     ONE `allow_grant`, not four. A round-1 version of this hook read the
     grant file (`_load_grant`) and deleted it (`_consume_grant`) as two
     separate steps after the ALLOW was already decided - every concurrent
@@ -1641,10 +2001,8 @@ def test_grant_consumption_atomic_under_concurrency():
 
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
-        # Advance to count==2 (1st + 2nd creation) sequentially first, so
-        # every concurrent call below is genuinely at the 3rd-creation
-        # decision point.
-        _run_hook(_jira_payload(tmp))
+        # Advance to count==1 sequentially first, so every concurrent
+        # call below is genuinely at a denied-creation decision point.
         _run_hook(_jira_payload(tmp))
         _write_grant(tmp, "sess-1", "operator said: go ahead, create it now")
 
@@ -1684,7 +2042,6 @@ def test_unwritable_agentic_dir_never_allows_grant_unboundedly():
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
         _run_hook(_jira_payload(tmp))
-        _run_hook(_jira_payload(tmp))
         _write_grant(tmp, "sess-1", "operator said: create it, this is fine")
         agentic_dir = Path(tmp) / ".agentic"
         agentic_dir.chmod(0o555)
@@ -1709,17 +2066,16 @@ def test_expired_grant_denies_and_is_pruned():
     """M2 fix: a grant older than `_GRANT_TTL_SECONDS` (10 minutes) must
     be treated as no grant at all AND pruned (deleted) on the read that
     discovers its age - it must not sit around indefinitely to fire on
-    some later, unrelated 3rd+ creation."""
+    some later, unrelated denied creation."""
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
-        _run_hook(_jira_payload(tmp))
         _run_hook(_jira_payload(tmp))
         stale_ts = "2020-01-01T00:00:00Z"
         grant_path = _write_grant(tmp, "sess-1", "operator said: yes, do it", granted_at=stale_ts)
         assert grant_path.exists()
         rc, parsed = _run_hook(_jira_payload(tmp))
         assert rc == 0
-        assert _is_denied(parsed), "an expired grant must not allow the 3rd creation"
+        assert _is_denied(parsed), "an expired grant must not allow the 2nd creation"
         assert not grant_path.exists(), "an expired grant must be pruned (deleted) on read"
 
 
@@ -1732,7 +2088,6 @@ def test_missing_granted_at_denies_like_no_grant():
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
         _run_hook(_jira_payload(tmp))
-        _run_hook(_jira_payload(tmp))
         grant_path = _grant_path(tmp, "sess-1")
         grant_path.parent.mkdir(parents=True, exist_ok=True)
         grant_path.write_text(json.dumps({"reason": "operator said: go ahead"}))
@@ -1744,12 +2099,11 @@ def test_missing_granted_at_denies_like_no_grant():
 def test_fresh_grant_within_ttl_still_allows():
     """Sanity check that the TTL fix did not break the ordinary, common
     case: a grant written moments before the retry (well within
-    `_GRANT_TTL_SECONDS`) still allows the 3rd creation - guards against a
+    `_GRANT_TTL_SECONDS`) still allows the 2nd creation - guards against a
     mutation that makes the TTL check reject everything, not just stale
     grants."""
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
-        _run_hook(_jira_payload(tmp))
         _run_hook(_jira_payload(tmp))
         _write_grant(tmp, "sess-1", "operator said: yes, right now")
         rc, parsed = _run_hook(_jira_payload(tmp))

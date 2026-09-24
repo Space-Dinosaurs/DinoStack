@@ -1295,16 +1295,16 @@ for spawn_matcher in ("Task", "Agent"):
     )
 
 # ---- PreToolUse ticket-batching guard (mcp jira/linear create + Bash bypass)
-# Mechanically enforces a grace margin under the Follow-up Ticket Creation
-# Discipline's batching rule (content/references/delegation-detail.md
-# §Follow-up Ticket Creation Discipline): allows the 1st tracker-ticket
-# creation this session silently, allows the 2nd with an advisory, and
-# denies the 3rd and every subsequent one. Fires on
+# Enforces the Follow-up Ticket Creation Discipline's operator-confirmation
+# rule (content/references/delegation-detail.md §Follow-up Ticket Creation
+# Discipline): allows the 1st tracker-ticket creation this session silently
+# only while the transcript shows no subagent spawn other than
+# learnings-agent or product-discovery and no existing-ticket arrival, and
+# denies every other one without a bin/ds-ticket-grant grant. Fires on
 # mcp__mcp-atlassian__jira_create_issue, mcp__linear__save_issue (creation
 # only - an id-bearing call is an update and never counted), and Bash (a
 # direct Jira REST POST or Linear issueCreate GraphQL bypass). Exempt when
-# the session transcript carries a /ds-feedback-triage or /ds-ticket-triage
-# command marker. Fail-open on any error. Kill-switch:
+# the session transcript carries a /ds-feedback-triage command marker. Fail-open on any error. Kill-switch:
 # AE_TICKET_BATCH_GUARD_DISABLE=1.
 #
 # Uses a GUARDED command string, unlike a bare `python3 {path}` form - see

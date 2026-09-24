@@ -32,7 +32,7 @@ Purpose: Detailed delegation-model reference blocks extracted from
          discipline; Orchestration enforcement hooks + fan-out
          `skeptic_strategy` detail; Background-spawn enforcement detail;
          Mid-Session Ticket Composition is Zero-Spawn (composing a
-         mid-session discovery ticket draws only on context already held,
+         confirmed ticket candidate draws only on context already held,
          never a fresh agent spawn, protecting the in-flight session's
          terrain).
 
@@ -108,40 +108,23 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 
 ## Follow-up Ticket Creation Discipline
 
-Applies to ANY decision to create a tracker ticket for work discovered
-mid-session - whether via the Tracker Create Helper, a direct mcp__ tool
-call, or a manual out-of-band call. The carve-out (item 1) and the
-promotion bar (item 2) remain prose discipline with no mechanical
-enforcement - the only mechanical artifacts for those are the sink
-(`.agentic/deferred-work.jsonl`, via `bin/ds-defer`) and its session-start
-reader. The batching rule (item 3) below is now backed by a deliberate
-grace-margin mechanical floor: `hooks/enforce-ticket-batching.py` (a
-PreToolUse hook on `mcp__mcp-atlassian__jira_create_issue`,
-`mcp__linear__save_issue`, and `Bash`) counts same-session tracker-ticket
-creations and allows the 1st silently, allows the 2nd with an advisory
-citing this rule, and DENIES the 3rd and every subsequent one. That
-threshold is intentionally one creation looser than the prose rule
-above ("2 or more discoveries are NEVER separate tickets - exactly ONE")
-- the gap is a deliberate grace margin for two genuinely independent,
-top-level operator-raised asks arriving in the same session (each of
-which legitimately earns its own ticket under item 1's carve-out), not a
-redefinition of the rule. A conductor that creates a 2nd ticket in
-violation of the prose rule is advised, not stopped; only a 3rd is
-mechanically denied. `/ds-feedback-triage` (item 5) is exempted from the
-counter entirely for creates issued from inside its own run - measured
-against real transcripts, this exemption is genuinely implemented (see
-the hook's own module docstring "Triage exemption"), not merely prose.
-`/ds-ticket-triage` is NOT a create path at all (see its own file's
-"Composition and non-goals" - it never mutates tracker tickets), so it
-was previously listed here and in the hook's own deny message as an
-escape hatch it cannot be; both are corrected.
+Applies to every tracker ticket other than the Ticket-offer gate's
+create for a top-level operator ask: a follow-up, a split of the current
+ticket, a spin-off, tech-debt, or out-of-scope work, found mid-session or
+at wrap time, through any path. **The conductor never creates one on its
+own.** It mentions the candidate in one line and creates it only after
+the operator explicitly says yes to it. `hooks/enforce-ticket-batching.py`
+backs this: it allows one silent create per session only while no
+subagent other than `learnings-agent` or `product-discovery` has been
+spawned and the session did not arrive with an existing ticket (the gate creates before
+the first spawn), and denies
+every other create without an operator grant; `/ds-feedback-triage` runs
+(item 7) are exempt. `/ds-ticket-triage` is NOT a create path at all (see
+its own file's "Composition and non-goals"), so it is not an exemption.
 
-**Operator-granted mid-session exception.** Neither escape hatch above
-actually lifts an in-progress deny: `/ds-wrap` ends the session rather
-than continuing it, and `/ds-feedback-triage`'s exemption only ever
-covers creates issued from inside that command's own run, not a call
-denied outside of it. When an operator explicitly asks, right now, to
-create a ticket that would otherwise be denied, run `bin/ds-ticket-grant
+**Operator-granted mid-session exception.** On an explicit operator yes to a
+candidate, or when a new top-level ask reaches the Ticket-offer gate
+after this session's first spawn, run `bin/ds-ticket-grant
 grant --repo <repo> --session-id <id> --reason "<the operator's own
 words>"` (session-id from `$CLAUDE_CODE_SESSION_ID`), then retry the
 create. This writes a one-shot, session-scoped exception under
@@ -169,29 +152,33 @@ contract.
    unit (including at wrap/PR-summary time) is not "net-new work" for the
    Ticket-offer gate. Top-level, operator-raised asks are unaffected by
    everything below.
-2. **Promotion bar.** A discovery earns a ticket only if (a) it blocks the
-   current unit OR is independently schedulable with standalone value, AND
-   (b) it is not fixable inline in under one Worker spawn's effort - a
-   one-line fix is fixed inline, never deferred. Failing (a) or (b): record
-   via `bin/ds-defer append --reason failed_promotion_bar` and move on.
-3. **Batching is absolute - this is the actual branching-factor control,
-   stronger than the bar above.** When 2 or more discoveries pass the bar
-   in the same session, they are NEVER created as separate tickets. They
-   are batched into exactly ONE ticket (one title, one numbered
-   acceptance-criterion per item). A single bar-passing discovery becomes
-   exactly one ticket. There is no branch under which a bar-passing item
-   goes to the sink - the sink is reserved for bar failures and out-of-band
-   discoveries only (item 4).
-4. Manual/out-of-band discoveries (e.g. a direct API call bypassing every
+2. **Promotion bar.** A discovery is a ticket candidate only if (a) it
+   blocks the current unit OR is independently schedulable with standalone
+   value, AND (b) it is not fixable inline in under one Worker spawn's
+   effort - a one-line fix is fixed inline, never deferred. Failing (a) or
+   (b): `bin/ds-defer append --reason failed_promotion_bar`. Passing both:
+   `bin/ds-defer append --reason unconfirmed_ticket_candidate`, then one
+   line: `Ticket candidate: <title> - create it?`. On a yes, create it and
+   `bin/ds-defer ack` the entry. Silence is a no.
+3. **Splitting the current ticket is a candidate like any other.**
+   Default: keep the remaining work and discussion on the original ticket,
+   because questions to another team scatter across splits.
+4. **Batching.** 2 or more candidates are proposed as ONE ticket, one
+   numbered acceptance criterion each, unless the operator asks otherwise.
+5. A Skeptic finding deferred to a follow-up
+   (`content/references/skeptic-protocol.md` §Round budget and
+   value-per-round gate) is an `unconfirmed_ticket_candidate` sink entry
+   plus the same one-line mention, never a ticket.
+6. Manual/out-of-band discoveries (e.g. a direct API call bypassing every
    documented path) are recorded the same way:
    `bin/ds-defer append --reason out_of_band_manual_discovery`.
-5. `/ds-feedback-triage` Step 4d is unaffected - its creates are already
+7. `/ds-feedback-triage` Step 4d is unaffected - its creates are already
    gated by an explicit per-batch human greenlight (`ds-feedback-triage.md`
    §"Step 2 - Group and present"), a stronger control than anything here.
 
 ### Mid-Session Ticket Composition is Zero-Spawn
 
-Draw only on context already held from the in-flight work when composing a mid-session discovery's ticket body - no investigator, debugger, or other agent spawn to enrich it before creating it; that context belongs to the task already underway, not the offshoot. If context already held is insufficient to name a design or root cause, that is not a reason to spawn - the evidence that made the conductor notice (the failing command, the log line, the file:line) is itself a valid, complete Problem per `content/references/conventions-detail.md` §Ticket descriptions ("Evidence is intent-bearing"). Create the ticket with that evidence as the Problem and move on.
+Draw only on context already held from the in-flight work when composing a confirmed ticket candidate's body - no investigator, debugger, or other agent spawn to enrich it before creating it; that context belongs to the task already underway, not the offshoot. If context already held is insufficient to name a design or root cause, that is not a reason to spawn - the evidence that made the conductor notice (the failing command, the log line, the file:line) is itself a valid, complete Problem per `content/references/conventions-detail.md` §Ticket descriptions ("Evidence is intent-bearing"). Once the operator says yes, create the ticket with that evidence as the Problem and move on.
 
 ### Ticket-Offer Gate - Exemption Set
 

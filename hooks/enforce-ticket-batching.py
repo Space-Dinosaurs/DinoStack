@@ -1,34 +1,35 @@
 #!/usr/bin/env python3
 """
-Purpose: PreToolUse hook that mechanically enforces a grace margin under
-         the Follow-up Ticket Creation Discipline's batching rule
-         (`content/references/delegation-detail.md` §Follow-up Ticket
-         Creation Discipline, item 3: "2 or more discoveries in the same
-         session are NEVER separate tickets - batched into exactly ONE").
-         That rule was prose-only with zero mechanical enforcement (PR
-         #606 shipped it and said outright "a conductor that ignores the
-         discipline is not stopped"), and mid-session ticket fan-out was
-         measured going 7.7/week -> 25.4/week across one week, with a
-         single session minting DS-156 through DS-160 (5 tickets) over
-         ~14 hours, each a small bug found while fixing the previous.
+Purpose: PreToolUse hook that enforces the operator-confirmation rule of
+         `content/references/delegation-detail.md` §Follow-up Ticket
+         Creation Discipline: the conductor never creates a follow-up,
+         split, spin-off, tech-debt, or out-of-scope ticket on its own,
+         only after an explicit operator yes. The only create it allows
+         without an operator grant is the Ticket-offer gate's, which runs
+         before the first subagent spawn of a session that did not arrive
+         with an existing ticket (`content/sections/02-delegation.md`).
+         So one create per session is allowed silently while the
+         transcript shows no subagent spawn other than `learnings-agent`
+         or `product-discovery` and no existing-ticket arrival; every other create is denied unless a
+         `bin/ds-ticket-grant` grant exists.
 
-         **This hook's threshold is DELIBERATELY a grace margin BELOW the
-         prose rule, not a redefinition of it.** The prose rule stays
-         "exactly ONE" ticket for 2+ same-session discoveries - do not
-         "fix" this file to deny on the 2nd creation to match that text
-         more tightly. The 3-creation threshold exists because a real
-         session can legitimately contain two independent, unrelated,
-         TOP-LEVEL operator-raised asks in one sitting (each spawning its
-         own single ticket) - the batching rule's carve-out in item 1
-         ("Top-level, operator-raised asks are unaffected") - and a hard
-         deny on ticket #2 would block that legitimate case with no
-         escape hatch. The measured fan-out case that motivated this hook
-         was 5 tickets in one session; a cap of 3 still catches it while
-         leaving room for two genuinely independent asks. Counting
-         (1st: silent allow, 2nd: allow + advisory, 3rd+: deny) is an
-         operator decision, not an architect recommendation - an earlier
-         plan draft specified a hard deny on the 2nd creation and was
-         explicitly overridden.
+         History: PR #606 shipped the batching rule prose-only, and
+         mid-session ticket fan-out was measured going 7.7/week ->
+         25.4/week, with one session minting DS-156 through DS-160. This
+         hook first allowed two creates per session (silent, then
+         advisory) and denied from the 3rd, a grace margin chosen before
+         `bin/ds-ticket-grant` existed. The operator's 2026-09-24 handoff
+         overrides that: DINO-1962 and DINO-1963 were split off DINO-1957
+         after investigation spawns, in a session that arrived with an
+         existing ticket, both sat untouched, and both were canceled as
+         duplicates. Under the old threshold both creates were allowed.
+
+         Catch (Pillar 8): DINO-1962/1963 above - the 1st and 2nd create
+         in an existing-ticket session with spawns already in the
+         transcript. Retirement: zero `deny` fires for this hook in
+         `bin/ds-hook-fire-report` over 90 days, meaning conductors have
+         stopped attempting unconfirmed creates and the prose rule alone
+         holds.
 
          Classifies a tracker-ticket CREATE call three ways:
            1. `mcp__mcp-atlassian__jira_create_issue` - always a creation
@@ -136,15 +137,15 @@ Purpose: PreToolUse hook that mechanically enforces a grace margin under
          **Triage exemption.** `/ds-feedback-triage` legitimately creates
          multiple tickets in one session under an explicit human
          greenlight per batch (see `content/references/
-         delegation-detail.md` item 5: the triage creates are gated by a
+         delegation-detail.md` item 7: the triage creates are gated by a
          stronger control than this discipline - a per-batch human
          greenlight). `/ds-ticket-triage` was PREVIOUSLY exempted here
          too, but is NOT a create path at all - see its own file's
          "Composition and non-goals" ("Mutate tracker tickets (no status
          transitions, no comment posts)" is an explicit non-goal) - so
          the exemption was removed: a session that runs `/ds-ticket-
-         triage` and then creates tickets by some other means still hits
-         the ordinary batching cap. `content/references/
+         triage` and then creates tickets by some other means is still
+         enforced. `content/references/
          delegation-detail.md` §Follow-up Ticket Creation Discipline was
          corrected to match in the same change.
 
@@ -201,10 +202,10 @@ Purpose: PreToolUse hook that mechanically enforces a grace margin under
          list), and a `python3 - <<EOF` heredoc printing those same
          tokens (the Python-client regex matches the interpreter
          invocation itself, not just an actual HTTP call it makes).
-         Accepted as-is: these need 3 such calls in one session to reach
-         DENY (the 1st is silent, the 2nd is advisory-only), and they
-         only arise while working on THIS hook's own source/tests, not
-         in ordinary ticket-creation usage. This is a known, bounded,
+         Accepted as-is: such a call is denied like a real create (or
+         silently allowed as the session's first), costs one grant or a
+         rephrase, and only arises while working on THIS hook's own
+         source/tests, not in ordinary ticket-creation usage. This is a known, bounded,
          intentionally-unclosed residual - not evidence the matcher is
          clean.
            - a `type: "user"` record whose `message.content` is a plain
@@ -303,11 +304,11 @@ Purpose: PreToolUse hook that mechanically enforces a grace margin under
          joined the raw payload cwd straight onto the state-file path,
          contradicting the invariant the rest of this branch establishes. Tiered STRICT,
          matching `enforce-skeptic-round-cap.py`'s `_state_path`: this
-         counter enforces a session-wide policy invariant (the batching
-         cap), and a write at a drifted, unresolved location would not
-         merely misplace a log - it would silently reset the counter an
-         attacker (or a stray mid-session `cd`) could exploit to bypass
-         the cap entirely, which is exactly the "misplaced write actively
+         counter enforces a session-wide policy invariant (one silent
+         create per session), and a write at a drifted, unresolved
+         location would not merely misplace a log - it would silently
+         reset the counter an attacker (or a stray mid-session `cd`)
+         could exploit to get a second silent create, which is exactly the "misplaced write actively
          corrupts cross-session-visible state" category
          `hooks/lib/repo_root.py`'s manifest reserves for the strict tier.
          `_state_path` therefore returns `None` when no `.git` ancestor is
@@ -320,51 +321,77 @@ Purpose: PreToolUse hook that mechanically enforces a grace margin under
          resolution), since ticket creation is a conductor-only action
          that always runs from the primary checkout's `cwd` in practice.
 
-         Decision algorithm (see `_decide()`):
+         Decision algorithm (in `main()`), after the triage exemption:
            - next_count = count + 1 on every classified creation call.
-           - next_count <= 1 (i.e. this is the 1st creation this
-             session): ALLOW silently. Persist count=1. No log_fire call
-             (matching every other hook's convention: a silent allow is
-             the overwhelming majority case and must not grow the fire
-             log).
-           - next_count == 2 (the 2nd creation): ALLOW, but emit an
-             advisory (`permissionDecision: "allow"` with a non-empty
-             `permissionDecisionReason` naming the batching rule) and log
-             `"allow_advisory"` via `log_fire()`. Persist count=2.
-           - next_count >= 3 (the 3rd and every subsequent creation): a
-             valid **operator grant** (see below) is checked first. With
-             no valid grant: DENY, citing the batching rule, the concrete
-             `bin/ds-defer` escape-hatch command, and the two legitimate
-             ways out (`/ds-wrap` to close the session, or routing future
-             creates through `/ds-feedback-triage`'s own exemption for a
-             greenlit batch - which does not retroactively un-deny THIS
-             call). State is NOT persisted on this deny branch (count
-             stays at whatever it already was) - a denied call never
-             created a ticket, so there is nothing new to count, and this
-             keeps every subsequent retry of the same call denied
-             identically rather than drifting the counter forward on a
-             call that never actually created anything. With a valid
-             grant: ALLOW, citing the grant's `reason` back in the
-             response and via `log_fire()` (decision `"allow_grant"`),
-             persist next_count, and delete the grant file (see below) -
-             so a next attempt (with the grant already consumed) falls
-             straight back through to the ordinary deny path above.
-             Because a grant can now let `next_count` advance past 3, the
-             deny/allow-grant message's ordinal is computed from
-             `next_count` via `_ordinal()`, not hardcoded to "3rd" as an
-             earlier version of this hook did (correct at the time,
-             before a grant could ever make this branch fire more than
-             once per session at a value other than exactly 3).
+           - next_count == 1 AND `_first_create_is_agent_initiated()` is
+             False (the transcript shows no `Agent`/`Task` tool_use and no
+             existing-ticket arrival): ALLOW silently and persist count=1.
+             This is the Ticket-offer gate's create. No log_fire call.
+           - Otherwise: a valid **operator grant** (see below) is checked.
+             With a valid grant: ALLOW, citing the grant's `reason` back
+             in the response and via `log_fire()` (decision
+             `"allow_grant"`), persist next_count, and delete the grant
+             file. With no valid grant: DENY, naming the `bin/ds-defer
+             --reason unconfirmed_ticket_candidate` sink, the one-line
+             operator mention, and the `bin/ds-ticket-grant` path. State
+             is NOT persisted on the deny branch - a denied call created
+             nothing, so every retry of it is denied identically.
 
-         **Operator-granted mid-session exception.** Neither of the two
-         "legitimate ways out" cited in the deny message actually lifts
-         THIS deny: `/ds-wrap` ends the session rather than continuing it,
-         and `/ds-feedback-triage`'s exemption only ever applies to
-         creates issued from inside that command's own run (a session
-         already mid-triage never reaches this deny branch at all - see
-         "Triage exemption" above), so it cannot retroactively unblock a
-         call denied outside of it. Before this mechanism existed there
-         was genuinely no way for an operator to authorize a 3rd create
+         An existing-ticket arrival is a `/ds-implement-ticket` command
+         record, or a Skill tool_use of `ds-implement-ticket`, whose first
+         argument token is a ticket key or a Jira `/browse/<key>` or
+         Linear `/issue/<key>` URL (`_TICKET_ARG_RE`, the same patterns
+         `/ds-implement-ticket` Phase 0 accepts). Both
+         shapes were verified against live transcripts on 2026-09-24:
+         operator-typed commands are recorded as a `type: "user"`
+         string-content record
+         (`<command-message>ds-implement-ticket</command-message>\n
+         <command-name>/ds-implement-ticket</command-name>\n
+         <command-args>SDI-163</command-args>`), and a conductor-invoked
+         Skill produces no such record, only the assistant tool_use. The
+         command record is read only in the same two unforgeable shapes as
+         the triage marker. Input whose first token is not a key or an
+         issue URL does not count, even when it mentions a key-like token
+         ("fix the UTF-8 bug"). Existing-ticket sessions skip the
+         Ticket-offer gate
+         (`content/sections/02-delegation.md`), so any create in them is
+         agent-initiated. A spawn is an `assistant` record with a
+         `tool_use` block named `Agent` (462 found in the same corpus) or
+         `Task` (the older tool name) whose `input.subagent_type` is not
+         exactly `learnings-agent` or `product-discovery`
+         (`_GATE_EXEMPT_ROLES`). Those two are the members of
+         `content/references/delegation-detail.md` §Ticket-Offer Gate -
+         Exemption Set that can run before the gate's create, so a
+         background capture or intent-layer spawn does not cost the gate
+         its create. The rest of that set (skeptic, qa-engineer,
+         learning-extractor, wrap-ticket, goal-condition-evaluator) only
+         runs once work exists, so a `/ds-wrap` or Skeptic-only session's
+         create is still denied. A spawn with no `subagent_type`, or a
+         namespaced one such as `foo:learnings-agent`, counts (no
+         namespaced type appeared in 877 real spawns checked). Tool results are list-content `user`
+         records, so Bash output naming `Agent` never counts.
+
+         Known limitations: a conversational session with no spawn and no
+         existing-ticket arrival still gets one silent create, whoever
+         asked for it. A session whose only spawns are `learnings-agent`
+         or `product-discovery` also keeps its silent create. Existing-
+         ticket arrivals the first-token check misses are treated as
+         net-new: JQL or Linear filter URLs, pasted screenshots, and mixed
+         text such as "please do DINO-1957"; the spawn check is the
+         backstop, since any investigation or implementation spawn in
+         that session still denies the create. A `--resume` that starts
+         a fresh transcript makes the next first create look pre-spawn
+         again. All of these fail open; none blocks work outright.
+
+         **Operator-granted mid-session exception.** This is how an
+         operator's explicit yes to a ticket candidate, or a second
+         top-level ask reaching the Ticket-offer gate after a spawn,
+         lifts the deny. `/ds-feedback-triage`'s exemption only ever
+         applies to creates issued from inside that command's own run (a
+         session already mid-triage never reaches this deny branch at all
+         - see "Triage exemption" above), so it cannot retroactively
+         unblock a call denied outside of it. Before this mechanism existed there
+         was genuinely no way for an operator to authorize a denied create
          without ending the session - `AE_TICKET_BATCH_GUARD_DISABLE=1` is
          read once by the hook-runner process at its own launch, and a
          conductor `export` in a later Bash tool call never reaches that
@@ -397,13 +424,13 @@ Purpose: PreToolUse hook that mechanically enforces a grace margin under
          grant to bind to at write time; the TTL instead binds it in TIME
          to the retry it was meant for; a grant an operator authorized
          and the conductor then never used within 10 minutes is treated
-         as abandoned, not carried forward to whatever unrelated 3rd+
+         as abandoned, not carried forward to whatever unrelated denied
          create arrives later in the same (possibly `--resume`d) session.
          An expired grant is pruned (deleted) the first time any denied
          creation reads it, even though it is never returned as valid -
          see `_load_and_consume_grant()` - so a stale grant does not
          linger under `.agentic/` indefinitely; a grant that is never
-         read again (no further 3rd+ creation this session) is NOT
+         read again (no further denied creation this session) is NOT
          proactively swept by anything else, since this hook only runs on
          a classified creation call and has no other trigger.
          A valid, unexpired grant ALLOWS this one creation and is deleted
@@ -411,8 +438,7 @@ Purpose: PreToolUse hook that mechanically enforces a grace margin under
          grant from an earlier session or an earlier abandoned request is
          never reusable once a later `grant` invocation for the same
          session overwrites it, and once consumed (or expired-and-pruned)
-         it cannot allow a 4th (or Nth) creation without a fresh `grant`
-         call. This is intentionally one-shot rather than a bounded count
+         it cannot allow a later creation without a fresh `grant` call. This is intentionally one-shot rather than a bounded count
          or a long-lived window - see `bin/ds-ticket-grant`'s own module
          docstring for why a persisting exception (count-based or a
          multi-hour expiry) would re-open the exact branching-factor hole
@@ -451,7 +477,7 @@ Public API: Run as a Claude Code PreToolUse hook (matcher:
             `mcp__mcp-atlassian__jira_create_issue`,
             `mcp__linear__save_issue`, or `Bash`). Reads JSON from stdin,
             writes `hookSpecificOutput` JSON to stdout when denying or
-            advising, exits 0 always.
+            allowing on a grant, exits 0 always.
 
 Upstream deps: Python 3 stdlib only (json, os, re, sys, time, pathlib,
                importlib.util for the best-effort `lib/enforcement_log.py`
@@ -506,6 +532,13 @@ Failure modes:
       remainder discarded, rather than loaded whole in one `readline()`
       call, so one giant line can never spike memory past that cap
       before the cumulative check even runs.
+    - `transcript_path` absent, unreadable, or past
+      `_TRANSCRIPT_READ_CAP_BYTES` before a spawn or existing-ticket
+      record is found, during the first-create scan: treated as no spawn
+      (`_first_create_is_agent_initiated` returns False), so the 1st
+      creation allows silently - fail-open. The scan is consulted only
+      when next_count == 1 and reads through `_iter_capped_lines`, same
+      caps as the triage scan.
     - State file present but unparsable JSON: treated as `{"count": 0}` -
       a corrupt state file must never turn into a permanent block.
     - State file write failure (permissions, disk full): the ALLOW/DENY
@@ -523,9 +556,8 @@ Failure modes:
       `granted_at` outside the `_GRANT_TTL_SECONDS` freshness window:
       treated as no grant - the deny branch's pre-existing behavior
       applies unchanged. This is checked only on what would otherwise be
-      a 3rd+-creation DENY; it is never consulted on the 1st or 2nd
-      creation, so a grant written before either of those has no effect
-      on them (nothing to override - they already allow). Unlike a
+      a DENY; it is never consulted on the silent pre-spawn first
+      creation, so a grant written before that one survives it. Unlike a
       round-1 version of this hook, the grant's DELETE now happens BEFORE
       the ALLOW is decided, not after - `_load_and_consume_grant()`
       returns a grant to its caller only once its own unlink of the file
@@ -562,8 +594,6 @@ import sys
 import time
 from pathlib import Path
 
-_ADVISORY_AT_COUNT = 2
-_DENY_FROM_COUNT = 3
 # Grant idle-lifetime ceiling - see module docstring, "Operator-granted
 # mid-session exception", for why a grant is bound in TIME to the retry
 # it authorizes rather than to the create's own content.
@@ -703,7 +733,7 @@ def _bash_is_compound(command: str) -> bool:
 # Matches the real harness-recorded `<command-name>` marker for the
 # `/ds-feedback-triage` command only - `/ds-ticket-triage` was removed
 # from this pattern (see module docstring "Triage exemption"): it is not
-# a create path at all, so exempting it from the batching cap was wrong.
+# a create path at all, so exempting it from this hook was wrong.
 # MEASURED against live Claude Code transcripts on this machine
 # ($CLAUDE_CONFIG_DIR/projects/**/*.jsonl): every genuine slash-command
 # invocation records the command name WITH its leading slash, e.g.
@@ -911,6 +941,107 @@ def _is_triage_exempt(transcript_path) -> bool:
         return False
 
 
+_SPAWN_TOOL_NAMES = frozenset({"Agent", "Task"})
+# Roles that never count as a spawn: the members of `content/references/
+# delegation-detail.md` §Ticket-Offer Gate - Exemption Set that can run
+# before the gate's create. The rest of that set (skeptic, qa-engineer,
+# learning-extractor, wrap-ticket, goal-condition-evaluator) only runs once
+# work already exists, so a create after one of them is a follow-up.
+_GATE_EXEMPT_ROLES = frozenset({"learnings-agent", "product-discovery"})
+_IMPLEMENT_TICKET_MARKER_RE = re.compile(
+    r"<command-name>/?ds-implement-ticket</command-name>\s*"
+    r"<command-args>(.*?)</command-args>",
+    re.DOTALL,
+)
+# Same key and URL patterns as `/ds-implement-ticket` Phase 0
+# (`content/commands/ds-implement-ticket.md`), applied to the first
+# argument token only, so freeform text naming "UTF-8" or "GPT-4" does
+# not count as an existing-ticket arrival.
+_TICKET_ARG_RE = re.compile(
+    r"^(?:[A-Z][A-Z0-9_]+-\d+"
+    r"|https?://[^/]+/browse/[A-Z][A-Z0-9_]+-\d+"
+    r"|https?://linear\.app/[^/]+/issue/[A-Z][A-Z0-9_]+-\d+)(?![\w-])"
+)
+
+
+def _args_name_existing_ticket(args: str) -> bool:
+    tokens = re.split(r"[\s,]+", args.strip(), maxsplit=1)
+    return bool(tokens and _TICKET_ARG_RE.match(tokens[0]))
+
+
+def _is_counted_spawn(block: dict) -> bool:
+    tinput = block.get("input")
+    role = tinput.get("subagent_type") if isinstance(tinput, dict) else None
+    if isinstance(role, str) and role in _GATE_EXEMPT_ROLES:
+        return False
+    return True
+
+
+def _record_starts_agent_work(rec: dict) -> bool:
+    """True for a counted subagent spawn (`Agent`/`Task` tool_use), a
+    conductor Skill-tool invocation of `ds-implement-ticket` with a ticket
+    key, or an operator-typed `/ds-implement-ticket <key>` command
+    record."""
+    if rec.get("type") == "assistant":
+        msg = rec.get("message")
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if not isinstance(content, list):
+            return False
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            name = block.get("name")
+            if name in _SPAWN_TOOL_NAMES and _is_counted_spawn(block):
+                return True
+            tinput = block.get("input")
+            if (
+                name == "Skill"
+                and isinstance(tinput, dict)
+                and tinput.get("skill") == "ds-implement-ticket"
+                and isinstance(tinput.get("args"), str)
+                and _args_name_existing_ticket(tinput["args"])
+            ):
+                return True
+        return False
+    if _record_is_exempt_marker_carrier(rec):
+        match = _IMPLEMENT_TICKET_MARKER_RE.search(_record_marker_text(rec))
+        return bool(match and _args_name_existing_ticket(match.group(1)))
+    return False
+
+
+def _first_create_is_agent_initiated(transcript_path) -> bool:
+    """True when the transcript shows a subagent spawn or an
+    existing-ticket arrival before this create. The Ticket-offer gate
+    creates before the first spawn and never fires for an existing-ticket
+    arrival, so a create after either one did not come from the gate.
+    Fails to False (silent allow) when the transcript is absent,
+    unreadable, or the read cap is hit before a match."""
+    try:
+        if not isinstance(transcript_path, str) or not transcript_path:
+            return False
+        path = Path(transcript_path)
+        if not path.is_file():
+            return False
+        bytes_read = 0
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            for line, consumed in _iter_capped_lines(fh):
+                bytes_read += consumed
+                if bytes_read > _TRANSCRIPT_READ_CAP_BYTES:
+                    return False
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(rec, dict) and _record_starts_agent_work(rec):
+                    return True
+        return False
+    except Exception:
+        return False
+
+
 def _load_repo_root():
     """Best-effort dynamic import of hooks/lib/repo_root.py (mirrors
     _load_log_fire above, and enforce-skeptic-round-cap.py's identical
@@ -1111,65 +1242,28 @@ def _load_and_consume_grant(path: Path) -> dict | None:
     return {"reason": reason.strip()}
 
 
-def _ordinal(n: int) -> str:
-    """English ordinal suffix for a positive integer ("3rd", "4th", "21st",
-    ...). Used for the deny/allow-grant message's ordinal, which is no
-    longer always exactly 3 now that a consumed grant can let `next_count`
-    advance past `_DENY_FROM_COUNT` (see module docstring, Decision
-    algorithm)."""
-    if 10 <= n % 100 <= 20:
-        suffix = "th"
-    else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-    return f"{n}{suffix}"
-
-
-_ADVISORY_TEMPLATE = (
-    "ADVISORY: this is the 2nd tracker-ticket creation this session. Per "
-    "content/references/delegation-detail.md §Follow-up Ticket Creation "
-    "Discipline, 2+ same-session discoveries are NEVER separate tickets - "
-    "they are batched into exactly ONE. A 3rd creation attempt this "
-    "session will be DENIED. If this is a genuinely independent, "
-    "top-level operator-raised ask (not a mid-session discovery), ignore "
-    "this advisory. Otherwise, batch remaining discoveries into this "
-    "ticket, or record them with `bin/ds-defer append --repo <repo> "
-    "--description '<desc>' --reason failed_promotion_bar` and move on."
-)
-
 _DENY_TEMPLATE = (
-    "Ticket-batching cap reached: this would be the {ordinal} tracker-"
-    "ticket creation this session. Per content/references/"
-    "delegation-detail.md §Follow-up Ticket Creation Discipline, 2+ "
-    "same-session discoveries are NEVER separate tickets - batch them "
-    "into exactly ONE. Do not create this ticket. Instead: record it "
-    "with `bin/ds-defer append --repo <repo> --description '<desc>' "
-    "--reason failed_promotion_bar` and move on, OR if this genuinely is "
-    "a new independent top-level operator-raised ask (not a mid-session "
-    "discovery), fold it into the session's existing ticket instead of "
-    "creating a new one. If the operator explicitly asks, right now, to "
-    "create this ticket anyway: run `bin/ds-ticket-grant grant --repo "
-    "<repo> --session-id {session_id} --reason \"<the operator's own "
-    "words>\"` then retry this call - this is a one-shot exception, "
-    "consumed by this retry, and does not authorize any further create "
-    "this session without a fresh grant. Other ways out: run /ds-wrap to "
-    "close out this session before starting fresh work; or, for FUTURE "
-    "creates only (this does not un-deny the current call), route them "
-    "through /ds-feedback-triage, whose own creates are exempt from this "
-    "cap under an explicit per-batch human greenlight. "
-    "`AE_TICKET_BATCH_GUARD_DISABLE=1` disables this hook outright, but "
-    "only if set before this session started - it cannot be set "
-    "mid-session."
+    "Tracker-ticket creation denied: the conductor never creates a "
+    "follow-up, split, spin-off, tech-debt, or out-of-scope ticket on its "
+    "own (content/references/delegation-detail.md §Follow-up Ticket "
+    "Creation Discipline). A split or follow-up of the current ticket "
+    "never counts as a Ticket-offer gate create. Do not create it. Record "
+    "it with `bin/ds-defer append --repo <repo> --description '<desc>' "
+    "--reason unconfirmed_ticket_candidate` and mention it to the operator "
+    "in one line. If the operator explicitly said yes to this ticket, or "
+    "this is the Ticket-offer gate's create for a new top-level operator "
+    "ask: run `bin/ds-ticket-grant grant --repo <repo> --session-id "
+    "{session_id} --reason \"<the operator's own words, quoted>\"` then "
+    "retry (one-shot). `AE_TICKET_BATCH_GUARD_DISABLE=1` works only if set "
+    "before the session started."
 )
 
 _GRANT_ALLOW_TEMPLATE = (
-    "Operator-granted exception consumed for this {ordinal} tracker-"
-    "ticket creation this session (grant reason: \"{reason}\"). This "
-    "grant was one-shot and has now been deleted - the next creation "
-    "this session is evaluated against the ordinary batching cap "
-    "(silent 1st, advisory 2nd, denied 3rd+) starting from the count "
-    "this call just advanced to, and will need its own fresh grant if "
-    "it is also to proceed. Per content/references/delegation-detail.md "
-    "§Follow-up Ticket Creation Discipline."
+    "Operator-granted exception consumed for this tracker-ticket creation "
+    "(grant reason: \"{reason}\"). The grant was one-shot and has been "
+    "deleted: the next creation this session needs its own fresh grant. "
+    "Per content/references/delegation-detail.md §Follow-up Ticket "
+    "Creation Discipline."
 )
 
 
@@ -1225,44 +1319,19 @@ def main() -> None:
         state = _load_state(path)
         next_count = state["count"] + 1
 
-        if next_count < _ADVISORY_AT_COUNT:
+        if next_count == 1 and not _first_create_is_agent_initiated(data.get("transcript_path")):
             _write_state(path, next_count)
             sys.exit(0)
 
-        if next_count == _ADVISORY_AT_COUNT:
+        grant_path = _grant_path(cwd, session_id)
+        grant = _load_and_consume_grant(grant_path) if grant_path is not None else None
+        if grant is not None:
             _write_state(path, next_count)
-            _emit(data, _ADVISORY_TEMPLATE, "allow_advisory")
+            _emit(data, _GRANT_ALLOW_TEMPLATE.format(reason=grant["reason"]), "allow_grant")
             sys.exit(0)
 
-        if next_count >= _DENY_FROM_COUNT:
-            # Operator-granted exception check (see module docstring,
-            # "Operator-granted mid-session exception"). Only consulted
-            # here - never on the 1st/2nd creation, which already allow.
-            grant_path = _grant_path(cwd, session_id)
-            grant = _load_and_consume_grant(grant_path) if grant_path is not None else None
-            if grant is not None:
-                # Grant consumed: this call proceeds, state DOES advance
-                # (unlike the plain-deny branch below) because this call
-                # is actually about to create a ticket - a future call
-                # this session must see the true, advanced count.
-                _write_state(path, next_count)
-                reason = _GRANT_ALLOW_TEMPLATE.format(
-                    ordinal=_ordinal(next_count), reason=grant["reason"]
-                )
-                _emit(data, reason, "allow_grant")
-                sys.exit(0)
-
-            # Deny, state unchanged (see module docstring - a denied call
-            # never created anything, so there is nothing new to persist).
-            # On an all-deny session (no grant ever used) next_count is
-            # always exactly 3, since state never advances past
-            # _ADVISORY_AT_COUNT (2) on any other branch - but a consumed
-            # grant CAN advance it past 3 for a later call in the same
-            # session, so the ordinal is derived via `_ordinal()`, not
-            # hardcoded, even though "3rd" remains the overwhelmingly
-            # common case.
-            reason = _DENY_TEMPLATE.format(ordinal=_ordinal(next_count), session_id=session_id)
-            _emit(data, reason, "deny")
+        # A denied call created nothing, so state is not persisted.
+        _emit(data, _DENY_TEMPLATE.format(session_id=session_id), "deny")
         sys.exit(0)
     except Exception:
         # Any unexpected error anywhere in the decision path fails open -

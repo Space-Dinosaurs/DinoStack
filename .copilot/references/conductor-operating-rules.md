@@ -166,7 +166,7 @@ The conductor MUST evaluate capture at each of these 7 events and emit a
    `file:line`, which tiebreak step applied, and the resolution. **Recording satisfies
    this trigger.** Guardrail-first still applies - a doc correction or a grep-able CI
    check is the durable fix and is the better capture - but it MAY be deferred to a
-   follow-up unit or ticket: do NOT open a shippable edit mid-decision to satisfy this
+   follow-up unit or a `bin/ds-defer` entry: do NOT open a shippable edit mid-decision to satisfy this
    trigger. Never SKIP on the grounds that the tiebreak already resolved it; an
    unrecorded contradiction is re-litigated by every later session at full cost.
 
