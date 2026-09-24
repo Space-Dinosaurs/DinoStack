@@ -169,7 +169,7 @@ in the methodology above:
 - `qa-gate.md` - parallel QA gate flow, dev-server boot pattern
 - `qa-regression-obligation.md` - QA fix engineer regression-test obligation
 - `regression-test-obligation.md` - Skeptic fix regression-test obligation
-- `risk-config-and-tiers.md` - config toggle catalog, graph-derived risk, tier detail
+- `risk-config-and-tiers.md` - config toggle catalog, tier detail
 - `role-models.md` - role-to-model mapping rules
 - `skeptic-protocol.md` - Skeptic loop, findings classification, sign-off format
 - `spawn-presets.md` - per-spawn capability bundle protocol

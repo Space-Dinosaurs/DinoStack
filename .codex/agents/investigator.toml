@@ -69,7 +69,7 @@ Your spawn prompt will contain:
    fi
    ```
 
-   You are read-only: never run `graphify --update`, `graphify update .`, or any other mutating graphify subcommand to refresh the graph. The conductor refreshes an existing graph before spawning you (via autonomous `graphify update .` on its own checkout), so the graph should already be fresh when you run. If your staleness check above still detects the graph is stale, fall back to `grep -rn` as the authoritative consumer enumeration and declare the staleness under "Notes" (or reflect it in Coverage if it genuinely blocks the investigation).
+   You are read-only: never run `graphify --update`, `graphify update .`, or any other mutating graphify subcommand to refresh the graph. Nothing in the methodology refreshes the graph, so treat it as possibly stale. If your staleness check above detects the graph is stale, fall back to `grep -rn` as the authoritative consumer enumeration and declare the staleness under "Notes" (or reflect it in Coverage if it genuinely blocks the investigation).
 
 8. **Synthesize.** Pull findings into the structured output format. Prioritize specificity - file:line references over vague descriptions.
 

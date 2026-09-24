@@ -215,8 +215,6 @@ fail-closed behavior.
 | Configuration changes | No | **Yes** |
 | Anything where a mistake costs time or data | No | **Yes** |
 
-**Graph-derived escalation.** When a fresh `GRAPH_REPORT.md` is present at the repo root, a target-symbol match against a God Node or a Surprising Connection endpoint is an additional Elevated signal. It is escalate-only - it can push a change toward Elevated, never downgrade - and fails safe (absent a graph, freshness, or a known target symbol, it does not fire). The conductor keeps the graph fresh via autonomous `graphify update .` of an existing graph (it never auto-builds from scratch). Full mechanism: see `content/sections/04-risk-classification.md` §Graph-derived risk signal.
-
 
 
 
@@ -474,7 +472,6 @@ The conductor reads `.agentic/config.json` to resolve twenty-five project-level 
 
 
 
-
 ### Declaration format
 
 ```
@@ -510,7 +507,6 @@ Declare tier at spawn time; role defaults per the Role-default tier table, Tier 
 `SKILL.full.md` in this skill's own directory (same folder as this file) for the full text -
 search for the section covering "04-risk-classification.md".
 - a debugger has just produced a bug-fix brief and the resulting fix is being classified
-- a fresh GRAPH_REPORT.md exists at the repo root and risk classification needs to check it
 - docs/overview/vision.md or docs/overview/requirements.md is present and needs to be consulted during risk classification
 - a mandatory learnings-capture trigger event has just fired and needs a Capture: MUST/SHOULD/SKIP declaration
 - a per-spawn capability bundle (preset) needs to be resolved before a spawn
@@ -609,7 +605,7 @@ Claude Code locks each isolation worktree (a double-force `git worktree remove -
 | **Activation detail (Steps 5-6)** | Step 4 of the activation preflight resolves to active | `content/references/activation-detail.md` §Step 5: First-Activation Notice, §Step 6: Scaffolding-Sync Check - sentinel write contract, TTY/QUIET gate, `ds-migrate` flow |
 | **Planning artifacts (Brief and Plan tiers)** | authoring a Brief or Plan after orchestration-planner returns 2+ Elevated-or-above units | `content/sections/03-planning-artifacts.md` for blocking/non-blocking rules. Full ordering, trigger table, gate-semantics authoring sequences, Brief template, Plan-tier directory, verification-gate template, promotion mechanics, product-intent layer, canonical `qa_default_skip` definition: `content/references/planning-artifacts.md` |
 | **Delegation detail** | consulting the full Worker autonomy contract, stop-frequency planning signal, investigator-before-architect rules, or a detected instruction-layer contradiction | `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, §Digest-Return Discipline, §Decision Stability and Contradiction Resolution, §Harness-Injected Instruction Conflicts, §Orchestration Enforcement Hooks and Fan-out Detail, §Background-Spawn Enforcement Detail |
-| **Risk config and tiers** | consulting config toggles, the graph-derived risk signal, or tier declaration detail | `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral), §Graph-derived risk signal, §Tier Declaration Detail |
+| **Risk config and tiers** | consulting config toggles or tier declaration detail | `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral), §Tier Declaration Detail |
 | **Phase breadcrumb** | every natural orchestration boundary (after agent spawn, agent return, escalation, task completion) | Emit `[phase: label]` inline in your status update. Full vocabulary: `~/DinoStack/.claude/skills/dinostack/references/subagent-protocol.md` Rule 6 |
 | **Skeptic loop orchestration** | Elevated risk is declared | Run `/ds-skeptic` for the full orchestration template, or `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md` (Sections 2-5) - loop steps, state management, re-route limits, escalation. Findings accumulation across loop iterations (findings_log schema, re-raise detection, auto-close rule): `/ds-implement-ticket` Phase 6 |
 | **Findings classification and sign-off** | reviewing Skeptic output | `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md` (Sections 6, 11) - Critical/Major/Minor definitions, required sign-off format, validation rules |

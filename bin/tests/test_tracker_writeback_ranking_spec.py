@@ -933,8 +933,8 @@ def _catalog_toggle_keys() -> set:
     """Parse the '### Project config' catalog bullets in
     risk-config-and-tiers.md into a set of toggle key names, bounded to the
     section between that heading and the next heading (so an unrelated
-    bullet list elsewhere in the file, e.g. under 'Graph-derived risk
-    signal', can never be swept in by accident)."""
+    bullet list elsewhere in the file, e.g. a bullet list under a later
+    heading, can never be swept in by accident)."""
     text = CATALOG_PATH.read_text(encoding="utf-8")
     start = text.index("### Project config")
     heading_match = re.search(r"\n#{2,4} ", text[start + 1:])

@@ -1502,16 +1502,6 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
-      "expected_target": "content/references/risk-config-and-tiers.md",
-      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
-      "kind": "operational",
-      "occurrence_hash": "aae4c309d64f15bfab2a6e712f1e8d34a8530a474076055107b6d4c399b5865e",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/risk-config-and-tiers.md"
-    },
-    {
       "expected_target": "content/commands/ds-skeptic.md",
       "generated_token": "manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-skeptic`",
       "kind": "operational",
@@ -1802,16 +1792,6 @@
       "source_token": "content/references/activation-detail.md"
     },
     {
-      "expected_target": "content/references/risk-config-and-tiers.md",
-      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
-      "kind": "operational",
-      "occurrence_hash": "c45c1e24110444a5defbb21865c191f932da63fe7bc12b1a6c9a1f1a6201c3e7",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/risk-config-and-tiers.md"
-    },
-    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -1850,16 +1830,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/simplify"
-    },
-    {
-      "expected_target": "content/sections/04-risk-classification.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
-      "kind": "operational",
-      "occurrence_hash": "ca97e6bbfc397908b89d8fa8722f6a809f5c31039148e7211c38e4ee06081f40",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/04-risk-classification.md"
     },
     {
       "expected_target": "filesystem read",
@@ -2170,6 +2140,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/rules/conventions.md"
+    },
+    {
+      "expected_target": "content/references/risk-config-and-tiers.md",
+      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
+      "kind": "operational",
+      "occurrence_hash": "e6cca4ff9fe89517915bc245792a67754ee8d8001c12c1be95bdbfc2adeb5399",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
       "expected_target": "spawn_agent",
