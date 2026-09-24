@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Purpose: Drive the REAL .claude/install.sh against a scratch HOME and assert
+# Purpose: Drive the real .claude/install.sh against a scratch HOME and assert
 #          the chrome-devtools MCP registration it writes launches Chrome
 #          headless against a pinned profile root (U1), and that an operator
-#          whose registration predates those flags is MIGRATED rather than
+#          whose registration predates those flags is migrated rather than
 #          short-circuited as "already configured" (U3).
 #
 #          The R2 cases, each a separate install run:
@@ -13,7 +13,7 @@
 #                  entry, and every other top-level key is byte-identical
 #            V1b - prior registration, operator declines -> the config file is
 #                  byte-identical (cmp, not a parse-and-compare), paired with a
-#                  positive assertion that the install REACHED the migration
+#                  positive assertion that the install reached the migration
 #                  prompt (a no-op install would otherwise pass vacuously)
 #            V1c - a refused write (symlinked config) -> the installer still
 #                  completes and the file behind the symlink is untouched
@@ -29,8 +29,23 @@
 #                  last guard before a temp file exists) -> non-zero exit, the
 #                  shape named, the file byte-identical
 #            V5  - a stale entry carrying --channel=canary -> the pinned root
-#                  carries the same channel suffix the MCP appends, and a
-#                  --channel=stable entry (the control) gets the unsuffixed one
+#                  carries the same channel suffix the MCP appends, an empty
+#                  --channel= takes the unsuffixed path upstream's truthiness
+#                  test takes, and --channel=stable is the control against
+#                  over-suffixing
+#            V6  - a registration that already sets one of the flags the option
+#                  schema declares conflicting with --user-data-dir
+#                  (--browser-url, --ws-endpoint, --isolated, and the -u alias)
+#                  -> reported by name, no prompt and no write, because
+#                  appending the pin is what makes the server refuse to start
+#            V7  - a top-level JSON document that is not an object (array,
+#                  string, number, null) -> named and skipped, never replaced
+#            V8  - a JSON document deep enough to blow the decoder's recursion
+#                  limit -> named as unreadable, with no traceback reaching the
+#                  install output
+#            V10 - the sibling mcp-atlassian block against a config whose
+#                  mcpServers is an array -> the install still completes, the
+#                  shape is named, and the array is not clobbered
 #
 #          The ae_confirm prompt reads /dev/tty, so each case runs under a real
 #          pseudo-terminal (python3 pty.fork) with the answer written once the
@@ -42,7 +57,7 @@
 #          block's own key check finds nothing and prompts, and that prompt gets
 #          its own seeded answer.
 #
-#          MUTATION COVERAGE (each mutation is RUN, not merely named):
+#          Mutation coverage (each mutation is run, not merely named):
 #            (a) drop the --headless append           -> V1 reddens
 #            (b) report "current" for any existing key (the pre-U3
 #                short-circuit)                       -> V2 and V1b redden
@@ -65,7 +80,21 @@
 #            (l) disable the writer's entry guard -> V4's entry case reddens
 #            (m) disable the writer's args guard -> V4's args cases redden
 #            (n) pin the unsuffixed root for every channel (channel-blind)
-#                -> V5 reddens
+#                -> V5 reddens on its canary iteration
+#            (o) collapse a non-object top level into "absent" -> V7 reddens
+#            (p) drop RecursionError from the classifier's except tuple
+#                -> V8 reddens
+#            (q) drop that except clause and the classifier's 2>/dev/null
+#                -> V8 reddens on the traceback assertion itself
+#            (r) restore the pre-fix channel test (skip only 'stable') -> V5
+#                reddens on its empty-channel iteration
+#            (s) disable the mcp-atlassian writer's mcpServers guard -> V10
+#                reddens
+#            (t) drop the mcp-atlassian exit-status capture -> V10 reddens
+#            (u) collapse a conflicting registration into "stale" (the pre-fix
+#                classifier)                            -> V6 reddens
+#            (v) disable the writer's conflicting-flags guard -> V4's conflict
+#                case reddens
 #          A mutation is a full copy of .claude/install.sh, so it must live in
 #          .claude/ too (REPO_DIR is derived from the script's own path). Those
 #          copies are removed by the exit trap.
@@ -82,12 +111,12 @@
 # Failure modes: any assertion failure prints the failing assertion and exits
 #                1. A temporary fake HOME is used; the real ~/.claude and
 #                ~/.claude.json are never touched. A faked $HOME without the
-#                git shim below can escape its sandbox and mutate the LIVE
+#                git shim below can escape its sandbox and mutate the live
 #                primary checkout's pre-commit hook symlink - see Seed 5.
 #
-# Performance: 19 install runs per invocation (8 of the cases plus 11 mutation
-#              runs of the installer), measured at ~78 s total on a warm tree.
-#              The concurrent-writer and V4/V5 cases run the extracted writer
+# Performance: 33 install runs per invocation (19 of the cases plus 14 mutation
+#              runs of the installer), measured at ~176 s total on a warm tree.
+#              The concurrent-writer, V4 and V5 cases run the extracted writer
 #              instead, at negligible cost.
 
 set -uo pipefail
@@ -95,6 +124,17 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 INSTALL_SH="$REPO_DIR/.claude/install.sh"
 MUTATION_GLOB="$REPO_DIR/.claude/.mutation-install-$$-*"
+
+# The flag list the migration treats as conflicting with the pinned profile
+# root, read out of the installer rather than retyped: install.sh passes it to
+# both python blocks as an argument, and the writer blocks extracted below take
+# it the same way. Retyping it here would let the V6 assertions pass against a
+# list the installer does not use.
+CD_MCP_PIN_CONFLICTS="$(sed -n 's/^CD_MCP_PIN_CONFLICTS="\(.*\)"$/\1/p' "$INSTALL_SH")"
+if [[ -z "$CD_MCP_PIN_CONFLICTS" ]]; then
+  echo "FAIL: could not read CD_MCP_PIN_CONFLICTS out of $INSTALL_SH" >&2
+  exit 1
+fi
 
 PASS=0
 FAIL=0
@@ -111,7 +151,7 @@ _pass() {
 
 # run_case <label> <case-fn> <install-script>
 # The case runs in a subshell so its `out`/`rc` cannot leak; the verdict is
-# counted HERE, in the parent, because a counter incremented inside a subshell
+# counted here, in the parent, because a counter incremented inside a subshell
 # never reaches the harness total.
 run_case() {
   local label="$1" fn="$2" script="$3"
@@ -146,14 +186,14 @@ EOF
 done
 
 # ---------------------------------------------------------------------------
-# Seed 5 (git-level sandbox): running the REAL .claude/install.sh from an
+# Seed 5 (git-level sandbox): running the real .claude/install.sh from an
 # isolation worktree calls scripts/lib/precommit.sh's resolve_git_hooks_dir(),
 # which shells out to `git -C "$REPO_DIR" rev-parse --git-path hooks`. From a
-# worktree that resolves to the PRIMARY checkout's common .git/hooks dir, so an
+# worktree that resolves to the primary checkout's common .git/hooks dir, so an
 # unsandboxed run re-points the live primary checkout's .git/hooks/pre-commit
 # symlink at this disposable worktree. This shim (copied verbatim from
 # bin/tests/test_install_worktree_isolation_spawn_guard.sh, which the plan's
-# V14 names as the fixture to reuse) answers ONLY that exact query and passes
+# V14 names as the fixture to reuse) answers only that exact query and passes
 # every other git invocation through to the real binary.
 # ---------------------------------------------------------------------------
 REAL_GIT="$(command -v git)"
@@ -172,8 +212,8 @@ chmod +x "$FAKE_BIN/git"
 
 export AE_TEST_PATH="$FAKE_BIN:$PATH"
 
-# Snapshot the AMBIENT git hooks dir (resolved through the real, unsandboxed
-# git) BEFORE any install run, so the end-of-test assertion can prove the shim
+# Snapshot the ambient git hooks dir (resolved through the real, unsandboxed
+# git) before any install run, so the end-of-test assertion can prove the shim
 # prevented any mutation. The live symlink legitimately points at whichever
 # checkout last ran the installer, so this is a before/after comparison rather
 # than a comparison against this worktree's own path.
@@ -435,7 +475,7 @@ case_v2_accepted() {
     return 1
   fi
 
-  # Positive assertion that the stale entry was DETECTED rather than
+  # Positive assertion that the stale entry was detected rather than
   # short-circuited: the pre-U3 code printed the message asserted absent below.
   if ! grep -q "Update the existing chrome-devtools MCP" <<< "$out"; then
     _fail "V2: the migration prompt was never reached"
@@ -446,8 +486,8 @@ case_v2_accepted() {
     return 1
   fi
 
-  # R6: the capability the change removes must be stated WHERE THE OPERATOR IS
-  # ASKED TO ACCEPT IT, together with a one-step way back. Ordering is the
+  # R6: the capability the change removes must be stated where the operator is
+  # asked to accept it, together with a one-step way back. Ordering is the
   # load-bearing half - the same sentence printed after the prompt would not
   # inform the decision the prompt asks for.
   local trade_off_at prompt_at
@@ -613,10 +653,43 @@ case_v1d_unparseable() {
 # args value that is not a list of strings was discarded and then overwritten
 # with the flags alone. For the string form that yields
 # `npx --headless --user-data-dir=...`, a registration that cannot launch.
+#
+# A fourth fixture is the opposite case: a registration that is well formed but
+# already selects its own browser connection (or its own throwaway profile).
+# browser-options.js declares --user-data-dir conflicting with each of those,
+# and the server exits with "Arguments userDataDir and browserUrl are mutually
+# exclusive" instead of starting, so appending the pin there produces a
+# registration that cannot launch.
 # ---------------------------------------------------------------------------
+write_conflict_config() {
+  local path="$1"
+  shift
+  local args_json
+  args_json="$(printf '"chrome-devtools-mcp@latest"'; printf ', "%s"' "$@")"
+  cat > "$path" <<EOF
+{
+  "numStartups": 42,
+  "mcpServers": {
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        $args_json
+      ],
+      "env": {}
+    },
+    "mcp-atlassian": {}
+  }
+}
+EOF
+}
+
 write_shape_config() {
   local path="$1" shape="$2"
   case "$shape" in
+  conflict)
+    write_conflict_config "$path" "--browser-url=http://127.0.0.1:9222"
+    ;;
   container)
     cat > "$path" <<'EOF'
 {
@@ -685,6 +758,7 @@ shape_needle() {
   case "$1" in
   container) printf 'mcpServers is not a JSON object' ;;
   entry) printf 'the chrome-devtools entry is not a JSON object' ;;
+  conflict) printf 'which a pinned profile root conflicts with' ;;
   *) printf "the chrome-devtools entry has an args value that is not a list of strings" ;;
   esac
 }
@@ -735,7 +809,7 @@ case_shape_args_string() { case_shape_refused "$1" args-string; }
 
 # ---------------------------------------------------------------------------
 # Concurrent-writer guard. The window between the writer's read and its
-# pre-rename re-stat is microseconds, so this runs the SHIPPED writer block
+# pre-rename re-stat is microseconds, so this runs the shipped writer block
 # (extracted from install.sh, never retyped here) with one injected
 # `time.sleep` to hold the window open, and rewrites the file from another
 # process while it is open.
@@ -743,7 +817,7 @@ case_shape_args_string() { case_shape_refused "$1" args-string; }
 # extract_writer <source-install-sh> <output.py> - the source is a parameter
 # because the mutation harness runs the extracted writer for a mutated copy.
 extract_writer() {
-  # Stops BEFORE the heredoc's terminating PYEOF, which is shell syntax, not
+  # Stops before the heredoc's terminating PYEOF, which is shell syntax, not
   # Python: leaving it in makes the extracted block raise NameError at its last
   # line, so an unmutated-looking run would fail on a traceback instead of on
   # the guard under test.
@@ -784,7 +858,7 @@ case_concurrent_writer() {
   write_stale_config "$home/.claude.json"
   : > "$err"
 
-  ( python3 "$writer" "$home/.claude.json" 2>"$err" ) &
+  ( python3 "$writer" "$home/.claude.json" "$CD_MCP_PIN_CONFLICTS" 2>"$err" ) &
   local wpid=$!
   sleep 0.7
   printf '{"mcpServers":{},"changedByAnotherWriter":true}\n' > "$home/.claude.json"
@@ -829,7 +903,7 @@ case_writer_refuses() {
     return 1
   fi
   : > "$err"
-  ( python3 "$py" "$home/.claude.json" 2>"$err" )
+  ( python3 "$py" "$home/.claude.json" "$CD_MCP_PIN_CONFLICTS" 2>"$err" )
   rc=$?
   if [[ "$rc" == "0" ]]; then
     _fail "$shape: the writer accepted a container it cannot edit surgically (exit 0)"
@@ -851,14 +925,17 @@ case_writer_container() { case_writer_refuses "$1" container; }
 case_writer_entry() { case_writer_refuses "$1" entry; }
 case_writer_args_string() { case_writer_refuses "$1" args-string; }
 case_writer_args_element() { case_writer_refuses "$1" args-element; }
+case_writer_conflict() { case_writer_refuses "$1" conflict; }
 
 # V5: the pinned profile root must be the directory the server itself would
 # have chosen. Its default is channel-suffixed for any non-stable channel, so a
 # fixed unsuffixed pin moves a canary operator's profile instead of matching it.
-# The stable fixture is the control: it is what makes a channel-blind
-# implementation redden here too.
+# The two control fixtures say which way an implementation can be wrong: stable
+# reddens one that suffixes unconditionally, and the empty --channel= reddens
+# one that reads "is it stable" where upstream tests the channel for
+# truthiness (`channel && channel !== 'stable'`).
 write_channel_config() {
-  local path="$1" channel="$2"
+  local path="$1" channel_arg="$2"
   cat > "$path" <<EOF
 {
   "mcpServers": {
@@ -867,7 +944,7 @@ write_channel_config() {
       "command": "npx",
       "args": [
         "chrome-devtools-mcp@latest",
-        "--channel=$channel"
+        "$channel_arg"
       ],
       "env": {}
     },
@@ -884,24 +961,235 @@ case_writer_channel_suffix() {
   if ! extract_writer "$script" "$py"; then
     return 1
   fi
-  for pair in "canary:chrome-profile-canary" "stable:chrome-profile"; do
-    local channel="${pair%%:*}" dirname="${pair##*:}"
-    local home="$TMP_ROOT/channel-$channel-home"
+  for pair in "--channel=canary:chrome-profile-canary" "--channel=stable:chrome-profile" \
+              "--channel=:chrome-profile"; do
+    local channel_arg="${pair%%:*}" dirname="${pair##*:}"
+    local home="$TMP_ROOT/channel-${channel_arg#--channel=}-home"
     mkdir -p "$home"
-    write_channel_config "$home/.claude.json" "$channel"
-    ( HOME="$home" python3 "$py" "$home/.claude.json" ) >/dev/null 2>&1
+    write_channel_config "$home/.claude.json" "$channel_arg"
+    ( HOME="$home" python3 "$py" "$home/.claude.json" "$CD_MCP_PIN_CONFLICTS" ) >/dev/null 2>&1
     rc=$?
     if [[ "$rc" -ne 0 ]]; then
-      _fail "channel=$channel: the writer exited $rc on a legitimate stale entry"
+      _fail "$channel_arg: the writer exited $rc on a legitimate stale entry"
       return 1
     fi
-    want="[\"chrome-devtools-mcp@latest\", \"--channel=$channel\", \"--headless\", \"--user-data-dir=$home/.cache/chrome-devtools-mcp/$dirname\"]"
+    want="[\"chrome-devtools-mcp@latest\", \"$channel_arg\", \"--headless\", \"--user-data-dir=$home/.cache/chrome-devtools-mcp/$dirname\"]"
     got="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["mcpServers"]["chrome-devtools"]["args"]))' "$home/.claude.json")"
     if [[ "$got" != "$want" ]]; then
-      _fail "channel=$channel: the pinned profile root is wrong (want $want, got $got)"
+      _fail "$channel_arg: the pinned profile root is wrong (want $want, got $got)"
       return 1
     fi
   done
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# V6: a registration that already sets a flag the schema declares conflicting
+# with --user-data-dir must be left alone. Before this fix the classifier said
+# "stale", the writer exited 0 after appending --user-data-dir, the real server
+# then refused to start ("Arguments userDataDir and browserUrl are mutually
+# exclusive"; same for wsEndpoint and isolated), and the entry re-classified as
+# "current" - so the installer never offered again.
+# ---------------------------------------------------------------------------
+case_conflict_left_alone() {
+  local script="$1" label="$2"
+  shift 2
+  local home="$TMP_ROOT/conflict-$label-home"
+  local before="$TMP_ROOT/conflict-$label-before.json"
+  local out rc
+  mkdir -p "$home"
+  seed_home "$home"
+  write_conflict_config "$home/.claude.json" "$@"
+  cp "$home/.claude.json" "$before"
+
+  # A mutated installer that goes back to prompting would otherwise hang the
+  # pty for the whole driver deadline, so both migration prompts are seeded.
+  # The unmutated run reaches neither.
+  out="$(run_install "$script" "$home" '[["Configure chrome-devtools MCP", "y\n"], ["Update the existing chrome-devtools MCP", "y\n"]]')"
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    _fail "$label: install exited $rc"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if ! grep -qF "$(shape_needle conflict)" <<< "$out"; then
+    _fail "$label: the conflicting registration was not reported by name"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if grep -q "Configure chrome-devtools MCP\|Update the existing chrome-devtools MCP" <<< "$out"; then
+    _fail "$label: a registration the migration cannot touch was offered a prompt"
+    return 1
+  fi
+  if ! cmp -s "$before" "$home/.claude.json"; then
+    _fail "$label: the conflicting registration was modified (expected byte-identical)"
+    return 1
+  fi
+  # The pin is what breaks the server, so its absence is asserted directly
+  # rather than only through byte-identity.
+  if grep -q -- "--user-data-dir=" "$home/.claude.json"; then
+    _fail "$label: a --user-data-dir was written alongside a conflicting flag"
+    return 1
+  fi
+  return 0
+}
+
+case_conflict_browser_url() { case_conflict_left_alone "$1" browser-url "--browser-url=http://127.0.0.1:9222"; }
+case_conflict_ws_endpoint() { case_conflict_left_alone "$1" ws-endpoint "--ws-endpoint=ws://127.0.0.1:9222/devtools/browser/abc"; }
+case_conflict_isolated() { case_conflict_left_alone "$1" isolated "--isolated"; }
+case_conflict_camel() { case_conflict_left_alone "$1" camel "--browserUrl=http://127.0.0.1:9222"; }
+case_conflict_alias() { case_conflict_left_alone "$1" alias "-u" "http://127.0.0.1:9222"; }
+
+# ---------------------------------------------------------------------------
+# V7: the four non-object top-level documents json.load accepts. Each one
+# classified "absent" before this fix - only FileNotFoundError and a missing
+# entry reached that state - so the operator was offered the create prompt for
+# a file the writer then refused, an edit that could not be made.
+# ---------------------------------------------------------------------------
+write_top_level_config() {
+  local path="$1" kind="$2"
+  case "$kind" in
+  array) printf '["legacy-server-A", "legacy-server-B"]\n' > "$path" ;;
+  string) printf '"a config written as a bare string"\n' > "$path" ;;
+  number) printf '42\n' > "$path" ;;
+  null) printf 'null\n' > "$path" ;;
+  esac
+}
+
+case_top_level_not_object() {
+  local script="$1" kind="$2"
+  local home="$TMP_ROOT/toplevel-$kind-home"
+  local before="$TMP_ROOT/toplevel-$kind-before.json"
+  local out rc
+  mkdir -p "$home"
+  seed_home "$home"
+  write_top_level_config "$home/.claude.json" "$kind"
+  cp "$home/.claude.json" "$before"
+
+  # A non-object top level also defeats the atlassian block's own key check, so
+  # that prompt fires and needs an answer.
+  out="$(run_install "$script" "$home" '[["Configure chrome-devtools MCP", "y\n"], ["mcp-atlassian MCP", "n\n"]]')"
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    _fail "$kind: install exited $rc"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  # Checked before the naming assertion: the pre-fix behaviour was to classify
+  # this as absent and offer the create prompt, and that is the defect. The
+  # prompt message is what a mutation to the old classification reddens.
+  if grep -q "Configure chrome-devtools MCP" <<< "$out"; then
+    _fail "$kind: a file the writer cannot edit was offered the registration prompt"
+    return 1
+  fi
+  if ! grep -qF "the file's top level is not a JSON object" <<< "$out"; then
+    _fail "$kind: a non-object top level was not named"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if ! cmp -s "$before" "$home/.claude.json"; then
+    _fail "$kind: the non-object document was modified (expected byte-identical)"
+    return 1
+  fi
+  return 0
+}
+
+case_top_level_array() { case_top_level_not_object "$1" array; }
+case_top_level_string() { case_top_level_not_object "$1" string; }
+case_top_level_number() { case_top_level_not_object "$1" number; }
+case_top_level_null() { case_top_level_not_object "$1" null; }
+
+# ---------------------------------------------------------------------------
+# V8: a document deep enough to exhaust CPython's default recursion limit
+# inside json.load. Two properties are asserted: the state is a named skip
+# rather than a guess, and no traceback reaches the install output - a
+# redirection written on an assignment does not apply to the command
+# substitution inside it, so the classifier's stderr has to be redirected on
+# the python command itself.
+# ---------------------------------------------------------------------------
+write_deep_json_config() {
+  python3 - "$1" <<'PYEOF'
+import sys
+with open(sys.argv[1], "w") as f:
+    f.write("[" * 200000 + "]" * 200000)
+PYEOF
+}
+
+case_deeply_nested() {
+  local script="$1"
+  local home="$TMP_ROOT/deep-home"
+  local before="$TMP_ROOT/deep-before.json"
+  local out rc
+  mkdir -p "$home"
+  seed_home "$home"
+  write_deep_json_config "$home/.claude.json"
+  cp "$home/.claude.json" "$before"
+
+  out="$(run_install "$script" "$home" '[["Configure chrome-devtools MCP", "y\n"], ["mcp-atlassian MCP", "n\n"]]')"
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    _fail "deep: install exited $rc"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  # Checked before the state assertion: the mutation that drops the
+  # classifier's stderr redirection turns this fixture's exception into a
+  # traceback on the install output, and that is the property under test.
+  if grep -q "Traceback (most recent call last)" <<< "$out"; then
+    _fail "deep: a traceback reached the install output"
+    return 1
+  fi
+  if ! grep -qF "could not be read as JSON" <<< "$out"; then
+    _fail "deep: a document the decoder cannot parse was not reported as unreadable"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if ! cmp -s "$before" "$home/.claude.json"; then
+    _fail "deep: the unreadable document was modified"
+    return 1
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# V10: the sibling mcp-atlassian block. Its writer had no shape guard, so a
+# config whose mcpServers is an array raised an uncaught TypeError - and
+# because that python was not run as a tolerated condition, the non-zero exit
+# aborted the whole install under `set -euo pipefail`.
+# ---------------------------------------------------------------------------
+case_atlassian_container() {
+  local script="$1"
+  local home="$TMP_ROOT/atl-container-home"
+  local before="$TMP_ROOT/atl-container-before.json"
+  local out rc
+  mkdir -p "$home"
+  seed_home "$home"
+  write_shape_config "$home/.claude.json" container
+  cp "$home/.claude.json" "$before"
+
+  out="$(run_install "$script" "$home" '[["mcp-atlassian MCP", "y\n"]]')"
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    _fail "atlassian container: a malformed config aborted the install (exit $rc)"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if grep -q "Traceback (most recent call last)" <<< "$out"; then
+    _fail "atlassian container: a traceback reached the install output"
+    return 1
+  fi
+  # Checked before the message assertion: a writer that coerces the container
+  # instead of refusing clobbers the operator's server list, and that is the
+  # damage under test - the message only reports it.
+  if ! cmp -s "$before" "$home/.claude.json"; then
+    _fail "atlassian container: the refused container was modified"
+    return 1
+  fi
+  if ! grep -qF "mcp-atlassian MCP registration left unchanged" <<< "$out"; then
+    _fail "atlassian container: the refusal was not reported as a no-op"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
   return 0
 }
 
@@ -912,7 +1200,7 @@ case_writer_channel_suffix() {
 # ---------------------------------------------------------------------------
 # Sets MUTATE_OUT (the mutated copy's path) and returns 0, or returns 1 and
 # clears MUTATE_OUT when the sed pattern no longer matches anything. Must be
-# called in the CURRENT shell, never in a command substitution: `_fail` inside
+# called in the current shell, never in a command substitution: `_fail` inside
 # a subshell cannot reach the harness total.
 MUTATE_OUT=""
 mutate_installer() {
@@ -945,11 +1233,11 @@ mutate_installer() {
 expect_case_fails() {
   local label="$1" fn="$2" script="$3" want="$4"
   if ( "$fn" "$script" ) >"$TMP_ROOT/expect-fail.out" 2>"$TMP_ROOT/expect-fail.err"; then
-    _fail "$label: the case unexpectedly PASSED against the mutated installer"
+    _fail "$label: the case unexpectedly passed against the mutated installer"
     tail -5 "$TMP_ROOT/expect-fail.out" >&2
     return 1
   fi
-  # Print WHICH assertion reddened, so a mutation that fails the case for an
+  # Print which assertion reddened, so a mutation that fails the case for an
   # unrelated reason cannot be mistaken for targeted coverage.
   local reason
   reason="$(grep '^FAIL:' "$TMP_ROOT/expect-fail.err" | tail -1)"
@@ -1010,8 +1298,44 @@ run_case "V4: the writer refuses a string args value" \
   case_writer_args_string "$INSTALL_SH"
 run_case "V4: the writer refuses an args list containing a non-string" \
   case_writer_args_element "$INSTALL_SH"
+run_case "V4: the writer refuses a registration carrying a conflicting flag" \
+  case_writer_conflict "$INSTALL_SH"
 run_case "V5: the pinned profile root carries the entry's own channel suffix" \
   case_writer_channel_suffix "$INSTALL_SH"
+
+echo ""
+echo "=== V6: a registration carrying a flag the pin conflicts with is left alone ==="
+run_case "V6: --browser-url is reported and the pin is withheld" \
+  case_conflict_browser_url "$INSTALL_SH"
+run_case "V6: --ws-endpoint is reported and the pin is withheld" \
+  case_conflict_ws_endpoint "$INSTALL_SH"
+run_case "V6: --isolated is reported and the pin is withheld" \
+  case_conflict_isolated "$INSTALL_SH"
+run_case "V6: the camelCase --browserUrl spelling is recognised too" \
+  case_conflict_camel "$INSTALL_SH"
+run_case "V6: the -u alias is recognised too" \
+  case_conflict_alias "$INSTALL_SH"
+
+echo ""
+echo "=== V7: a top-level document that is not an object is named and skipped ==="
+run_case "V7: a top-level array is named and skipped" \
+  case_top_level_array "$INSTALL_SH"
+run_case "V7: a top-level string is named and skipped" \
+  case_top_level_string "$INSTALL_SH"
+run_case "V7: a top-level number is named and skipped" \
+  case_top_level_number "$INSTALL_SH"
+run_case "V7: a top-level null is named and skipped" \
+  case_top_level_null "$INSTALL_SH"
+
+echo ""
+echo "=== V8: a config too deep to parse is named, with no traceback ==="
+run_case "V8: an unparseable-depth document is skipped without a traceback" \
+  case_deeply_nested "$INSTALL_SH"
+
+echo ""
+echo "=== V10: the sibling mcp-atlassian block survives a malformed config ==="
+run_case "V10: an array mcpServers does not abort the install" \
+  case_atlassian_container "$INSTALL_SH"
 
 echo ""
 echo "=== Concurrent-writer guard ==="
@@ -1129,7 +1453,7 @@ else
   _fail "mutation (m): the sed pattern no longer matches - the mutation was not applied"
 fi
 
-if mutate_installer 's/^    return "" if channel in (None, "stable") else "-" + channel$/    return ""/' channel-blind; then
+if mutate_installer 's/^    return "" if not channel or channel == "stable" else "-" + channel$/    return ""/' channel-blind; then
   if expect_case_fails "mutation (n) channel-blind pinned root" case_writer_channel_suffix "$MUTATE_OUT" \
     "the pinned profile root is wrong"; then
     _pass "mutation (n): pinning the unsuffixed root for every channel reddens V5"
@@ -1147,7 +1471,10 @@ else
   _fail "mutation (e): the sed pattern no longer matches - the mutation was not applied"
 fi
 
-if mutate_installer 's/if ! python3 - /if python3 - /' invert-guard; then
+# Anchored on the chrome-devtools block's indentation: the mcp-atlassian block
+# wraps its writer differently, so an unanchored pattern would now neutralise
+# that block's guard as well and credit V1c with a mutation it did not make.
+if mutate_installer 's/^    if ! python3 - /    if python3 - /' invert-guard; then
   if expect_case_fails "mutation (d) inverted refuse-guard" case_v1c_refusal_nonfatal "$MUTATE_OUT" \
     "V1c: install did not report the refusal as a no-op"; then
     _pass "mutation (d): inverting the refuse-guard's exit handling reddens V1c"
@@ -1164,6 +1491,93 @@ if [[ -f "$TMP_ROOT/writer_slow.py" ]]; then
     "concurrent-writer: the writer overwrote a file that changed under it"; then
     _pass "mutation (c): dropping the pre-rename re-stat reddens the concurrent-writer case"
   fi
+fi
+
+# (o): the pre-fix classifier treated a top-level non-object as "absent", which
+# runs the create path against a file the writer refuses.
+if mutate_installer 's/^    print("not-json-object")$/    print("absent")/' unrefuse-top-level; then
+  if expect_case_fails "mutation (o) non-object top level treated as absent" case_top_level_array "$MUTATE_OUT" \
+    "was offered the registration prompt"; then
+    _pass "mutation (o): collapsing a non-object top level into absent reddens V7"
+  fi
+else
+  _fail "mutation (o): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+# (p)/(q): (p) lets the decoder's RecursionError escape, which routes the state
+# to "undetermined"; (q) additionally drops the classifier's stderr redirection,
+# so the escaping exception prints a traceback into the install output. The two
+# are separate so each property has a mutation that reddens it on its own.
+if mutate_installer 's/^except (OSError, ValueError, RecursionError):$/except (OSError,):/' narrow-except; then
+  if expect_case_fails "mutation (p) RecursionError uncaught" case_deeply_nested "$MUTATE_OUT" \
+    "was not reported as unreadable"; then
+    _pass "mutation (p): letting RecursionError escape reddens V8"
+  fi
+else
+  _fail "mutation (p): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+if mutate_installer "s/^except (OSError, ValueError, RecursionError):\$/except (OSError,):/;s/<<'PYEOF' 2>\\/dev\\/null/<<'PYEOF'/" unsuppressed-stderr; then
+  if expect_case_fails "mutation (q) classifier stderr unsuppressed" case_deeply_nested "$MUTATE_OUT" \
+    "a traceback reached the install output"; then
+    _pass "mutation (q): an escaping exception with the redirection dropped reddens V8 on the traceback"
+  fi
+else
+  _fail "mutation (q): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+# (r): the pre-fix channel test skipped only 'stable' by name, so an empty
+# --channel= took the suffixed branch where upstream's truthiness test does not.
+if mutate_installer 's/^    return "" if not channel or channel == "stable" else "-" + channel$/    return "" if channel in (None, "stable") else "-" + channel/' binary-channel-test; then
+  if expect_case_fails "mutation (r) pre-fix channel test" case_writer_channel_suffix "$MUTATE_OUT" \
+    "--channel=: the pinned profile root is wrong"; then
+    _pass "mutation (r): restoring the pre-fix channel test reddens V5's empty-channel iteration"
+  fi
+else
+  _fail "mutation (r): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+# (s)/(t): the two halves of the mcp-atlassian fix. (s) removes the shape guard
+# (the array is clobbered); (t) removes the exit-status capture (a refusal
+# aborts the install). Both are range-limited to the atlassian block, because
+# the chrome-devtools writer spells its own guard identically.
+if mutate_installer '/^# mcp-atlassian MCP$/,/^# context7 plugin note$/ s/^    refuse("mcpServers is not a JSON object")$/    pass/' coerce-atlassian-container; then
+  if expect_case_fails "mutation (s) atlassian coerces a non-object mcpServers" case_atlassian_container "$MUTATE_OUT" \
+    "the refused container was modified"; then
+    _pass "mutation (s): letting the atlassian writer replace a non-object mcpServers reddens V10"
+  fi
+else
+  _fail "mutation (s): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+if mutate_installer 's/ || AE_ATLASSIAN_RC=\$?$//' atlassian-abort; then
+  if expect_case_fails "mutation (t) atlassian refusal not tolerated" case_atlassian_container "$MUTATE_OUT" \
+    "a malformed config aborted the install"; then
+    _pass "mutation (t): dropping the exit-status capture reddens V10"
+  fi
+else
+  _fail "mutation (t): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+# (u): the pre-fix classifier called a conflicting registration "stale" and
+# offered the migration prompt.
+if mutate_installer 's/^    print("pin-conflict")$/    print("stale")/' unrefuse-pin-conflict; then
+  if expect_case_fails "mutation (u) conflicting registration treated as stale" case_conflict_browser_url "$MUTATE_OUT" \
+    "was offered a prompt"; then
+    _pass "mutation (u): collapsing a conflicting registration into stale reddens V6"
+  fi
+else
+  _fail "mutation (u): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+# (v): the writer's own guard, driven directly through the V4 conflict case.
+if mutate_installer 's/^if any(a\.split("=", 1)\[0\] in conflicts for a in args):$/if False:/' coerce-conflict; then
+  if expect_case_fails "mutation (v) writer appends the pin over a conflicting flag" case_writer_conflict "$MUTATE_OUT" \
+    "the writer accepted a container it cannot edit surgically"; then
+    _pass "mutation (v): disabling the writer's conflicting-flags guard reddens V4's conflict case"
+  fi
+else
+  _fail "mutation (v): the sed pattern no longer matches - the mutation was not applied"
 fi
 
 # ---------------------------------------------------------------------------
@@ -1184,7 +1598,7 @@ fi
 if [[ "$AMBIENT_PRECOMMIT_AFTER" == "$AMBIENT_PRECOMMIT_BEFORE" ]]; then
   _pass "ambient hooks dir's pre-commit symlink is unchanged by these install runs (before: '$AMBIENT_PRECOMMIT_BEFORE', after: '$AMBIENT_PRECOMMIT_AFTER')"
 else
-  _fail "ambient hooks dir's pre-commit symlink CHANGED (sandbox failed): before '$AMBIENT_PRECOMMIT_BEFORE', after '$AMBIENT_PRECOMMIT_AFTER'"
+  _fail "ambient hooks dir's pre-commit symlink changed (sandbox failed): before '$AMBIENT_PRECOMMIT_BEFORE', after '$AMBIENT_PRECOMMIT_AFTER'"
 fi
 
 echo ""

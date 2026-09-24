@@ -53,7 +53,7 @@ The install script will prompt to install these optional tools that enhance the 
 - `rclone` - file sync for Google Drive access. Install: `brew install rclone`
 
 **MCP Servers:**
-- `chrome-devtools` - Chrome DevTools access for page inspection, DOM, network, console. Configured in `~/.claude.json`, registered to launch Chrome **headless** (`--headless`, plus an explicitly pinned `--user-data-dir` profile root) so an agent-driven browser leaves no window on your desktop. You give up watching an agent's browser live (screenshots and script evaluation are unaffected); remove `--headless` from that entry's `args` to get the window back. If you installed before that default shipped, re-running the installer offers to add the flags to your existing entry; declining leaves the file byte-identical.
+- `chrome-devtools` - Chrome DevTools access for page inspection, DOM, network, console. Configured in `~/.claude.json`, registered to launch Chrome **headless** (`--headless`, plus an explicitly pinned `--user-data-dir` profile root) so an agent-driven browser leaves no window on your desktop. You give up watching an agent's browser live (screenshots and script evaluation are unaffected); remove `--headless` from that entry's `args` to get the window back. If you installed before that default shipped, re-running the installer offers to add the flags to your existing entry; declining leaves the file byte-identical. A registration that already sets its own browser connection or isolated profile (`--browser-url`, `--ws-endpoint`, `--isolated`) is reported and left untouched, because the pinned profile root conflicts with each of those.
 
 **Plugins:**
 - `context7` - library and framework documentation. Enable in Claude Code settings.

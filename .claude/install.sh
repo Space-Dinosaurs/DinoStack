@@ -1995,23 +1995,37 @@ CLAUDE_JSON="$HOME/.claude.json"
 # --channel=canary), so the pinned path carries the same suffix. --isolated is
 # not passed: the option schema declares it conflicting with --user-data-dir.
 #
+# An entry whose args already carry a flag this schema declares conflicting
+# with userDataDir is reported and left alone. Adding the pin alongside one of
+# them is what made the server refuse to start ("Arguments userDataDir and
+# browserUrl are mutually exclusive"), and the pin is the migration's whole
+# edit, so there is no partial version of it worth writing.
+#
 # State is detected rather than testing only "is the key present", because a
 # registration written before the headless default shipped has the key but
 # lacks the flags - a short-circuit there would leave that operator headless
-# forever. absent | stale | current are the states this writer can edit;
-# unreadable, mcp-servers-not-object, entry-not-object and args-not-string-list
-# are refusals, and none of the four is ever rewritten blind.
-CD_MCP_STATE="$(python3 - "$CLAUDE_JSON" <<'PYEOF'
+# forever. absent | stale | current are the states this writer can edit; every
+# other state below leaves the file untouched, and none is rewritten blind.
+#
+# Flag names the option schema declares conflicting with userDataDir
+# (browser-options.js: userDataDir conflicts with browserUrl, wsEndpoint and
+# isolated). Single-sourced here because two separate python blocks consult
+# it - the classifier to predict the writer's decision, the writer to refuse
+# that registration if it ever reaches it - and the two must not drift.
+CD_MCP_PIN_CONFLICTS="--browser-url,--browserUrl,-u,--ws-endpoint,--wsEndpoint,-w,--isolated"
+
+CD_MCP_STATE="$(python3 - "$CLAUDE_JSON" "$CD_MCP_PIN_CONFLICTS" <<'PYEOF' 2>/dev/null
 import json, sys
 
 target = sys.argv[1]
+conflicts = set(sys.argv[2].split(","))
 try:
     with open(target, encoding="utf-8") as f:
         data = json.load(f)
 except FileNotFoundError:
     print("absent")
     sys.exit(0)
-except (OSError, ValueError):
+except (OSError, ValueError, RecursionError):
     print("unreadable")
     sys.exit(0)
 
@@ -2019,8 +2033,11 @@ except (OSError, ValueError):
 # collapsed into absent: absent runs the create path, which would write over
 # content the operator owns (a legacy server list, an array standing where an
 # entry belongs).
-servers = data.get("mcpServers") if isinstance(data, dict) else None
-if isinstance(data, dict) and "mcpServers" in data and not isinstance(servers, dict):
+if not isinstance(data, dict):
+    print("not-json-object")
+    sys.exit(0)
+servers = data.get("mcpServers")
+if "mcpServers" in data and not isinstance(servers, dict):
     print("mcp-servers-not-object")
     sys.exit(0)
 entry = servers.get("chrome-devtools") if isinstance(servers, dict) else None
@@ -2036,22 +2053,29 @@ args = [a for a in raw_args if isinstance(a, str)] if isinstance(raw_args, list)
 
 if entry is None:
     print("absent")
+elif any(a.split("=", 1)[0] in conflicts for a in args):
+    print("pin-conflict")
 elif "--headless" in args and any(a.startswith("--user-data-dir=") for a in args):
     print("current")
 else:
     print("stale")
 PYEOF
-)" 2>/dev/null || CD_MCP_STATE="absent"
+)" || CD_MCP_STATE="undetermined"
 
 if [[ "$CD_MCP_STATE" == "current" ]]; then
   echo "  = chrome-devtools MCP already configured (headless)"
 elif [[ "$CD_MCP_STATE" == "unreadable" ]]; then
   echo "  ! $CLAUDE_JSON could not be read as JSON - leaving the chrome-devtools MCP entry untouched"
-elif [[ "$CD_MCP_STATE" == "mcp-servers-not-object" || "$CD_MCP_STATE" == "entry-not-object" || "$CD_MCP_STATE" == "args-not-string-list" ]]; then
+elif [[ "$CD_MCP_STATE" == "undetermined" ]]; then
+  echo "  ! $CLAUDE_JSON could not be classified - leaving the chrome-devtools MCP entry untouched"
+elif [[ "$CD_MCP_STATE" == "pin-conflict" ]]; then
+  echo "  = chrome-devtools MCP sets its own browser connection or isolated profile, which a pinned profile root conflicts with; leaving that registration untouched"
+elif [[ "$CD_MCP_STATE" == "not-json-object" || "$CD_MCP_STATE" == "mcp-servers-not-object" || "$CD_MCP_STATE" == "entry-not-object" || "$CD_MCP_STATE" == "args-not-string-list" ]]; then
   # Refuse rather than coerce. The writer below has no surgical edit for any
   # of these shapes, so it is never reached and the file stays untouched.
   CD_MCP_SHAPE=""
   case "$CD_MCP_STATE" in
+    not-json-object) CD_MCP_SHAPE="the file's top level is not a JSON object" ;;
     mcp-servers-not-object) CD_MCP_SHAPE="mcpServers is not a JSON object" ;;
     entry-not-object) CD_MCP_SHAPE="the chrome-devtools entry is not a JSON object" ;;
     args-not-string-list) CD_MCP_SHAPE="the chrome-devtools entry has an args value that is not a list of strings" ;;
@@ -2071,10 +2095,11 @@ else
     # same-directory temp file followed by os.replace, so an interrupted run
     # cannot truncate the operator's ~/.claude.json. The caller tolerates the
     # non-zero exit: a refusal is not a reason to fail the whole install.
-    if ! python3 - "$CLAUDE_JSON" <<'PYEOF'
+    if ! python3 - "$CLAUDE_JSON" "$CD_MCP_PIN_CONFLICTS" <<'PYEOF'
 import json, os, stat, sys, tempfile
 
 target = sys.argv[1]
+conflicts = set(sys.argv[2].split(","))
 
 
 def ask_manual(reason, entry_args):
@@ -2099,14 +2124,16 @@ def channel_suffix(args):
     # The MCP's own default profile dir is channel-suffixed for any non-stable
     # channel (`chrome-profile-canary` under --channel=canary). A pinned path
     # without that suffix is not the directory the server would have used, so
-    # pinning it would move the profile rather than match it.
+    # pinning it would move the profile rather than match it. Upstream tests
+    # the channel for truthiness (`channel && channel !== 'stable'`), so an
+    # empty value takes the unsuffixed branch there and has to take it here.
     channel = None
     for i, a in enumerate(args):
         if a.startswith("--channel="):
             channel = a[len("--channel="):]
         elif a == "--channel" and i + 1 < len(args):
             channel = args[i + 1]
-    return "" if channel in (None, "stable") else "-" + channel
+    return "" if not channel or channel == "stable" else "-" + channel
 
 
 if os.path.islink(target):
@@ -2155,8 +2182,20 @@ args_ok = isinstance(raw_args, list) and all(isinstance(a, str) for a in raw_arg
 if "args" in entry and not args_ok:
     refuse("the chrome-devtools entry has an args value that is not a list of strings")
 
-# Append only what is missing, so an operator's own extra flags survive.
 args = [a for a in raw_args if isinstance(a, str)] if isinstance(raw_args, list) else []
+
+# An entry that already selects a browser connection (browserUrl, wsEndpoint)
+# or its own throwaway profile (isolated) cannot take the pin: the schema
+# declares userDataDir conflicting with each, and the server exits with
+# "Arguments userDataDir and browserUrl are mutually exclusive" instead of
+# starting. Skipping only the pin would leave the entry reported as migrated
+# when the migration's edit was not made, so it is refused outright. The
+# classifier reports the same entries, so a real install does not reach this.
+if any(a.split("=", 1)[0] in conflicts for a in args):
+    refuse("the chrome-devtools entry sets a browser connection or an isolated"
+           " profile, which a pinned profile root conflicts with")
+
+# Append only what is missing, so an operator's own extra flags survive.
 if "--headless" not in args:
     args.append("--headless")
 if not any(a.startswith("--user-data-dir=") for a in args):
@@ -2220,17 +2259,42 @@ sys.exit(0 if 'mcp-atlassian' in d.get('mcpServers', {}) else 1)
   echo "  = mcp-atlassian MCP already configured"
 else
   if ae_confirm "  Configure mcp-atlassian MCP — interact with Jira and Confluence from Claude Code? [y/N] "; then
-    python3 - <<'PYEOF'
+    # Same shape as the chrome-devtools writer: a container this block cannot
+    # edit surgically is refused rather than coerced. The exit status is
+    # captured rather than left to `set -e`, so a refusal - which is a normal
+    # outcome for a malformed config file - cannot abort the whole install.
+    AE_ATLASSIAN_RC=0
+    python3 - "$CLAUDE_JSON" <<'PYEOF' || AE_ATLASSIAN_RC=$?
 import json, os, sys
 
-target = os.path.expanduser("~/.claude.json")
-if os.path.exists(target):
-    with open(target) as f:
-        data = json.load(f)
-else:
-    data = {}
+target = sys.argv[1]
 
-servers = data.setdefault("mcpServers", {})
+
+def refuse(shape):
+    sys.stderr.write("\n".join([
+        "  ! " + target + ": " + shape + ", so nothing was written.",
+        "    Fix that value by hand (or remove it) and re-run this installer.",
+    ]) + "\n")
+    sys.exit(1)
+
+
+data = {}
+if os.path.exists(target):
+    try:
+        with open(target, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError, RecursionError):
+        refuse("the file is not readable JSON")
+    if not isinstance(data, dict):
+        refuse("the file's top level is not a JSON object")
+
+if "mcpServers" in data and not isinstance(data["mcpServers"], dict):
+    refuse("mcpServers is not a JSON object")
+servers = data.get("mcpServers")
+if not isinstance(servers, dict):
+    servers = {}
+    data["mcpServers"] = servers
+
 if "mcp-atlassian" not in servers:
     servers["mcp-atlassian"] = {
         "type": "stdio",
@@ -2241,12 +2305,15 @@ if "mcp-atlassian" not in servers:
     if os.path.islink(target):
         sys.stderr.write(f"refusing to write through symlink: {target}\n")
         sys.exit(1)
-    with open(target, "w") as f:
+    with open(target, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     print("  + mcp-atlassian MCP configured in ~/.claude.json")
 else:
     print("  = mcp-atlassian MCP already configured")
 PYEOF
+    if [[ "$AE_ATLASSIAN_RC" -ne 0 ]]; then
+      echo "  - mcp-atlassian MCP registration left unchanged"
+    fi
   else
     echo "  - skipped mcp-atlassian MCP"
   fi
