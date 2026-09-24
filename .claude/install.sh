@@ -2007,18 +2007,30 @@ CLAUDE_JSON="$HOME/.claude.json"
 # forever. absent | stale | current are the states this writer can edit; every
 # other state below leaves the file untouched, and none is rewritten blind.
 #
-# Flag names the option schema declares conflicting with userDataDir
-# (browser-options.js: userDataDir conflicts with browserUrl, wsEndpoint and
-# isolated). Single-sourced here because two separate python blocks consult
-# it - the classifier to predict the writer's decision, the writer to refuse
-# that registration if it ever reaches it - and the two must not drift.
+# On top of that, none of the flag-based states below is reachable for an entry
+# whose args do not invoke the package being configured. The migration's whole
+# edit is an args append, so such an entry - a `{"command": "npx"}` one, an
+# empty args list, a bare `{}` - would gain the flags alone: `npx --headless
+# --user-data-dir=...`, a registration that cannot launch, which would then
+# classify current so the installer never offered again. Those entries are
+# reported as themselves instead; the file is left as it is.
+#
+# The package the migration writes, and the one an entry has to name before any
+# of those states apply. Single-sourced here because two separate python blocks
+# consult it - the classifier to predict the writer's decision, the writer to
+# refuse that registration if it ever reaches it - and the two must not drift.
+# The flag list below is single-sourced for the same reason: the option schema
+# declares userDataDir conflicting with browserUrl, wsEndpoint and isolated
+# (browser-options.js), and headless conflicting with nothing at all.
+CD_MCP_PACKAGE="chrome-devtools-mcp"
 CD_MCP_PIN_CONFLICTS="--browser-url,--browserUrl,-u,--ws-endpoint,--wsEndpoint,-w,--isolated"
 
-CD_MCP_STATE="$(python3 - "$CLAUDE_JSON" "$CD_MCP_PIN_CONFLICTS" <<'PYEOF' 2>/dev/null
+CD_MCP_STATE="$(python3 - "$CLAUDE_JSON" "$CD_MCP_PIN_CONFLICTS" "$CD_MCP_PACKAGE" <<'PYEOF' 2>/dev/null
 import json, sys
 
 target = sys.argv[1]
 conflicts = set(sys.argv[2].split(","))
+package = sys.argv[3]
 try:
     with open(target, encoding="utf-8") as f:
         data = json.load(f)
@@ -2053,6 +2065,8 @@ args = [a for a in raw_args if isinstance(a, str)] if isinstance(raw_args, list)
 
 if entry is None:
     print("absent")
+elif not any(a == package or a.startswith(package + "@") for a in args):
+    print("args-not-our-package")
 elif any(a.split("=", 1)[0] in conflicts for a in args):
     print("pin-conflict")
 elif "--headless" in args and any(a.startswith("--user-data-dir=") for a in args):
@@ -2070,6 +2084,9 @@ elif [[ "$CD_MCP_STATE" == "undetermined" ]]; then
   echo "  ! $CLAUDE_JSON could not be classified - leaving the chrome-devtools MCP entry untouched"
 elif [[ "$CD_MCP_STATE" == "pin-conflict" ]]; then
   echo "  = chrome-devtools MCP sets its own browser connection or isolated profile, which a pinned profile root conflicts with; leaving that registration untouched"
+  echo "  If that registration leaves a visible window, add --headless to its args in $CLAUDE_JSON - --headless conflicts with none of those flags, and the next session picks it up."
+elif [[ "$CD_MCP_STATE" == "args-not-our-package" ]]; then
+  echo "  = chrome-devtools MCP registration's args do not name the package this installer writes ($CD_MCP_PACKAGE); leaving that registration untouched"
 elif [[ "$CD_MCP_STATE" == "not-json-object" || "$CD_MCP_STATE" == "mcp-servers-not-object" || "$CD_MCP_STATE" == "entry-not-object" || "$CD_MCP_STATE" == "args-not-string-list" ]]; then
   # Refuse rather than coerce. The writer below has no surgical edit for any
   # of these shapes, so it is never reached and the file stays untouched.
@@ -2095,11 +2112,12 @@ else
     # same-directory temp file followed by os.replace, so an interrupted run
     # cannot truncate the operator's ~/.claude.json. The caller tolerates the
     # non-zero exit: a refusal is not a reason to fail the whole install.
-    if ! python3 - "$CLAUDE_JSON" "$CD_MCP_PIN_CONFLICTS" <<'PYEOF'
+    if ! python3 - "$CLAUDE_JSON" "$CD_MCP_PIN_CONFLICTS" "$CD_MCP_PACKAGE" <<'PYEOF'
 import json, os, stat, sys, tempfile
 
 target = sys.argv[1]
 conflicts = set(sys.argv[2].split(","))
+package = sys.argv[3]
 
 
 def ask_manual(reason, entry_args):
@@ -2172,7 +2190,7 @@ if created:
     entry = {
         "type": "stdio",
         "command": "npx",
-        "args": ["chrome-devtools-mcp@latest"],
+        "args": [package + "@latest"],
         "env": {},
     }
     servers["chrome-devtools"] = entry
@@ -2183,6 +2201,14 @@ if "args" in entry and not args_ok:
     refuse("the chrome-devtools entry has an args value that is not a list of strings")
 
 args = [a for a in raw_args if isinstance(a, str)] if isinstance(raw_args, list) else []
+
+# The append below can only migrate an entry that already invokes this
+# package. On anything else it writes the flags alone, which is a registration
+# that cannot launch. The classifier reports the same entries, so a real
+# install does not reach this.
+if not any(a == package or a.startswith(package + "@") for a in args):
+    refuse("the chrome-devtools entry's args do not name the package this"
+           " installer writes (" + package + ")")
 
 # An entry that already selects a browser connection (browserUrl, wsEndpoint)
 # or its own throwaway profile (isolated) cannot take the pin: the schema
@@ -2260,12 +2286,14 @@ sys.exit(0 if 'mcp-atlassian' in d.get('mcpServers', {}) else 1)
 else
   if ae_confirm "  Configure mcp-atlassian MCP — interact with Jira and Confluence from Claude Code? [y/N] "; then
     # Same shape as the chrome-devtools writer: a container this block cannot
-    # edit surgically is refused rather than coerced. The exit status is
+    # edit surgically is refused rather than coerced, and the write goes
+    # through a same-directory temp file and os.replace so an interrupted run
+    # cannot truncate the operator's ~/.claude.json. The exit status is
     # captured rather than left to `set -e`, so a refusal - which is a normal
     # outcome for a malformed config file - cannot abort the whole install.
     AE_ATLASSIAN_RC=0
     python3 - "$CLAUDE_JSON" <<'PYEOF' || AE_ATLASSIAN_RC=$?
-import json, os, sys
+import json, os, stat, sys, tempfile
 
 target = sys.argv[1]
 
@@ -2305,8 +2333,21 @@ if "mcp-atlassian" not in servers:
     if os.path.islink(target):
         sys.stderr.write(f"refusing to write through symlink: {target}\n")
         sys.exit(1)
-    with open(target, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    before = os.stat(target) if os.path.exists(target) else None
+    fd, tmp_path = tempfile.mkstemp(
+        dir=os.path.dirname(os.path.abspath(target)), prefix=".claude.json.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        if before is not None:
+            # mkstemp creates the temp file 0600 regardless of the target's
+            # own mode; carry the operator's mode over so the swap does not
+            # narrow it.
+            os.chmod(tmp_path, stat.S_IMODE(before.st_mode))
+        os.replace(tmp_path, target)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
     print("  + mcp-atlassian MCP configured in ~/.claude.json")
 else:
     print("  = mcp-atlassian MCP already configured")

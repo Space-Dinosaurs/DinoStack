@@ -43,9 +43,22 @@
 #            V8  - a JSON document deep enough to blow the decoder's recursion
 #                  limit -> named as unreadable, with no traceback reaching the
 #                  install output
+#            V9  - a registration whose args do not name chrome-devtools-mcp
+#                  (three shapes: no args key, an empty args list, a bare {}
+#                  entry) -> the migration's args append would write the flags
+#                  alone, a registration that cannot launch, so the state is
+#                  reported by name and the file left byte-identical
 #            V10 - the sibling mcp-atlassian block against a config whose
 #                  mcpServers is an array -> the install still completes, the
 #                  shape is named, and the array is not clobbered
+#            V11 - the sibling mcp-atlassian writer on a run whose only file
+#                  write is that one -> the operator's non-ASCII value and
+#                  unrelated keys survive byte-for-byte, the file's mode is
+#                  carried over, and no temp file is left behind
+#            V12 - that writer killed inside its write window -> the operator's
+#                  config is still byte-identical, because the write lands in a
+#                  temp file and os.replace instead of truncating the target
+#                  in place
 #
 #          The ae_confirm prompt reads /dev/tty, so each case runs under a real
 #          pseudo-terminal (python3 pty.fork) with the answer written once the
@@ -95,6 +108,17 @@
 #                classifier)                            -> V6 reddens
 #            (v) disable the writer's conflicting-flags guard -> V4's conflict
 #                case reddens
+#            (w) collapse an entry that does not name the package into "stale"
+#                (the pre-fix catch-all) -> V9 reddens
+#            (x) disable the writer's package guard -> V4's foreign cases
+#                redden
+#            (y) drop ensure_ascii=False from the mcp-atlassian writer -> V11
+#                reddens
+#            (z) drop the mcp-atlassian writer's mode carry-over -> V11 reddens
+#            (aa) restore the pre-fix in-place write (open(target, "w")) in
+#                the mcp-atlassian writer -> V12 reddens
+#            (ab) drop the pin-conflict report's line naming --headless -> V6
+#                reddens
 #          A mutation is a full copy of .claude/install.sh, so it must live in
 #          .claude/ too (REPO_DIR is derived from the script's own path). Those
 #          copies are removed by the exit trap.
@@ -114,10 +138,12 @@
 #                git shim below can escape its sandbox and mutate the live
 #                primary checkout's pre-commit hook symlink - see Seed 5.
 #
-# Performance: 33 install runs per invocation (19 of the cases plus 14 mutation
-#              runs of the installer), measured at ~176 s total on a warm tree.
-#              The concurrent-writer, V4 and V5 cases run the extracted writer
-#              instead, at negligible cost.
+# Performance: 44 install runs per invocation (23 of the cases plus 21 mutation
+#              runs of the installer), counted by shimming every `bash
+#              <install.sh>` invocation on PATH, measured at ~170 s total on a
+#              warm tree. The concurrent-writer, V4, V5, V12 and the (c)/(x)/
+#              (aa) mutations run the extracted writer instead, at negligible
+#              cost.
 
 set -uo pipefail
 
@@ -133,6 +159,16 @@ MUTATION_GLOB="$REPO_DIR/.claude/.mutation-install-$$-*"
 CD_MCP_PIN_CONFLICTS="$(sed -n 's/^CD_MCP_PIN_CONFLICTS="\(.*\)"$/\1/p' "$INSTALL_SH")"
 if [[ -z "$CD_MCP_PIN_CONFLICTS" ]]; then
   echo "FAIL: could not read CD_MCP_PIN_CONFLICTS out of $INSTALL_SH" >&2
+  exit 1
+fi
+
+# The package an entry has to name to be a migration target, read out of the
+# installer for the same reason: the classifier and the writer both take it as
+# an argument, and the V9/V4 assertions below would otherwise pass against a
+# name the installer does not use.
+CD_MCP_PACKAGE="$(sed -n 's/^CD_MCP_PACKAGE="\(.*\)"$/\1/p' "$INSTALL_SH")"
+if [[ -z "$CD_MCP_PACKAGE" ]]; then
+  echo "FAIL: could not read CD_MCP_PACKAGE out of $INSTALL_SH" >&2
   exit 1
 fi
 
@@ -749,6 +785,48 @@ EOF
 }
 EOF
     ;;
+  no-args)
+    cat > "$path" <<'EOF'
+{
+  "numStartups": 42,
+  "mcpServers": {
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "npx",
+      "env": {}
+    },
+    "mcp-atlassian": {}
+  }
+}
+EOF
+    ;;
+  empty-args)
+    cat > "$path" <<'EOF'
+{
+  "numStartups": 42,
+  "mcpServers": {
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [],
+      "env": {}
+    },
+    "mcp-atlassian": {}
+  }
+}
+EOF
+    ;;
+  empty-entry)
+    cat > "$path" <<'EOF'
+{
+  "numStartups": 42,
+  "mcpServers": {
+    "chrome-devtools": {},
+    "mcp-atlassian": {}
+  }
+}
+EOF
+    ;;
   esac
 }
 
@@ -759,9 +837,60 @@ shape_needle() {
   container) printf 'mcpServers is not a JSON object' ;;
   entry) printf 'the chrome-devtools entry is not a JSON object' ;;
   conflict) printf 'which a pinned profile root conflicts with' ;;
+  no-args | empty-args | empty-entry) printf 'args do not name the package this installer writes (%s)' "$CD_MCP_PACKAGE" ;;
   *) printf "the chrome-devtools entry has an args value that is not a list of strings" ;;
   esac
 }
+
+# ---------------------------------------------------------------------------
+# V9: a registration whose args do not invoke the package. The migration's edit
+# is an args append, so on one of these it writes the flags alone - `npx
+# --headless --user-data-dir=...`, a registration that cannot launch - and the
+# entry then classifies current, so the installer never offers again. Before
+# this fix all three classified "stale", the catch-all else of a chain whose
+# other members were absent, pin-conflict and current.
+# ---------------------------------------------------------------------------
+case_foreign_left_alone() {
+  local script="$1" shape="$2"
+  local home="$TMP_ROOT/foreign-$shape-home"
+  local before="$TMP_ROOT/foreign-$shape-before.json"
+  local out rc
+  mkdir -p "$home"
+  seed_home "$home"
+  write_shape_config "$home/.claude.json" "$shape"
+  cp "$home/.claude.json" "$before"
+
+  # Both migration prompts are seeded so a mutated installer that goes back to
+  # offering one cannot hang the pty for the whole driver deadline. The
+  # unmutated run reaches neither.
+  out="$(run_install "$script" "$home" '[["Configure chrome-devtools MCP", "y\n"], ["Update the existing chrome-devtools MCP", "y\n"]]')"
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    _fail "$shape: install exited $rc"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  # Checked before the naming assertion: the pre-fix behaviour was to classify
+  # this as stale and offer the migration prompt, and that is the defect.
+  if grep -q "Configure chrome-devtools MCP\|Update the existing chrome-devtools MCP" <<< "$out"; then
+    _fail "$shape: an entry the migration cannot edit was offered a prompt"
+    return 1
+  fi
+  if ! grep -qF "$(shape_needle "$shape")" <<< "$out"; then
+    _fail "$shape: the entry that does not name the package was not reported"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if ! cmp -s "$before" "$home/.claude.json"; then
+    _fail "$shape: the unmigratable entry was modified (expected byte-identical)"
+    return 1
+  fi
+  return 0
+}
+
+case_foreign_no_args() { case_foreign_left_alone "$1" no-args; }
+case_foreign_empty_args() { case_foreign_left_alone "$1" empty-args; }
+case_foreign_empty_entry() { case_foreign_left_alone "$1" empty-entry; }
 
 # V3: a container the writer cannot edit is refused by the classifier, so the
 # file never reaches the writer and no prompt offers an edit that cannot be
@@ -858,7 +987,7 @@ case_concurrent_writer() {
   write_stale_config "$home/.claude.json"
   : > "$err"
 
-  ( python3 "$writer" "$home/.claude.json" "$CD_MCP_PIN_CONFLICTS" 2>"$err" ) &
+  ( python3 "$writer" "$home/.claude.json" "$CD_MCP_PIN_CONFLICTS" "$CD_MCP_PACKAGE" 2>"$err" ) &
   local wpid=$!
   sleep 0.7
   printf '{"mcpServers":{},"changedByAnotherWriter":true}\n' > "$home/.claude.json"
@@ -903,7 +1032,7 @@ case_writer_refuses() {
     return 1
   fi
   : > "$err"
-  ( python3 "$py" "$home/.claude.json" "$CD_MCP_PIN_CONFLICTS" 2>"$err" )
+  ( python3 "$py" "$home/.claude.json" "$CD_MCP_PIN_CONFLICTS" "$CD_MCP_PACKAGE" 2>"$err" )
   rc=$?
   if [[ "$rc" == "0" ]]; then
     _fail "$shape: the writer accepted a container it cannot edit surgically (exit 0)"
@@ -926,6 +1055,9 @@ case_writer_entry() { case_writer_refuses "$1" entry; }
 case_writer_args_string() { case_writer_refuses "$1" args-string; }
 case_writer_args_element() { case_writer_refuses "$1" args-element; }
 case_writer_conflict() { case_writer_refuses "$1" conflict; }
+case_writer_no_args() { case_writer_refuses "$1" no-args; }
+case_writer_empty_args() { case_writer_refuses "$1" empty-args; }
+case_writer_empty_entry() { case_writer_refuses "$1" empty-entry; }
 
 # V5: the pinned profile root must be the directory the server itself would
 # have chosen. Its default is channel-suffixed for any non-stable channel, so a
@@ -967,7 +1099,7 @@ case_writer_channel_suffix() {
     local home="$TMP_ROOT/channel-${channel_arg#--channel=}-home"
     mkdir -p "$home"
     write_channel_config "$home/.claude.json" "$channel_arg"
-    ( HOME="$home" python3 "$py" "$home/.claude.json" "$CD_MCP_PIN_CONFLICTS" ) >/dev/null 2>&1
+    ( HOME="$home" python3 "$py" "$home/.claude.json" "$CD_MCP_PIN_CONFLICTS" "$CD_MCP_PACKAGE" ) >/dev/null 2>&1
     rc=$?
     if [[ "$rc" -ne 0 ]]; then
       _fail "$channel_arg: the writer exited $rc on a legitimate stale entry"
@@ -1029,6 +1161,13 @@ case_conflict_left_alone() {
   # rather than only through byte-identity.
   if grep -q -- "--user-data-dir=" "$home/.claude.json"; then
     _fail "$label: a --user-data-dir was written alongside a conflicting flag"
+    return 1
+  fi
+  # --headless conflicts with none of those flags, so it is the one flag this
+  # operator can add by hand to get rid of the window. The report has to name
+  # it: the withheld pin is not what the operator was after.
+  if ! grep -q -- "--headless" <<< "$out"; then
+    _fail "$label: the report did not name the flag that would remove the window"
     return 1
   fi
   return 0
@@ -1194,6 +1333,181 @@ case_atlassian_container() {
 }
 
 # ---------------------------------------------------------------------------
+# V11/V12: the same atlassian writer, held to the two properties the
+# chrome-devtools writer got in this branch. V11 is an installer run in which
+# that writer is the only thing that writes: the write adds one key, so every
+# unrelated byte of the operator's file rides through the serializer with it.
+# V12 kills the writer inside its write window, which is where an in-place
+# write would leave the operator's file truncated.
+# ---------------------------------------------------------------------------
+# The non-ASCII value is load-bearing for the same reason it is in the
+# chrome-devtools fixture: json.dump's default ensure_ascii=True rewrites every
+# non-ASCII string in the file as \uXXXX escapes, so an ASCII-only fixture
+# cannot tell a surgical edit from a whole-file re-encoding.
+#
+# The chrome-devtools entry is already current, so the block above
+# short-circuits and the atlassian write is the run's only file write. It is
+# also what leaves the atlassian confirm as the run's only live prompt:
+# ae_confirm reads one character, so an earlier answer's trailing newline stays
+# in the tty buffer and is what the next prompt reads.
+atlassian_write_fixture() {
+  cat > "$1" <<'EOF'
+{
+  "numStartups": 42,
+  "statusLineText": "café · waiting",
+  "mcpServers": {
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "chrome-devtools-mcp@latest",
+        "--headless",
+        "--user-data-dir=/tmp/ae-test-chrome-profile"
+      ],
+      "env": {}
+    }
+  }
+}
+EOF
+  chmod 644 "$1"
+}
+
+case_atlassian_write() {
+  local script="$1"
+  local home="$TMP_ROOT/atl-write-home"
+  local before="$TMP_ROOT/atl-write-before.json"
+  local out rc
+  mkdir -p "$home"
+  seed_home "$home"
+  atlassian_write_fixture "$home/.claude.json"
+  cp "$home/.claude.json" "$before"
+
+  # One live prompt: the sibling block is the case under test.
+  out="$(run_install "$script" "$home" '[["mcp-atlassian MCP", "y\n"]]')"
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    _fail "atlassian write: install exited $rc"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if ! grep -qF "mcp-atlassian MCP configured" <<< "$out"; then
+    _fail "atlassian write: the writer never ran"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+
+  python3 - "$before" "$home/.claude.json" "$home" <<'PYEOF'
+import json, os, stat, sys
+
+before_path, after_path, home = sys.argv[1:4]
+after = open(after_path, "rb").read()
+assert "café · waiting".encode("utf-8") in after, \
+    "the operator's non-ASCII value was re-encoded"
+assert b"\\u00e9" not in after, "the file was re-serialized with ascii escapes"
+data = json.loads(after.decode("utf-8"))
+assert data["numStartups"] == 42, data
+assert data["mcpServers"]["mcp-atlassian"] == {
+    "type": "stdio", "command": "uvx", "args": ["mcp-atlassian"], "env": {}}, \
+    data["mcpServers"]
+assert data["mcpServers"]["chrome-devtools"]["args"] == [
+    "chrome-devtools-mcp@latest", "--headless",
+    "--user-data-dir=/tmp/ae-test-chrome-profile"], data["mcpServers"]
+assert stat.S_IMODE(os.stat(after_path).st_mode) == 0o644, \
+    oct(stat.S_IMODE(os.stat(after_path).st_mode))
+leftovers = sorted(n for n in os.listdir(home) if n.startswith(".claude.json."))
+assert not leftovers, leftovers
+PYEOF
+  if [[ $? -ne 0 ]]; then
+    _fail "atlassian write: the write damaged the operator's config"
+    return 1
+  fi
+  return 0
+}
+
+# extract_atlassian_writer <source-install-sh> <output.py>
+# The anchor is the SECOND `import json, os, stat, sys, tempfile` in the file:
+# the chrome-devtools writer carries the identical line and comes first.
+extract_atlassian_writer() {
+  awk '
+    /^import json, os, stat, sys, tempfile$/ { n++; if (n == 2) { f=1; print; next } }
+    f && /^PYEOF$/ { exit }
+    f { print }
+  ' "$1" > "$2"
+  if ! grep -q "mcp-atlassian" "$2" || ! grep -q "os.replace(tmp_path, target)" "$2"; then
+    _fail "could not extract the shipped mcp-atlassian writer block from $1 (anchor moved?)"
+    return 1
+  fi
+  if ! python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$2"; then
+    _fail "the extracted mcp-atlassian writer block from $1 is not valid Python"
+    return 1
+  fi
+  return 0
+}
+
+# Holds the writer's write window open so the case can kill it inside that
+# window. The anchor is the temp-file write, which is the last line before the
+# content lands, so a sleep injected after it is unambiguously inside the
+# window for both the shipped writer and the in-place one mutation (aa)
+# restores.
+inject_atlassian_delay() {
+  awk '
+    /^import json, os, stat, sys, tempfile$/ { print; print "import time"; next }
+    $0 == "        with os.fdopen(fd, \"w\", encoding=\"utf-8\") as f:" {
+      print; print "            time.sleep(3)"; next }
+    { print }
+  ' "$1" > "$2"
+  if ! grep -q "time.sleep(3)" "$2"; then
+    _fail "could not inject the delay into $1 (anchor line moved?)"
+    return 1
+  fi
+  return 0
+}
+
+case_atlassian_interrupted() {
+  local writer="$1"
+  local home before err
+  local pid tries=0 entered=0
+  # A directory per invocation, never a fixed path: a killed writer leaves its
+  # temp file behind, and a later invocation polling for that leftover would
+  # kill the new writer before it ever reached its write window.
+  home="$(mktemp -d "$TMP_ROOT/atl-kill-XXXXXX")"
+  before="$home/before.json"
+  err="$home/err.txt"
+  atlassian_write_fixture "$home/.claude.json"
+  cp "$home/.claude.json" "$before"
+  : > "$err"
+
+  python3 "$writer" "$home/.claude.json" >/dev/null 2>"$err" &
+  pid=$!
+  # The temp file the writer creates is the marker that it is inside its write
+  # window; without waiting for it the kill could land before the write and the
+  # case would pass while proving nothing.
+  while [[ "$tries" -lt 200 ]]; do
+    if ls "$home"/.claude.json.* >/dev/null 2>&1; then
+      entered=1
+      break
+    fi
+    sleep 0.05
+    tries=$((tries + 1))
+  done
+  if [[ "$entered" -ne 1 ]]; then
+    kill -9 "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    _fail "interrupted write: the writer never reached its write window"
+    return 1
+  fi
+  kill -9 "$pid" 2>/dev/null
+  wait "$pid" 2>/dev/null
+
+  if ! cmp -s "$before" "$home/.claude.json"; then
+    _fail "interrupted write: the operator's config was modified by a run that never finished"
+    cat "$err" >&2
+    return 1
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Mutation harness: mutate the installer, re-run a case against the mutation,
 # and require the case to FAIL. A case that cannot be made to fail proves
 # nothing.
@@ -1289,6 +1603,15 @@ run_case "V3: a non-string-list args is named and skipped, file byte-identical" 
   case_shape_args_string "$INSTALL_SH"
 
 echo ""
+echo "=== V9: an entry whose args do not name the package is left alone ==="
+run_case "V9: a registration with no args key is reported and skipped" \
+  case_foreign_no_args "$INSTALL_SH"
+run_case "V9: a registration with an empty args list is reported and skipped" \
+  case_foreign_empty_args "$INSTALL_SH"
+run_case "V9: a bare {} registration is reported and skipped" \
+  case_foreign_empty_entry "$INSTALL_SH"
+
+echo ""
 echo "=== V4: the writer refuses each shape directly, non-zero and without writing ==="
 run_case "V4: the writer refuses a non-object mcpServers" \
   case_writer_container "$INSTALL_SH"
@@ -1300,6 +1623,12 @@ run_case "V4: the writer refuses an args list containing a non-string" \
   case_writer_args_element "$INSTALL_SH"
 run_case "V4: the writer refuses a registration carrying a conflicting flag" \
   case_writer_conflict "$INSTALL_SH"
+run_case "V4: the writer refuses a registration with no args key" \
+  case_writer_no_args "$INSTALL_SH"
+run_case "V4: the writer refuses a registration with an empty args list" \
+  case_writer_empty_args "$INSTALL_SH"
+run_case "V4: the writer refuses a bare {} registration" \
+  case_writer_empty_entry "$INSTALL_SH"
 run_case "V5: the pinned profile root carries the entry's own channel suffix" \
   case_writer_channel_suffix "$INSTALL_SH"
 
@@ -1336,6 +1665,19 @@ echo ""
 echo "=== V10: the sibling mcp-atlassian block survives a malformed config ==="
 run_case "V10: an array mcpServers does not abort the install" \
   case_atlassian_container "$INSTALL_SH"
+
+echo ""
+echo "=== V11: the sibling mcp-atlassian writer preserves the operator's file ==="
+run_case "V11: a write that adds one key keeps unrelated bytes and the file's mode, and leaves no temp file" \
+  case_atlassian_write "$INSTALL_SH"
+
+echo ""
+echo "=== V12: a writer killed inside its write window ==="
+if extract_atlassian_writer "$INSTALL_SH" "$TMP_ROOT/atl.py" \
+  && inject_atlassian_delay "$TMP_ROOT/atl.py" "$TMP_ROOT/atl_slow.py"; then
+  run_case "V12: an interrupted write left the config byte-identical" \
+    case_atlassian_interrupted "$TMP_ROOT/atl_slow.py"
+fi
 
 echo ""
 echo "=== Concurrent-writer guard ==="
@@ -1440,7 +1782,7 @@ else
   _fail "mutation (l): the sed pattern no longer matches - the mutation was not applied"
 fi
 
-if mutate_installer 's/^    refuse("the chrome-devtools entry has an args value that is not a list of strings")$/    pass/' coerce-args; then
+if mutate_installer 's/^    refuse("the chrome-devtools entry has an args value that is not a list of strings")$/    pass/;s/^if not any(a == package or a\.startswith(package + "@") for a in args):$/if False:/' coerce-args; then
   if expect_case_fails "mutation (m) writer discards a non-list args" case_writer_args_string "$MUTATE_OUT" \
     "the writer accepted a container it cannot edit surgically"; then
     _pass "mutation (m): letting the writer discard a string args reddens its refusal case"
@@ -1578,6 +1920,74 @@ if mutate_installer 's/^if any(a\.split("=", 1)\[0\] in conflicts for a in args)
   fi
 else
   _fail "mutation (v): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+# (w): the pre-fix classifier's catch-all else, which made every entry that was
+# not already current a migration target whatever its args named.
+if mutate_installer 's/^    print("args-not-our-package")$/    print("stale")/' unscope-stale; then
+  if expect_case_fails "mutation (w) an entry that does not name the package treated as stale" \
+    case_foreign_no_args "$MUTATE_OUT" \
+    "was offered a prompt"; then
+    _pass "mutation (w): collapsing args-not-our-package into stale reddens V9"
+  fi
+else
+  _fail "mutation (w): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+# (x): the writer's own copy of that guard, driven directly through V4.
+if mutate_installer 's/^if not any(a == package or a\.startswith(package + "@") for a in args):$/if False:/' coerce-package; then
+  if expect_case_fails "mutation (x) writer migrates an entry that does not name the package" \
+    case_writer_no_args "$MUTATE_OUT" \
+    "the writer accepted a container it cannot edit surgically"; then
+    _pass "mutation (x): disabling the writer's package guard reddens V4's foreign cases"
+  fi
+else
+  _fail "mutation (x): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+# (y)/(z): the two halves of the mcp-atlassian write. Both are range-limited to
+# the atlassian block, because the chrome-devtools writer spells its own
+# serializer with the identical indent=2, ensure_ascii=False.
+if mutate_installer '/^# mcp-atlassian MCP$/,/^# context7 plugin note$/ s/indent=2, ensure_ascii=False/indent=2/' atlassian-ascii; then
+  if expect_case_fails "mutation (y) atlassian writer re-encodes non-ASCII" case_atlassian_write "$MUTATE_OUT" \
+    "damaged the operator's config"; then
+    _pass "mutation (y): dropping ensure_ascii=False reddens V11"
+  fi
+else
+  _fail "mutation (y): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+if mutate_installer '/^# mcp-atlassian MCP$/,/^# context7 plugin note$/ s/^            os\.chmod(tmp_path, stat\.S_IMODE(before\.st_mode))$/            pass/' atlassian-mode; then
+  if expect_case_fails "mutation (z) atlassian writer drops the mode carry-over" case_atlassian_write "$MUTATE_OUT" \
+    "damaged the operator's config"; then
+    _pass "mutation (z): dropping the mode carry-over reddens V11"
+  fi
+else
+  _fail "mutation (z): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+# (aa): the pre-fix write, restored onto the extracted block. It truncates the
+# target the moment the file is opened, which is the window V12 kills inside.
+if [[ -f "$TMP_ROOT/atl_slow.py" ]]; then
+  sed 's/^        with os\.fdopen(fd, "w", encoding="utf-8") as f:$/        with open(target, "w", encoding="utf-8") as f:/' \
+    "$TMP_ROOT/atl_slow.py" > "$TMP_ROOT/atl_inplace.py"
+  if cmp -s "$TMP_ROOT/atl_slow.py" "$TMP_ROOT/atl_inplace.py"; then
+    _fail "mutation (aa): could not restore the in-place write (pattern no longer matches)"
+  elif expect_case_fails "mutation (aa) atlassian writer writes in place" case_atlassian_interrupted "$TMP_ROOT/atl_inplace.py" \
+    "the operator's config was modified by a run that never finished"; then
+    _pass "mutation (aa): restoring the in-place write reddens V12"
+  fi
+fi
+
+# (ab): the pin-conflict report has to name --headless, which is the one flag
+# the withheld pin's operator can still add by hand.
+if mutate_installer '/^  echo "  If that registration leaves a visible window/d' drop-window-way-out; then
+  if expect_case_fails "mutation (ab) pin-conflict report omits the way out" case_conflict_browser_url "$MUTATE_OUT" \
+    "the report did not name the flag that would remove the window"; then
+    _pass "mutation (ab): dropping the --headless line reddens V6"
+  fi
+else
+  _fail "mutation (ab): the sed pattern no longer matches - the mutation was not applied"
 fi
 
 # ---------------------------------------------------------------------------
