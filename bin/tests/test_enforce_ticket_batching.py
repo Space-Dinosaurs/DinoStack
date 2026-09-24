@@ -8,9 +8,17 @@ Test groups:
   2. test_second_pre_spawn_creation_denies_without_grant - 2nd creation
                                                     -> deny, even with no
                                                     spawn in the transcript.
-  4. test_repeated_denies_never_advance_state     - a denied call never
+  3. test_repeated_denies_never_advance_state     - a denied call never
                                                     advances state, so every
                                                     retry also denies.
+  4. Agent-initiated create detection (the tests between
+     `_SPAWN_RECORD` and `test_bash_get_never_matches`): a non-exempt
+     Agent/Task spawn or an existing-ticket arrival (`/ds-implement-ticket
+     <key or tracker URL>` record, or a Skill call of it) denies the 1st
+     creation; an exempt-role spawn, freeform command input, a
+     tool_result quoting either record, and an unreadable or over-cap
+     transcript do not. The deny text names ds-defer, the one-line
+     mention, and ds-ticket-grant; the advisory decision is gone.
   5. test_bash_get_never_matches                 - a GET to the Jira issue
                                                     endpoint is never classified
                                                     as a creation.
@@ -520,7 +528,7 @@ def test_deny_template_reasons_are_valid_ds_defer_reasons():
 
 
 def test_first_creation_in_existing_ticket_session_denies():
-    """B1: an existing-ticket arrival skips the Ticket-offer gate, so the
+    """An existing-ticket arrival skips the Ticket-offer gate, so the
     first create in that session is agent-initiated even with no spawn."""
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
@@ -581,6 +589,64 @@ def test_implement_ticket_marker_in_tool_result_is_not_an_arrival():
         })
         rc, parsed = _run_hook(_payload_with_transcript(tmp, [tool_result]))
         assert parsed is None
+
+
+def test_exempt_role_spawn_keeps_silent_first_create():
+    """learnings-agent can spawn before the Ticket-offer gate fires; it is
+    on the gate's exemption list, so it does not count as a spawn."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        learnings = _SPAWN_RECORD.replace('"investigator"', '"learnings-agent"')
+        assert '"learnings-agent"' in learnings
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [learnings]))
+        assert parsed is None
+        assert json.loads(_state_path(tmp, "sess-1").read_text())["count"] == 1
+
+
+def test_gate_exempt_roles_match_delegation_detail_exemption_set():
+    hook = _load_hook_module()
+    text = (Path(__file__).parent.parent.parent / "content" / "references" / "delegation-detail.md").read_text()
+    section = text.split("### Ticket-Offer Gate - Exemption Set", 1)[1].split("\n## ", 1)[0]
+    listed = set(re.findall(r"^- `([a-z-]+)` - ", section, re.MULTILINE))
+    assert listed == set(hook._GATE_EXEMPT_ROLES)
+
+
+def test_non_exempt_spawn_after_exempt_spawn_still_denies():
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        learnings = _SPAWN_RECORD.replace('"investigator"', '"learnings-agent"')
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [learnings, _SPAWN_RECORD]))
+        assert _is_denied(parsed)
+
+
+def _implement_ticket_record_with_args(args: str) -> str:
+    return _IMPLEMENT_TICKET_RECORD.replace("SDI-163", args)
+
+
+def test_freeform_args_with_key_like_tokens_are_not_existing_ticket():
+    for args in ("fix the UTF-8 bug", "update the SHA-256 checksum", "switch the model to GPT-4"):
+        with tempfile.TemporaryDirectory() as tmp:
+            _ensure_git_marker(tmp)
+            payload = _payload_with_transcript(tmp, [_implement_ticket_record_with_args(args)])
+            rc, parsed = _run_hook(payload)
+            assert parsed is None, args
+            assert json.loads(_state_path(tmp, "sess-1").read_text())["count"] == 1
+
+
+def test_key_and_tracker_url_args_are_existing_ticket():
+    for args in (
+        "MY_PROJ-12",
+        "DINO-1957",
+        "DINO-639, DINO-638",
+        "SDI-131 we got interrupted",
+        "https://crocsinc.atlassian.net/browse/DINO-1957",
+        "https://linear.app/acme/issue/ENG-42/fix-login",
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            _ensure_git_marker(tmp)
+            payload = _payload_with_transcript(tmp, [_implement_ticket_record_with_args(args)])
+            rc, parsed = _run_hook(payload)
+            assert _is_denied(parsed), args
 
 
 def test_bash_get_never_matches():
