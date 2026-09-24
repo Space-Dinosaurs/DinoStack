@@ -48,7 +48,7 @@ The install script will prompt to install these optional tools that enhance the 
 
 **CLIs:**
 - `gh` - GitHub CLI for PRs, issues, repo management. Install: `brew install gh`
-- `agent-browser` - browser verification for UI changes. Install: `npm install -g agent-browser`
+- `agent-browser` - browser verification for UI changes. Install: `npm install -g agent-browser`. Its daemons detach from the session that starts them, so the installer sets `AGENT_BROWSER_IDLE_TIMEOUT_MS` in `settings.json`'s `env` block (30 minutes) and a daemon shuts itself and its browser down once no command has arrived for that long. The cost: a QA run that idles longer than 30 minutes loses its browser session mid-run, and the next command relaunches a fresh browser with no cookies, no auth state and no navigation position. To reverse it, unset that variable or raise it; the next daemon start picks the change up. A daemon already running when the value is written ignores it - the effect begins at the next daemon start.
 - `lc` (linearctl) - Linear issue tracking CLI. Install: `npm install -g linearctl`
 - `rclone` - file sync for Google Drive access. Install: `brew install rclone`
 

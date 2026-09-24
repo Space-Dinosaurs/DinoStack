@@ -6,7 +6,9 @@
 #          scripts/lib/hooks-snapshot.sh) and wires hooks in
 #          ~/.claude/settings.json to point there instead of the checkout;
 #          writes activation mode + risk profile; optionally configures
-#          permissions, MCPs, and developer identity; writes repo_dir to
+#          permissions, MCPs, developer identity, and the agent-browser
+#          daemon idle timeout (env.AGENT_BROWSER_IDLE_TIMEOUT_MS in
+#          ~/.claude/settings.json); writes repo_dir to
 #          ~/.agentic/agentic-engineering-config.json with a clobber-guard
 #          (never overwrites a valid different repo_dir).
 #
@@ -47,9 +49,14 @@
 #   - repo_dir clobber-guard: if ~/.agentic/agentic-engineering-config.json
 #     already holds a valid DIFFERENT repo_dir, a warning is printed and the
 #     existing value is preserved. Only absent/invalid/same values are written.
-#   - All interactive prompts fall back to a default when stdin is not a TTY.
-#     The skill_auto_load prompt (fresh install only) defaults to yes ([Y/n],
-#     blank = yes) both interactively and non-interactively.
+#   - Every optional step falls back to its default when no prompt can be
+#     answered. The ae_confirm prompts - agent-browser's idle timeout,
+#     chrome-devtools MCP, mcp-atlassian MCP, CLI tools, developer identity -
+#     read /dev/tty rather than stdin, so a `curl | bash` run driven from a real
+#     terminal still asks; with no readable /dev/tty they decline (default
+#     "no") and the option is skipped, and the line below is printed. Only the
+#     skill_auto_load prompt (fresh install only) defaults to yes ([Y/n], blank
+#     = yes) both interactively and non-interactively.
 #   - A skipped or not-yet-created skill symlink sets SKILL_LINK_OK=false and
 #     emits an operator warning twice per run (once where the skip is
 #     detected, once in the Summary block). Every --dry-run on a machine
@@ -1615,6 +1622,238 @@ if _orphans:
 PYEOF
 
 # ---------------------------------------------------------------------------
+# Shared settings write
+#
+# Three writers below land a JSON document in a file Claude Code also writes:
+# the agent-browser idle timeout in ~/.claude/settings.json, and the
+# chrome-devtools and mcp-atlassian registrations in ~/.claude.json. All three
+# went through the same shape - a same-directory temp file, the operator's mode
+# carried onto it, a re-stat that refuses a target that moved under them, and
+# os.replace - so it is written once here and spliced in ahead of each writer's
+# own body with `python3 -`.
+#
+# What stays per-writer is what genuinely differs: which containers it refuses,
+# what the refusal says, whether the document ends with a newline, and whether
+# it has a pre-rename guard at all. Those are parameters of the shared function
+# rather than copies of it.
+# ---------------------------------------------------------------------------
+ae_json_write_helper() {
+  cat <<'PYEOF_SHARED'
+import os, stat, sys, tempfile
+
+
+def write_json_atomically(target, text, prefix, before, on_conflict):
+    """Write *text* to *target* through a same-directory temp file and os.replace.
+
+    ``before`` is the stat of the bytes its caller read - os.fstat on the
+    descriptor it read through, so it describes those bytes whatever a
+    concurrent writer may put at that path afterwards. Its mode is carried onto
+    the temp file, which mkstemp always creates 0600 regardless of the target's
+    own mode. On the create path there is no operator mode to carry, so the new
+    file keeps that 0600 - narrower than the umask default this installer's
+    write produced before it went through a temp file, and the right side to
+    err on for files that can hold credentials.
+
+    ``on_conflict`` is called, and the write abandoned with status 1, when
+    *target* no longer matches ``before`` immediately before the rename: the
+    point of refusing there rather than earlier is that the rename is the last
+    moment at which refusing still leaves another writer's update in place. A
+    caller with no such guard passes None.
+
+    *text* is the finished document, trailing newline included or not - the
+    callers disagree about that and their suites pin each one's bytes.
+    """
+    fd, tmp_path = tempfile.mkstemp(
+        dir=os.path.dirname(os.path.abspath(target)), prefix=prefix)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        if before is not None:
+            os.chmod(tmp_path, stat.S_IMODE(before.st_mode))
+        if on_conflict is not None:
+            now = os.stat(target) if os.path.exists(target) else None
+            if before is None:
+                moved = now is not None
+            else:
+                moved = now is None or (
+                    now.st_size, now.st_mtime_ns) != (
+                    before.st_size, before.st_mtime_ns)
+            if moved:
+                on_conflict()
+                sys.exit(1)
+        os.replace(tmp_path, target)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+PYEOF_SHARED
+}
+
+# ---------------------------------------------------------------------------
+# agent-browser daemon idle timeout (DS-254 U8)
+#
+# agent-browser detaches its daemon, so a browser an agent opens outlives the
+# session that started it - and that daemon keeps holding its profile, which is
+# what blocks the next run. The CLI reads AGENT_BROWSER_IDLE_TIMEOUT_MS at
+# daemon start and shuts itself, and the browser with it, down after that many
+# ms with no command. Disabled by default, so without this write a leftover
+# browser has no upper bound at all.
+#
+# 1800000 ms (30 minutes) bounds the gap BETWEEN commands, which is not the
+# same thing as a session limit: every command resets the clock, so a browser
+# under active drive is never cut off mid-run. Half an hour clears the gaps a
+# run realistically leaves - a build, a test suite, a subagent review - while
+# still bounding a leftover window.
+#
+# Two things this does NOT do, stated here so neither is read as solved:
+#   - A daemon already running when the value is written read the variable at
+#     its own start and ignores it. The effect begins at the next daemon start.
+#   - It BOUNDS the CLI-path residual; it does not remove it. After a normal
+#     session end, that session's daemon and its browser stay up for up to the
+#     timeout before shutting down on their own.
+#
+# Deliberately not a reaper that closes agent-browser sessions by name:
+# `agent-browser session list` exposes session names but no owning run, so such
+# a predicate would be a guess that can close a concurrent run's browser, or
+# the operator's.
+# ---------------------------------------------------------------------------
+AE_BROWSER_IDLE_TIMEOUT_MS_VALUE="1800000"
+AE_BROWSER_IDLE_STATE="$(
+  AE_SETTINGS_PATH="$SETTINGS" python3 - <<'PYEOF' 2>/dev/null
+import json, os, sys
+
+path = os.environ["AE_SETTINGS_PATH"]
+try:
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+except FileNotFoundError:
+    print("absent")
+    sys.exit(0)
+except (OSError, ValueError, RecursionError):
+    print("unreadable")
+    sys.exit(0)
+
+# Both container shapes are named rather than coerced: an env key forced onto a
+# document that is not an object drops the operator's own keys, and an env that
+# is not an object has no key to set in the first place.
+if not isinstance(data, dict):
+    print("not-json-object")
+    sys.exit(0)
+if "env" in data and not isinstance(data["env"], dict):
+    print("env-not-object")
+    sys.exit(0)
+env = data.get("env") or {}
+print("set" if "AGENT_BROWSER_IDLE_TIMEOUT_MS" in env else "absent")
+PYEOF
+)" || AE_BROWSER_IDLE_STATE="undetermined"
+
+case "$AE_BROWSER_IDLE_STATE" in
+set)
+  # Any value counts as set, not only the one written below: raising the
+  # timeout is the documented way to keep a long-idle browser alive, so
+  # rewriting it back to the default on a re-run would make that way back a
+  # lie. The operator's number is left exactly as they set it.
+  echo "  = agent-browser daemon idle timeout already set in $SETTINGS - left as it is"
+  ;;
+unreadable)
+  echo "  ! $SETTINGS could not be read as JSON - leaving its env block untouched"
+  ;;
+undetermined)
+  echo "  ! $SETTINGS could not be classified - leaving its env block untouched"
+  ;;
+not-json-object)
+  echo "  ! $SETTINGS: the file's top level is not a JSON object, so there is no env block to set - leaving it untouched; fix that value by hand and re-run this installer"
+  ;;
+env-not-object)
+  echo "  ! $SETTINGS: env is not a JSON object - leaving it untouched; fix that value by hand and re-run this installer"
+  ;;
+*)
+  echo "  agent-browser's daemon detaches from the session that starts it, so a browser an agent opens"
+  echo "  stays open, holding its profile, until something closes it. Setting AGENT_BROWSER_IDLE_TIMEOUT_MS"
+  echo "  to $AE_BROWSER_IDLE_TIMEOUT_MS_VALUE ms (30 minutes) makes that daemon shut itself and its browser down"
+  echo "  once no command has arrived for half an hour, while a browser an agent is actively driving"
+  echo "  resets that clock on every command and is never cut off."
+  echo "  The cost: a QA run that idles longer than 30 minutes loses its browser session mid-run, and the"
+  echo "  next command silently relaunches a fresh browser with no cookies, no auth state and no navigation"
+  echo "  position. To reverse this, unset AGENT_BROWSER_IDLE_TIMEOUT_MS in $SETTINGS (or raise it) and the"
+  echo "  next daemon start picks that up."
+  if ae_confirm "  Set AGENT_BROWSER_IDLE_TIMEOUT_MS in $SETTINGS? [y/N] "; then
+    # A refusal exits non-zero without writing, and the caller tolerates it: a
+    # settings file this block cannot edit surgically is not a reason to fail
+    # the whole install.
+    AE_BROWSER_IDLE_RC=0
+    { ae_json_write_helper; cat <<'PYEOF_IDLE'
+import json, os, sys
+
+target = os.environ["AE_SETTINGS_PATH"]
+value = sys.argv[1]
+
+
+def refuse(reason, remedy):
+    sys.stderr.write(reason + "\n" + remedy + "\n")
+    sys.exit(1)
+
+
+try:
+    with open(target, encoding="utf-8") as f:
+        data = json.load(f)
+        # fstat on the descriptor the document was read through, never os.stat
+        # on the path: a write landing between the read and a later stat is
+        # invisible to the comparison below, which would then clobber it with
+        # this pre-write document.
+        before = os.fstat(f.fileno())
+except FileNotFoundError:
+    data = {}
+    before = None
+except (OSError, ValueError, RecursionError):
+    refuse("  ! " + target + " could not be read as JSON, so nothing was written.",
+           "    Fix that file by hand and re-run this installer.")
+
+if not isinstance(data, dict):
+    refuse("  ! " + target + ": the file's top level is not a JSON object, so nothing was written.",
+           "    Fix that value by hand and re-run this installer.")
+if "env" in data and not isinstance(data["env"], dict):
+    refuse("  ! " + target + ": env is not a JSON object, so nothing was written.",
+           "    Fix that value by hand (or remove it) and re-run this installer.")
+
+# The env object belongs to the operator - it can carry values this installer
+# knows nothing about - so the key is set INTO it. Replacing the object, or the
+# document, would drop those values.
+env = data.setdefault("env", {})
+env["AGENT_BROWSER_IDLE_TIMEOUT_MS"] = value
+
+
+def on_conflict():
+    refuse(
+        target + " changed while this installer was preparing its update, so nothing was written.",
+        "    Set it by hand: add \"AGENT_BROWSER_IDLE_TIMEOUT_MS\": \"" + value
+        + "\" to that file's env object.")
+
+
+# The trailing newline is this writer's: it is what the operator's settings.json
+# ends with, and the other two writers' files do not. ensure_ascii=False keeps
+# the keys this write does not touch from being re-encoded - the default
+# escapes each non-ASCII character, rewriting unrelated values all over the
+# operator's file.
+write_json_atomically(
+    target,
+    json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+    ".settings.json.",
+    before,
+    on_conflict)
+
+print("  + agent-browser daemon idle timeout set in " + target)
+PYEOF_IDLE
+    } | AE_SETTINGS_PATH="$SETTINGS" python3 - "$AE_BROWSER_IDLE_TIMEOUT_MS_VALUE" || AE_BROWSER_IDLE_RC=$?
+    if [[ "$AE_BROWSER_IDLE_RC" -ne 0 ]]; then
+      echo "  - agent-browser daemon idle timeout left unchanged"
+    fi
+  else
+    echo "  - skipped the agent-browser daemon idle timeout"
+  fi
+  ;;
+esac
+
+# ---------------------------------------------------------------------------
 # Deferred-wrap .claude-host sentinel (belt; MAJOR-B)
 #
 # When install.sh runs INSIDE a project (a .agentic/ dir exists in the install
@@ -2176,12 +2415,13 @@ else
     CD_MCP_QUESTION="  Configure chrome-devtools MCP - inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] "
   fi
   if ae_confirm "$CD_MCP_QUESTION"; then
-    # Every refusal exits non-zero without writing, and the write lands in a
-    # same-directory temp file followed by os.replace, so an interrupted run
-    # cannot truncate the operator's ~/.claude.json. The caller tolerates the
-    # non-zero exit: a refusal is not a reason to fail the whole install.
-    if ! python3 - "$CLAUDE_JSON" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" <<'PYEOF'
-import json, os, re, stat, sys, tempfile
+    # Every refusal exits non-zero without writing, and the write lands through
+    # the shared ae_json_write_helper shape (a same-directory temp file followed
+    # by os.replace), so an interrupted run cannot truncate the operator's
+    # ~/.claude.json. The caller tolerates the non-zero exit: a refusal is not a
+    # reason to fail the whole install.
+    if ! { ae_json_write_helper; cat <<'PYEOF_CDMCP'
+import json, os, re, sys
 
 target = sys.argv[1]
 package = sys.argv[2]
@@ -2318,47 +2558,30 @@ if "isolated" not in present:
     args.append("--isolated")
 entry["args"] = args
 
-fd, tmp_path = tempfile.mkstemp(
-    dir=os.path.dirname(os.path.abspath(target)), prefix=".claude.json.")
-try:
-    # ensure_ascii=False and an explicit utf-8 encoding keep the round trip
-    # byte-identical for every key the migration does not touch: the default
-    # escapes each non-ASCII character, which rewrites unrelated values all
-    # over the operator's file.
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    if before is not None:
-        # mkstemp creates the temp file 0600 regardless of the target's own
-        # mode; carry the operator's mode over so the swap does not narrow it.
-        os.chmod(tmp_path, stat.S_IMODE(before.st_mode))
-    # On the create path there is no operator mode to carry, so the new file
-    # lands 0600 - narrower than the umask default this installer's write
-    # produced before it went through a temp file, and the right side to err
-    # on for ~/.claude.json, which can hold credentials.
-    # Claude Code writes this file too. Re-check it immediately before the
-    # rename and refuse rather than clobber an update landing in the window.
-    now = os.stat(target) if os.path.exists(target) else None
-    if before is None:
-        moved = now is not None
-    else:
-        moved = now is None or (
-            now.st_size, now.st_mtime_ns) != (before.st_size, before.st_mtime_ns)
-    if moved:
-        ask_manual(
-            target + " changed while this installer was preparing its update,"
-            " so nothing was written.",
-            args)
-        sys.exit(1)
-    os.replace(tmp_path, target)
-finally:
-    if os.path.exists(tmp_path):
-        os.unlink(tmp_path)
+
+def on_conflict():
+    ask_manual(
+        target + " changed while this installer was preparing its update,"
+        " so nothing was written.",
+        args)
+
+
+# ensure_ascii=False keeps the round trip byte-identical for every key the
+# migration does not touch: the default escapes each non-ASCII character, which
+# rewrites unrelated values all over the operator's file.
+write_json_atomically(
+    target,
+    json.dumps(data, indent=2, ensure_ascii=False),
+    ".claude.json.",
+    before,
+    on_conflict)
 
 if created:
     print("  + chrome-devtools MCP configured (headless) in " + target)
 else:
     print("  + chrome-devtools MCP updated to launch headless in " + target)
-PYEOF
+PYEOF_CDMCP
+    } | python3 - "$CLAUDE_JSON" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS"
     then
       echo "  - chrome-devtools MCP registration left unchanged"
     fi
@@ -2379,14 +2602,14 @@ sys.exit(0 if 'mcp-atlassian' in d.get('mcpServers', {}) else 1)
 else
   if ae_confirm "  Configure mcp-atlassian MCP — interact with Jira and Confluence from Claude Code? [y/N] "; then
     # Same shape as the chrome-devtools writer: a container this block cannot
-    # edit surgically is refused rather than coerced, and the write goes
-    # through a same-directory temp file and os.replace so an interrupted run
-    # cannot truncate the operator's ~/.claude.json. The exit status is
-    # captured rather than left to `set -e`, so a refusal - which is a normal
-    # outcome for a malformed config file - cannot abort the whole install.
+    # edit surgically is refused rather than coerced, and the write goes through
+    # the shared ae_json_write_helper, so an interrupted run cannot truncate the
+    # operator's ~/.claude.json. The exit status is captured rather than left to
+    # `set -e`, so a refusal - which is a normal outcome for a malformed config
+    # file - cannot abort the whole install.
     AE_ATLASSIAN_RC=0
-    python3 - "$CLAUDE_JSON" <<'PYEOF' || AE_ATLASSIAN_RC=$?
-import json, os, stat, sys, tempfile
+    { ae_json_write_helper; cat <<'PYEOF_ATLASSIAN'
+import json, os, sys
 
 target = sys.argv[1]
 
@@ -2427,27 +2650,19 @@ if "mcp-atlassian" not in servers:
         sys.stderr.write(f"refusing to write through symlink: {target}\n")
         sys.exit(1)
     before = os.stat(target) if os.path.exists(target) else None
-    fd, tmp_path = tempfile.mkstemp(
-        dir=os.path.dirname(os.path.abspath(target)), prefix=".claude.json.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        if before is not None:
-            # mkstemp creates the temp file 0600 regardless of the target's
-            # own mode; carry the operator's mode over so the swap does not
-            # narrow it.
-            os.chmod(tmp_path, stat.S_IMODE(before.st_mode))
-        # On the create path the file lands 0600, which is narrower than the
-        # umask default this installer's write produced before it went through
-        # a temp file - see the chrome-devtools writer for why that is kept.
-        os.replace(tmp_path, target)
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+    # None: this writer has no pre-rename guard - it predates that shape and
+    # keeps the behaviour its own suite pins.
+    write_json_atomically(
+        target,
+        json.dumps(data, indent=2, ensure_ascii=False),
+        ".claude.json.",
+        before,
+        None)
     print("  + mcp-atlassian MCP configured in ~/.claude.json")
 else:
     print("  = mcp-atlassian MCP already configured")
-PYEOF
+PYEOF_ATLASSIAN
+    } | python3 - "$CLAUDE_JSON" || AE_ATLASSIAN_RC=$?
     if [[ "$AE_ATLASSIAN_RC" -ne 0 ]]; then
       echo "  - mcp-atlassian MCP registration left unchanged"
     fi

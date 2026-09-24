@@ -104,12 +104,12 @@
 #          The ae_confirm prompt reads /dev/tty, so each case runs under a real
 #          pseudo-terminal (python3 pty.fork) with the answer written once the
 #          prompt text is observed. Every other prompt in install.sh is seeded
-#          away (skill_auto_load key, permissions.defaultMode, the five
-#          CLI_TOOLS on PATH, --mode and --no-identity flags), so exactly one
-#          prompt is live per run - see the seed list below. The container-shape
-#          fixture is the exception: its mcpServers is a list, so the atlassian
-#          block's own key check finds nothing and prompts, and that prompt gets
-#          its own seeded answer.
+#          away (skill_auto_load key, permissions.defaultMode, env
+#          AGENT_BROWSER_IDLE_TIMEOUT_MS, the five CLI_TOOLS on PATH, --mode and
+#          --no-identity flags), so exactly one prompt is live per run - see the
+#          seed list below. The container-shape fixture is the exception: its
+#          mcpServers is a list, so the atlassian block's own key check finds
+#          nothing and prompts, and that prompt gets its own seeded answer.
 #
 #          Mutation coverage (each mutation is run, not merely named):
 #            (a) drop the --headless append           -> V1 reddens
@@ -320,17 +320,23 @@ fi
 
 # ---------------------------------------------------------------------------
 # seed_home <home>
-# Seeds 1 and 4, the two prompt-suppression seeds that live under $HOME.
+# Seeds 1, 4 and 5, the prompt-suppression seeds that live under $HOME.
 #   Seed 1: agentic-engineering.json carrying skill_auto_load -> suppresses
 #           ae_write_mode's /dev/tty prompt (gated on the key being absent).
 #   Seed 4: settings.json with permissions.defaultMode already
 #           bypassPermissions -> suppresses the permissions tty_input prompt.
+#   Seed 5: the same settings.json carrying AGENT_BROWSER_IDLE_TIMEOUT_MS ->
+#           suppresses the agent-browser daemon idle-timeout prompt, which is
+#           offered only when its key is absent. Any value suppresses it, so
+#           this is the state a machine that has already run the installer is
+#           in; without it every case here blocks on the prompt, because the
+#           pty driver has no needle for it and waits out its own deadline.
 # ---------------------------------------------------------------------------
 seed_home() {
   local home="$1"
   mkdir -p "$home/.claude"
   printf '{"skill_auto_load": false}\n' > "$home/.claude/agentic-engineering.json"
-  printf '{"permissions":{"defaultMode":"bypassPermissions"}}\n' > "$home/.claude/settings.json"
+  printf '{"permissions":{"defaultMode":"bypassPermissions"},"env":{"AGENT_BROWSER_IDLE_TIMEOUT_MS":"1800000"}}\n' > "$home/.claude/settings.json"
 }
 
 # ---------------------------------------------------------------------------
@@ -1026,18 +1032,30 @@ case_shape_args_string() { case_shape_refused "$1" args-string; }
 # `time.sleep` to hold the window open, and rewrites the file from another
 # process while it is open.
 # ---------------------------------------------------------------------------
+# extract_heredoc <source-install-sh> <heredoc-tag>
+# Prints the body of the `cat <<'PYEOF_<tag>'` heredoc, stopping before the
+# heredoc's terminating delimiter - shell syntax, not Python: leaving it in
+# makes the extracted block raise NameError at its last line, so an
+# unmutated-looking run would fail on a traceback instead of on the guard under
+# test. A writer is spliced together from two of these - the shared
+# atomic-write helper and the writer's own body - and each site's delimiter is
+# its own, so an extraction identifies its region without depending on a line
+# an edit can move.
+extract_heredoc() {
+  awk -v tag="$2" '
+    $0 ~ ("cat <<.PYEOF_" tag ".") { f=1; next }
+    f && $0 == ("PYEOF_" tag) { exit }
+    f { print }
+  ' "$1"
+}
+
 # extract_writer <source-install-sh> <output.py> - the source is a parameter
 # because the mutation harness runs the extracted writer for a mutated copy.
 extract_writer() {
-  # Stops before the heredoc's terminating PYEOF, which is shell syntax, not
-  # Python: leaving it in makes the extracted block raise NameError at its last
-  # line, so an unmutated-looking run would fail on a traceback instead of on
-  # the guard under test.
-  awk '
-    /^import json, os, re, stat, sys, tempfile$/ { f=1 }
-    f && /^PYEOF$/ { exit }
-    f { print }
-  ' "$1" > "$2"
+  {
+    extract_heredoc "$1" SHARED
+    extract_heredoc "$1" CDMCP
+  } > "$2"
   if ! grep -q "os.replace(tmp_path, target)" "$2"; then
     _fail "could not extract the shipped writer block from $1 (anchor line moved?)"
     return 1
@@ -1051,8 +1069,8 @@ extract_writer() {
 
 inject_delay() {
   awk '
-    $0 == "import json, os, re, stat, sys, tempfile" { print; print "import time"; next }
-    $0 == "    now = os.stat(target) if os.path.exists(target) else None" { print "    time.sleep(2)"; print; next }
+    $0 == "import os, stat, sys, tempfile" { print; print "import time"; next }
+    $0 == "            now = os.stat(target) if os.path.exists(target) else None" { print "            time.sleep(2)"; print; next }
     { print }
   ' "$1" > "$2"
   if ! grep -q "time.sleep(2)" "$2"; then
@@ -1798,14 +1816,11 @@ PYEOF
 }
 
 # extract_atlassian_writer <source-install-sh> <output.py>
-# The anchor is this writer's own import line: the chrome-devtools writer
-# imports `re` too (it normalizes option names) and no longer shares it.
 extract_atlassian_writer() {
-  awk '
-    /^import json, os, stat, sys, tempfile$/ { f=1 }
-    f && /^PYEOF$/ { exit }
-    f { print }
-  ' "$1" > "$2"
+  {
+    extract_heredoc "$1" SHARED
+    extract_heredoc "$1" ATLASSIAN
+  } > "$2"
   if ! grep -q "mcp-atlassian" "$2" || ! grep -q "os.replace(tmp_path, target)" "$2"; then
     _fail "could not extract the shipped mcp-atlassian writer block from $1 (anchor moved?)"
     return 1
@@ -1824,7 +1839,7 @@ extract_atlassian_writer() {
 # restores.
 inject_atlassian_delay() {
   awk '
-    /^import json, os, stat, sys, tempfile$/ { print; print "import time"; next }
+    /^import os, stat, sys, tempfile$/ { print; print "import time"; next }
     $0 == "        with os.fdopen(fd, \"w\", encoding=\"utf-8\") as f:" {
       print; print "            time.sleep(3)"; next }
     { print }
@@ -2243,10 +2258,11 @@ else
   _fail "mutation (e): the sed pattern no longer matches - the mutation was not applied"
 fi
 
-# Anchored on the chrome-devtools block's indentation: the mcp-atlassian block
-# wraps its writer differently, so an unanchored pattern would now neutralise
-# that block's guard as well and credit V1c with a mutation it did not make.
-if mutate_installer 's/^    if ! python3 - /    if python3 - /' invert-guard; then
+# Anchored on the chrome-devtools block's own heredoc delimiter: the
+# mcp-atlassian block wraps its writer differently, so an unanchored pattern
+# would now neutralise that block's guard as well and credit V1c with a mutation
+# it did not make.
+if mutate_installer 's/^    if ! { ae_json_write_helper; cat <<\(.PYEOF_CDMCP.\)$/    if { ae_json_write_helper; cat <<\1/' invert-guard; then
   if expect_case_fails "mutation (d) inverted refuse-guard" case_v1c_refusal_nonfatal "$MUTATE_OUT" \
     "V1c: install did not report the refusal as a no-op"; then
     _pass "mutation (d): inverting the refuse-guard's exit handling reddens V1c"
@@ -2256,7 +2272,7 @@ else
 fi
 
 if [[ -f "$TMP_ROOT/writer_slow.py" ]]; then
-  sed 's/^    if moved:$/    if False:/' "$TMP_ROOT/writer_slow.py" > "$TMP_ROOT/writer_unguarded.py"
+  sed 's/^            if moved:$/            if False:/' "$TMP_ROOT/writer_slow.py" > "$TMP_ROOT/writer_unguarded.py"
   if cmp -s "$TMP_ROOT/writer_slow.py" "$TMP_ROOT/writer_unguarded.py"; then
     _fail "mutation (c): could not remove the pre-rename guard (pattern no longer matches)"
   elif expect_case_fails "mutation (c) no pre-rename guard" case_concurrent_writer "$TMP_ROOT/writer_unguarded.py" \
@@ -2404,7 +2420,10 @@ else
   _fail "mutation (y): the sed pattern no longer matches - the mutation was not applied"
 fi
 
-if mutate_installer '/^# mcp-atlassian MCP$/,/^# context7 plugin note$/ s/^            os\.chmod(tmp_path, stat\.S_IMODE(before\.st_mode))$/            pass/' atlassian-mode; then
+# (z): the shared mode carry-over, dropped in the one place all three writers
+# take it from. The mcp-atlassian write is the case that notices, because it is
+# the one that asserts the operator's 644 survived.
+if mutate_installer 's/^            os\.chmod(tmp_path, stat\.S_IMODE(before\.st_mode))$/            pass/' atlassian-mode; then
   if expect_case_fails "mutation (z) atlassian writer drops the mode carry-over" case_atlassian_write "$MUTATE_OUT" \
     "damaged the operator's config"; then
     _pass "mutation (z): dropping the mode carry-over reddens V11"

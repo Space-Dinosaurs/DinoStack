@@ -25,7 +25,7 @@
 # CRITICAL: this assertion MUST read the GENERATED $FAKE_HOME/.claude/settings.json,
 # NEVER .claude/install.sh's own source text - same discipline as
 # test_install_worktree_read_guard.sh and test_install_stop_cadence.sh,
-# which this file's fixture setup is copied from verbatim (the four
+# which this file's fixture setup is copied from verbatim (the five
 # prompt-suppression seeds plus the git-hooks-dir sandbox).
 #
 # Public API: ./bin/tests/test_install_worktree_write_guard.sh
@@ -144,9 +144,14 @@ chmod +x "$FAKE_BIN/git"
 # bypassPermissions -> suppresses the tty_input permissions-configuration
 # prompt (its gate reads perms.get("defaultMode"), which is otherwise only
 # ever written inside that same prompt's own yes-branch).
+#
+# Seed 5, the same file: an env object carrying AGENT_BROWSER_IDLE_TIMEOUT_MS
+# -> suppresses the agent-browser daemon idle-timeout prompt, which is offered
+# only when that key is absent. Any value suppresses it; dropping this key
+# makes this run block on the prompt whenever /dev/tty is a real terminal.
 # ---------------------------------------------------------------------------
 cat > "$FAKE_HOME/.claude/settings.json" <<'EOF'
-{"permissions":{"defaultMode":"bypassPermissions"}}
+{"permissions":{"defaultMode":"bypassPermissions"},"env":{"AGENT_BROWSER_IDLE_TIMEOUT_MS":"1800000"}}
 EOF
 
 # ---------------------------------------------------------------------------
