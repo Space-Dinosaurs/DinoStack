@@ -153,8 +153,9 @@ of a standing bypass with no audit trail. See
 Discipline, "Operator-granted mid-session exception".
 
 Platform variables (not AE-owned): `CLAUDE_CODE_SUBAGENT_MODEL` (highest-
-precedence subagent model override); `GRAPHIFY_OUT` (overrides graph output
-directory; setting it to a non-root path disables the graph risk signal).
+precedence subagent model override); `GRAPHIFY_OUT` (overrides the graph output
+directory; the investigator's optional graph-assisted blast-radius step reads
+the graph from there).
 
 ---
 

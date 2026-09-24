@@ -22,7 +22,7 @@
 - Planning artifacts - Brief/Plan templates, promotion mechanics, product-intent layer
 - QA gate - concurrent QA flow, INCONCLUSIVE classification, dev-server boot pattern
 - QA regression obligation - regression-test obligation after a QA FAIL
-- Risk config and tiers - config toggle catalog, graph-derived signal, tier declaration detail
+- Risk config and tiers - config toggle catalog, tier declaration detail
 - Spawn presets - per-spawn capability bundles and resolution rules
 - Trigger catalog - manual/scheduled/action-triggered loops and the yolo-guard
 - Worktree lifecycle - isolation vs feature worktrees and cleanup command blocks
