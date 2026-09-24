@@ -2000,10 +2000,11 @@ CLAUDE_JSON="$HOME/.claude.json"
 # a browser connection or an isolated profile is what made the server refuse to
 # start ("Arguments userDataDir and browserUrl are mutually exclusive"), and no
 # list of the spellings to refuse can stay complete - the server takes a `no-`
-# negation, either case, kebab or camel, and a `=value` or a following-token
-# value for one option. So an entry is a migration target only when every one
-# of its args is the package below or an option below, decided by normalized
-# option name: a spelling this installer has never seen is a skip.
+# negation, a uniform-case variant, kebab or camel, and a `=value` or a
+# following-token value for one option. So an entry is a migration target only
+# when every one of its args is the package below or an option below, decided
+# by the option name the server itself reads off the token: a spelling the
+# server ignores is a skip.
 #
 # State is detected rather than testing only "is the key present", because a
 # registration written before the headless default shipped has the key but
@@ -2023,10 +2024,11 @@ CLAUDE_JSON="$HOME/.claude.json"
 # subset of those that takes a value. Single-sourced here because two separate
 # python blocks consult them - the classifier to predict the writer's decision,
 # the writer to refuse that registration if it ever reaches it - and the three
-# must not drift.
+# must not drift. An option is named here the way the server names it, which is
+# the form option_name() below derives from a token.
 CD_MCP_PACKAGE="chrome-devtools-mcp"
-CD_MCP_OPTIONS="headless,channel,user-data-dir"
-CD_MCP_VALUED="channel,user-data-dir"
+CD_MCP_OPTIONS="headless,channel,userDataDir"
+CD_MCP_VALUED="channel,userDataDir"
 
 CD_MCP_STATE="$(python3 - "$CLAUDE_JSON" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" "$CD_MCP_VALUED" <<'PYEOF' 2>/dev/null
 import json, re, sys
@@ -2038,12 +2040,33 @@ valued = set(sys.argv[4].split(","))
 
 
 def option_name(arg):
-    # The option an arg selects, however it is spelled. Folding camel to kebab,
-    # case to lower and `=value` to nothing is what makes one option one name;
-    # a `no-` negation folds to a name nothing below writes, which is the safe
-    # direction - a negation inverts the meaning of the flag it names.
-    name = arg.split("=", 1)[0].lstrip("-")
-    return re.sub(r"(?<=[a-z0-9])([A-Z])", r"-\1", name).lower()
+    # The option the server reads off this arg, which is what decides whether
+    # it is one the migration writes: a name the server does not read as an
+    # option is a flag this installer does not know, not one it writes. The
+    # server parses with yargs, which reads one leading dash as a bundle of
+    # single-letter flags, keeps a long option's case unless that case is
+    # uniform, and folds a dash or an underscore to the next character's upper
+    # case. A `no-` negation folds to a name nothing below writes, which is the
+    # safe direction - a negation inverts the meaning of the flag it names.
+    name = arg.split("=", 1)[0]
+    if not name.startswith("--"):
+        return name
+    name = name.lstrip("-")
+    if "-" not in name:
+        return name
+    if name == name.lower() or name == name.upper():
+        name = name.lower()
+    folded = []
+    upper_next = False
+    for i, ch in enumerate(name):
+        if upper_next:
+            upper_next = False
+            ch = ch.upper()
+        if i != 0 and ch in "-_":
+            upper_next = True
+        elif ch not in "-_":
+            folded.append(ch)
+    return "".join(folded)
 
 
 def survey(args):
@@ -2119,7 +2142,7 @@ elif not any(a == package or a.startswith(package + "@") for a in args):
     print("args-not-our-package")
 elif foreign is not None:
     print("foreign-args")
-elif "headless" in present and "user-data-dir" in present:
+elif "headless" in present and "userDataDir" in present:
     print("current")
 else:
     print("stale")
@@ -2133,7 +2156,7 @@ elif [[ "$CD_MCP_STATE" == "unreadable" ]]; then
 elif [[ "$CD_MCP_STATE" == "undetermined" ]]; then
   echo "  ! $CLAUDE_JSON could not be classified - leaving the chrome-devtools MCP entry untouched"
 elif [[ "$CD_MCP_STATE" == "foreign-args" ]]; then
-  echo "  = chrome-devtools MCP's registration passes an argument this installer does not write, so it is left untouched: a pinned profile root conflicts with a browser connection or an isolated profile, and neither is distinguishable from a flag this installer has never seen"
+  echo "  = chrome-devtools MCP's registration passes an argument this installer does not write, so it is left untouched: the migration only appends the flags it writes, and only to a registration whose every argument is the package or one of those flags"
   echo "  To lose the window by hand, $CLAUDE_JSON takes --headless where the server launches Chrome itself. A registration that sets --browser-url, --ws-endpoint or --auto-connect attaches to a browser you already run and never reads --headless; one that sets --isolated launches its own throwaway profile, which --headless does not conflict with, so adding --headless beside --isolated removes the window and --isolated can stay."
   echo "  One that writes --headless=false has asked for the window by name, so replacing that argument with --headless is what removes it."
 elif [[ "$CD_MCP_STATE" == "args-not-our-package" ]]; then
@@ -2173,9 +2196,26 @@ valued = set(sys.argv[4].split(","))
 
 
 def option_name(arg):
-    # The option an arg selects, however it is spelled - see the classifier.
-    name = arg.split("=", 1)[0].lstrip("-")
-    return re.sub(r"(?<=[a-z0-9])([A-Z])", r"-\1", name).lower()
+    # The option the server reads off this arg - see the classifier.
+    name = arg.split("=", 1)[0]
+    if not name.startswith("--"):
+        return name
+    name = name.lstrip("-")
+    if "-" not in name:
+        return name
+    if name == name.lower() or name == name.upper():
+        name = name.lower()
+    folded = []
+    upper_next = False
+    for i, ch in enumerate(name):
+        if upper_next:
+            upper_next = False
+            ch = ch.upper()
+        if i != 0 and ch in "-_":
+            upper_next = True
+        elif ch not in "-_":
+            folded.append(ch)
+    return "".join(folded)
 
 
 def survey(args):
@@ -2310,7 +2350,7 @@ if foreign is not None:
 # root keeps it.
 if "headless" not in present:
     args.append("--headless")
-if "user-data-dir" not in present:
+if "userDataDir" not in present:
     args.append("--user-data-dir=" + os.path.expanduser(
         "~/.cache/chrome-devtools-mcp/chrome-profile") + channel_suffix(args))
 entry["args"] = args

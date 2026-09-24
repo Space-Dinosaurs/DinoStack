@@ -99,6 +99,16 @@
 #                  a rule that stopped consuming the token after every
 #                  value-taking option would break this entry, and V5 drives
 #                  only the `=` spellings
+#            V18 - the option-name rule against the server's own reader. A case
+#                  variant the server ignores (--Headless, --HEADLESS), a
+#                  single-dash short-flag bundle (-headless) and an
+#                  underscore-only name (--user_data_dir) are left alone and
+#                  reported, because the server reads none of them as the
+#                  option they name. In the other direction a dashed spelling
+#                  the server does read (--user-data-dir, and --USER-DATA-DIR,
+#                  whose uniform case the server lowercases) is still read as
+#                  the pinned root, so an entry already pinned in the spelling
+#                  this migration itself writes is not re-pinned over
 #            plus the two V4 cases for the new rules, driven at the extracted
 #            writer, whose own copies of them are what would do the appending
 #
@@ -164,9 +174,11 @@
 #            (ab) drop both way-out lines of the foreign-argument report, which
 #                name --headless and the classes it does not apply to -> V13
 #                reddens
-#            (ac) compare option names without the camel-to-kebab fold -> V14
-#                reddens, and V14b reddens on the writer's own copy of that
-#                rule (the two are separate blocks and can drift)
+#            (ac) case-fold an option name that carries no dash, restoring the
+#                pre-fix normalization -> V14 reddens, V14b reddens on the
+#                writer's own copy of that rule (the two are separate blocks
+#                and can drift), and V18 reddens on a case variant the server
+#                ignores
 #            (ad) restore the pre-fix value-token rule (a value-taking option
 #                consumes the next token whatever it is) -> V15 reddens, and
 #                so does the writer's own copy of it (V4's value-position case)
@@ -179,6 +191,16 @@
 #                reddens
 #            (ag) drop the way-out line covering --headless=false -> V16
 #                reddens
+#            (ah) treat a dashed option name as if it carried no dash -> V18
+#                reddens: a spelling the server does read stops being read as
+#                the pin it is
+#            (ai) drop the uniform-case lowering -> V18 reddens on
+#                --USER-DATA-DIR, whose case the server does normalize
+#            (aj) let a single-dash token through as a long option -> V18
+#                reddens on -headless, which the server reads as a bundle of
+#                single-letter flags
+#            (ak) return a dashed name unfolded -> V18 reddens on
+#                --user-data-dir, the spelling this migration itself writes
 #          A mutation is a full copy of .claude/install.sh, so it must live in
 #          .claude/ too (REPO_DIR is derived from the script's own path). Those
 #          copies are removed by the exit trap.
@@ -1463,6 +1485,72 @@ case_channel_separated_value() {
   return 0
 }
 
+# ---------------------------------------------------------------------------
+# V18: the option-name rule has to agree with the server's own reader in both
+# directions. The server is yargs (v1.10.1): it reads one leading dash as a
+# bundle of single-letter flags and two or more as a long option, and it
+# expands a long option's spelling only when that name contains a dash -
+# lowercasing it then only if its case is uniform, and folding a dash or an
+# underscore to the next character's upper case. So `--Headless` and
+# `--HEADLESS` are unknown flags to the server (it prints "Unknown arguments:
+# --Headless" and launches headed), `-headless` is the single-letter flags
+# h-e-a-d-l-e-s-s, and `--user_data_dir` is not camelized at all. Folding case
+# unconditionally read all of those as the options the migration writes, so an
+# entry carrying one was migrated without ever gaining --headless while the
+# installer reported it configured headless - the report this migration must
+# never print for an entry that still opens the window.
+#
+# The second half is the other direction, and it is what keeps the rule from
+# being tightened into a refusal of spellings the server does read:
+# --USER-DATA-DIR is one of them, because the server lowercases a name whose
+# case is uniform before camelizing it.
+# ---------------------------------------------------------------------------
+# case_spelling_current <script> <label> <pin> - the entry pins its own root
+# using <pin>, which the server does read as the userDataDir option, so it is
+# already current: reported as configured, and the file left byte-identical.
+case_spelling_current() {
+  local script="$1" label="$2" pin="$3"
+  local home="$TMP_ROOT/spelling-$label-home"
+  local before="$TMP_ROOT/spelling-$label-before.json"
+  local out rc
+  mkdir -p "$home"
+  seed_home "$home"
+  write_conflict_config "$home/.claude.json" "--headless" "$pin"
+  cp "$home/.claude.json" "$before"
+
+  # Both migration prompts are seeded so a mutated installer that goes back to
+  # offering one cannot hang the pty for the whole driver deadline. The
+  # unmutated run reaches neither.
+  out="$(run_install "$script" "$home" '[["Configure chrome-devtools MCP", "y\n"], ["Update the existing chrome-devtools MCP", "y\n"]]')"
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    _fail "$label: install exited $rc"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if ! grep -q "chrome-devtools MCP already configured" <<< "$out"; then
+    _fail "$label: an entry pinning its root as '$pin' was not read as already configured"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if ! cmp -s "$before" "$home/.claude.json"; then
+    _fail "$label: an already-current registration was rewritten"
+    return 1
+  fi
+  return 0
+}
+
+case_option_name_matches_server() {
+  local script="$1"
+  case_foreign_args_left_alone "$script" case-variant-headless "" "--Headless" || return 1
+  case_foreign_args_left_alone "$script" upper-case-headless "" "--HEADLESS" || return 1
+  case_foreign_args_left_alone "$script" short-flag-bundle "" "-headless" || return 1
+  case_foreign_args_left_alone "$script" underscore-name "" "--user_data_dir=/tmp/underscore-profile" || return 1
+  case_spelling_current "$script" kebab-pin "--user-data-dir=/tmp/spelling-profile" || return 1
+  case_spelling_current "$script" upper-kebab-pin "--USER-DATA-DIR=/tmp/spelling-profile" || return 1
+  return 0
+}
+
 # The way-out sentence, asserted on one representative foreign entry: every
 # foreign entry gets the same report, so the entry does not matter. A named
 # function because expect_case_fails passes a single argument to the case.
@@ -2005,6 +2093,11 @@ run_case "V17: --channel canary still migrates and the pin carries the canary su
   case_channel_separated_value "$INSTALL_SH"
 
 echo ""
+echo "=== V18: the option names the migration reads are the ones the server reads ==="
+run_case "V18: a case variant, a short-flag bundle and an underscore-only name are left alone; a dashed spelling the server reads is still the pin" \
+  case_option_name_matches_server "$INSTALL_SH"
+
+echo ""
 echo "=== V7: a top-level document that is not an object is named and skipped ==="
 run_case "V7: a top-level array is named and skipped" \
   case_top_level_array "$INSTALL_SH"
@@ -2056,7 +2149,7 @@ else
   _fail "mutation (a): the sed pattern no longer matches - the mutation was not applied"
 fi
 
-if mutate_installer 's/^elif "headless" in present and "user-data-dir" in present:$/elif True:/' short-circuit; then
+if mutate_installer 's/^elif "headless" in present and "userDataDir" in present:$/elif True:/' short-circuit; then
   if expect_case_fails "mutation (b) pre-U3 short-circuit" case_v2_accepted "$MUTATE_OUT" \
     "V2: the migration prompt was never reached"; then
     _pass "mutation (b): treating any existing key as current reddens V2"
@@ -2288,19 +2381,28 @@ else
 fi
 
 # (ac): the normalization rule itself, with the foreign-args guard left in
-# place. Dropping the camel-to-kebab fold makes an alternate spelling of an
-# option this migration does write unrecognisable, so the entry is reported as
-# carrying a foreign argument instead of being read as already current.
-if mutate_installer 's/r"(?<=\[a-z0-9\])(\[A-Z\])"/r"(?!)"/' unnormalize-option-names; then
-  if expect_case_fails "mutation (ac) option names compared unnormalized" \
+# place. Case-folding a name that carries no dash is the pre-fix reading: it
+# turns `--userDataDir`, which the server does read as the pin, into a name the
+# server never derives, so the entry is reported as carrying a foreign argument
+# instead of being read as already current - and it turns `--Headless`, an
+# unknown flag to the server, into the headless option this migration writes.
+# Both guards return the name verbatim, and the sed hits both so the two blocks
+# cannot drift apart under it.
+if mutate_installer 's/^        return name$/        return name.lower()/' fold-option-names; then
+  if expect_case_fails "mutation (ac) option names case-folded" \
     case_alternate_spelling_current "$MUTATE_OUT" \
     "already configured"; then
-    _pass "mutation (ac): dropping the camel-to-kebab fold reddens V14"
+    _pass "mutation (ac): case-folding a dash-free name reddens V14"
   fi
   if expect_case_fails "mutation (ac) the writer's copy of the fold" \
     case_writer_alternate_spelling_pin "$MUTATE_OUT" \
     "the writer exited"; then
     _pass "mutation (ac): the same fold reddens V14b on the writer's own copy"
+  fi
+  if expect_case_fails "mutation (ac) the classifier reads a spelling the server ignores" \
+    case_option_name_matches_server "$MUTATE_OUT" \
+    "was offered a prompt"; then
+    _pass "mutation (ac): the same fold reddens V18 on a case variant"
   fi
 else
   _fail "mutation (ac): the sed pattern no longer matches - the mutation was not applied"
@@ -2437,6 +2539,49 @@ if mutate_installer '/^  echo "  One that writes --headless=false/d' drop-negati
   fi
 else
   _fail "mutation (ag): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+# (ah)-(ak): one mutation per rule the option-name reader applies, all four
+# driven at V18. Each sed pattern matches both python blocks, so a rule that
+# survives in only one of them is not a way to pass.
+if mutate_installer 's/^    if "-" not in name:$/    if True:/' ignore-dash-presence; then
+  if expect_case_fails "mutation (ah) a dashed name treated as a dash-free one" \
+    case_option_name_matches_server "$MUTATE_OUT" \
+    "was not read as already configured"; then
+    _pass "mutation (ah): refusing to expand a dashed name reddens V18's --user-data-dir case"
+  fi
+else
+  _fail "mutation (ah): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+if mutate_installer 's/^    if name == name\.lower() or name == name\.upper():$/    if False:/' keep-name-case; then
+  if expect_case_fails "mutation (ai) uniform-case option name left as written" \
+    case_option_name_matches_server "$MUTATE_OUT" \
+    "was not read as already configured"; then
+    _pass "mutation (ai): dropping the uniform-case lowering reddens V18's --USER-DATA-DIR case"
+  fi
+else
+  _fail "mutation (ai): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+if mutate_installer 's/^    if not name\.startswith("--"):$/    if False:/' read-short-flags-as-long; then
+  if expect_case_fails "mutation (aj) a single-dash token read as a long option" \
+    case_option_name_matches_server "$MUTATE_OUT" \
+    "was offered a prompt"; then
+    _pass "mutation (aj): reading a short-flag bundle as a long option reddens V18's -headless case"
+  fi
+else
+  _fail "mutation (aj): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+if mutate_installer 's/^    return "".join(folded)$/    return name/' unfold-option-name; then
+  if expect_case_fails "mutation (ak) a dashed name returned unfolded" \
+    case_option_name_matches_server "$MUTATE_OUT" \
+    "was not read as already configured"; then
+    _pass "mutation (ak): returning a dashed name unfolded reddens V18's --user-data-dir case"
+  fi
+else
+  _fail "mutation (ak): the sed pattern no longer matches - the mutation was not applied"
 fi
 
 # ---------------------------------------------------------------------------
