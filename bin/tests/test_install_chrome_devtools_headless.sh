@@ -104,12 +104,12 @@
 #          The ae_confirm prompt reads /dev/tty, so each case runs under a real
 #          pseudo-terminal (python3 pty.fork) with the answer written once the
 #          prompt text is observed. Every other prompt in install.sh is seeded
-#          away (skill_auto_load key, permissions.defaultMode, the five
-#          CLI_TOOLS on PATH, --mode and --no-identity flags), so exactly one
-#          prompt is live per run - see the seed list below. The container-shape
-#          fixture is the exception: its mcpServers is a list, so the atlassian
-#          block's own key check finds nothing and prompts, and that prompt gets
-#          its own seeded answer.
+#          away (skill_auto_load key, permissions.defaultMode, env
+#          AGENT_BROWSER_IDLE_TIMEOUT_MS, the five CLI_TOOLS on PATH, --mode and
+#          --no-identity flags), so exactly one prompt is live per run - see the
+#          seed list below. The container-shape fixture is the exception: its
+#          mcpServers is a list, so the atlassian block's own key check finds
+#          nothing and prompts, and that prompt gets its own seeded answer.
 #
 #          Mutation coverage (each mutation is run, not merely named):
 #            (a) drop the --headless append           -> V1 reddens
@@ -320,17 +320,23 @@ fi
 
 # ---------------------------------------------------------------------------
 # seed_home <home>
-# Seeds 1 and 4, the two prompt-suppression seeds that live under $HOME.
+# Seeds 1, 4 and 5, the prompt-suppression seeds that live under $HOME.
 #   Seed 1: agentic-engineering.json carrying skill_auto_load -> suppresses
 #           ae_write_mode's /dev/tty prompt (gated on the key being absent).
 #   Seed 4: settings.json with permissions.defaultMode already
 #           bypassPermissions -> suppresses the permissions tty_input prompt.
+#   Seed 5: the same settings.json carrying AGENT_BROWSER_IDLE_TIMEOUT_MS ->
+#           suppresses the agent-browser daemon idle-timeout prompt, which is
+#           offered only when its key is absent. Any value suppresses it, so
+#           this is the state a machine that has already run the installer is
+#           in; without it every case here blocks on the prompt, because the
+#           pty driver has no needle for it and waits out its own deadline.
 # ---------------------------------------------------------------------------
 seed_home() {
   local home="$1"
   mkdir -p "$home/.claude"
   printf '{"skill_auto_load": false}\n' > "$home/.claude/agentic-engineering.json"
-  printf '{"permissions":{"defaultMode":"bypassPermissions"}}\n' > "$home/.claude/settings.json"
+  printf '{"permissions":{"defaultMode":"bypassPermissions"},"env":{"AGENT_BROWSER_IDLE_TIMEOUT_MS":"1800000"}}\n' > "$home/.claude/settings.json"
 }
 
 # ---------------------------------------------------------------------------

@@ -20,7 +20,7 @@
 #
 # Failure modes: any assertion failure prints the failing assertion and exits
 #                1. A temporary fake HOME is used; the real ~/.claude is never
-#                touched. install.sh requires FOUR distinct prompt-suppression
+#                touched. install.sh requires FIVE distinct prompt-suppression
 #                seeds (see below) across THREE mechanisms - `< /dev/null`
 #                alone does NOT suppress ae_confirm, which reads /dev/tty
 #                directly. Re-derive the seed list if this test starts
@@ -97,9 +97,14 @@ done
 # bypassPermissions -> suppresses the tty_input permissions-configuration
 # prompt (its gate reads perms.get("defaultMode"), which is otherwise only
 # ever written inside that same prompt's own yes-branch).
+#
+# Seed 5, the same file: an env object carrying AGENT_BROWSER_IDLE_TIMEOUT_MS
+# -> suppresses the agent-browser daemon idle-timeout prompt, which is offered
+# only when that key is absent. Any value suppresses it; dropping this key
+# makes every run block on the prompt whenever /dev/tty is a real terminal.
 # ---------------------------------------------------------------------------
 cat > "$FAKE_HOME/.claude/settings.json" <<'EOF'
-{"permissions":{"defaultMode":"bypassPermissions"}}
+{"permissions":{"defaultMode":"bypassPermissions"},"env":{"AGENT_BROWSER_IDLE_TIMEOUT_MS":"1800000"}}
 EOF
 
 echo ""

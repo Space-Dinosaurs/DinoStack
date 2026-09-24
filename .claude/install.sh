@@ -1615,6 +1615,181 @@ if _orphans:
 PYEOF
 
 # ---------------------------------------------------------------------------
+# agent-browser daemon idle timeout (DS-254 U8)
+#
+# agent-browser detaches its daemon, so a browser an agent opens outlives the
+# session that started it - and that daemon keeps holding its profile, which is
+# what blocks the next run. The CLI reads AGENT_BROWSER_IDLE_TIMEOUT_MS at
+# daemon start and shuts itself, and the browser with it, down after that many
+# ms with no command. Disabled by default, so without this write a leftover
+# browser has no upper bound at all.
+#
+# 1800000 ms (30 minutes) bounds the gap BETWEEN commands, which is not the
+# same thing as a session limit: every command resets the clock, so a browser
+# under active drive is never cut off mid-run. Half an hour clears the gaps a
+# run realistically leaves - a build, a test suite, a subagent review - while
+# still bounding a leftover window.
+#
+# Two things this does NOT do, stated here so neither is read as solved:
+#   - A daemon already running when the value is written read the variable at
+#     its own start and ignores it. The effect begins at the next daemon start.
+#   - It BOUNDS the CLI-path residual; it does not remove it. After a normal
+#     session end, that session's daemon and its browser stay up for up to the
+#     timeout before shutting down on their own.
+#
+# Deliberately not a reaper that closes agent-browser sessions by name:
+# `agent-browser session list` exposes session names but no owning run, so such
+# a predicate would be a guess that can close a concurrent run's browser, or
+# the operator's.
+# ---------------------------------------------------------------------------
+AE_BROWSER_IDLE_TIMEOUT_MS_VALUE="1800000"
+AE_BROWSER_IDLE_STATE="$(
+  AE_SETTINGS_PATH="$SETTINGS" python3 - <<'PYEOF' 2>/dev/null
+import json, os, sys
+
+path = os.environ["AE_SETTINGS_PATH"]
+try:
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+except FileNotFoundError:
+    print("absent")
+    sys.exit(0)
+except (OSError, ValueError, RecursionError):
+    print("unreadable")
+    sys.exit(0)
+
+# Both container shapes are named rather than coerced: an env key forced onto a
+# document that is not an object drops the operator's own keys, and an env that
+# is not an object has no key to set in the first place.
+if not isinstance(data, dict):
+    print("not-json-object")
+    sys.exit(0)
+if "env" in data and not isinstance(data["env"], dict):
+    print("env-not-object")
+    sys.exit(0)
+env = data.get("env") or {}
+print("set" if "AGENT_BROWSER_IDLE_TIMEOUT_MS" in env else "absent")
+PYEOF
+)" || AE_BROWSER_IDLE_STATE="undetermined"
+
+case "$AE_BROWSER_IDLE_STATE" in
+set)
+  # Any value counts as set, not only the one written below: raising the
+  # timeout is the documented way to keep a long-idle browser alive, so
+  # rewriting it back to the default on a re-run would make that way back a
+  # lie. The operator's number is left exactly as they set it.
+  echo "  = agent-browser daemon idle timeout already set in $SETTINGS - left as it is"
+  ;;
+unreadable)
+  echo "  ! $SETTINGS could not be read as JSON - leaving its env block untouched"
+  ;;
+undetermined)
+  echo "  ! $SETTINGS could not be classified - leaving its env block untouched"
+  ;;
+not-json-object)
+  echo "  ! $SETTINGS: the file's top level is not a JSON object, so there is no env block to set - leaving it untouched; fix that value by hand and re-run this installer"
+  ;;
+env-not-object)
+  echo "  ! $SETTINGS: env is not a JSON object - leaving it untouched; fix that value by hand and re-run this installer"
+  ;;
+*)
+  echo "  agent-browser's daemon detaches from the session that starts it, so a browser an agent opens"
+  echo "  stays open, holding its profile, until something closes it. Setting AGENT_BROWSER_IDLE_TIMEOUT_MS"
+  echo "  to $AE_BROWSER_IDLE_TIMEOUT_MS_VALUE ms (30 minutes) makes that daemon shut itself and its browser down"
+  echo "  once no command has arrived for half an hour, while a browser an agent is actively driving"
+  echo "  resets that clock on every command and is never cut off."
+  echo "  The cost: a QA run that idles longer than 30 minutes loses its browser session mid-run, and the"
+  echo "  next command silently relaunches a fresh browser with no cookies, no auth state and no navigation"
+  echo "  position. To reverse this, unset AGENT_BROWSER_IDLE_TIMEOUT_MS in $SETTINGS (or raise it) and the"
+  echo "  next daemon start picks that up."
+  if ae_confirm "  Set AGENT_BROWSER_IDLE_TIMEOUT_MS in $SETTINGS? [y/N] "; then
+    # A refusal exits non-zero without writing, and the caller tolerates it: a
+    # settings file this block cannot edit surgically is not a reason to fail
+    # the whole install.
+    AE_BROWSER_IDLE_RC=0
+    AE_SETTINGS_PATH="$SETTINGS" python3 - "$AE_BROWSER_IDLE_TIMEOUT_MS_VALUE" <<'PYEOF' || AE_BROWSER_IDLE_RC=$?
+import json, os, sys, tempfile
+
+target = os.environ["AE_SETTINGS_PATH"]
+value = sys.argv[1]
+
+
+def refuse(reason, remedy):
+    sys.stderr.write(reason + "\n" + remedy + "\n")
+    sys.exit(1)
+
+
+try:
+    with open(target, encoding="utf-8") as f:
+        data = json.load(f)
+    before = os.stat(target)
+except FileNotFoundError:
+    data = {}
+    before = None
+except (OSError, ValueError, RecursionError):
+    refuse("  ! " + target + " could not be read as JSON, so nothing was written.",
+           "    Fix that file by hand and re-run this installer.")
+
+if not isinstance(data, dict):
+    refuse("  ! " + target + ": the file's top level is not a JSON object, so nothing was written.",
+           "    Fix that value by hand and re-run this installer.")
+if "env" in data and not isinstance(data["env"], dict):
+    refuse("  ! " + target + ": env is not a JSON object, so nothing was written.",
+           "    Fix that value by hand (or remove it) and re-run this installer.")
+
+# The env object belongs to the operator - it can carry values this installer
+# knows nothing about - so the key is set INTO it. Replacing the object, or the
+# document, would drop those values.
+env = data.setdefault("env", {})
+env["AGENT_BROWSER_IDLE_TIMEOUT_MS"] = value
+
+# Same write shape as the chrome-devtools migration below: a same-directory
+# temp file and os.replace, so an interrupted run cannot truncate a settings
+# file that holds the operator's own keys and hook wiring.
+fd, tmp_path = tempfile.mkstemp(
+    dir=os.path.dirname(os.path.abspath(target)), prefix=".settings.json.")
+try:
+    # ensure_ascii=False and an explicit utf-8 encoding keep the key this write
+    # does not touch from being re-encoded: the default escapes each non-ASCII
+    # character, which rewrites unrelated values all over the operator's file.
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    if before is not None:
+        # mkstemp creates the temp file 0600 regardless of the target's own
+        # mode; carry the operator's mode over so the swap does not narrow it.
+        # 0o7777 is stat.S_IMODE's mask.
+        os.chmod(tmp_path, before.st_mode & 0o7777)
+    # Claude Code writes this file too. Re-check it immediately before the
+    # rename and refuse rather than clobber an update landing in the window.
+    now = os.stat(target) if os.path.exists(target) else None
+    if before is None:
+        moved = now is not None
+    else:
+        moved = now is None or (
+            now.st_size, now.st_mtime_ns) != (before.st_size, before.st_mtime_ns)
+    if moved:
+        refuse(
+            target + " changed while this installer was preparing its update, so nothing was written.",
+            "    Set it by hand: add \"AGENT_BROWSER_IDLE_TIMEOUT_MS\": \"" + value
+            + "\" to that file's env object.")
+    os.replace(tmp_path, target)
+finally:
+    if os.path.exists(tmp_path):
+        os.unlink(tmp_path)
+
+print("  + agent-browser daemon idle timeout set in " + target)
+PYEOF
+    if [[ "$AE_BROWSER_IDLE_RC" -ne 0 ]]; then
+      echo "  - agent-browser daemon idle timeout left unchanged"
+    fi
+  else
+    echo "  - skipped the agent-browser daemon idle timeout"
+  fi
+  ;;
+esac
+
+# ---------------------------------------------------------------------------
 # Deferred-wrap .claude-host sentinel (belt; MAJOR-B)
 #
 # When install.sh runs INSIDE a project (a .agentic/ dir exists in the install
