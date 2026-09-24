@@ -14,16 +14,20 @@ Purpose: Shared fire-logging helper for AE's Python enforce-*.py
              small and cheap to read. This is the right posture for a
              PreToolUse hook, which runs on every guarded tool call and
              would otherwise log at tool-call volume.
-           - EVERY-VERDICT (enforce-no-abdication.py alone): call on every
-             verdict path reached once the guard is enabled, including a
-             plain "allow". Action-only logging cannot answer "how often
-             did this guard evaluate a turn and decline to fire?", so it
+           - EVERY-VERDICT (enforce-no-abdication.py, plus the
+             non-enforcer SessionEnd hook session-end-reap-browsers.py):
+             call on every verdict path reached, including a plain
+             "allow". Action-only logging cannot answer "how often did
+             this guard evaluate a turn and decline to fire?", so it
              leaves "the guard never fires" unfalsifiable - the exact
              condition that hook sat in from 2026-08-03 to 2026-08-14,
              contributing zero rows while the other hooks contributed
-             1059. A Stop hook fires about once per conductor turn, so
-             every-verdict volume is bounded by turn count, not tool-call
-             count. Do NOT copy this posture to a PreToolUse hook.
+             1059. A Stop hook fires about once per conductor turn and a
+             SessionEnd hook about once per session, so every-verdict
+             volume is bounded by turn-and-session count, not tool-call
+             count; a tally that means "guardrail fires" must exclude
+             decision == "allow" rows by VALUE, never by hook name.
+             Do NOT copy this posture to a PreToolUse hook.
 
 Public API (module-level function, no class):
     log_fire(data, hook_name, decision, reason, *, detail=None) -> None
@@ -104,11 +108,15 @@ Downstream consumers: all fifteen enforce-*.py PreToolUse/Stop hooks that
                        enforce-turn-shape.py and enforce-no-abdication.py
                        are the two Stop-event consumers; the other thirteen are
                        PreToolUse.
-                       enforce-no-abdication.py is the one consumer that
-                       ALSO logs plain "allow" rows (every verdict path it
-                       reaches once enabled, not only its blocks) - without
-                       them its allow/deny ratio is unknowable and "the
-                       guard never fires" is unfalsifiable. It additionally
+                       enforce-no-abdication.py is the one enforce-*.py
+                       consumer that ALSO logs plain "allow" rows (every
+                       verdict path it reaches once enabled, not only its
+                       blocks) - without them its allow/deny ratio is
+                       unknowable and "the guard never fires" is
+                       unfalsifiable. One non-enforcer caller holds the
+                       same posture: hooks/session-end-reap-browsers.py
+                       logs a plain "allow" row per SessionEnd run whose
+                       verdict is an allow. It additionally
                        keeps its own pre-existing counter file
                        (.abdication-guard-fire-count), which has different
                        semantics (a cumulative count + loop-guard state,

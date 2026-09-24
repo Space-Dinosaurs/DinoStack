@@ -1121,11 +1121,12 @@ upsert_hook(
 # agent-browser command, and exits 0 on every path.
 #
 # Registered with the GUARDED command form (`test -f ... && ... || exit 0`),
-# per the rationale at .claude/install.sh:779 and the same discipline the
-# Stop-hook registrations above use: a bare `python3 <missing path>` exits
-# 2, and exit 2 on SessionEnd is the BLOCKING code, so an unguarded
-# registration would turn every session end into a failure once the script
-# is missing (a branch switch, a moved checkout, a reverted PR).
+# per the rationale carried by the ENFORCE_TURN_SHAPE_CMD registration above,
+# and the same discipline the Stop-hook registrations use: a bare
+# `python3 <missing path>` exits 2, and exit 2 on SessionEnd is the BLOCKING
+# code, so an unguarded registration would turn every session end into a
+# failure once the script is missing (a branch switch, a moved checkout, a
+# reverted PR).
 SESSION_END_REAP_CMD = (
     f"test -f {hooks_root}/hooks/session-end-reap-browsers.py && "
     f"python3 {hooks_root}/hooks/session-end-reap-browsers.py || exit 0"

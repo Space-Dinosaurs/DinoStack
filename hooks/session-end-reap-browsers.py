@@ -31,9 +31,9 @@ Purpose: Claude Code SessionEnd hook that reaps agent-launched Chrome
          browser carries in its OWN argv, which therefore survives its
          server's death:
 
-           Conjunct A - the row's OWN argv0 is a Chrome binary, matched
-             by exact basename against a known Chrome executable name,
-             AND argv contains
+           Conjunct A - the KERNEL's recorded executable name for the row
+             is a Chrome browser, matched against a known Chrome
+             executable name, AND argv contains
              `--user-data-dir=<HOME>/.cache/chrome-devtools-mcp/`
              This is the MCP's own profile root (BrowserManager.js's
              non-isolated default, and pinned explicitly by the
@@ -44,26 +44,39 @@ Purpose: Claude Code SessionEnd hook that reaps agent-launched Chrome
              `--user-data-dir` at all (measured), so no separate
              operator-profile guard is needed - A excludes it
              structurally.
-             The argv0 half is not decoration, and the match must be an
-             EXACT basename rather than a substring. This is the half
-             that carries the safety property: the profile path is a
+             The identity half is not decoration, and the match must be
+             an EXACT name rather than a substring: the profile path is a
              string any process can name, so a row's non-browser identity
              has to be established by its own executed image, never by
              what its arguments happen to contain. Measured on the
              development host: the `chrome-devtools-mcp` server's own
-             argv0 CONTAINS `chrome`, so a substring test made every MCP
-             server process on the machine - and every `npm exec`
-             wrapper carrying its name - a kill target the moment its
-             argv also carried a profile path. Also measured while
+             executable name contains `chrome`, so a substring test made
+             every MCP server process on the machine - and every `npm
+             exec` wrapper carrying its name - a kill target the moment
+             its argv also carried a profile path. Also measured while
              developing this hook: a
              `ps ... | grep -- '--user-data-dir=<the fingerprint>'`
              pipeline put the fingerprint string into the argv of its own
              `zsh -c` wrappers and its `ugrep` process. Both families
-             carry the fingerprint, and both are excluded by argv0 alone.
-             The executable path is read as everything before the first
-             ` --` (which is how the spaces inside
-             `.../Google Chrome for Testing` survive); `_executable_name`
-             then resolves argv0 out of that region.
+             carry the fingerprint, and both are excluded by identity.
+             That identity comes from the kernel's own command-name field
+             (`ucomm` on macOS/BSD, `comm` on Linux), NEVER from the
+             command string, and that is the whole point. `ps -Aww -o
+             command=` joins argv with single spaces and quotes nothing,
+             so a genuine space-bearing Chrome path
+             (`.../MacOS/Google Chrome for Testing`) and a launcher whose
+             ARGUMENT carries that same string (`.../foo bar/Google
+             Chrome for Testing`) are byte-identical as far as argv0's
+             boundary is concerned. No rule that reads the command string
+             can tell those two apart - not one that counts absolute
+             paths, not one that counts separators, not one that
+             re-splits on the first flag - which is exactly how an
+             argument came to satisfy this conjunct. The kernel records
+             the executable's own name at exec, so neither an argument
+             nor an argv0 rewrite can supply one. The kernel's buffer is
+             fixed (16 bytes, macOS MAXCOMLEN; 15, Linux TASK_COMM_LEN -
+             1), so a longer name arrives truncated and the match accepts
+             either truncation of a known Chrome name.
            Conjunct B - argv does NOT contain `--type=`. Chrome passes
              launch flags down to helpers/renderers, so without this the
              selector would match the whole browser rather than its root.
@@ -125,18 +138,23 @@ Public API: none (CLI hook). Invoked by the Claude Code SessionEnd hook
             `classify_rows`) are imported by this hook's own regression
             test via importlib.
 
-Upstream deps: Python 3 stdlib only (json, os, select, signal,
-               subprocess, sys) plus one local module loaded lazily by
-               path: hooks/lib/enforcement_log.py (the repo's sole
+Upstream deps: Python 3 stdlib only (json, os, re, select, signal,
+               subprocess, sys, time) plus one local module loaded lazily
+               by path: hooks/lib/enforcement_log.py (the repo's sole
                fire-log writer, and the only code that knows the
                worktree-local-to-primary-checkout redirection rule - a
                hand-written JSONL line would land in a discarded
                worktree-local copy). Exactly one external command:
-               `ps -Aww -o pid=,ppid=,command=`, run ONCE per
-               invocation with a timeout. Never a `type=` ps keyword:
-               measured on macOS, `ps: type: keyword not found` and the
-               command still prints a table MISSING that column, so a
-               parser reads shifted fields.
+               `ps -Aww -o ucomm=,pid=,ppid=,command=` (macOS/BSD) or
+               `ps -Aww -o comm=,pid=,ppid=,command=` (anything else),
+               run ONCE per invocation with a timeout. The kernel-name
+               field is listed FIRST because it is the only field on the
+               line that may itself contain spaces, and pid/ppid's two
+               integer tokens behind it are what delimiter the boundary;
+               `parse_ps_table` reads it that way. Never a `type=` ps
+               keyword: measured on macOS, `ps: type: keyword not found`
+               and the command still prints a table MISSING that column,
+               so a parser reads shifted fields.
 
 Downstream consumers: Claude Code SessionEnd hook (the second entry in
                       the `SessionEnd` matcher-"*" block wired by
@@ -155,16 +173,30 @@ Downstream consumers: Claude Code SessionEnd hook (the second entry in
 Failure modes: Fully fail-closed, exit 0 on EVERY path. A non-zero exit
                at SessionEnd is the blocking code, so a cleanup hook must
                never be able to turn a session's end into a failure. Every
-               degradation - an unparseable or absent payload, a `ps` that
-               is missing/errors/times out, a process table that is empty
-               (including one whose every line failed to parse), an
-               unresolvable own-process chain, a failed kill, an
-               unexpected exception anywhere in run() - results in NO kill
-               and exit 0. The hook reads no config file and holds no kill
-               switch: it is a once-per-session cleanup, not a policy
-               guard, and a kill switch would add a second silence that
-               the fire record exists to remove. It also never runs an
-               `agent-browser` command of any kind.
+               degradation that removes the EVIDENCE - an unparseable or
+               absent payload, a `ps` that is missing/errors/times out, a
+               process table that is empty (including one whose every
+               line failed to parse), a failed kill, an unexpected
+               exception anywhere in run() - results in NO kill and exit
+               0. An unresolvable own-process chain is NOT one of those,
+               and an earlier revision of this header wrongly listed it
+               here. `resolve_own_chain()` falls back to `[self_pid]`,
+               which makes arm (ii) - the own-session arm - unreachable;
+               arms (i) and (iii) are untouched by it and still select, so
+               an ORPHAN is still SIGKILLed on a run whose own chain did
+               not resolve. That is intended rather than a gap: arm (i)
+               rests on the ABSENCE of a live `chrome-devtools-mcp`
+               ancestor and arm (iii) on the absence of an `agent-browser`
+               daemon, so neither is a claim about session identity, and
+               neither can reach another LIVE session's browser (the R4
+               safety argument above turns on liveness, not identity).
+               Pinned by
+               `test_arm_i_still_reaps_when_the_own_chain_is_unresolvable`.
+               The hook reads no config file and holds no kill switch: it
+               is a once-per-session cleanup, not a policy guard, and a
+               kill switch would add a second silence that the fire record
+               exists to remove. It also never runs an `agent-browser`
+               command of any kind.
 
                Known residuals, stated rather than hidden. First, the
                selector takes ONE snapshot and never re-reads it, so a pid
@@ -205,11 +237,27 @@ import time
 
 HOOK_NAME = "session-end-reap-browsers"
 
+# The kernel's own record of a process's executable, as a `ps` field. This
+# is the ONLY argument-immune identity source on the line: the command field
+# is argv, which the process's own arguments populate. macOS/BSD spells the
+# field `ucomm`; Linux spells the same kernel record `comm`.
+KERNEL_NAME_FIELD = "ucomm" if sys.platform == "darwin" else "comm"
+
+# Kernel command-name buffers: macOS's MAXCOMLEN holds 16 bytes, Linux's
+# TASK_COMM_LEN - 1 holds 15, so a longer executable name arrives truncated
+# at one length or the other depending on the platform. A known Chrome name
+# is accepted in either truncation, so one identity set serves both.
+KERNEL_NAME_MAX_BYTES = 16
+KERNEL_NAME_ALT_BYTES = 15
+
 # The single, mandated process-table command. `-Aww` keeps the full argv
 # (a truncated command line would drop the `--user-data-dir` fingerprint),
 # and the `=`-suffixed field list suppresses the header so every line is
-# data. Never add `type=` to this list - see the docstring.
-PS_COMMAND = ["ps", "-Aww", "-o", "pid=,ppid=,command="]
+# data. The kernel-name field is first because it is the only field that may
+# itself contain spaces; `parse_ps_table` delimits it against pid/ppid's
+# integer tokens. Never add `type=` to this list - see the docstring.
+PS_COMMAND = ["ps", "-Aww", "-o",
+              KERNEL_NAME_FIELD + "=,pid=,ppid=,command="]
 PS_TIMEOUT_SECONDS = 3
 STDIN_TIMEOUT_SECONDS = 0.5
 STDIN_MAX_BYTES = 262144
@@ -229,13 +277,16 @@ SHELL_BASENAMES = frozenset((
     "sh", "bash", "zsh", "dash", "ash", "ksh", "csh", "tcsh", "fish",
 ))
 
-# The basenames a real Chrome-family browser's OWN argv0 resolves to. Positive
-# identity, never a substring: `chrome-devtools-mcp` contains `chrome` and is
-# the MCP server's argv0, so a substring test cannot tell a browser from the
-# server that spawned it. Covers the measured macOS shapes (`Google Chrome`,
-# `Google Chrome for Testing`), the Linux ones (`/opt/google/chrome/chrome`,
-# `/usr/bin/google-chrome`), Playwright's `Chromium` and `headless_shell`, and
-# `chrome-headless-shell`. Helpers are deliberately absent: `Google Chrome
+# The executable names a real Chrome-family browser's OWN image resolves to.
+# Positive identity, never a substring: `chrome-devtools-mcp` contains
+# `chrome` and is the MCP server's own executable name, so a substring test
+# cannot tell a browser from the server that spawned it. Covers the measured
+# macOS shapes (`Google Chrome`, `Google Chrome for Testing`), the Linux ones
+# (`/opt/google/chrome/chrome`, `/usr/bin/google-chrome`) including the beta
+# and unstable channel spellings the MCP's own `channel` option can select
+# (`beta`, `dev`, `canary`, `stable`), Playwright's `Chromium` and
+# `headless_shell`, and `chrome-headless-shell`. Windows spells the same
+# browser `chrome.exe`. Helpers are deliberately absent: `Google Chrome
 # Helper (Renderer)`, `chrome_crashpad_handler` and the other per-process
 # children are not browsers, and Chrome already marks them with `--type=`.
 CHROME_BINARY_NAMES = frozenset((
@@ -247,13 +298,26 @@ CHROME_BINARY_NAMES = frozenset((
     "Chromium",
     "chrome",
     "chrome-headless-shell",
+    "chrome.exe",
     "chromium",
     "chromium-browser",
     "chromium-headless-shell",
     "google-chrome",
+    "google-chrome-beta",
     "google-chrome-stable",
+    "google-chrome-unstable",
     "headless_shell",
 ))
+
+# The kernel-buffer forms of the names above. A kernel command-name buffer
+# holds 16 bytes on macOS (MAXCOMLEN) and 15 on Linux (TASK_COMM_LEN - 1), so
+# `Google Chrome for Testing` arrives as `Google Chrome fo` or `Google
+# Chrome f`; both cuts are in the set so one identity test serves either.
+CHROME_KERNEL_NAMES = frozenset(
+    name[:length]
+    for name in CHROME_BINARY_NAMES
+    for length in (KERNEL_NAME_MAX_BYTES, KERNEL_NAME_ALT_BYTES)
+)
 
 MCP_SERVER_MARKER = "chrome-devtools-mcp"
 MCP_PROFILE_RELATIVE = os.path.join(".cache", "chrome-devtools-mcp")
@@ -267,14 +331,21 @@ ARM_ORPHANED_CLI = "iii"
 
 
 class Row(object):
-    """One parsed `ps` line: pid, ppid, and the full command string."""
+    """One parsed `ps` line: pid, ppid, the kernel's executable name, and
+    the full command string.
 
-    __slots__ = ("pid", "ppid", "command")
+    `kernel_name` is the argument-immune half and `command` the
+    argument-bearing half; nothing downstream may derive identity from the
+    latter.
+    """
 
-    def __init__(self, pid, ppid, command):
+    __slots__ = ("pid", "ppid", "command", "kernel_name")
+
+    def __init__(self, pid, ppid, command, kernel_name):
         self.pid = pid
         self.ppid = ppid
         self.command = command
+        self.kernel_name = kernel_name
 
     def __repr__(self):  # pragma: no cover - diagnostics only
         return "Row(pid=%d, ppid=%d)" % (self.pid, self.ppid)
@@ -298,8 +369,27 @@ class Verdict(object):
 # Process table
 # ---------------------------------------------------------------------------
 
+# `<kernel name> <pid> <ppid> <command>`, with the kernel name allowed to run
+# up to the longest kernel buffer and to contain spaces. Lazy so the SHORTEST
+# name that leaves two integer tokens behind it wins.
+_PS_LINE_RE = re.compile(
+    r"^(?P<kernel>\S.{0,%d}?)\s+(?P<pid>\d+)\s+(?P<ppid>\d+)\s+(?P<command>.*)$"
+    % (KERNEL_NAME_MAX_BYTES - 1,)
+)
+
+
 def parse_ps_table(text):
-    """Parse `ps -Aww -o pid=,ppid=,command=` output into Row objects.
+    """Parse the mandated `ps` line into Row objects.
+
+    Each line is `<kernel name> <pid> <ppid> <command>`. The field order is
+    load-bearing, not cosmetic: the kernel name is the only field that may
+    itself contain spaces (macOS truncates `Google Chrome for Testing` to
+    `Google Chrome fo`), so it cannot be a trailing field and it cannot be
+    cut out by splitting on whitespace. pid and ppid's two integer tokens
+    are therefore the delimiter, and `_PS_LINE_RE` anchors on them. A line
+    whose kernel name is longer than the kernel's own buffer cannot be
+    delimited this way and is skipped, which withholds identity rather than
+    inventing it.
 
     Never raises: an empty, truncated, or malformed line is skipped rather
     than aborting the parse, so a degraded table yields fewer rows instead
@@ -309,15 +399,16 @@ def parse_ps_table(text):
     if not text:
         return rows
     for line in text.splitlines():
-        parts = line.strip().split(None, 2)
-        if len(parts) != 3:
+        match = _PS_LINE_RE.match(line)
+        if match is None:
             continue
         try:
-            pid = int(parts[0])
-            ppid = int(parts[1])
+            pid = int(match.group("pid"))
+            ppid = int(match.group("ppid"))
         except (TypeError, ValueError):
             continue
-        rows.append(Row(pid, ppid, parts[2]))
+        rows.append(Row(pid, ppid, match.group("command"),
+                        match.group("kernel")))
     return rows
 
 
@@ -436,55 +527,17 @@ def resolve_own_chain(self_pid, ppid_map, command_map):
 # fixture reddens. Removing a conjunct must never be a silent edit.
 # ---------------------------------------------------------------------------
 
-def _executable_region(command):
-    """Everything before the command's first ` --` flag.
-
-    Anchored on the first flag rather than on whitespace because a Chrome
-    executable path contains spaces (`.../MacOS/Google Chrome for Testing`),
-    and a plain `split()[0]` truncates it to the `Google` segment.
-    """
-    return re.split(r"\s--", command, maxsplit=1)[0]
-
-
-def _executable_name(command):
-    """argv0's basename, or "" for a command with no executable token.
-
-    argv0 cannot be taken as the region's first whitespace-separated token,
-    because a Chrome executable path carries spaces. It is resolved by where
-    the region's ABSOLUTE paths start instead: exactly one, at the region's
-    own start, means the whole region is argv0 (the space-bearing Chrome
-    path); anything else means argv0 is only the first token, because that
-    first token is a launcher (`node <script>`, `npm exec <package>`,
-    `sh -c "<...>"`) or an absolute launcher path that names a Chrome path
-    as its own ARGUMENT.
-
-    Reading only the region keeps the arguments out of argv0 entirely, so a
-    process whose arguments merely mention a Chrome path is never mistaken
-    for one.
-    """
-    region = _executable_region(command).strip()
-    if not region:
-        return ""
-    tokens = region.split()
-    path_starts = [i for i, token in enumerate(tokens) if token.startswith("/")]
-    if len(path_starts) == 1 and path_starts[0] == 0:
-        return region.rsplit("/", 1)[-1]
-    if not path_starts:
-        # No absolute path anywhere: the region is either a bare Chrome name
-        # that carries spaces, or a bare launcher name.
-        return region if region in CHROME_BINARY_NAMES else tokens[0]
-    return tokens[0]
-
-
-def _is_chrome_binary(command):
+def _is_chrome_binary(kernel_name):
     """Conjunct A, part 1: the row's OWN executed image is a Chrome browser.
 
-    An exact basename match against CHROME_BINARY_NAMES, never a substring -
-    see the module docstring for the `chrome-devtools-mcp` argv0 that a
-    substring test cannot distinguish from a browser.
+    An exact match against the KERNEL's recorded executable name, never a
+    substring and never anything read out of the command string - see the
+    module docstring for the `chrome-devtools-mcp` name a substring test
+    cannot distinguish from a browser, and for why no command-string rule
+    can recover this at all.
     """
     # MUTATION-ANCHOR: chrome_binary
-    return _executable_name(command) in CHROME_BINARY_NAMES
+    return kernel_name in CHROME_KERNEL_NAMES
     # END-MUTATION-ANCHOR: chrome_binary
 
 
@@ -580,7 +633,7 @@ def classify_rows(rows, mcp_profile_root, own_chain):
         note = ""
         if not _is_browser_main(row.command):
             note = "browser_helper_process"
-        elif not _is_chrome_binary(row.command):
+        elif not _is_chrome_binary(row.kernel_name):
             note = "not_a_chrome_executable"
         elif _matches_mcp_profile(row.command, mcp_profile_root):
             arm = _mcp_arm(row.pid, command_map, ppid_map, own_chain)
@@ -692,7 +745,16 @@ def _load_log_fire():
 
 
 def _reap(pid):
-    """SIGKILL one selected pid. Returns True only if the signal was sent."""
+    """SIGKILL one selected pid. Returns True only if the signal was sent.
+
+    pid <= 1 is refused before the signal is sent: `os.kill(0, sig)` signals
+    the CALLER's whole process group and pid 1 is launchd/init. Neither can
+    come out of the mandated `ps -Aww` table, so this is hardening against a
+    parse-level regression rather than a live path - the same reason
+    `ancestor_pids` stops at INIT_PIDS.
+    """
+    if pid <= 1:
+        return False
     try:
         os.kill(pid, signal.SIGKILL)
         return True
