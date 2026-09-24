@@ -128,7 +128,22 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # which had gone stale twice across separate rounds - to anchor-text
 # citations). Measured post-edit size is 387,197 B; 387197 * 1.02 =
 # 394,940.94, rounded to 395,000, following the same ~2% convention.
-THRESHOLD_BYTES=395000
+# Raised again for DS-244 (the `transitions: manual` tracker-writeback kill
+# switch: a new overlay key threaded through every writeback call site, its
+# per-call-site semantics, and the restoration of prose an earlier pass had
+# compressed away to fit under the OLD 395,000 threshold). That compression
+# introduced two prose defects as direct collateral, so the instruction to
+# compress this file rather than raise THRESHOLD_BYTES is withdrawn: restore
+# correct prose and re-derive the threshold instead. This raise does NOT
+# follow the ~2% convention the entries above used, and asserts no
+# arithmetic relationship to any measured size: 404,000 is a round figure
+# picked to clear the file's size at the time of the raise with a small
+# margin, and the margin it actually left was under 1%. No measured figure
+# is recorded here on purpose - every such figure in the
+# entries above went stale the next time the file changed, which made the
+# stated arithmetic stop reproducing. Run `bash scripts/check-command-file-budget.sh`
+# for the live size and headroom.
+THRESHOLD_BYTES=404000
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

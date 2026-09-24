@@ -228,7 +228,7 @@ Project-local, gitignored, pure data (never executes). Merged field-by-field, ov
 
 | Key | Required | Maps to | Notes |
 |---|---|---|---|
-| `tracker` | always | `TRACKER` | `jira` \| `linear`; any other value = unusable |
+| `tracker` | always, except for `transitions` alone | `TRACKER` | `jira` \| `linear`; any other value (including absent) makes every OTHER key unusable - `transitions` is the sole exception, see its own row |
 | `prefix` | when sole source | `TICKET_PREFIX` | |
 | `base_url` | when sole source + jira | `JIRA_BASE_URL` | |
 | `workspace` | when sole source + linear | `LINEAR_WORKSPACE` | |
@@ -236,6 +236,7 @@ Project-local, gitignored, pure data (never executes). Merged field-by-field, ov
 | `jira_qa_transition` | no | `JIRA_QA_TRANSITION` | jira only |
 | `state_in_progress` / `state_in_review` / `state_qa` / `state_dev_complete` / `state_blocked` / `state_done` | no | `TRACKER_STATE_*` | defaults match the live step-4 chain, except `state_dev_complete`, which defaults to the RESOLVED `state_done` value rather than a literal; `state_dev_complete` is the automatic merge target, `state_done` is terminal and never written automatically |
 | `pipeline_order` | no | `TRACKER_PIPELINE_ORDER` | comma ordering of `IN_PROGRESS, IN_REVIEW, QA` with optional `DEV_COMPLETE` (implied trailing when omitted); warns and defaults on malformed |
+| `transitions` | no | `TRACKER_TRANSITIONS_MODE` | `auto` (default) \| `manual`, case-insensitive; kill switch - `manual` stops the Tracker Writeback Helper from performing any transition at any call site, returning a report-only `skipped_transitions_manual` instead; warns and defaults to `auto` on any other value; not tracker-specific and the ONLY key here that still resolves regardless of which tracker is configured or whether the overlay's tracker-specific configuration is usable at all - no `tracker:` key, an unknown `tracker:` value, or a sole-source overlay missing its declared tracker's required fields; `ds-tracker show --scope effective` and `ds-tracker resolve` both print the resolved value, with its consequence spelled out when it is `manual` |
 
 Any key matching a credential-shaped pattern (`token`, `secret`, `password`, `api_key`, `credential`, `cookie`, `bearer`, `pat`) rejects the **entire file** - this is not a secret scanner, only a key-name guard; a short token pasted under an allowlisted key is still accepted.
 

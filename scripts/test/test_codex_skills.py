@@ -803,11 +803,15 @@ class CodexSkillGenerationTests(unittest.TestCase):
         twh_end = kernel.index("## Tracker Create Helper", twh_start)
         twh = kernel[twh_start:twh_end]
         self.assertIn("**Caller enumeration", twh)
-        self.assertEqual(twh.count("/ds-wrap"), 5, (
-            "expected 5 '/ds-wrap' occurrences in the Tracker Writeback Helper "
-            "section (1 pre-existing in the intro paragraph + 4 restored by "
-            "the Caller enumeration block) - got a different count, which "
-            "means the restoration was partially or fully reverted"
+        self.assertEqual(twh.count("/ds-wrap"), 6, (
+            "expected 6 '/ds-wrap' occurrences in the Tracker Writeback Helper "
+            "section (1 pre-existing in the intro paragraph + 5 in the Caller "
+            "enumeration block: 4 in the awaiting-caller bullets restored by "
+            "Unit 1, plus 1 in the 'Full return-status set' bullet pointing at "
+            "content/commands/ds-wrap.md Part F for the "
+            "skipped_transitions_manual rendering, added by DS-244) - got a "
+            "different count, which means the restoration or the DS-244 bullet "
+            "was partially or fully reverted"
         ))
         self.assertEqual(twh.count("`/ds-ticket-status-sync`"), 5, (
             "expected 5 '`/ds-ticket-status-sync`' occurrences in the Tracker "

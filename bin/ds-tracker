@@ -23,15 +23,37 @@ Public API:
            _read_agents_md(path), _defaults_for(tracker),
            _apply_dev_complete_default(declared, defaults),
            _git_state(path), _check_ignored(path, force_unignored=False),
-           _resolve_tracker(cwd), _validate_write_key(key, value).
+           _resolve_tracker(cwd), _validate_write_key(key, value),
+           _transitions_mode_lines(result) - the effective view's
+           TRANSITIONS: line, shared by `show --scope effective` and
+           `resolve`,
+           _no_tracker_result(base, universal_fields, overlay_reason,
+           git_state, warnings) - shared by every shape of overlay that
+           cannot supply a usable TRACKER but does supply a valid
+           `transitions` value.
 
 Data model: `<repo>/.agentic/tracker.yml` - project-local, gitignored,
   pure data (never executes). Closed key allowlist (ALLOWED_KEYS): tracker,
   prefix, base_url, workspace, qa_assignee, jira_qa_transition,
   state_in_progress, state_in_review, state_qa, state_dev_complete,
-  state_blocked, state_done, pipeline_order, created_at. Unlike
-  `.agentic/phase0-classifiers.yml`
-  (which runs with full conductor privileges), this file is data-only.
+  state_blocked, state_done, pipeline_order, transitions, created_at.
+  `transitions` (automated-transition kill switch: `auto` | `manual`, case-insensitive,
+  default `auto`) is not tracker-specific and resolves to
+  TRACKER_TRANSITIONS_MODE regardless of which tracker is configured; an
+  invalid value warns and falls back to the default, same discipline as
+  `pipeline_order`. Because it is tracker-independent, `transitions` is the
+  one key that survives every shape of overlay that is otherwise unusable
+  for tracker-resolution purposes - no `tracker:` key at all, an unknown
+  `tracker:` value, or a sole-source overlay missing its tracker's required
+  fields (status `no_tracker` in all three cases, distinct from `unusable`,
+  which covers two shapes: an overlay rejected outright - unreadable, or
+  carrying a credential-shaped key, a guard that rejects the whole file even
+  when a valid `transitions` value is present - and an overlay whose
+  tracker-specific configuration is unusable with no valid `transitions`
+  value left to keep) - every
+  other key remains gated on a valid, complete `tracker:` declaration. Unlike
+  `.agentic/phase0-classifiers.yml` (which runs with full conductor
+  privileges), this file is data-only.
 
 Upstream deps: Python 3 stdlib only (argparse, json, os, re, subprocess,
                sys, datetime, pathlib). Shared helper: bin/_lib
@@ -44,7 +66,11 @@ Downstream consumers: content/commands/ds-implement-ticket.md Setup (prefers
   binary is unavailable); ds-ticket-status-sync.md, ds-wrap.md Part F,
   ds-ticket-triage.md, ds-feedback-triage.md (same resolution chain, by
   reference). content/commands/ds-init-project.md Step 11 (writes via
-  `ds-tracker init` when the operator chooses the local-overlay scope).
+  `ds-tracker init` when the operator chooses the local-overlay scope);
+  that same doc also directs `ds-tracker set transitions manual` as a
+  standalone kill switch on ANY project regardless of tracker scope,
+  including one whose tracker is declared in AGENTS.md rather than the
+  overlay.
 
 Failure modes: exits 0 (success, all subcommands), 2 (resolve, and show
   --scope effective - the live legacy `## Linear` shape guard fired; never
@@ -52,7 +78,8 @@ Failure modes: exits 0 (success, all subcommands), 2 (resolve, and show
   guard: the target path is unignored, already tracked, or its ignore
   state can't be determined; `--force-unignored` downgrades to a warning
   and proceeds), 4 (set - write-side key validation refused a
-  credential-shaped or unknown key, or an oversized value; runs BEFORE the
+  credential-shaped or unknown key, an oversized value, or an invalid
+  `transitions` value (must be `auto`/`manual`); runs BEFORE the
   git-state guard so a secret is rejected for being a secret, not
   incidentally because the path happened to be unignored; structurally
   unreachable for init, which only ever writes its own allowlisted,
@@ -139,8 +166,11 @@ ALLOWED_KEYS: set[str] = {
     "state_blocked",
     "state_done",
     "pipeline_order",
+    "transitions",
     "created_at",
 }
+
+TRANSITIONS_MODE_TOKENS = ("auto", "manual")
 
 REQUIRED_KEYS: dict[str, set[str]] = {
     "jira": {"prefix", "base_url"},
@@ -264,8 +294,26 @@ def _pipeline_order_warning(field_label: str, value: str) -> str:
 def _read_overlay(path: Path) -> tuple[dict, str, list[str], str | None]:
     """Parse the overlay file. Returns (fields, status, warnings, reason).
 
-    status is one of "ok" / "absent" / "unusable". fields is {} unless
-    status == "ok" - the overlay is never partially honored.
+    status is one of "ok" / "absent" / "unusable" / "no_tracker". fields is
+    {} for "absent" and "unusable" - a tracker-specific overlay is never
+    partially honored. "no_tracker" is the shared exception: it is returned
+    whenever the overlay's tracker-specific data cannot be used - no
+    `tracker:` key at all, or an unknown `tracker:` value - but a VALID
+    `transitions` value is still present, since `transitions` is documented
+    as usable on any project regardless of tracker configuration. In all
+    "no_tracker" cases here, fields holds exactly
+    {"TRACKER_TRANSITIONS_MODE": ...}; `reason` states the specific cause
+    (missing key vs. unknown value) so callers never see a misleading
+    message. `_resolve_tracker` applies the same carve-out a third time, for
+    a sole-source overlay whose declared tracker is valid but missing
+    required fields - that shape can't be detected here since required-field
+    validation runs on the merged/defaulted result, not the raw overlay.
+    An overlay that is unusable for tracker-resolution purposes AND has no
+    usable `transitions` value (absent or invalid) reports "unusable",
+    unchanged from before this field existed. The credential-shaped-key
+    guard and the unreadable-file paths run ahead of the carve-out and
+    return "unusable" unconditionally - a valid `transitions` value never
+    survives either of them.
     """
     if not path.is_file():
         return {}, "absent", [], None
@@ -337,8 +385,31 @@ def _read_overlay(path: Path) -> tuple[dict, str, list[str], str | None]:
 
     tracker_raw = fields.get("tracker")
     if not tracker_raw:
+        # `transitions` is tracker-independent (see module docstring) - an
+        # overlay that declares no tracker at all can still contribute it
+        # rather than being discarded wholesale.
+        universal_resolved = _translate_transitions_field(fields, warnings)
+        if universal_resolved:
+            return (
+                universal_resolved,
+                "no_tracker",
+                warnings,
+                "no 'tracker:' key - tracker-specific fields ignored; "
+                "'transitions' honored (accepted tracker values: jira, linear)",
+            )
         return {}, "unusable", warnings, "no 'tracker:' key - accepted values: jira, linear"
     if tracker_raw not in ("jira", "linear"):
+        # Same carve-out as the missing-`tracker:`-key branch above - an
+        # unknown tracker value still leaves `transitions` usable.
+        universal_resolved = _translate_transitions_field(fields, warnings)
+        if universal_resolved:
+            return (
+                universal_resolved,
+                "no_tracker",
+                warnings,
+                f"unknown tracker '{tracker_raw}' - tracker-specific fields ignored; "
+                "'transitions' honored (accepted tracker values: jira, linear)",
+            )
         return (
             {},
             "unusable",
@@ -348,6 +419,29 @@ def _read_overlay(path: Path) -> tuple[dict, str, list[str], str | None]:
 
     resolved = _translate_overlay_fields(fields, tracker_raw, warnings)
     return resolved, "ok", warnings, None
+
+
+def _translate_transitions_field(fields: dict, warnings: list[str]) -> dict:
+    """Translate the tracker-independent `transitions` key, if present.
+
+    Shared by the tracker-declared path (_translate_overlay_fields) and the
+    tracker-less path (_read_overlay's `no_tracker` status) - `transitions`
+    is not tracker-specific, so both need identical handling. Returns {} and
+    appends a warning when the value is present but invalid; returns {}
+    silently when the key is absent.
+    """
+    resolved: dict = {}
+    if "transitions" in fields:
+        normalized_mode = fields["transitions"].strip().lower()
+        if normalized_mode not in TRANSITIONS_MODE_TOKENS:
+            _append_warning(
+                warnings,
+                f"WARNING: transitions '{fields['transitions']}' is not one of "
+                f"{'/'.join(TRANSITIONS_MODE_TOKENS)} - using the default 'auto'.",
+            )
+        else:
+            resolved["TRACKER_TRANSITIONS_MODE"] = normalized_mode
+    return resolved
 
 
 def _translate_overlay_fields(fields: dict, tracker: str, warnings: list[str]) -> dict:
@@ -386,6 +480,8 @@ def _translate_overlay_fields(fields: dict, tracker: str, warnings: list[str]) -
             warnings.append(_pipeline_order_warning("pipeline_order", fields["pipeline_order"]))
         else:
             resolved["TRACKER_PIPELINE_ORDER"] = normalized
+
+    resolved.update(_translate_transitions_field(fields, warnings))
 
     return resolved
 
@@ -546,6 +642,7 @@ def _defaults_for(tracker: str | None) -> dict:
         "TRACKER_STATE_DONE": done,
         "TRACKER_DEV_COMPLETE_DECLARED": "false",
         "TRACKER_PIPELINE_ORDER": "IN_PROGRESS, IN_REVIEW, QA",
+        "TRACKER_TRANSITIONS_MODE": "auto",
     }
 
 
@@ -664,6 +761,11 @@ def _validate_write_key(key: str, value: str) -> tuple[bool, str | None]:
         return False, f"unknown key '{key}' - accepted keys: {', '.join(sorted(ALLOWED_KEYS))}"
     if len(value) > MAX_VALUE_LEN:
         return False, f"value exceeds {MAX_VALUE_LEN} characters"
+    if key == "transitions" and value.strip().lower() not in TRANSITIONS_MODE_TOKENS:
+        return False, (
+            f"invalid value '{value}' for 'transitions' - accepted values: "
+            f"{'/'.join(TRANSITIONS_MODE_TOKENS)}"
+        )
     return True, None
 
 
@@ -678,6 +780,37 @@ def _base_result(base: dict) -> dict:
     result = {**defaults, **declared}
     result["TRACKER"] = result.get("TRACKER", "none")
     result["_source"] = "agents-md" if base else "none"
+    return result
+
+
+def _no_tracker_result(
+    base: dict,
+    universal_fields: dict,
+    overlay_reason: str | None,
+    git_state: str | None,
+    warnings: list[str],
+) -> dict:
+    """Build a `no_tracker`-status result: TRACKER (and everything else)
+    resolves entirely from `base` (AGENTS.md, or "none"); only the
+    tracker-independent `universal_fields` (currently: transitions) are
+    layered on top. Shared by every shape of overlay that cannot supply a
+    usable TRACKER but does supply a valid `transitions` value - no
+    `tracker:` key, an unknown `tracker:` value, or a sole-source overlay
+    missing its declared tracker's required fields - so the carve-out is
+    applied identically regardless of which shape triggered it.
+    """
+    result = _base_result(base)
+    overridden: list[str] = []
+    for k, v in universal_fields.items():
+        if k in result and result[k] != v:
+            overridden.append(k)
+        result[k] = v
+    result["_overlay_status"] = "no_tracker"
+    result["_overlay_reason"] = overlay_reason
+    result["_overridden"] = overridden
+    result["_agents_md_guard"] = None
+    result["_git_state"] = git_state
+    result["_warnings"] = warnings
     return result
 
 
@@ -715,6 +848,15 @@ def _resolve_tracker(cwd: Path) -> dict:
         result["_warnings"] = warnings
         return result
 
+    if overlay_status == "no_tracker":
+        # Tracker-less-for-resolution-purposes overlay (no `tracker:` key,
+        # or an unknown `tracker:` value) contributing only
+        # tracker-independent fields (currently: transitions). TRACKER
+        # itself still resolves entirely from AGENTS.md (or "none"), so
+        # _source stays "agents-md"/"none" - only the contributed field is
+        # overridden.
+        return _no_tracker_result(base, overlay_fields, overlay_reason, git_state, warnings)
+
     # overlay_status == "ok"
     overlay_tracker = overlay_fields.get("TRACKER")
     base_tracker = base.get("TRACKER") if base else None
@@ -748,13 +890,22 @@ def _resolve_tracker(cwd: Path) -> dict:
         canon_map = {"prefix": "TICKET_PREFIX", "base_url": "JIRA_BASE_URL", "workspace": "LINEAR_WORKSPACE"}
         missing = [k for k in sorted(required) if not resolved_fields.get(canon_map.get(k, k))]
         if missing:
-            reason = (
+            base_reason = (
                 f"missing required field(s) for tracker '{resolved_fields.get('TRACKER')}': "
                 f"{', '.join(missing)}"
             )
+            # Same carve-out as the read-time no_tracker branches - a
+            # sole-source overlay whose declared tracker is unusable for
+            # lack of required fields still leaves `transitions` usable.
+            universal_fields = {
+                k: v for k, v in overlay_fields.items() if k == "TRACKER_TRANSITIONS_MODE"
+            }
+            if universal_fields:
+                reason = f"{base_reason} - tracker-specific fields ignored; 'transitions' honored"
+                return _no_tracker_result(base, universal_fields, reason, git_state, warnings)
             result = _base_result(base)
             result["_overlay_status"] = "unusable"
-            result["_overlay_reason"] = reason
+            result["_overlay_reason"] = base_reason
             result["_overridden"] = []
             result["_agents_md_guard"] = None
             result["_git_state"] = git_state
@@ -772,14 +923,44 @@ def _resolve_tracker(cwd: Path) -> dict:
     return result
 
 
+def _transitions_mode_lines(result: dict) -> list[str]:
+    """The kill switch, surfaced in the effective view.
+
+    `ds-tracker show` (project scope) prints the overlay's raw `transitions`
+    key, but the effective view is where an operator confirms a kill switch
+    is actually in force after the AGENTS.md/overlay merge - and a `manual`
+    value there means no automatic tracker state transition will fire.
+    """
+    mode = result.get("TRACKER_TRANSITIONS_MODE", "auto")
+    lines = [f"TRANSITIONS:   {mode}"]
+    if mode == "manual":
+        lines.append(
+            "               no automatic tracker state transition will fire; "
+            "run `ds-tracker set transitions auto` to re-enable"
+        )
+    return lines
+
+
 def _disclosure_lines(result: dict) -> list[str]:
     lines: list[str] = []
     source = result.get("_source")
+    overlay_status = result.get("_overlay_status")
     if source in ("overlay", "merged"):
         overridden = result.get("_overridden") or []
         overrides_str = ", ".join(overridden) if overridden else "(none)"
         lines.append(f"Tracker config source: .agentic/tracker.yml (overrides: {overrides_str})")
-    if result.get("_overlay_status") == "unusable":
+    elif overlay_status == "no_tracker" and result.get("_overridden"):
+        # `_overlay_reason` already states the specific cause (missing key,
+        # unknown value, or missing required fields) - reuse it rather than
+        # hardcoding "no 'tracker:' key", which is false for two of the
+        # three shapes this branch covers.
+        overrides_str = ", ".join(result["_overridden"])
+        lines.append(
+            "Tracker config source: .agentic/tracker.yml "
+            f"(tracker-specific configuration unusable: {result.get('_overlay_reason')}; "
+            f"tracker-independent overrides: {overrides_str})"
+        )
+    if overlay_status == "unusable":
         lines.append(
             f"Tracker: {result.get('TRACKER', 'none')} "
             f"(.agentic/tracker.yml present but unusable: {result.get('_overlay_reason')})"
@@ -924,6 +1105,8 @@ def cmd_show(args: argparse.Namespace) -> int:
     result = _resolve_tracker(cwd)
     print(f"TRACKER:       {result.get('TRACKER', 'none')}")
     print(f"_source:       {result.get('_source')}")
+    for line in _transitions_mode_lines(result):
+        print(line)
     for line in _disclosure_lines(result):
         print(line)
     if result.get("_agents_md_guard"):
@@ -942,6 +1125,8 @@ def cmd_resolve(args: argparse.Namespace) -> int:
     else:
         print(f"TRACKER:       {result.get('TRACKER', 'none')}")
         print(f"_source:       {result.get('_source')}")
+        for line in _transitions_mode_lines(result):
+            print(line)
         for line in _disclosure_lines(result):
             print(line)
 

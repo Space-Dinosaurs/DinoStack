@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -1074,6 +1075,304 @@ def test_tracked_overlay_emits_read_side_warning():
         print("PASS test_tracked_overlay_emits_read_side_warning")
 
 
+# ---------------------------------------------------------------------------
+# AA1-AA4: `transitions:` automated-transition kill switch key
+# ---------------------------------------------------------------------------
+
+def test_AA1_transitions_defaults_to_auto():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_TRANSITIONS_MODE"] == "auto"
+        print("PASS test_AA1_transitions_defaults_to_auto")
+
+
+def test_AA2_transitions_manual_accepted_case_insensitive():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        overlay = cwd / ".agentic" / "tracker.yml"
+        _write(
+            overlay,
+            "tracker: jira\nprefix: DS\nbase_url: https://x.atlassian.net\n"
+            "transitions: MANUAL\n",
+        )
+        fields, status, warnings, reason = _read_overlay(overlay)
+        assert status == "ok"
+        assert fields["TRACKER_TRANSITIONS_MODE"] == "manual"
+        assert warnings == []
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_TRANSITIONS_MODE"] == "manual"
+        print("PASS test_AA2_transitions_manual_accepted_case_insensitive")
+
+
+def test_AA3_transitions_invalid_value_warns_and_defaults():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        overlay = cwd / ".agentic" / "tracker.yml"
+        _write(
+            overlay,
+            "tracker: jira\nprefix: DS\nbase_url: https://x.atlassian.net\n"
+            "transitions: sometimes\n",
+        )
+        fields, status, warnings, reason = _read_overlay(overlay)
+        assert status == "ok"
+        assert "TRACKER_TRANSITIONS_MODE" not in fields
+        assert any("transitions" in w and "auto" in w for w in warnings), warnings
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_TRANSITIONS_MODE"] == "auto"
+        print("PASS test_AA3_transitions_invalid_value_warns_and_defaults")
+
+
+def test_AA4_ds_tracker_set_transitions_round_trip():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        env = _init_repo(repo)
+        _write(repo / ".gitignore", ".agentic/tracker.yml\n")
+        r_init = _run_cli(
+            ["init", "--tracker", "jira", "--prefix", "DS", "--base-url", "https://x.atlassian.net"],
+            repo,
+            env,
+        )
+        assert r_init.returncode == 0, r_init.stderr
+
+        r_set = _run_cli(["set", "transitions", "manual"], repo, env)
+        assert r_set.returncode == 0, r_set.stderr
+
+        result = _resolve_tracker(repo)
+        assert result["TRACKER_TRANSITIONS_MODE"] == "manual"
+        print("PASS test_AA4_ds_tracker_set_transitions_round_trip")
+
+
+def test_AA5_transitions_manual_no_init_no_tracker_key(tmp_path=None):
+    """CRITICAL fix regression: `ds-tracker set transitions manual` must be
+    honored on a project with NO `init` run and NO `tracker:` key anywhere
+    (overlay or AGENTS.md) - the kill switch is not tracker-specific and
+    must not be silently discarded by the `tracker:`-key gate. Reproduces
+    the exact failing transcript from the round-2 rework brief: `set`
+    reports success, but pre-fix `resolve --json` still read back "auto".
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        env = _init_repo(repo)
+        _write(repo / ".gitignore", ".agentic/tracker.yml\n")
+        subprocess.run(["git", "add", ".gitignore"], cwd=str(repo), env=env, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "gitignore"], cwd=str(repo), env=env, check=True)
+
+        # No `ds-tracker init` call at all - go straight to `set`.
+        r_set = _run_cli(["set", "transitions", "manual"], repo, env)
+        assert r_set.returncode == 0, r_set.stderr
+
+        # No AGENTS.md, no tracker key anywhere.
+        assert not (repo / "AGENTS.md").exists()
+        overlay_text = (repo / ".agentic" / "tracker.yml").read_text(encoding="utf-8")
+        assert "tracker:" not in overlay_text
+
+        fields, status, warnings, reason = _read_overlay(repo / ".agentic" / "tracker.yml")
+        assert status == "no_tracker", (status, reason)
+        assert fields.get("TRACKER_TRANSITIONS_MODE") == "manual"
+
+        result = _resolve_tracker(repo)
+        assert result["TRACKER_TRANSITIONS_MODE"] == "manual", result
+        assert result["_overlay_status"] == "no_tracker"
+
+        r_resolve = _run_cli(["resolve", "--json"], repo, env)
+        assert r_resolve.returncode == 0, r_resolve.stderr
+        assert '"TRACKER_TRANSITIONS_MODE": "manual"' in r_resolve.stdout, r_resolve.stdout
+        print("PASS test_AA5_transitions_manual_no_init_no_tracker_key")
+
+
+def test_AA6_set_transitions_invalid_value_rejected_exit_4():
+    """MINOR fix regression: write-time value validation for `transitions`
+    - a bad value must be refused at `set`, not silently written."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        env = _init_repo(repo)
+        _write(repo / ".gitignore", ".agentic/tracker.yml\n")
+
+        r = _run_cli(["set", "transitions", "manul"], repo, env)
+        assert r.returncode == 4, r.stderr
+        assert "invalid value 'manul'" in r.stderr
+        assert not (repo / ".agentic" / "tracker.yml").exists()
+        print("PASS test_AA6_set_transitions_invalid_value_rejected_exit_4")
+
+
+def test_AB1_transitions_manual_survives_unknown_tracker_value():
+    """MAJOR 1 fix regression: an overlay declaring an unknown `tracker:`
+    value (e.g. `bogus`) must still honor `transitions: manual` - the kill
+    switch is tracker-independent and must not be discarded just because
+    the overlay's `tracker:` value is unusable. Reproduces the exact
+    failure the round-2 rework brief measured: `set` reports success, but
+    `resolve --json` reads back "auto"."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        env = _init_repo(repo)
+        _write(repo / ".gitignore", ".agentic/tracker.yml\n")
+        subprocess.run(["git", "add", ".gitignore"], cwd=str(repo), env=env, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "gitignore"], cwd=str(repo), env=env, check=True)
+
+        overlay = repo / ".agentic" / "tracker.yml"
+        _write(overlay, "tracker: bogus\n")
+        r_set = _run_cli(["set", "transitions", "manual"], repo, env)
+        assert r_set.returncode == 0, r_set.stderr
+
+        fields, status, warnings, reason = _read_overlay(overlay)
+        assert status == "no_tracker", (status, reason)
+        assert fields.get("TRACKER_TRANSITIONS_MODE") == "manual"
+
+        result = _resolve_tracker(repo)
+        assert result["TRACKER_TRANSITIONS_MODE"] == "manual", result
+        assert result["_overlay_status"] == "no_tracker"
+
+        r_resolve = _run_cli(["resolve", "--json"], repo, env)
+        assert r_resolve.returncode == 0, r_resolve.stderr
+        assert '"TRACKER_TRANSITIONS_MODE": "manual"' in r_resolve.stdout, r_resolve.stdout
+        print("PASS test_AB1_transitions_manual_survives_unknown_tracker_value")
+
+
+def test_AB6_effective_view_surfaces_transitions_mode():
+    """MINOR fix regression: `show --scope effective` and `resolve`
+    (non-JSON) previously never printed TRACKER_TRANSITIONS_MODE - only the
+    project-scope `show` surfaced it, from the raw overlay. The effective
+    view is where an operator confirms the kill switch is in force AFTER the
+    AGENTS.md/overlay merge, so a `manual` value must appear there with its
+    consequence."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        env = _init_repo(repo)
+        _write(repo / ".gitignore", ".agentic/tracker.yml\n")
+
+        # auto (no overlay at all) - the value is still disclosed.
+        for args in (["show", "--scope", "effective"], ["resolve"]):
+            r = _run_cli(args, repo, env)
+            assert r.returncode == 0, r.stderr
+            assert "TRANSITIONS:   auto" in r.stdout, (args, r.stdout)
+            assert "no automatic tracker state transition" not in r.stdout, args
+
+        assert _run_cli(["set", "transitions", "manual"], repo, env).returncode == 0
+
+        for args in (["show", "--scope", "effective"], ["resolve"]):
+            r = _run_cli(args, repo, env)
+            assert r.returncode == 0, r.stderr
+            assert "TRANSITIONS:   manual" in r.stdout, (args, r.stdout)
+            assert "no automatic tracker state transition will fire" in r.stdout, args
+            assert "ds-tracker set transitions auto" in r.stdout, args
+
+        # --json is unaffected: the field was already there.
+        r = _run_cli(["resolve", "--json"], repo, env)
+        assert json.loads(r.stdout)["TRACKER_TRANSITIONS_MODE"] == "manual"
+        print("PASS test_AB6_effective_view_surfaces_transitions_mode")
+
+
+def test_AB3_transitions_manual_with_agents_md_declared_tracker_and_no_tracker_overlay():
+    """MINOR 7 fix regression: an AGENTS.md-declared tracker combined with a
+    tracker-less overlay (only `transitions:`, no `tracker:` key) - AA5's
+    fixture has no AGENTS.md at all, so this shape was previously untested.
+    TRACKER must still resolve from AGENTS.md (`_source` stays "agents-md"),
+    while `TRACKER_TRANSITIONS_MODE` is honored from the overlay."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        env = _init_repo(repo)
+        _write(repo / "AGENTS.md", AGENTS_MD_JIRA_FULL)
+        _write(repo / ".gitignore", ".agentic/tracker.yml\n")
+        subprocess.run(["git", "add", "AGENTS.md", ".gitignore"], cwd=str(repo), env=env, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "agents-md"], cwd=str(repo), env=env, check=True)
+
+        r_set = _run_cli(["set", "transitions", "manual"], repo, env)
+        assert r_set.returncode == 0, r_set.stderr
+
+        overlay_text = (repo / ".agentic" / "tracker.yml").read_text(encoding="utf-8")
+        assert "tracker:" not in overlay_text
+
+        result = _resolve_tracker(repo)
+        assert result["TRACKER"] == "jira", result
+        assert result["_source"] == "agents-md", result
+        assert result["TRACKER_TRANSITIONS_MODE"] == "manual", result
+        assert result["_overlay_status"] == "no_tracker"
+        print("PASS test_AB3_transitions_manual_with_agents_md_declared_tracker_and_no_tracker_overlay")
+
+
+def test_AB2_transitions_manual_survives_missing_required_fields():
+    """MAJOR 1 fix regression: a sole-source overlay declaring a valid
+    tracker but missing that tracker's required fields (e.g. `tracker:
+    jira` with no `prefix`/`base_url`) must still honor `transitions:
+    manual` - the kill switch survives every shape of overlay that is
+    otherwise unusable for tracker-resolution purposes, not just the
+    missing-`tracker:`-key shape."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        env = _init_repo(repo)
+        _write(repo / ".gitignore", ".agentic/tracker.yml\n")
+        subprocess.run(["git", "add", ".gitignore"], cwd=str(repo), env=env, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "gitignore"], cwd=str(repo), env=env, check=True)
+
+        overlay = repo / ".agentic" / "tracker.yml"
+        _write(overlay, "tracker: jira\n")
+        r_set = _run_cli(["set", "transitions", "manual"], repo, env)
+        assert r_set.returncode == 0, r_set.stderr
+
+        result = _resolve_tracker(repo)
+        assert result["TRACKER_TRANSITIONS_MODE"] == "manual", result
+        assert result["_overlay_status"] == "no_tracker"
+        assert "missing required field(s) for tracker 'jira'" in result["_overlay_reason"]
+
+        r_resolve = _run_cli(["resolve", "--json"], repo, env)
+        assert r_resolve.returncode == 0, r_resolve.stderr
+        assert '"TRACKER_TRANSITIONS_MODE": "manual"' in r_resolve.stdout, r_resolve.stdout
+        print("PASS test_AB2_transitions_manual_survives_missing_required_fields")
+
+
+def test_AB4_explicit_transitions_auto_resolves_to_auto():
+    """Surviving-mutation regression: every prior `transitions` test reached
+    `auto` only by DEFAULT (no overlay, or an invalid value falling back).
+    None wrote an explicit `transitions: auto`, so hardcoding the resolved
+    mode to "manual" inside _translate_transitions_field's valid-value
+    branch passed the whole suite. Pin that an explicitly declared `auto`
+    round-trips as `auto`, with no warning."""
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        overlay = cwd / ".agentic" / "tracker.yml"
+        _write(
+            overlay,
+            "tracker: jira\nprefix: DS\nbase_url: https://x.atlassian.net\n"
+            "transitions: auto\n",
+        )
+        fields, status, warnings, reason = _read_overlay(overlay)
+        assert status == "ok"
+        assert fields["TRACKER_TRANSITIONS_MODE"] == "auto", fields
+        assert warnings == [], warnings
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_TRANSITIONS_MODE"] == "auto", result
+        print("PASS test_AB4_explicit_transitions_auto_resolves_to_auto")
+
+
+def test_AB5_no_tracker_path_discloses_transitions_override():
+    """Surviving-mutation regression: zeroing `_overridden` in
+    _no_tracker_result passed the whole suite, silently dropping the
+    "tracker-independent overrides" disclosure that tells the operator
+    which fields the overlay actually contributed. Pin both the field and
+    the rendered line."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        env = _init_repo(repo)
+        _write(repo / "AGENTS.md", AGENTS_MD_JIRA_FULL)
+        _write(repo / ".gitignore", ".agentic/tracker.yml\n")
+        subprocess.run(["git", "add", "AGENTS.md", ".gitignore"], cwd=str(repo), env=env, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "agents-md"], cwd=str(repo), env=env, check=True)
+
+        r_set = _run_cli(["set", "transitions", "manual"], repo, env)
+        assert r_set.returncode == 0, r_set.stderr
+
+        result = _resolve_tracker(repo)
+        assert result["_overlay_status"] == "no_tracker", result
+        assert result["_overridden"] == ["TRACKER_TRANSITIONS_MODE"], result
+
+        r_resolve = _run_cli(["resolve"], repo, env)
+        assert r_resolve.returncode == 0, r_resolve.stderr
+        combined = r_resolve.stdout + r_resolve.stderr
+        assert "tracker-independent overrides: TRACKER_TRANSITIONS_MODE" in combined, combined
+        print("PASS test_AB5_no_tracker_path_discloses_transitions_override")
+
+
 if __name__ == "__main__":
     test_A_no_overlay_jira_agents_md_byte_identical()
     test_A2_no_overlay_linear_agents_md()
@@ -1116,3 +1415,15 @@ if __name__ == "__main__":
     test_S_d_unknown_git_state_fails_closed()
     test_no_repo_state_allows_and_warns()
     test_tracked_overlay_emits_read_side_warning()
+    test_AA1_transitions_defaults_to_auto()
+    test_AA2_transitions_manual_accepted_case_insensitive()
+    test_AA3_transitions_invalid_value_warns_and_defaults()
+    test_AA4_ds_tracker_set_transitions_round_trip()
+    test_AA5_transitions_manual_no_init_no_tracker_key()
+    test_AA6_set_transitions_invalid_value_rejected_exit_4()
+    test_AB1_transitions_manual_survives_unknown_tracker_value()
+    test_AB2_transitions_manual_survives_missing_required_fields()
+    test_AB4_explicit_transitions_auto_resolves_to_auto()
+    test_AB5_no_tracker_path_discloses_transitions_override()
+    test_AB3_transitions_manual_with_agents_md_declared_tracker_and_no_tracker_overlay()
+    test_AB6_effective_view_surfaces_transitions_mode()

@@ -378,7 +378,7 @@ ds-tracker resolve --json   # merge algorithm, deterministically testable
 ds-tracker show --scope project
 ```
 
-The overlay is merged field-by-field over the `AGENTS.md` `## Tracker` / `## Linear` resolution chain, with the overlay winning and every changed field disclosed. `ds-tracker` refuses to write the file at a path git would track - it refuses an unignored path (fix: add a `.gitignore` line), refuses an already-tracked path (fix: `git rm --cached`), and fails closed when it cannot tell. An absent, malformed, incomplete, or credential-bearing overlay never blocks - it degrades to the `AGENTS.md` result with an actionable reason. See [configuration-reference.md](docs/configuration-reference.md) for the full field reference.
+The overlay is merged field-by-field over the `AGENTS.md` `## Tracker` / `## Linear` resolution chain, with the overlay winning and every changed field disclosed. `ds-tracker` refuses to write the file at a path git would track - it refuses an unignored path (fix: add a `.gitignore` line), refuses an already-tracked path (fix: `git rm --cached`), and fails closed when it cannot tell. An absent, malformed, incomplete, or credential-bearing overlay never blocks - it degrades to the `AGENTS.md` result with an actionable reason. One carve-out: an overlay whose tracker-specific configuration is unusable (no `tracker:` key, an unknown one, or missing required fields) still contributes its `transitions:` kill switch, which is not tracker-specific and must take effect wherever it is set; only an overlay rejected outright - unreadable, or carrying a credential-shaped key - degrades wholesale. See [configuration-reference.md](docs/configuration-reference.md) for the full field reference.
 
 ## Repo structure
 
