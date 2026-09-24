@@ -117,16 +117,14 @@ _assert_classification_zsh() {
   # Branches on array length rather than a bare "${timeout_cmd[@]}" or the
   # outer-quoted "${arr[@]+"${arr[@]}"}" empty-array guard: under `set -u`,
   # bash 3.2 (this repo's binding shell target) treats an empty array's
-  # "${arr[@]}" as an unbound-variable error (AGENTS.md documents the same
-  # class of bug at scripts/check-command-file-budget.sh:83's `command -v`
-  # guard), and the outer-quoted guard idiom itself misbehaves under zsh
-  # (measured: it expands to a single empty-string word rather than zero
-  # words, so `"" echo hi` then fails with "permission denied" trying to
-  # execute an empty command). Dropping the outer quotes gives a third form,
-  # ${arr[@]+"${arr[@]}"}, which is safe in all three shells and would work
-  # here too; this test keeps the "${#timeout_cmd[@]}" length check as the
-  # pre-existing, equally sound choice. AGENTS.md "Empty-array expansion
-  # under `set -u`" carries the argc table.
+  # "${arr[@]}" as an unbound-variable error, and the outer-quoted guard idiom
+  # itself misbehaves under zsh (measured: it expands to a single empty-string
+  # word rather than zero words, so `"" echo hi` then fails with "permission
+  # denied" trying to execute an empty command). Dropping the outer quotes
+  # gives a third form, ${arr[@]+"${arr[@]}"}, which is safe in all three
+  # shells and would work here too; this test keeps the "${#timeout_cmd[@]}"
+  # length check as the pre-existing, equally sound choice. AGENTS.md
+  # "Empty-array expansion under `set -u`" carries the argc table.
   if [ "${#timeout_cmd[@]}" -gt 0 ]; then
     out="$(cd "$REPO_DIR" && "${timeout_cmd[@]}" zsh scripts/gate-provenance.sh "$target" 2>&1)"
   else

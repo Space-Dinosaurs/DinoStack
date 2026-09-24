@@ -10,9 +10,10 @@
 # Public API: ./bin/tests/test_kimi_install_symlink.sh
 #             Exits 0 on all pass, 1 on any failure.
 #
-# Upstream deps: bash, git, python3 (used by install.sh internally, and
-#                invoked directly by check_restore_symlinks_empty_array's
-#                function-body extractor), mktemp.
+# Upstream deps: bash, git, mktemp; python3 (used by install.sh internally,
+#                and invoked directly by check_restore_symlinks_empty_array's
+#                function-body extractor); grep, sed and chmod, all used only
+#                by that same pin.
 #
 # Downstream consumers: developer running locally before commit; can be
 #                       wired into CI.
@@ -22,11 +23,13 @@
 #                Tracked repo symlinks are restored on exit via trap.
 #                check_restore_symlinks_empty_array exits nonzero with a
 #                "RESTORE-ARGV VIOLATION:" prefix - either because a case's
-#                logged argv did not match, or because the extractor could no
-#                longer locate the _restore_symlinks() definition or the
-#                TRACKED_TARGETS reference inside it ("extractor has drifted").
+#                logged argv did not match, or because the extractor drifted:
+#                it could no longer locate the _restore_symlinks() definition,
+#                or the extract lost the TRACKED_TARGETS reference, or the
+#                extract did not parse, or it defined no such function.
 #
-# Performance: ~5 s wall time on a developer machine (runs install.sh twice).
+# Performance: ~7 s wall time on a developer machine (measured 7.07-7.30 s
+#              over 3 runs; runs install.sh twice).
 #
 # Regression coverage:
 #   - Major (Skeptic PR-114): a stale dir-symlink at ~/.kimi/skills/dinostack
@@ -105,9 +108,14 @@ _restore_symlinks() {
 # "Empty-array expansion under `set -u`").
 #
 # The subshell below also inherits the real _restore_symlinks from this
-# script. If the extractor ever stopped locating the definition it would eval
-# an empty block, call that inherited copy, and pass having exercised no
-# extracted text at all; the two guards are what turn that into a failure.
+# script, so any extract that fails to redefine it leaves that inherited copy
+# for the call to exercise, and the pin passes having tested no extracted text
+# at all. The two text guards above close only two routes into that state: an
+# empty extract, and one that has lost TRACKED_TARGETS. They do not close a
+# partial extract that keeps both, which a column-0 `}` anywhere in the body
+# produces (a heredoc body, for instance) and which then fails to parse. The
+# subshell closes the rest by dropping the inherited definition first and
+# requiring the extract to parse and to define the function itself.
 #
 # Reddening mutations, each executed and reverted:
 #   M1 revert the expansion to `"${TRACKED_TARGETS[@]:-}"` - Case A logs 2
@@ -123,6 +131,12 @@ _restore_symlinks() {
 #   M4 rename the array inside the function body only - the extract succeeds
 #      and the second guard reports "the extracted block does not carry
 #      TRACKED_TARGETS".
+#   M5 put a column-0 `}` in the body inside a heredoc - both text guards pass
+#      on the truncated extract, which then fails to parse, and the subshell
+#      reports "the extracted block did not parse". Before that check existed
+#      this printed 4 passed / exit 0 on the inherited definition.
+#   M6 make the extractor emit parseable text that defines no function - the
+#      subshell reports "the extracted block did not define _restore_symlinks".
 check_restore_symlinks_empty_array() {
   local ok=0
   local self="${BASH_SOURCE[0]:-$0}"
@@ -168,8 +182,7 @@ STUBEOF
     chmod +x "$stub_dir/$stub_name"
   done
 
-  # case := <label>:<TRACKED_TARGETS initializer>
-  local label init expected actual
+  local label init expected actual rc
   for label in empty one-entry; do
     if [ "$label" = "empty" ]; then
       init='TRACKED_TARGETS=()'
@@ -188,11 +201,29 @@ ln -s ../../../content/agents $scratch/agents"
       export RESTORE_ARGV_LOG
       SKILL_SRC="$scratch"
       set -u
-      eval "$block"
+      # This script has already defined _restore_symlinks, so an extract that
+      # fails to parse would leave that inherited copy in place and the call
+      # below would exercise it instead. Drop it, then require that the
+      # extract both parsed and supplied its own definition.
+      unset -f _restore_symlinks
+      eval "$block" || exit 97
+      declare -F _restore_symlinks >/dev/null || exit 98
       eval "$init"
       _restore_symlinks
     )
+    rc=$?
     actual="$(cat "$log")"
+
+    if [ "$rc" -eq 97 ]; then
+      echo "RESTORE-ARGV VIOLATION: extractor has drifted - the extracted block did not parse" >&2
+      ok=1
+      continue
+    fi
+    if [ "$rc" -eq 98 ]; then
+      echo "RESTORE-ARGV VIOLATION: extractor has drifted - the extracted block did not define _restore_symlinks" >&2
+      ok=1
+      continue
+    fi
 
     if [ "$actual" != "$expected" ]; then
       echo "RESTORE-ARGV VIOLATION: case '$label' logged:" >&2
