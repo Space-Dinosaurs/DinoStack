@@ -1995,11 +1995,15 @@ CLAUDE_JSON="$HOME/.claude.json"
 # --channel=canary), so the pinned path carries the same suffix. --isolated is
 # not passed: the option schema declares it conflicting with --user-data-dir.
 #
-# An entry whose args already carry a flag this schema declares conflicting
-# with userDataDir is reported and left alone. Adding the pin alongside one of
-# them is what made the server refuse to start ("Arguments userDataDir and
-# browserUrl are mutually exclusive"), and the pin is the migration's whole
-# edit, so there is no partial version of it worth writing.
+# An entry whose args carry an argument this migration does not write is
+# reported and left alone, whatever that argument is. Adding the pin alongside
+# a browser connection or an isolated profile is what made the server refuse to
+# start ("Arguments userDataDir and browserUrl are mutually exclusive"), and no
+# list of the spellings to refuse can stay complete - the server takes a `no-`
+# negation, either case, kebab or camel, and a `=value` or a following-token
+# value for one option. So an entry is a migration target only when every one
+# of its args is the package below or an option below, decided by normalized
+# option name: a spelling this installer has never seen is a skip.
 #
 # State is detected rather than testing only "is the key present", because a
 # registration written before the headless default shipped has the key but
@@ -2015,22 +2019,56 @@ CLAUDE_JSON="$HOME/.claude.json"
 # classify current so the installer never offered again. Those entries are
 # reported as themselves instead; the file is left as it is.
 #
-# The package the migration writes, and the one an entry has to name before any
-# of those states apply. Single-sourced here because two separate python blocks
-# consult it - the classifier to predict the writer's decision, the writer to
-# refuse that registration if it ever reaches it - and the two must not drift.
-# The flag list below is single-sourced for the same reason: the option schema
-# declares userDataDir conflicting with browserUrl, wsEndpoint and isolated
-# (browser-options.js), and headless conflicting with nothing at all.
+# The package the migration writes, the options it writes or reads, and the
+# subset of those that takes a value. Single-sourced here because two separate
+# python blocks consult them - the classifier to predict the writer's decision,
+# the writer to refuse that registration if it ever reaches it - and the three
+# must not drift.
 CD_MCP_PACKAGE="chrome-devtools-mcp"
-CD_MCP_PIN_CONFLICTS="--browser-url,--browserUrl,-u,--ws-endpoint,--wsEndpoint,-w,--isolated"
+CD_MCP_OPTIONS="headless,channel,user-data-dir"
+CD_MCP_VALUED="channel,user-data-dir"
 
-CD_MCP_STATE="$(python3 - "$CLAUDE_JSON" "$CD_MCP_PIN_CONFLICTS" "$CD_MCP_PACKAGE" <<'PYEOF' 2>/dev/null
-import json, sys
+CD_MCP_STATE="$(python3 - "$CLAUDE_JSON" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" "$CD_MCP_VALUED" <<'PYEOF' 2>/dev/null
+import json, re, sys
 
 target = sys.argv[1]
-conflicts = set(sys.argv[2].split(","))
-package = sys.argv[3]
+package = sys.argv[2]
+options = set(sys.argv[3].split(","))
+valued = set(sys.argv[4].split(","))
+
+
+def option_name(arg):
+    # The option an arg selects, however it is spelled. Folding camel to kebab,
+    # case to lower and `=value` to nothing is what makes one option one name;
+    # a `no-` negation folds to a name nothing below writes, which is the safe
+    # direction - a negation inverts the meaning of the flag it names.
+    name = arg.split("=", 1)[0].lstrip("-")
+    return re.sub(r"(?<=[a-z0-9])([A-Z])", r"-\1", name).lower()
+
+
+def survey(args):
+    # (the first arg this migration does not write, the options it does write).
+    # A value-taking option spelled without `=` consumes the next token as its
+    # value rather than reading it as an argument of its own.
+    present = set()
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg != package and not arg.startswith(package + "@"):
+            if not arg.startswith("-"):
+                return arg, present
+            name = option_name(arg)
+            if name not in options:
+                return arg, present
+            present.add(name)
+            if name in valued and "=" not in arg:
+                i += 1
+                if i >= len(args):
+                    return arg, present
+        i += 1
+    return None, present
+
+
 try:
     with open(target, encoding="utf-8") as f:
         data = json.load(f)
@@ -2063,13 +2101,14 @@ if isinstance(entry, dict) and "args" in entry and not args_ok:
     sys.exit(0)
 args = [a for a in raw_args if isinstance(a, str)] if isinstance(raw_args, list) else []
 
+foreign, present = survey(args)
 if entry is None:
     print("absent")
 elif not any(a == package or a.startswith(package + "@") for a in args):
     print("args-not-our-package")
-elif any(a.split("=", 1)[0] in conflicts for a in args):
-    print("pin-conflict")
-elif "--headless" in args and any(a.startswith("--user-data-dir=") for a in args):
+elif foreign is not None:
+    print("foreign-args")
+elif "headless" in present and "user-data-dir" in present:
     print("current")
 else:
     print("stale")
@@ -2082,9 +2121,9 @@ elif [[ "$CD_MCP_STATE" == "unreadable" ]]; then
   echo "  ! $CLAUDE_JSON could not be read as JSON - leaving the chrome-devtools MCP entry untouched"
 elif [[ "$CD_MCP_STATE" == "undetermined" ]]; then
   echo "  ! $CLAUDE_JSON could not be classified - leaving the chrome-devtools MCP entry untouched"
-elif [[ "$CD_MCP_STATE" == "pin-conflict" ]]; then
-  echo "  = chrome-devtools MCP sets its own browser connection or isolated profile, which a pinned profile root conflicts with; leaving that registration untouched"
-  echo "  If that registration leaves a visible window, add --headless to its args in $CLAUDE_JSON - --headless conflicts with none of those flags, and the next session picks it up."
+elif [[ "$CD_MCP_STATE" == "foreign-args" ]]; then
+  echo "  = chrome-devtools MCP's registration passes an argument this installer does not write, so it is left untouched: a pinned profile root conflicts with a browser connection or an isolated profile, and neither is distinguishable from a flag this installer has never seen"
+  echo "  To lose the window by hand, $CLAUDE_JSON takes --headless where the server launches Chrome itself. A registration that sets --browser-url, --ws-endpoint or --auto-connect attaches to a browser you already run and never reads --headless; one that sets --isolated launches its own throwaway profile, so dropping --isolated for --headless is what removes the window there."
 elif [[ "$CD_MCP_STATE" == "args-not-our-package" ]]; then
   echo "  = chrome-devtools MCP registration's args do not name the package this installer writes ($CD_MCP_PACKAGE); leaving that registration untouched"
 elif [[ "$CD_MCP_STATE" == "not-json-object" || "$CD_MCP_STATE" == "mcp-servers-not-object" || "$CD_MCP_STATE" == "entry-not-object" || "$CD_MCP_STATE" == "args-not-string-list" ]]; then
@@ -2112,12 +2151,40 @@ else
     # same-directory temp file followed by os.replace, so an interrupted run
     # cannot truncate the operator's ~/.claude.json. The caller tolerates the
     # non-zero exit: a refusal is not a reason to fail the whole install.
-    if ! python3 - "$CLAUDE_JSON" "$CD_MCP_PIN_CONFLICTS" "$CD_MCP_PACKAGE" <<'PYEOF'
-import json, os, stat, sys, tempfile
+    if ! python3 - "$CLAUDE_JSON" "$CD_MCP_PACKAGE" "$CD_MCP_OPTIONS" "$CD_MCP_VALUED" <<'PYEOF'
+import json, os, re, stat, sys, tempfile
 
 target = sys.argv[1]
-conflicts = set(sys.argv[2].split(","))
-package = sys.argv[3]
+package = sys.argv[2]
+options = set(sys.argv[3].split(","))
+valued = set(sys.argv[4].split(","))
+
+
+def option_name(arg):
+    # The option an arg selects, however it is spelled - see the classifier.
+    name = arg.split("=", 1)[0].lstrip("-")
+    return re.sub(r"(?<=[a-z0-9])([A-Z])", r"-\1", name).lower()
+
+
+def survey(args):
+    # (the first arg this migration does not write, the options it does write).
+    present = set()
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg != package and not arg.startswith(package + "@"):
+            if not arg.startswith("-"):
+                return arg, present
+            name = option_name(arg)
+            if name not in options:
+                return arg, present
+            present.add(name)
+            if name in valued and "=" not in arg:
+                i += 1
+                if i >= len(args):
+                    return arg, present
+        i += 1
+    return None, present
 
 
 def ask_manual(reason, entry_args):
@@ -2147,9 +2214,11 @@ def channel_suffix(args):
     # empty value takes the unsuffixed branch there and has to take it here.
     channel = None
     for i, a in enumerate(args):
-        if a.startswith("--channel="):
-            channel = a[len("--channel="):]
-        elif a == "--channel" and i + 1 < len(args):
+        if option_name(a) != "channel":
+            continue
+        if "=" in a:
+            channel = a.split("=", 1)[1]
+        elif i + 1 < len(args):
             channel = args[i + 1]
     return "" if not channel or channel == "stable" else "-" + channel
 
@@ -2210,21 +2279,20 @@ if not any(a == package or a.startswith(package + "@") for a in args):
     refuse("the chrome-devtools entry's args do not name the package this"
            " installer writes (" + package + ")")
 
-# An entry that already selects a browser connection (browserUrl, wsEndpoint)
-# or its own throwaway profile (isolated) cannot take the pin: the schema
-# declares userDataDir conflicting with each, and the server exits with
-# "Arguments userDataDir and browserUrl are mutually exclusive" instead of
-# starting. Skipping only the pin would leave the entry reported as migrated
-# when the migration's edit was not made, so it is refused outright. The
+# An argument this migration does not write leaves the entry alone, whatever it
+# is - see the classifier for why. Refused rather than migrated with the pin
+# skipped: that would report a migration whose edit was not made. The
 # classifier reports the same entries, so a real install does not reach this.
-if any(a.split("=", 1)[0] in conflicts for a in args):
-    refuse("the chrome-devtools entry sets a browser connection or an isolated"
-           " profile, which a pinned profile root conflicts with")
+foreign, present = survey(args)
+if foreign is not None:
+    refuse("the chrome-devtools entry passes an argument this installer does"
+           " not write (" + foreign + ")")
 
-# Append only what is missing, so an operator's own extra flags survive.
-if "--headless" not in args:
+# Append only what is missing, so an entry that already pins its own profile
+# root keeps it.
+if "headless" not in present:
     args.append("--headless")
-if not any(a.startswith("--user-data-dir=") for a in args):
+if "user-data-dir" not in present:
     args.append("--user-data-dir=" + os.path.expanduser(
         "~/.cache/chrome-devtools-mcp/chrome-profile") + channel_suffix(args))
 entry["args"] = args
@@ -2242,6 +2310,10 @@ try:
         # mkstemp creates the temp file 0600 regardless of the target's own
         # mode; carry the operator's mode over so the swap does not narrow it.
         os.chmod(tmp_path, stat.S_IMODE(before.st_mode))
+    # On the create path there is no operator mode to carry, so the new file
+    # lands 0600 - narrower than the umask default this installer's write
+    # produced before it went through a temp file, and the right side to err
+    # on for ~/.claude.json, which can hold credentials.
     # Claude Code writes this file too. Re-check it immediately before the
     # rename and refuse rather than clobber an update landing in the window.
     now = os.stat(target) if os.path.exists(target) else None
@@ -2344,6 +2416,9 @@ if "mcp-atlassian" not in servers:
             # own mode; carry the operator's mode over so the swap does not
             # narrow it.
             os.chmod(tmp_path, stat.S_IMODE(before.st_mode))
+        # On the create path the file lands 0600, which is narrower than the
+        # umask default this installer's write produced before it went through
+        # a temp file - see the chrome-devtools writer for why that is kept.
         os.replace(tmp_path, target)
     finally:
         if os.path.exists(tmp_path):
