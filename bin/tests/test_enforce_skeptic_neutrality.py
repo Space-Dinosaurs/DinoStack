@@ -981,14 +981,16 @@ def test_scenario_26_task_and_agent_matchers_identical(tmp_path):
 # Scenario 27: hooks/tests/test-hooks-pep604-guard.py reports its checks
 # --------------------------------------------------------------------------- #
 # The property this asserts is anti-vacuity: the guard actually ran and
-# produced its full check set. The check count is a FLOOR, not an equality,
-# because it moves every time a hooks/*.py or hooks/tests/test-*.py file is
-# added - a hard-pinned literal reads as a regression on any such addition
-# and says nothing the floor does not. Set at the count measured when the
-# floor was introduced (79 checks, DS-187, #810); re-derive the live figure
-# with `python3 hooks/tests/test-hooks-pep604-guard.py | tail -1` and lower
-# this floor only if a file is genuinely deleted. Growth needs no edit.
-_PEP604_MIN_CHECKS = 79
+# produced its full check set. The count is pinned with ZERO slack, at the
+# live figure, so that any hooks/ file which stops being scanned fails this
+# test instead of hiding behind headroom - the guard reports
+# `scanned + smoke_targets` over hooks/*.py, hooks/tests/*.py and
+# hooks/lib/*.py, so adding one hooks file raises it by 2 and deleting one
+# lowers it by 2. Re-derive the live figure with
+# `python3 hooks/tests/test-hooks-pep604-guard.py | tail -1` and update this
+# constant IN THE SAME COMMIT as any such add/remove (83 as of DS-254 U4,
+# which added hooks/session-end-reap-browsers.py and its test).
+_PEP604_MIN_CHECKS = 83
 
 
 def test_scenario_27_pep604_guard_reports_its_checks():

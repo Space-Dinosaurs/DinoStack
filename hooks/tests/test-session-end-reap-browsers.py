@@ -18,24 +18,41 @@ Purpose: Regression test for hooks/session-end-reap-browsers.py, the
             of this unit selected them, which would have SIGKILLed the
             operator's live slide previews at every session end.
 
+            A second table carries the rows whose ABSENCE let a green
+            fixture coexist with an unsafe selector: the MCP's OWN
+            processes (the `npm exec` wrapper, the stdio server, the
+            telemetry watchdog, and the package's bare argv0), plus a
+            differently-named launcher whose name merely contains `chrome`
+            and two verbatim live non-browser rows (an unrelated Electron
+            app's crashpad handler, and `WindowServer`). All of them carry
+            `chrome` inside their executable region and would be selected by
+            a substring test.
+
          2. THE MUTATIONS, made to fire (plan gate V4's four named
-            mutations, plus two this test adds). The fixture passing is not
-            evidence the predicate is safe - the withdrawn draft's fixture
-            passed while its predicate was unsafe - so each conjunct is
-            rewritten out of the hook's SOURCE in memory, the mutated
-            module is loaded, and the mutated selector is asserted to
-            produce the WRONG answer against the SAME fixture. A mutation
+            mutations, plus three this test adds). The fixture passing is
+            not evidence the predicate is safe - the withdrawn draft's
+            fixture passed while its predicate was unsafe - so each
+            conjunct is rewritten out of the hook's SOURCE in memory, the
+            mutated module is loaded, and the mutated selector is asserted
+            to produce the WRONG answer against the SAME fixture. A mutation
             that stops reddening (because an anchor moved, or a conjunct
             became unreachable) fails this test rather than silently
             passing.
 
-         3. THE FAILURE PATHS (plan gate V5b). The hook is run as a real
+         3. THE REQUIRED PROPERTIES, each as its own case with a named
+            mutation that reddens it: an MCP process shape is never
+            selected however its argv is spelled; a real Chrome carrying the
+            fingerprint still is; the fingerprint alone never makes a
+            non-browser selectable; and unrelated live rows are not
+            selected.
+
+         4. THE FAILURE PATHS (plan gate V5b). The hook is run as a real
             subprocess with `ps` missing from PATH, with a malformed
             payload, and with an empty or failing process table; every case
             must exit 0, because a non-zero exit at SessionEnd is the
             blocking code.
 
-         4. THE FIRE RECORD (plan gate V5c). One REAL reap is performed (a
+         5. THE FIRE RECORD (plan gate V5c). One REAL reap is performed (a
             live child process described by a shimmed `ps` as an orphaned
             MCP browser), and the row it writes must carry the fire-log
             module's canonical schema and name the arm that fired. The
@@ -160,6 +177,22 @@ FIXTURE_ROWS = [
 REPARENTED_AB_HELPER_PID = 1011
 INCIDENTAL_GREP_PID = 1012
 
+# The MCP's OWN process shapes. These are the rows whose absence let a
+# passing fixture coexist with a selector that SIGKILLed them: every one of
+# these carries the string `chrome` in its argv0 and, once the installer
+# pins a profile root, the fingerprint in its argv too. A substring test on
+# the executable region classified all of them as browsers.
+MCP_WRAPPER_PID = 1013
+MCP_SERVER_PID = 1014
+MCP_WATCHDOG_PID = 1015
+MCP_BARE_PID = 1018
+
+# Live non-browser shapes measured on the development host. Both are
+# classified as Chrome binaries by a substring test and by nothing else.
+CHROME_CRASHPAD_PID = 1016
+UNRELATED_LIVE_PID = 1017
+CHROME_NAMED_LAUNCHER_PID = 1019
+
 PINNED_ROWS = [
     # 11 - a reparented agent-browser HELPER (helpers are reparented to pid 1
     #      while their main lives - measured). Excluded only by the --type=
@@ -173,11 +206,58 @@ PINNED_ROWS = [
     #      `ps ... | grep -- '--user-data-dir=<fingerprint>'` pipeline put the
     #      fingerprint into the argv of its own `zsh -c` wrappers and its
     #      `ugrep` process. Such a row satisfies the profile half of Conjunct
-    #      A and has no --type=, so it is excluded only by the
-    #      executable-region half, which mutation (f) pins.
+    #      A and has no --type=, so it is excluded only by the argv0 half,
+    #      which mutation (f) pins.
     (INCIDENTAL_GREP_PID, 9501, "ugrep -G --hidden -I"
      " --user-data-dir=%s/chrome-profile chrome-devtools-mcp/chrome-profile"
      % FIXTURE_MCP_ROOT),
+    # 13 - the `npm exec` wrapper that launches the MCP server. Its argv0
+    #      contains `chrome`; its argv carries the pinned profile root because
+    #      it is the process the installer's flag edit reaches first.
+    (MCP_WRAPPER_PID, 902, "npm exec chrome-devtools-mcp@latest --headless"
+     " --user-data-dir=%s/chrome-profile" % FIXTURE_MCP_ROOT),
+    # 14 - the MCP stdio server itself, at the argv it is SPAWNED with (the
+    #      package's bin script, launched by the wrapper above). On macOS its
+    #      own row is title-rewritten to `chrome-devtools-mcp` and hides this
+    #      argv; it is modelled here because the predicate must not depend on
+    #      that rewrite, and any launcher form that does expose it must still
+    #      not be selected.
+    (MCP_SERVER_PID, MCP_WRAPPER_PID,
+     "node /home/fixture-user/.npm/_npx/1a2b/node_modules/chrome-devtools-mcp"
+     "/build/src/index.js --headless"
+     " --user-data-dir=%s/chrome-profile" % FIXTURE_MCP_ROOT),
+    # 15 - the telemetry watchdog the MCP server spawns (measured live on the
+    #      development host). Its argv0 contains `chrome` through the package
+    #      path; it carries no profile flag, so this row pins the argv0 half
+    #      rather than the profile half.
+    (MCP_WATCHDOG_PID, MCP_SERVER_PID,
+     "node /home/fixture-user/.npm/_npx/1a2b/node_modules/chrome-devtools-mcp"
+     "/build/src/telemetry/watchdog/main.js --parent-pid=1014"
+     " --app-version=1.10.1 --os-type=2"),
+    # 16 - the server's own argv0, with no launcher in front of it and no
+    #      absolute path anywhere in its executable region.
+    (MCP_BARE_PID, MCP_WRAPPER_PID, "chrome-devtools-mcp --headless"
+     " --user-data-dir=%s/chrome-profile" % FIXTURE_MCP_ROOT),
+    # 17 - MEASURED (live, verbatim): a crashpad handler belonging to an
+    #      unrelated Electron application. Its argv0 contains `chrome` and it
+    #      carries no --type=, so a substring test calls it a browser.
+    (CHROME_CRASHPAD_PID, 1,
+     "/Applications/UA Connect.app/Contents/Frameworks/Electron Framework"
+     ".framework/Helpers/chrome_crashpad_handler --no-rate-limit"
+     " --monitor-self-annotation=ptype=crashpad-handler"
+     " --handshake-fd=17"),
+    # 18 - MEASURED (live, verbatim): an unrelated system process with a
+    #      space-bearing executable region and a single-dash argument. Neither
+    #      a browser nor an MCP server.
+    (UNRELATED_LIVE_PID, 1,
+     "/System/Library/PrivateFrameworks/SkyLight.framework/Resources"
+     "/WindowServer -daemon"),
+    # 19 - a DIFFERENTLY-NAMED launcher whose name merely contains `chrome`,
+    #      carrying the fingerprint. The mechanism must not be a list of MCP
+    #      package names: this row is excluded by argv0 identity, so nothing
+    #      has to be added to any list when another such launcher appears.
+    (CHROME_NAMED_LAUNCHER_PID, 1, "/usr/local/bin/chrome-launcher"
+     " --user-data-dir=%s/chrome-profile" % FIXTURE_MCP_ROOT),
 ]
 
 # ---------------------------------------------------------------------------
@@ -308,6 +388,13 @@ def test_fixture_never_selects_live_other_session_operator_or_unrelated():
         (REPARENTED_AB_HELPER_PID, "a reparented agent-browser --type= helper"),
         (INCIDENTAL_GREP_PID, "a process carrying the fingerprint as an arg"),
         (UNRELATED_PID, "an unrelated process"),
+        (MCP_WRAPPER_PID, "the npm exec wrapper that launches the MCP server"),
+        (MCP_SERVER_PID, "the MCP stdio server"),
+        (MCP_WATCHDOG_PID, "the MCP telemetry watchdog"),
+        (MCP_BARE_PID, "the MCP server's own argv0 with no launcher"),
+        (CHROME_CRASHPAD_PID, "a crashpad handler of an unrelated app"),
+        (UNRELATED_LIVE_PID, "an unrelated system process"),
+        (CHROME_NAMED_LAUNCHER_PID, "a differently-named chrome launcher"),
     ):
         assert pid not in selected, "%s (pid %d) was selected" % (label, pid)
     assert by_pid[OTHER_SESSION_MCP_PID].note == (
@@ -318,11 +405,21 @@ def test_fixture_never_selects_live_other_session_operator_or_unrelated():
         "the reparented agent-browser helper must be rejected by the --type= "
         "conjunct; got %r" % by_pid[REPARENTED_AB_HELPER_PID].note
     )
-    assert by_pid[INCIDENTAL_GREP_PID].note == "not_a_chrome_executable", (
-        "the fingerprint-as-argument row must be rejected by the "
-        "executable-region half of Conjunct A; got %r"
-        % by_pid[INCIDENTAL_GREP_PID].note
-    )
+    for pid, label in (
+        (INCIDENTAL_GREP_PID, "the fingerprint-as-argument row"),
+        (MCP_WRAPPER_PID, "the npm exec wrapper"),
+        (MCP_SERVER_PID, "the MCP server"),
+        (MCP_WATCHDOG_PID, "the MCP watchdog"),
+        (MCP_BARE_PID, "the bare MCP argv0"),
+        (CHROME_CRASHPAD_PID, "the unrelated app's crashpad handler"),
+        (UNRELATED_LIVE_PID, "the unrelated system process"),
+        (CHROME_NAMED_LAUNCHER_PID, "the differently-named chrome launcher"),
+    ):
+        assert by_pid[pid].note == "not_a_chrome_executable", (
+            "%s must be rejected by the argv0 half of Conjunct A, not by "
+            "the profile half or the ownership test; got %r"
+            % (label, by_pid[pid].note)
+        )
 
 
 def test_fingerprint_is_resolved_at_runtime_not_hardcoded():
@@ -462,22 +559,132 @@ def test_mutation_e_widening_own_chain_past_the_harness_crosses_sessions():
     )
 
 
-def test_mutation_f_removing_the_executable_region_check_self_matches():
-    """The executable-region half of Conjunct A, pinned to the measured
-    hazard: a process whose argv carries the profile fingerprint because the
-    fingerprint was its argument. Without the check, its own process class
-    matches the selector."""
+def test_mutation_f_removing_the_chrome_identity_check_selects_non_browsers():
+    """The argv0 half of Conjunct A. Two families are pinned here. The first
+    is the measured self-match hazard: a process whose argv carries the
+    profile fingerprint because the fingerprint was its argument. The second
+    is the family the fixture originally had no row for - the MCP's OWN
+    processes, whose argv0 contains the string `chrome` and whose argv (once
+    the installer pins a profile root) carries the fingerprint, so a
+    substring test on the executable region made the server a kill target."""
     module = _load_mutated("chrome_binary", ["    return True"])
     selected, _, _ = fixture_selection(module)
     assert INCIDENTAL_GREP_PID in selected, (
         "mutation (f) did not select the fingerprint-as-argument row - the "
         "measured self-match hazard is no longer pinned by this fixture"
     )
+    for pid, label in (
+        (MCP_WRAPPER_PID, "the npm exec wrapper"),
+        (MCP_SERVER_PID, "the MCP stdio server"),
+        (MCP_BARE_PID, "the bare MCP argv0"),
+        (CHROME_NAMED_LAUNCHER_PID, "a differently-named chrome launcher"),
+    ):
+        assert pid in selected, (
+            "mutation (f) did not select %s (pid %d) - nothing in the "
+            "fixture pins the argv0 conjunct against this shape, which is "
+            "exactly how the shipped substring test stayed green"
+            % (label, pid)
+        )
     assert len(selected) != 3, "mutation (f) left the selected count at 3"
 
 
 # ---------------------------------------------------------------------------
-# 3. The failure paths (plan gate V5b) - every one must exit 0.
+# 3. The required properties, each with a named mutation that reddens it.
+# ---------------------------------------------------------------------------
+
+def test_required_property_mcp_process_shapes_are_never_selected():
+    """A process whose executable is `chrome-devtools-mcp` - the node server,
+    the `npm exec` wrapper, the telemetry watchdog, or the package's own
+    bare argv0 - is not selected, whether or not the profile path appears in
+    its argv. The wrapper, server and bare rows carry the fingerprint; the
+    watchdog does not, which is why it pins the argv0 half by NOTE rather
+    than by the mutation above."""
+    module = load_hook()
+    selected, verdicts, _ = fixture_selection(module)
+    by_pid = dict((v.row.pid, v) for v in verdicts)
+    for pid in (MCP_WRAPPER_PID, MCP_SERVER_PID, MCP_WATCHDOG_PID,
+                MCP_BARE_PID):
+        assert pid not in selected, (
+            "an MCP process shape (pid %d) was selected" % pid
+        )
+        assert module._is_chrome_binary(by_pid[pid].row.command) is False, (
+            "pid %d's own executable was classified as a Chrome binary: %r"
+            % (pid, by_pid[pid].row.command)
+        )
+    # The three that carry the fingerprint prove the profile half alone
+    # cannot make a non-browser selectable.
+    for pid in (MCP_WRAPPER_PID, MCP_SERVER_PID, MCP_BARE_PID):
+        assert module._matches_mcp_profile(by_pid[pid].row.command,
+                                           FIXTURE_MCP_ROOT) is True, (
+            "pid %d was expected to carry the fingerprint, so that its "
+            "non-selection demonstrates the profile half is not sufficient "
+            "on its own" % pid
+        )
+
+
+def test_required_property_real_chrome_with_the_fingerprint_is_still_selected():
+    """The positive control. Mutation (g) - the argv0 half made
+    unconditionally false - deselects it, so this assertion is not vacuous."""
+    module = load_hook()
+    rows = module.parse_ps_table(
+        table_text([(1, 0, "launchd"),
+                    (2001, 1, CHROME_GUI + " " + MCP_BROWSER_ARGS)]))
+    selected = dict(module.select_targets(rows, FIXTURE_MCP_ROOT, [2001]))
+    assert selected == {2001: module.ARM_ORPHANED_MCP}, (
+        "a real Chrome main carrying the profile fingerprint must still be "
+        "selected; got %r" % (selected,)
+    )
+    mutated = _load_mutated("chrome_binary", ["    return False"])
+    rows = mutated.parse_ps_table(
+        table_text([(1, 0, "launchd"),
+                    (2001, 1, CHROME_GUI + " " + MCP_BROWSER_ARGS)]))
+    assert mutated.select_targets(rows, FIXTURE_MCP_ROOT, [2001]) == [], (
+        "mutation (g) left the real Chrome selected - this test cannot "
+        "detect the argv0 half being removed"
+    )
+
+
+def test_required_property_fingerprint_alone_never_selects_a_non_browser():
+    """The profile path is a string any process can name, so a row that is
+    not a browser must not become a target by carrying it. Mutation (f)
+    selects every row below; the shipped selector selects none. Row 2001's
+    executable region carries a space and a single-dash argument, 2004 is a
+    measured live crashpad handler of an unrelated Electron app, and 2005 is
+    a launcher whose name merely CONTAINS `chrome` - the shape an exclusion
+    list would have to be extended for."""
+    module = load_hook()
+    rows = module.parse_ps_table(table_text([
+        (1, 0, "launchd"),
+        (2001, 1, "/System/Library/PrivateFrameworks/SkyLight.framework"
+         "/Resources/WindowServer -daemon"
+         " --user-data-dir=%s/chrome-profile" % FIXTURE_MCP_ROOT),
+        (2002, 1, "npm exec chrome-devtools-mcp@latest --headless"
+         " --user-data-dir=%s/chrome-profile" % FIXTURE_MCP_ROOT),
+        (2003, 1, "chrome-devtools-mcp --headless"
+         " --user-data-dir=%s/chrome-profile" % FIXTURE_MCP_ROOT),
+        (2004, 1, "/Applications/UA Connect.app/Contents/Frameworks"
+         "/Electron Framework.framework/Helpers/chrome_crashpad_handler"
+         " --no-rate-limit --user-data-dir=%s/chrome-profile"
+         % FIXTURE_MCP_ROOT),
+        (2005, 1, "/usr/local/bin/chrome-launcher"
+         " --user-data-dir=%s/chrome-profile" % FIXTURE_MCP_ROOT),
+    ]))
+    shipped = module.select_targets(rows, FIXTURE_MCP_ROOT, [2001])
+    assert shipped == [], (
+        "a non-browser row was selected on the strength of carrying the "
+        "profile path: %r" % (shipped,)
+    )
+    mutated = _load_mutated("chrome_binary", ["    return True"])
+    reddened = dict(mutated.select_targets(rows, FIXTURE_MCP_ROOT, [2001]))
+    for pid in (2001, 2002, 2003, 2004, 2005):
+        assert pid in reddened, (
+            "mutation (f) did not select pid %d - this case is not actually "
+            "pinned by the argv0 half" % pid
+        )
+
+
+# ---------------------------------------------------------------------------
+# 4. The failure paths (plan gate V5b) - every one must exit 0.
 # ---------------------------------------------------------------------------
 
 def _run_hook(stdin_text, env_overrides=None, hook_path=HOOK_PATH, cwd=None):
@@ -603,7 +810,7 @@ def test_empty_and_failing_process_tables_exit_zero_and_are_logged():
 
 
 # ---------------------------------------------------------------------------
-# 4. The fire record and the writer (plan gate V5c).
+# 5. The fire record and the writer (plan gate V5c).
 # ---------------------------------------------------------------------------
 
 def _spawn_sleeper():

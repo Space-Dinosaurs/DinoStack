@@ -31,7 +31,8 @@ Purpose: Claude Code SessionEnd hook that reaps agent-launched Chrome
          browser carries in its OWN argv, which therefore survives its
          server's death:
 
-           Conjunct A - argv's own executable region is a Chrome binary
+           Conjunct A - the row's OWN argv0 is a Chrome binary, matched
+             by exact basename against a known Chrome executable name,
              AND argv contains
              `--user-data-dir=<HOME>/.cache/chrome-devtools-mcp/`
              This is the MCP's own profile root (BrowserManager.js's
@@ -43,16 +44,26 @@ Purpose: Claude Code SessionEnd hook that reaps agent-launched Chrome
              `--user-data-dir` at all (measured), so no separate
              operator-profile guard is needed - A excludes it
              structurally.
-             The executable-region half is not decoration. Measured on
-             the development host WHILE developing this hook: a
+             The argv0 half is not decoration, and the match must be an
+             EXACT basename rather than a substring. This is the half
+             that carries the safety property: the profile path is a
+             string any process can name, so a row's non-browser identity
+             has to be established by its own executed image, never by
+             what its arguments happen to contain. Measured on the
+             development host: the `chrome-devtools-mcp` server's own
+             argv0 CONTAINS `chrome`, so a substring test made every MCP
+             server process on the machine - and every `npm exec`
+             wrapper carrying its name - a kill target the moment its
+             argv also carried a profile path. Also measured while
+             developing this hook: a
              `ps ... | grep -- '--user-data-dir=<the fingerprint>'`
              pipeline put the fingerprint string into the argv of its own
-             `zsh -c` wrappers and its `ugrep` process. Those rows carry
-             the fingerprint and no `--type=`, so the profile half alone
-             selects them. Anchoring the check on the executable region
-             (everything before the first ` --`, which is how the spaces
-             inside `.../Google Chrome for Testing` survive) excludes
-             every such row.
+             `zsh -c` wrappers and its `ugrep` process. Both families
+             carry the fingerprint, and both are excluded by argv0 alone.
+             The executable path is read as everything before the first
+             ` --` (which is how the spaces inside
+             `.../Google Chrome for Testing` survive); `_executable_name`
+             then resolves argv0 out of that region.
            Conjunct B - argv does NOT contain `--type=`. Chrome passes
              launch flags down to helpers/renderers, so without this the
              selector would match the whole browser rather than its root.
@@ -145,23 +156,34 @@ Failure modes: Fully fail-closed, exit 0 on EVERY path. A non-zero exit
                at SessionEnd is the blocking code, so a cleanup hook must
                never be able to turn a session's end into a failure. Every
                degradation - an unparseable or absent payload, a `ps` that
-               is missing/errors/times out, an empty or unparseable
-               process table, an unresolvable own-process chain, a failed
-               kill, an unexpected exception anywhere in run() - results
-               in NO kill and exit 0. The hook reads no config file and
-               holds no kill switch: it is a once-per-session cleanup, not
-               a policy guard, and a kill switch would add a second
-               silence that the fire record exists to remove. It also never
-               runs an `agent-browser` command of any kind.
+               is missing/errors/times out, a process table that is empty
+               (including one whose every line failed to parse), an
+               unresolvable own-process chain, a failed kill, an
+               unexpected exception anywhere in run() - results in NO kill
+               and exit 0. The hook reads no config file and holds no kill
+               switch: it is a once-per-session cleanup, not a policy
+               guard, and a kill switch would add a second silence that
+               the fire record exists to remove. It also never runs an
+               `agent-browser` command of any kind.
 
-               Known residual, stated rather than hidden: the selector
-               takes ONE snapshot and never re-reads it, so a pid reused
-               between the snapshot and the kill could in principle be
-               killed. The window is the lifetime of one `ps` call on a
+               Known residuals, stated rather than hidden. First, the
+               selector takes ONE snapshot and never re-reads it, so a pid
+               reused between the snapshot and the kill could in principle
+               be killed. The window is the lifetime of one `ps` call on a
                box that is not recycling pids at that rate, and one
                snapshot is a hard requirement (no polling, no retry)
                because a reaper that re-runs `ps` in a loop at session
-               shutdown is a bigger risk than the one it closes.
+               shutdown is a bigger risk than the one it closes. Second, a
+               NON-EMPTY but incomplete table is accepted and treated as
+               the whole process list: `ps` either answers completely or
+               exits non-zero, so the window is narrow, but the hook
+               cannot detect a truncated table from inside - on one, an
+               MCP ancestor whose row is missing reads as a dead owner,
+               and an `agent-browser` daemon whose row is missing reads as
+               `ARM_ORPHANED_CLI`. Nothing is selected unless the row
+               already carries a positive browser fingerprint of its own,
+               so what such a table can cost is a browser-shaped process,
+               never an arbitrary one.
 
 Performance: one `ps` (~10 ms) plus one bounded stdin read (<= 0.5 s
              worst case when the harness never closes stdin). No polling,
@@ -206,12 +228,36 @@ INIT_PIDS = frozenset((0, 1))
 SHELL_BASENAMES = frozenset((
     "sh", "bash", "zsh", "dash", "ash", "ksh", "csh", "tcsh", "fish",
 ))
-SHELL_PREFIXES = ("/bin/", "/usr/bin/", "/usr/local/bin/")
+
+# The basenames a real Chrome-family browser's OWN argv0 resolves to. Positive
+# identity, never a substring: `chrome-devtools-mcp` contains `chrome` and is
+# the MCP server's argv0, so a substring test cannot tell a browser from the
+# server that spawned it. Covers the measured macOS shapes (`Google Chrome`,
+# `Google Chrome for Testing`), the Linux ones (`/opt/google/chrome/chrome`,
+# `/usr/bin/google-chrome`), Playwright's `Chromium` and `headless_shell`, and
+# `chrome-headless-shell`. Helpers are deliberately absent: `Google Chrome
+# Helper (Renderer)`, `chrome_crashpad_handler` and the other per-process
+# children are not browsers, and Chrome already marks them with `--type=`.
+CHROME_BINARY_NAMES = frozenset((
+    "Google Chrome",
+    "Google Chrome Beta",
+    "Google Chrome Canary",
+    "Google Chrome Dev",
+    "Google Chrome for Testing",
+    "Chromium",
+    "chrome",
+    "chrome-headless-shell",
+    "chromium",
+    "chromium-browser",
+    "chromium-headless-shell",
+    "google-chrome",
+    "google-chrome-stable",
+    "headless_shell",
+))
 
 MCP_SERVER_MARKER = "chrome-devtools-mcp"
 MCP_PROFILE_RELATIVE = os.path.join(".cache", "chrome-devtools-mcp")
 AGENT_BROWSER_PROFILE_MARKER = "agent-browser-chrome-"
-AGENT_BROWSER_DAEMON_MARKER = "agent-browser"
 USER_DATA_DIR_FLAG = "--user-data-dir="
 BROWSER_TYPE_FLAG = "--type="
 
@@ -400,25 +446,59 @@ def _executable_region(command):
     return re.split(r"\s--", command, maxsplit=1)[0]
 
 
-def _is_chrome_binary(command):
-    """Conjunct A, part 1: the row's OWN executable is a Chrome binary.
+def _executable_name(command):
+    """argv0's basename, or "" for a command with no executable token.
 
-    Matches the executable region only, never the whole command line - see
-    the module docstring for the measured `grep`-pattern rows that carry the
-    profile fingerprint later in their argv. Covers the measured macOS
-    shapes (`.../MacOS/Google Chrome`, `.../MacOS/Google Chrome for
-    Testing`) and the Linux ones (`/opt/google/chrome/chrome`,
-    `/usr/bin/google-chrome`), plus Chrome's `chrome-headless-shell`.
+    argv0 cannot be taken as the region's first whitespace-separated token,
+    because a Chrome executable path carries spaces. It is resolved by where
+    the region's ABSOLUTE paths start instead: exactly one, at the region's
+    own start, means the whole region is argv0 (the space-bearing Chrome
+    path); anything else means argv0 is only the first token, because that
+    first token is a launcher (`node <script>`, `npm exec <package>`,
+    `sh -c "<...>"`) or an absolute launcher path that names a Chrome path
+    as its own ARGUMENT.
+
+    Reading only the region keeps the arguments out of argv0 entirely, so a
+    process whose arguments merely mention a Chrome path is never mistaken
+    for one.
+    """
+    region = _executable_region(command).strip()
+    if not region:
+        return ""
+    tokens = region.split()
+    path_starts = [i for i, token in enumerate(tokens) if token.startswith("/")]
+    if len(path_starts) == 1 and path_starts[0] == 0:
+        return region.rsplit("/", 1)[-1]
+    if not path_starts:
+        # No absolute path anywhere: the region is either a bare Chrome name
+        # that carries spaces, or a bare launcher name.
+        return region if region in CHROME_BINARY_NAMES else tokens[0]
+    return tokens[0]
+
+
+def _is_chrome_binary(command):
+    """Conjunct A, part 1: the row's OWN executed image is a Chrome browser.
+
+    An exact basename match against CHROME_BINARY_NAMES, never a substring -
+    see the module docstring for the `chrome-devtools-mcp` argv0 that a
+    substring test cannot distinguish from a browser.
     """
     # MUTATION-ANCHOR: chrome_binary
-    region = _executable_region(command).lower()
-    return "chrome" in region or "chromium" in region
+    return _executable_name(command) in CHROME_BINARY_NAMES
     # END-MUTATION-ANCHOR: chrome_binary
 
 
 def _matches_mcp_profile(command, mcp_profile_root):
     """Conjunct A, part 2: the positive MCP fingerprint, in the BROWSER's
-    own argv (so it survives the server's death)."""
+    own argv (so it survives the server's death).
+
+    A path-prefix test, and safe to keep as one: it is only ever reached for
+    a row that already passed part 1, so the fingerprint selects WHICH Chrome
+    is reaped, never WHETHER a row is a browser. A process that names this
+    profile path without being a Chrome binary - the MCP server itself, an
+    `npm exec` wrapper, a `grep` whose pattern is the path - is rejected by
+    part 1 and never consulted here.
+    """
     # MUTATION-ANCHOR: conjunct_a
     return (USER_DATA_DIR_FLAG + mcp_profile_root + "/") in command
     # END-MUTATION-ANCHOR: conjunct_a
@@ -474,10 +554,13 @@ def _agent_browser_arm(pid, ppid, command_map):
 
     "Gone" means exactly one of: the parent is pid 0/1 (reparented to
     launchd), or the parent pid no longer resolves in the snapshot. A parent
-    that resolves to a live process is treated as NOT provably gone unless it
-    is recognisably an agent-browser daemon - the ambiguous case (a reused
-    pid, or an unexpected launcher) fails closed rather than killing a live
-    browser. This hook never invokes the agent-browser CLI.
+    that resolves to a live process is treated as NOT provably gone, with no
+    exception - and in particular there is no "unless the parent is
+    recognisably an agent-browser daemon" branch, because a parent that is
+    recognisably an agent-browser daemon IS the live daemon, and selecting
+    its browser would kill a browser that is still in use. The ambiguous
+    case (a reused pid, or an unexpected launcher) fails closed rather than
+    killing a live browser. This hook never invokes the agent-browser CLI.
     """
     if ppid in INIT_PIDS:
         return ARM_ORPHANED_CLI
