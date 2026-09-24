@@ -5,9 +5,9 @@ Purpose: CLI for writing a one-shot, operator-attributable exception to
          tracker-ticket creation (see content/references/delegation-detail.md
          §Follow-up Ticket Creation Discipline). That hook silently allows
          one creation per session only while the transcript shows no
-         non-exempt subagent spawn and no existing-ticket arrival (the Ticket-offer
-         gate's create), and DENIES every other creation - and without this
-         CLI there is no way to lift that deny mid-session: the
+         subagent spawn other than learnings-agent or product-discovery and
+         no existing-ticket arrival (the Ticket-offer gate's create), and
+         DENIES every other creation - and without this CLI there is no way to lift that deny mid-session: the
          hook's only kill switch (`AE_TICKET_BATCH_GUARD_DISABLE=1`) is an
          environment variable the hook-runner process reads at its own
          launch, and a conductor's `export` in a Bash tool call never

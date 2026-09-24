@@ -603,12 +603,56 @@ def test_exempt_role_spawn_keeps_silent_first_create():
         assert json.loads(_state_path(tmp, "sess-1").read_text())["count"] == 1
 
 
-def test_gate_exempt_roles_match_delegation_detail_exemption_set():
+def test_gate_exempt_roles_are_a_subset_of_delegation_detail_exemption_set():
     hook = _load_hook_module()
     text = (Path(__file__).parent.parent.parent / "content" / "references" / "delegation-detail.md").read_text()
     section = text.split("### Ticket-Offer Gate - Exemption Set", 1)[1].split("\n## ", 1)[0]
     listed = set(re.findall(r"^- `([a-z-]+)` - ", section, re.MULTILINE))
-    assert listed == set(hook._GATE_EXEMPT_ROLES)
+    assert listed, "no exemption-set roles parsed from delegation-detail.md"
+    assert set(hook._GATE_EXEMPT_ROLES) <= listed
+
+
+def _spawn_record_with_input(tinput: dict) -> str:
+    return json.dumps({
+        "type": "assistant",
+        "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "toolu_09", "name": "Agent", "input": tinput},
+        ]},
+    })
+
+
+def test_post_work_exempt_role_spawn_denies_first_create():
+    """skeptic and wrap-ticket only run once work exists, so a create
+    after either is a follow-up even though the gate exempts them."""
+    for role in ("skeptic", "wrap-ticket"):
+        with tempfile.TemporaryDirectory() as tmp:
+            _ensure_git_marker(tmp)
+            record = _spawn_record_with_input({"subagent_type": role, "prompt": "..."})
+            rc, parsed = _run_hook(_payload_with_transcript(tmp, [record]))
+            assert _is_denied(parsed), role
+
+
+def test_spawn_without_subagent_type_counts():
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        record = _spawn_record_with_input({"prompt": "..."})
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [record]))
+        assert _is_denied(parsed)
+
+
+def test_namespaced_exempt_role_counts_as_spawn():
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        record = _spawn_record_with_input({"subagent_type": "foo:learnings-agent"})
+        rc, parsed = _run_hook(_payload_with_transcript(tmp, [record]))
+        assert _is_denied(parsed)
+
+
+def test_key_followed_by_word_characters_is_not_a_key():
+    hook = _load_hook_module()
+    for args in ("DINO-639x", "DINO-639-beta", "https://acme.atlassian.net/browse/DINO-12abc"):
+        assert hook._args_name_existing_ticket(args) is False, args
+    assert hook._args_name_existing_ticket("DINO-639") is True
 
 
 def test_non_exempt_spawn_after_exempt_spawn_still_denies():

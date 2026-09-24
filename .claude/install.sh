@@ -1298,9 +1298,9 @@ for spawn_matcher in ("Task", "Agent"):
 # Enforces the Follow-up Ticket Creation Discipline's operator-confirmation
 # rule (content/references/delegation-detail.md §Follow-up Ticket Creation
 # Discipline): allows the 1st tracker-ticket creation this session silently
-# only while the transcript shows no non-exempt subagent spawn and no
-# existing-ticket arrival, and denies every other one without a bin/ds-ticket-grant
-# grant. Fires on
+# only while the transcript shows no subagent spawn other than
+# learnings-agent or product-discovery and no existing-ticket arrival, and
+# denies every other one without a bin/ds-ticket-grant grant. Fires on
 # mcp__mcp-atlassian__jira_create_issue, mcp__linear__save_issue (creation
 # only - an id-bearing call is an update and never counted), and Bash (a
 # direct Jira REST POST or Linear issueCreate GraphQL bypass). Exempt when

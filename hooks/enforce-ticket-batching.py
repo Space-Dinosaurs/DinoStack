@@ -9,8 +9,8 @@ Purpose: PreToolUse hook that enforces the operator-confirmation rule of
          before the first subagent spawn of a session that did not arrive
          with an existing ticket (`content/sections/02-delegation.md`).
          So one create per session is allowed silently while the
-         transcript shows no non-exempt subagent spawn and no
-         existing-ticket arrival; every other create is denied unless a
+         transcript shows no subagent spawn other than `learnings-agent`
+         or `product-discovery` and no existing-ticket arrival; every other create is denied unless a
          `bin/ds-ticket-grant` grant exists.
 
          History: PR #606 shipped the batching rule prose-only, and
@@ -350,31 +350,38 @@ Purpose: PreToolUse hook that enforces the operator-confirmation rule of
          <command-args>SDI-163</command-args>`), and a conductor-invoked
          Skill produces no such record, only the assistant tool_use. The
          command record is read only in the same two unforgeable shapes as
-         the triage marker. Freeform `/ds-implement-ticket` input does not
-         start with a ticket key and is net-new work, so it does not
-         count, even when it mentions a key-like token ("fix the UTF-8
-         bug"). Existing-
-         ticket sessions skip the Ticket-offer gate
+         the triage marker. Input whose first token is not a key or an
+         issue URL does not count, even when it mentions a key-like token
+         ("fix the UTF-8 bug"). Existing-ticket sessions skip the
+         Ticket-offer gate
          (`content/sections/02-delegation.md`), so any create in them is
          agent-initiated. A spawn is an `assistant` record with a
          `tool_use` block named `Agent` (462 found in the same corpus) or
          `Task` (the older tool name) whose `input.subagent_type` is not
-         one of the Ticket-offer gate's exempt roles
-         (`_GATE_EXEMPT_ROLES`, from `content/references/
-         delegation-detail.md` §Ticket-Offer Gate - Exemption Set), so a
-         background `learnings-agent` or a `product-discovery` spawn
-         before the gate does not cost the gate its create. A spawn with
-         no `subagent_type` counts. Tool results are list-content `user`
+         exactly `learnings-agent` or `product-discovery`
+         (`_GATE_EXEMPT_ROLES`). Those two are the members of
+         `content/references/delegation-detail.md` §Ticket-Offer Gate -
+         Exemption Set that can run before the gate's create, so a
+         background capture or intent-layer spawn does not cost the gate
+         its create. The rest of that set (skeptic, qa-engineer,
+         learning-extractor, wrap-ticket, goal-condition-evaluator) only
+         runs once work exists, so a `/ds-wrap` or Skeptic-only session's
+         create is still denied. A spawn with no `subagent_type`, or a
+         namespaced one such as `foo:learnings-agent`, counts (no
+         namespaced type appeared in 877 real spawns checked). Tool results are list-content `user`
          records, so Bash output naming `Agent` never counts.
 
          Known limitations: a conversational session with no spawn and no
          existing-ticket arrival still gets one silent create, whoever
-         asked for it. A session whose only spawns are exempt roles also
-         keeps its silent create, so a conductor that spawns only a
-         Skeptic before an unasked-for create is not caught. A
-         `--resume` that starts a fresh transcript makes the next first
-         create look pre-spawn again. All three fail open; none blocks
-         work outright.
+         asked for it. A session whose only spawns are `learnings-agent`
+         or `product-discovery` also keeps its silent create. Existing-
+         ticket arrivals the first-token check misses are treated as
+         net-new: JQL or Linear filter URLs, pasted screenshots, and mixed
+         text such as "please do DINO-1957"; the spawn check is the
+         backstop, since any investigation or implementation spawn in
+         that session still denies the create. A `--resume` that starts
+         a fresh transcript makes the next first create look pre-spawn
+         again. All of these fail open; none blocks work outright.
 
          **Operator-granted mid-session exception.** This is how an
          operator's explicit yes to a ticket candidate, or a second
@@ -935,18 +942,12 @@ def _is_triage_exempt(transcript_path) -> bool:
 
 
 _SPAWN_TOOL_NAMES = frozenset({"Agent", "Task"})
-# Roles that never count as a spawn: the Ticket-offer gate's own exemption
-# list, `content/references/delegation-detail.md` §Ticket-Offer Gate -
-# Exemption Set. Keep the two in sync.
-_GATE_EXEMPT_ROLES = frozenset({
-    "skeptic",
-    "qa-engineer",
-    "learning-extractor",
-    "learnings-agent",
-    "wrap-ticket",
-    "goal-condition-evaluator",
-    "product-discovery",
-})
+# Roles that never count as a spawn: the members of `content/references/
+# delegation-detail.md` §Ticket-Offer Gate - Exemption Set that can run
+# before the gate's create. The rest of that set (skeptic, qa-engineer,
+# learning-extractor, wrap-ticket, goal-condition-evaluator) only runs once
+# work already exists, so a create after one of them is a follow-up.
+_GATE_EXEMPT_ROLES = frozenset({"learnings-agent", "product-discovery"})
 _IMPLEMENT_TICKET_MARKER_RE = re.compile(
     r"<command-name>/?ds-implement-ticket</command-name>\s*"
     r"<command-args>(.*?)</command-args>",
@@ -954,8 +955,8 @@ _IMPLEMENT_TICKET_MARKER_RE = re.compile(
 )
 # Same key and URL patterns as `/ds-implement-ticket` Phase 0
 # (`content/commands/ds-implement-ticket.md`), applied to the first
-# argument token only, so freeform text naming "UTF-8" or "GPT-4" is
-# net-new work.
+# argument token only, so freeform text naming "UTF-8" or "GPT-4" does
+# not count as an existing-ticket arrival.
 _TICKET_ARG_RE = re.compile(
     r"^(?:[A-Z][A-Z0-9_]+-\d+"
     r"|https?://[^/]+/browse/[A-Z][A-Z0-9_]+-\d+"
@@ -971,13 +972,13 @@ def _args_name_existing_ticket(args: str) -> bool:
 def _is_counted_spawn(block: dict) -> bool:
     tinput = block.get("input")
     role = tinput.get("subagent_type") if isinstance(tinput, dict) else None
-    if isinstance(role, str) and role.rsplit(":", 1)[-1] in _GATE_EXEMPT_ROLES:
+    if isinstance(role, str) and role in _GATE_EXEMPT_ROLES:
         return False
     return True
 
 
 def _record_starts_agent_work(rec: dict) -> bool:
-    """True for a non-exempt subagent spawn (`Agent`/`Task` tool_use), a
+    """True for a counted subagent spawn (`Agent`/`Task` tool_use), a
     conductor Skill-tool invocation of `ds-implement-ticket` with a ticket
     key, or an operator-typed `/ds-implement-ticket <key>` command
     record."""

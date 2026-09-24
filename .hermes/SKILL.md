@@ -3705,8 +3705,8 @@ at wrap time, through any path. **The conductor never creates one on its
 own.** It mentions the candidate in one line and creates it only after
 the operator explicitly says yes to it. `hooks/enforce-ticket-batching.py`
 backs this: it allows one silent create per session only while no
-subagent outside the exemption set below has been spawned and the
-session did not arrive with an existing ticket (the gate creates before
+subagent other than `learnings-agent` or `product-discovery` has been
+spawned and the session did not arrive with an existing ticket (the gate creates before
 the first spawn), and denies
 every other create without an operator grant; `/ds-feedback-triage` runs
 (item 7) are exempt. `/ds-ticket-triage` is NOT a create path at all (see
