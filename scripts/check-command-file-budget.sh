@@ -134,9 +134,12 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # compressed away to fit under the OLD 395,000 threshold). That compression
 # introduced two prose defects as direct collateral, so the instruction to
 # compress this file rather than raise THRESHOLD_BYTES is withdrawn: restore
-# correct prose and re-derive the threshold instead. Derived by this gate's
-# same ~2% convention from the file's measured size at the time of the raise.
-# No measured figure is recorded here on purpose - every such figure in the
+# correct prose and re-derive the threshold instead. This raise does NOT
+# follow the ~2% convention the entries above used, and asserts no
+# arithmetic relationship to any measured size: 404,000 is a round figure
+# picked to clear the file's size at the time of the raise with a small
+# margin, and the margin it actually left was under 1%. No measured figure
+# is recorded here on purpose - every such figure in the
 # entries above went stale the next time the file changed, which made the
 # stated arithmetic stop reproducing. Run `bash scripts/check-command-file-budget.sh`
 # for the live size and headroom.

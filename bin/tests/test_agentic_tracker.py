@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -1228,6 +1229,40 @@ def test_AB1_transitions_manual_survives_unknown_tracker_value():
         print("PASS test_AB1_transitions_manual_survives_unknown_tracker_value")
 
 
+def test_AB6_effective_view_surfaces_transitions_mode():
+    """MINOR fix regression: `show --scope effective` and `resolve`
+    (non-JSON) previously never printed TRACKER_TRANSITIONS_MODE - only the
+    project-scope `show` surfaced it, from the raw overlay. The effective
+    view is where an operator confirms the kill switch is in force AFTER the
+    AGENTS.md/overlay merge, so a `manual` value must appear there with its
+    consequence."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        env = _init_repo(repo)
+        _write(repo / ".gitignore", ".agentic/tracker.yml\n")
+
+        # auto (no overlay at all) - the value is still disclosed.
+        for args in (["show", "--scope", "effective"], ["resolve"]):
+            r = _run_cli(args, repo, env)
+            assert r.returncode == 0, r.stderr
+            assert "TRANSITIONS:   auto" in r.stdout, (args, r.stdout)
+            assert "no automatic tracker state transition" not in r.stdout, args
+
+        assert _run_cli(["set", "transitions", "manual"], repo, env).returncode == 0
+
+        for args in (["show", "--scope", "effective"], ["resolve"]):
+            r = _run_cli(args, repo, env)
+            assert r.returncode == 0, r.stderr
+            assert "TRANSITIONS:   manual" in r.stdout, (args, r.stdout)
+            assert "no automatic tracker state transition will fire" in r.stdout, args
+            assert "ds-tracker set transitions auto" in r.stdout, args
+
+        # --json is unaffected: the field was already there.
+        r = _run_cli(["resolve", "--json"], repo, env)
+        assert json.loads(r.stdout)["TRACKER_TRANSITIONS_MODE"] == "manual"
+        print("PASS test_AB6_effective_view_surfaces_transitions_mode")
+
+
 def test_AB3_transitions_manual_with_agents_md_declared_tracker_and_no_tracker_overlay():
     """MINOR 7 fix regression: an AGENTS.md-declared tracker combined with a
     tracker-less overlay (only `transitions:`, no `tracker:` key) - AA5's
@@ -1391,3 +1426,4 @@ if __name__ == "__main__":
     test_AB4_explicit_transitions_auto_resolves_to_auto()
     test_AB5_no_tracker_path_discloses_transitions_override()
     test_AB3_transitions_manual_with_agents_md_declared_tracker_and_no_tracker_overlay()
+    test_AB6_effective_view_surfaces_transitions_mode()

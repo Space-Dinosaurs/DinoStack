@@ -4052,6 +4052,16 @@
       "source_token": ".agentic/batch-state.json"
     },
     {
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "108aabfa41ad594c1d6e44d8f1b541f06f0d666995a582fae35689f80114b399",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/ds-implement-ticket"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "pr",
       "kind": "display-only",
@@ -8662,16 +8672,6 @@
       "source_token": "-C"
     },
     {
-      "expected_target": "content/references/tracker-writeback.md",
-      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
-      "kind": "operational",
-      "occurrence_hash": "55e37c786abf5a04f7648065444854d7994f0636230679428a5353f30944ce7f",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/tracker-writeback.md"
-    },
-    {
       "expected_target": ".agentic/loop-state-",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
       "kind": "operational",
@@ -8690,16 +8690,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "hooks/lib/state-mark.js"
-    },
-    {
-      "expected_target": "dinostack-codex-implement-ticket",
-      "generated_token": "$dinostack-codex-implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "569dd72bae8c8054fd557d64d910885206c07048fe8a381221a966e92386c1d0",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -10912,6 +10902,16 @@
       "source_token": "**Contract D \u2014 Stop hook / SessionEnd hook mirror.**\n\nThe Claude Code Stop hook (`hooks/stop-context.js`) fires once per TURN, not once per session. It no longer marks the loop-state / `batch-state.json` files interrupted on every turn. Instead it is wired with `--cadence=turn`, which dispatches to `hooks/lib/state-mark.js`'s `refreshLiveness(cwd, sessionId)`: a per-turn liveness-only touch that updates `last_updated` (every loop-state candidate) or `updated_at` (`batch-state.json`) ONLY when the file is `status=active` AND its on-disk `session_id` is a non-empty string EQUAL to the current session's id (POSITIVE match required - absent/null/empty/differing all skip). It never sets `status=interrupted`."
     },
     {
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
+      "kind": "operational",
+      "occurrence_hash": "76133d2ae80682a0e76365dbcc9b33a55202f0af40fbd3c5189c7bbfd87ba888",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/tracker-writeback.md"
+    },
+    {
       "expected_target": "gh",
       "generated_token": "gh",
       "kind": "operational",
@@ -11392,6 +11392,16 @@
       "source_token": ".agentic/config.json"
     },
     {
+      "expected_target": ".agentic/.pending-merge-last-sweep",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/.pending-merge-last-sweep",
+      "kind": "operational",
+      "occurrence_hash": "7ccc8ce50a32b0daca95e5837980f9d3e184b2fd944909654ebadf4552426ea5",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/.pending-merge-last-sweep"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "-cn",
       "kind": "display-only",
@@ -11730,6 +11740,16 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/dev"
+    },
+    {
+      "expected_target": ".agentic/tracker.yml",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker.yml",
+      "kind": "operational",
+      "occurrence_hash": "823d0c19f0bdd35bed34f0437e8c9fe7ecc8fb16cc82797de9a039550e817239",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/tracker.yml"
     },
     {
       "expected_target": "case",
@@ -19120,16 +19140,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "then"
-    },
-    {
-      "expected_target": ".agentic/.pending-merge-last-sweep",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/.pending-merge-last-sweep",
-      "kind": "operational",
-      "occurrence_hash": "e80e3e24c2335fece91fec4a58bede8268eb3c4b9de46263eb020a61ffd2f5b9",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/.pending-merge-last-sweep"
     },
     {
       "expected_target": "except",

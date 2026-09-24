@@ -24,6 +24,9 @@ Public API:
            _apply_dev_complete_default(declared, defaults),
            _git_state(path), _check_ignored(path, force_unignored=False),
            _resolve_tracker(cwd), _validate_write_key(key, value),
+           _transitions_mode_lines(result) - the effective view's
+           TRANSITIONS: line, shared by `show --scope effective` and
+           `resolve`,
            _no_tracker_result(base, universal_fields, overlay_reason,
            git_state, warnings) - shared by every shape of overlay that
            cannot supply a usable TRACKER but does supply a valid
@@ -920,6 +923,24 @@ def _resolve_tracker(cwd: Path) -> dict:
     return result
 
 
+def _transitions_mode_lines(result: dict) -> list[str]:
+    """The kill switch, surfaced in the effective view.
+
+    `ds-tracker show` (project scope) prints the overlay's raw `transitions`
+    key, but the effective view is where an operator confirms a kill switch
+    is actually in force after the AGENTS.md/overlay merge - and a `manual`
+    value there means no automatic tracker state transition will fire.
+    """
+    mode = result.get("TRACKER_TRANSITIONS_MODE", "auto")
+    lines = [f"TRANSITIONS:   {mode}"]
+    if mode == "manual":
+        lines.append(
+            "               no automatic tracker state transition will fire; "
+            "run `ds-tracker set transitions auto` to re-enable"
+        )
+    return lines
+
+
 def _disclosure_lines(result: dict) -> list[str]:
     lines: list[str] = []
     source = result.get("_source")
@@ -1084,6 +1105,8 @@ def cmd_show(args: argparse.Namespace) -> int:
     result = _resolve_tracker(cwd)
     print(f"TRACKER:       {result.get('TRACKER', 'none')}")
     print(f"_source:       {result.get('_source')}")
+    for line in _transitions_mode_lines(result):
+        print(line)
     for line in _disclosure_lines(result):
         print(line)
     if result.get("_agents_md_guard"):
@@ -1102,6 +1125,8 @@ def cmd_resolve(args: argparse.Namespace) -> int:
     else:
         print(f"TRACKER:       {result.get('TRACKER', 'none')}")
         print(f"_source:       {result.get('_source')}")
+        for line in _transitions_mode_lines(result):
+            print(line)
         for line in _disclosure_lines(result):
             print(line)
 

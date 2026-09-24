@@ -274,7 +274,7 @@ Record `done` on a successful transition; `guard_skipped` when the forward-only 
 
 **i. Soft-fail.** Identical discipline to `## Soft-fail discipline` below: every call logs and continues; the sweep never blocks the session; it never retries with backoff; it never errors out.
 
-**j. Output.** One line per transition attempt in the existing `[ticket-status-sync] <KEY>: '<current>' -> '<expected>' ...` format (see step 8 above), one line per abandonment per (g), one line if the cap in (b) truncated, plus this breadcrumb:
+**j. Output.** One line per transition attempt in the existing `[ticket-status-sync] <KEY>: '<current>' -> '<expected>' ...` format (see step 8 above) - a candidate the kill switch suppressed is NOT a transition attempt and gets no line from this step, since (f) already governs its one line (printed per candidate on a direct invocation, suppressed on the automatic path) and a second line here would double-print it - one line per abandonment per (g), one line if the cap in (b) truncated, plus this breadcrumb:
 
     [phase: ticket-status-sync | mode=pending-merge | candidates=<N> | confirmed_merged=<N> | blocked_by_open_pr=<N> | transitions=<N> | skipped=<N> | transitions_manual=<N>]
 
