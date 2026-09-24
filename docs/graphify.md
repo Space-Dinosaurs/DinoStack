@@ -78,8 +78,10 @@ in its return.
 
 ## Worktrees
 
-The graph exists only in the checkout where it was built. An agent running in
-an isolation worktree finds no graph there and uses `grep -rn`.
+When `graphify-out/` is untracked and repo-relative, the graph exists only in
+the checkout where it was built, so an agent running in an isolation worktree
+finds no graph there and uses `grep -rn`. A graph committed to the repo, or
+one located through an absolute `GRAPHIFY_OUT`, is visible from worktrees too.
 
 ## Fail-safe summary
 
