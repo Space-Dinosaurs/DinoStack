@@ -2165,9 +2165,11 @@ elif [[ "$CD_MCP_STATE" == "not-json-object" || "$CD_MCP_STATE" == "mcp-servers-
   esac
   echo "  ! $CLAUDE_JSON: $CD_MCP_SHAPE - leaving the chrome-devtools MCP entry untouched; fix that value by hand and re-run this installer"
 else
-  echo "  chrome-devtools launches Chrome headless: an agent-driven browser opens no window, so watching a"
-  echo "  page load live is gone (screenshots and script evaluation still work). To get the window back,"
-  echo "  remove --headless from its args in $CLAUDE_JSON; the next session picks that up."
+  echo "  chrome-devtools launches Chrome headless on an isolated profile: an agent-driven browser opens no"
+  echo "  window, so watching a page load live is gone (screenshots and script evaluation still work), and"
+  echo "  profile state (cookies, logins, local storage) does not persist between runs. To get profile state"
+  echo "  back, remove --isolated from its args in $CLAUDE_JSON and the next session picks that up. To get"
+  echo "  the window back, remove --headless from its args and the next session picks that up too."
   if [[ "$CD_MCP_STATE" == "stale" ]]; then
     CD_MCP_QUESTION="  Update the existing chrome-devtools MCP registration to launch Chrome headless on an isolated profile? [y/N] "
   else

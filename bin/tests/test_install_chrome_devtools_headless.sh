@@ -113,7 +113,9 @@
 #
 #          Mutation coverage (each mutation is run, not merely named):
 #            (a) drop the --headless append           -> V1 reddens
-#            (al) drop the --isolated append          -> V1 reddens
+#            (al) drop the --isolated append          -> V1 and V17 redden
+#            (am) point the current-check at the option set the migration used to
+#                write -> V15 reddens
 #            (b) report "current" for any existing key (the pre-U3
 #                short-circuit)                       -> V2 and V1b redden
 #            (c) drop the pre-rename re-stat guard    -> the concurrent-writer
@@ -527,6 +529,12 @@ case_v1_fresh() {
     _fail "V1: the trade-off and the way back were not stated at the accept prompt"
     return 1
   fi
+  # R6 for the second capability this change removes: --isolated's cost needs its
+  # own one-step way back, distinct from the sentence that restores the window.
+  if ! grep -q "remove --isolated from its args" <<< "$out"; then
+    _fail "V1: the profile-persistence way back was not stated at the accept prompt"
+    return 1
+  fi
 
   python3 - "$home/.claude.json" "$(expected_args_json)" <<'PYEOF'
 import json, sys
@@ -577,11 +585,18 @@ case_v2_accepted() {
   # asked to accept it, together with a one-step way back. Ordering is the
   # load-bearing half - the same sentence printed after the prompt would not
   # inform the decision the prompt asks for.
-  local trade_off_at prompt_at
+  local trade_off_at prompt_at profile_back_at
   trade_off_at="$(grep -n "remove --headless from its args" <<< "$out" | head -1 | cut -d: -f1)"
+  profile_back_at="$(grep -n "remove --isolated from its args" <<< "$out" | head -1 | cut -d: -f1)"
   prompt_at="$(grep -n "Update the existing chrome-devtools MCP" <<< "$out" | head -1 | cut -d: -f1)"
   if [[ -z "$trade_off_at" || -z "$prompt_at" || "$trade_off_at" -ge "$prompt_at" ]]; then
     _fail "V2: the trade-off and the way back are not stated before the accept prompt"
+    return 1
+  fi
+  # The persistence way back is a second cost, so it has to be stated before the
+  # prompt too rather than only somewhere in the output.
+  if [[ -z "$profile_back_at" || "$profile_back_at" -ge "$prompt_at" ]]; then
+    _fail "V2: the profile-persistence way back is not stated before the accept prompt"
     return 1
   fi
 
