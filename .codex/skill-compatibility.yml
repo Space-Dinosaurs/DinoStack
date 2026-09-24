@@ -22,16 +22,6 @@
       "source_token": "`/ds-skeptic`"
     },
     {
-      "expected_target": "content/commands/ds-implement-ticket.md",
-      "generated_token": "$AE_REPO_DIR/content/commands/ds-implement-ticket.md",
-      "kind": "operational",
-      "occurrence_hash": "05ea776a93528c5346c16f211950c137b7999c6713900d720fec21d81d201ceb",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/commands/ds-implement-ticket.md"
-    },
-    {
       "expected_target": ".agentic/worktrees/*",
       "generated_token": "$AE_PROJECT_DIR/.agentic/worktrees/*",
       "kind": "operational",
@@ -452,6 +442,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": "content/commands/ds-implement-ticket.md",
+      "generated_token": "$AE_REPO_DIR/content/commands/ds-implement-ticket.md",
+      "kind": "operational",
+      "occurrence_hash": "2f20ac32867fce65d34506eaba4292df46d944b6f346b683f8dc0af5faaa8f58",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/commands/ds-implement-ticket.md"
+    },
+    {
       "expected_target": "apply_patch",
       "generated_token": "Edit",
       "kind": "semantic-reference",
@@ -832,6 +832,16 @@
       "source_token": "Task"
     },
     {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "5c0f4b1cade8576757dc42fd9d827d8faa0e7f197da0ae3555a3a43b2ee282d5",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
+    },
+    {
       "expected_target": "content/sections/05-qa-gate.md",
       "generated_token": "$AE_REPO_DIR/content/sections/05-qa-gate.md",
       "kind": "operational",
@@ -1020,16 +1030,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/rules/conventions.md"
-    },
-    {
-      "expected_target": "content/references/delegation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "6d97d7b9be45b237acca83f81a9b553b9776a55c20ce4ad7ad08a57f5431c1ee",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "filesystem read",
@@ -1620,6 +1620,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Task"
+    },
+    {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "b26ebb63c8d72edd40cf6a5fe6ef5d62fd032aa674eb9f6071a3edc96e209d27",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "dinostack-codex-brief",
@@ -2352,16 +2362,6 @@
       "source_token": "AskUserQuestion"
     },
     {
-      "expected_target": "content/references/delegation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "fabc3029c2ffbe68579b15d9c4d2ef858a82d88de9f617499256b008296b7608",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/delegation-detail.md"
-    },
-    {
       "expected_target": "dinostack-codex-implement-ticket",
       "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
@@ -2682,6 +2682,16 @@
       "source_token": ".claude/build.sh"
     },
     {
+      "expected_target": "content/sections/02-delegation.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
+      "kind": "operational",
+      "occurrence_hash": "01f220b635e65b92055056d8d507bfbe3891963f252f2c0b1e96c63f45e2401e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-brief.md",
+      "source_token": "content/sections/02-delegation.md"
+    },
+    {
       "expected_target": "shell",
       "generated_token": "Bash",
       "kind": "semantic-reference",
@@ -2770,6 +2780,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-brief.md",
       "source_token": "/ds-brief"
+    },
+    {
+      "expected_target": "content/references/conventions-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "3ad342785ddbe77c0ae15309ac3c78d5c1a0cfb946d3f561ae8e312b08acbb48",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-brief.md",
+      "source_token": "content/references/conventions-detail.md"
     },
     {
       "expected_target": "dinostack-codex-brief",
@@ -3002,16 +3022,6 @@
       "source_token": ".agentic/brief-session.json"
     },
     {
-      "expected_target": "content/references/delegation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "c63615853b46308bab370f47d50cdadde5915245b59f486d419bca074cb05291",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-brief.md",
-      "source_token": "content/references/delegation-detail.md"
-    },
-    {
       "expected_target": ".gitignore",
       "generated_token": "$AE_PROJECT_DIR/.gitignore",
       "kind": "operational",
@@ -3092,16 +3102,6 @@
       "source_token": "content/rules/conventions.md"
     },
     {
-      "expected_target": "content/references/conventions-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "eade6c666120a31d014a6e77d857cde5aba208f3b8346b824007e8cd5840ce4c",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-brief.md",
-      "source_token": "content/references/conventions-detail.md"
-    },
-    {
       "expected_target": ".agentic/brief-session.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/brief-session.json",
       "kind": "operational",
@@ -3142,16 +3142,6 @@
       "source_token": "git"
     },
     {
-      "expected_target": "content/sections/02-delegation.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
-      "kind": "operational",
-      "occurrence_hash": "f5e7e8433c228964bc593c05dd65e7d7f9098825e87a4270ef1116204f463dc5",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-brief.md",
-      "source_token": "content/sections/02-delegation.md"
-    },
-    {
       "expected_target": "content/references/planning-artifacts.md",
       "generated_token": "$AE_REPO_DIR/content/references/planning-artifacts.md",
       "kind": "operational",
@@ -3170,6 +3160,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-brief.md",
       "source_token": "Write"
+    },
+    {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "ff97005d6d81686bfba3b6579af53b0460f04ee0adcb8a487395b51880e3995b",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-brief.md",
+      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -9562,6 +9562,16 @@
       "source_token": ".agentic/loop-state-<LOOP_KEY>.json"
     },
     {
+      "expected_target": "content/sections/02-delegation.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
+      "kind": "operational",
+      "occurrence_hash": "646cd291b880816b507574f5155486058f5e197471ae491f7157bcc0a9b04dcf",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/sections/02-delegation.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "the",
       "kind": "display-only",
@@ -10620,16 +10630,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "-c"
-    },
-    {
-      "expected_target": "content/references/delegation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "7122079462299ddeafa6e5e3dc324a7a1421e43f3564e825b16a56b81a2e18e0",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "bin/ds-codex-session-id",
@@ -12790,6 +12790,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "true"
+    },
+    {
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "9365aef4680cbadd36990e8a3e596d71c114bd0af67c0656c14d6b50ee55cc63",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": ".agentic/batch-state.json",
@@ -15070,6 +15080,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "W1_DISPATCH_OUTCOME"
+    },
+    {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "b16c20726ed05d39dcefa972f9ed20a500be7cda2d80479314cf246b71ce6a8e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "if",
@@ -18392,16 +18412,6 @@
       "source_token": "true"
     },
     {
-      "expected_target": "dinostack-codex-implement-ticket",
-      "generated_token": "$dinostack-codex-implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "df0f4d1c585701fa03aa5fc30c342dc6761049c43dbc37ff4ba1c3f4088c5e4a",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/ds-implement-ticket"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "KC_STATUS",
       "kind": "display-only",
@@ -18700,16 +18710,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/conductor-operating-rules.md"
-    },
-    {
-      "expected_target": "content/sections/02-delegation.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
-      "kind": "operational",
-      "occurrence_hash": "e31e7655b0ec9998374d7b3ebfdb380ec40975a6acc62ae7a606511f57f3ccf7",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/sections/02-delegation.md"
     },
     {
       "expected_target": "jq",

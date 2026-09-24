@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Tests for ds-ticket-grant: writes the one-shot, operator-attributable
-exception to hooks/enforce-ticket-batching.py's same-session ticket-
-batching cap.
+exception to hooks/enforce-ticket-batching.py's deny on agent-initiated
+ticket creation.
 
 Test groups:
   1. test_grant_writes_reason_and_timestamp - a valid grant call writes

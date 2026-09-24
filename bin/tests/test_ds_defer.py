@@ -8,8 +8,8 @@ Test groups:
      are no --id/--ts/--status flags on append, so nothing to overwrite - this
      asserts the fields are always present and CLI-shaped, never absent or
      caller-controlled).
-  2. test_reason_enum_accepts_only_two_values_budget_exceeded_rejected -
-     the 2-value enum validation; explicitly asserts budget_exceeded is
+  2. test_reason_enum_accepts_only_three_values_budget_exceeded_rejected -
+     the 3-value enum validation; explicitly asserts budget_exceeded is
      REJECTED as invalid, pinning its deletion from the schema.
   3. test_repo_omission_is_hard_argparse_error_on_all_four_subcommands -
      omitting --repo is a hard argparse error (SystemExit, no cwd fallback)
@@ -141,8 +141,8 @@ def test_append_owns_id_ts_status_pattern_hash():
         print("PASS test_append_owns_id_ts_status_pattern_hash")
 
 
-def test_reason_enum_accepts_only_two_values_budget_exceeded_rejected():
-    """(2) 2-value enum validation; budget_exceeded is explicitly REJECTED."""
+def test_reason_enum_accepts_only_three_values_budget_exceeded_rejected():
+    """(2) 3-value enum validation; budget_exceeded is explicitly REJECTED."""
     with tempfile.TemporaryDirectory() as tmp:
         repo = str(Path(tmp) / "repo")
         Path(repo).mkdir()
@@ -154,8 +154,12 @@ def test_reason_enum_accepts_only_two_values_budget_exceeded_rejected():
         ])
         assert rc != 0, "budget_exceeded must be rejected as an invalid --reason value"
 
-        # Both real values must succeed.
-        for reason in ("failed_promotion_bar", "out_of_band_manual_discovery"):
+        # Every real value must succeed.
+        for reason in (
+            "failed_promotion_bar",
+            "out_of_band_manual_discovery",
+            "unconfirmed_ticket_candidate",
+        ):
             rc, out, err = _run([
                 "append", "--repo", repo, "--description", f"item for {reason}",
                 "--reason", reason,
@@ -164,12 +168,41 @@ def test_reason_enum_accepts_only_two_values_budget_exceeded_rejected():
 
         store = Path(repo, ".agentic", "deferred-work.jsonl")
         lines = [l for l in store.read_text(encoding="utf-8").splitlines() if l.strip()]
-        assert len(lines) == 2
+        assert len(lines) == 3
         reasons = {json.loads(l)["reason"] for l in lines}
-        assert reasons == {"failed_promotion_bar", "out_of_band_manual_discovery"}
+        assert reasons == {
+            "failed_promotion_bar",
+            "out_of_band_manual_discovery",
+            "unconfirmed_ticket_candidate",
+        }
         assert "budget_exceeded" not in reasons
 
-        print("PASS test_reason_enum_accepts_only_two_values_budget_exceeded_rejected")
+        print("PASS test_reason_enum_accepts_only_three_values_budget_exceeded_rejected")
+
+
+def test_unconfirmed_ticket_candidate_round_trips_through_list_count_ack():
+    """A ticket candidate the operator has not said yes to is appended,
+    counted as open, listed with its reason, and acked on a yes."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = str(Path(tmp) / "repo")
+        Path(repo).mkdir()
+        rc, out, err = _run([
+            "append", "--repo", repo, "--description", "split: cartridge null check",
+            "--reason", "unconfirmed_ticket_candidate", "--parent-ticket", "DINO-1957",
+        ])
+        assert rc == 0, err
+        rc, out, _ = _run(["count", "--repo", repo, "--status", "open"])
+        assert out.strip() == "1"
+        rc, out, _ = _run(["list", "--repo", repo])
+        rows = json.loads(out)
+        assert rows[0]["reason"] == "unconfirmed_ticket_candidate"
+        assert rows[0]["parent_ticket_id"] == "DINO-1957"
+        rc, _, err = _run(["ack", "--repo", repo, "--id", rows[0]["id"]])
+        assert rc == 0, err
+        rc, out, _ = _run(["count", "--repo", repo, "--status", "open"])
+        assert out.strip() == "0"
+
+        print("PASS test_unconfirmed_ticket_candidate_round_trips_through_list_count_ack")
 
 
 def test_repo_omission_is_hard_argparse_error_on_all_four_subcommands():
@@ -473,7 +506,8 @@ def test_list_count_ack_survive_store_present_lock_absent():
 
 if __name__ == "__main__":
     test_append_owns_id_ts_status_pattern_hash()
-    test_reason_enum_accepts_only_two_values_budget_exceeded_rejected()
+    test_reason_enum_accepts_only_three_values_budget_exceeded_rejected()
+    test_unconfirmed_ticket_candidate_round_trips_through_list_count_ack()
     test_repo_omission_is_hard_argparse_error_on_all_four_subcommands()
     test_append_bootstraps_bare_repo_agentic_dir_at_mode_0700()
     test_list_count_ack_do_not_bootstrap_bare_repo()
