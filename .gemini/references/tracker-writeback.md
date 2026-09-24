@@ -6,7 +6,8 @@ Purpose: Full reference for the Tracker Writeback Helper - the reusable
          in ds-ticket-status-sync.md and ds-wrap.md Part F) shares: the
          invocation contract, the forward-only guard's category-rank and
          same-category pipeline sub-rank algorithm, the diagnostic-
-         enrichment sub-step, and failure/skip logging formats.
+         enrichment sub-step, the `transitions: manual` kill switch, and
+         failure/skip logging formats.
 
 Public API: Read-only reference document, addressed by its retained
             `## Tracker Writeback Helper` heading. Cross-referenced from:
@@ -23,7 +24,7 @@ Upstream deps: none (prose reference only; no code, no runtime execution).
                block (`content/commands/ds-implement-ticket.md` §"Tracker
                Writeback Helper") in context - this reference's own
                precedence note (below) names it as the source of truth
-               for the five duplicated statements.
+               for the six duplicated-in-substance statements.
 
 Downstream consumers: content/commands/ds-implement-ticket.md (Phase 11,
                       W1-W7), content/commands/ds-ticket-status-sync.md,
@@ -31,10 +32,10 @@ Downstream consumers: content/commands/ds-implement-ticket.md (Phase 11,
                       content/commands/ds-init-project.md.
 
 Failure modes: Prose reference; does not auto-execute. A stale copy would
-               misdescribe the forward-only guard's permit/skip outcomes or
-               the diagnostic-enrichment contract for every call site at
-               once - keep in sync with the live call sites listed above
-               whenever the algorithm changes.
+               misdescribe the forward-only guard's permit/skip outcomes,
+               the diagnostic-enrichment contract, or the kill switch for
+               every call site at once - keep in sync with the live call
+               sites listed above whenever the algorithm changes.
 
 Performance: n/a (static reference document).
 -->
@@ -43,7 +44,7 @@ Performance: n/a (static reference document).
 
 Reusable subagent invocation pattern. Used by Phase 11 (existing), the 7 W1-W7 sites in `content/commands/ds-implement-ticket.md`, and awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F. Gated on `TRACKER != none`; no-op otherwise.
 
-> Note: five statements in this reference - the awaiting-caller enumeration, `forward_only_guard` applicability, the step 4.d.iv stderr split, the `SKIPPED:` line format, and the "never reads `.agentic/tracker-states.json`" ranking rule - are duplicated verbatim in the "Caller enumeration" block of `content/commands/ds-implement-ticket.md` §"Tracker Writeback Helper". The duplication is intentional and kept in the kernel command file because `scripts/codex-skills.py`'s `documents()` transform only reads `content/commands/*.md`; this reference is a symlinked resource the transform never scans. The kernel "Caller enumeration" block is the SOURCE OF TRUTH for all five - if the two ever disagree, the kernel block governs.
+> Note: six statements in this reference - the awaiting-caller enumeration, `forward_only_guard` applicability, the step 4.d.iv stderr split, the `SKIPPED:` line format, the "never reads `.agentic/tracker-states.json`" ranking rule, and the full return-status set - are duplicated in substance in the "Caller enumeration" block of `content/commands/ds-implement-ticket.md` §"Tracker Writeback Helper". The duplication is intentional and kept in the kernel command file because `scripts/codex-skills.py`'s `documents()` transform only reads `content/commands/*.md`; this reference is a symlinked resource the transform never scans. The two copies are not required to be byte-identical - the kernel's copy abbreviates the awaiting-caller enumeration as "all 4 above" where this reference spells it out inline, since the kernel already enumerated the full set once earlier in the same section - but they must agree in substance. The kernel "Caller enumeration" block is the SOURCE OF TRUTH for all six - if the two ever disagree, the kernel block governs.
 
 **Invocation contract:**
 
@@ -54,6 +55,7 @@ When the conductor reaches a writeback boundary:
    - `tracker`: `linear` | `jira`
    - `ticket_id`: from current task context
    - `target_state`: one of the resolved `TRACKER_STATE_*` variables
+   - `transitions_mode`: `$TRACKER_TRANSITIONS_MODE`, resolved once in `content/commands/ds-implement-ticket.md` Setup from the `.agentic/tracker.yml` overlay's `transitions:` key (`auto` | `manual`, default `auto`). Gates the kill switch below - checked before any other subagent responsibility.
    - `forward_only_guard`: `true` for every writeback caller - the 7 new sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F
    - `tracker_state_values`: `{ "IN_PROGRESS": "$TRACKER_STATE_IN_PROGRESS", "IN_REVIEW": "$TRACKER_STATE_IN_REVIEW", "QA": "$TRACKER_STATE_QA", "DEV_COMPLETE": "$TRACKER_STATE_DEV_COMPLETE", "BLOCKED": "$TRACKER_STATE_BLOCKED", "DONE": "$TRACKER_STATE_DONE" }` - the 6 values resolved once in `content/commands/ds-implement-ticket.md` Setup; required by the forward-only guard's same-category pipeline sub-rank
    - `diagnostic_enabled`: `$TRACKER_STATE_DIAGNOSTIC` (boolean, resolved once in `content/commands/ds-implement-ticket.md` Setup; gates the diagnostic-enrichment sub-step of step 5 below)
@@ -63,6 +65,8 @@ When the conductor reaches a writeback boundary:
    - Tracker-specific config: `LINEAR_WORKSPACE`, `LINEAR_QA_ASSIGNEE_ID` for Linear; equivalent for Jira
 
 **Subagent responsibilities (extended for `forward_only_guard`):**
+
+**Kill switch (checked FIRST, before step 1 - costs zero round trips on the transition path).** Check the `transitions_mode` input (see the invocation contract above; resolved once by the conductor from the `.agentic/tracker.yml` overlay's `transitions:` key via `bin/ds-tracker`, default `auto`). When `manual`, suppress the STATE TRANSITION ONLY: make NO pre-read call and attempt NO transition, and report `status: "skipped_transitions_manual"` with `transitioned: false`. The comment and the assignee update are NOT part of this gate - the key is named `transitions`, not `writeback`. **What that amounts to is per-call-site, not global, because the call sites do not all carry a comment or an assignee:** Phase 11 is the only site that passes a comment body and an assignee, and there both still fire (its Behavior block in `content/commands/ds-implement-ticket.md` gives the per-tracker call shape - Linear folds state and assignee into one `save_issue`, so under `manual` it makes an assignee-only call or none at all; Jira's are separate calls and are untouched). W1-W7 pass neither a comment nor an assignee, so under `manual` those sites do nothing beyond the one bounded line below. Exactly TWO of the four awaiting callers define a comment step at all: `/ds-ticket-status-sync` `--all` Tier 1 (the tracker-wide sweep's step 7) and `/ds-wrap` Part F. Each gates that comment on `transitioned: true`, a gate that predates this kill switch, so under `manual` they post no comment either and their only effect is the line they print. The other two awaiting callers - `/ds-ticket-status-sync` single-ticket mode (whose steps 1-6 define neither a comment nor an assignee update) and `--pending-merge` (which reconciles via those same single-ticket steps) - have no comment to suppress in the first place. Each call site's operator-visible text states what that site actually does; do not read a global "the comment still proceeds" claim out of this paragraph. This is a report-only suggestion, not a soft-fail - the conductor surfaces it exactly like any other skip status (see "Caller enumeration" for the fire-and-forget vs. awaiting-caller split). When `auto` (the default), proceed to step 1.
 
 1. **Pre-read current state:**
    - Linear: call `mcp__linear__get_issue` to read the ticket's current state, capturing both `state.type` and `state.name` (e.g. `"In Review"`) from the response.
@@ -106,4 +110,10 @@ When the conductor reaches a writeback boundary:
 
 **Failure logging:** subagent stderr is captured by the conductor's `ds-emit` event; one operator-visible line per failure of the form: `tracker-writeback: <ticket_id> -> '<target_state>' FAILED: <error>`. A `status: "skipped_unconfigured_state"` outcome uses the distinct SKIPPED form defined in step 5's diagnostic-enrichment sub-step instead: `tracker-writeback: <ticket_id> -> '<target_state>' SKIPPED: <diagnostic>`. No block, either form.
 
-For full details of the Phase 11 writeback subagent brief shape, see the Phase 11 block in `content/commands/ds-implement-ticket.md` - the brief is unchanged except for the addition of `target_state`, `forward_only_guard`, `tracker_state_values`, and `pipeline_order` parameters. Phase 11's own Jira `JIRA_QA_TRANSITION`-gated transition mechanism (see "Behavior" in that Phase 11 block - unaffected, unedited by this plan) and its Linear path both additionally receive the diagnostic-enrichment behavior from `## Tracker Writeback Helper` step 5 when a transition attempt does not succeed; this plan does not change what Phase 11 writes or when, only what it reports when it does not write.
+**Full return-status set:** `ok | partial | failed | skipped_unconfigured_state | skipped_transitions_manual`. `skipped_transitions_manual` means the STATE TRANSITION alone was suppressed by the kill switch above - `comment_posted` and `assigned` reflect what actually happened and are typically still `true`. Fire-and-forget call sites (W1-W7, Phase 11) never read the return, and emit NO stderr line for this status - not one per fire, and not one per run.
+
+This is deliberately NOT the one-line-per-fire convention `skipped_unconfigured_state` uses above. An unconfigured state is a per-ticket fact the operator has not seen; `manual` is one static project setting the operator set themselves, and repeating it at up to 8 sites per ticket for the life of the project is status the operator must read and can do nothing differently about. The operator still always has an indication, and this rule needs no persisted state to guarantee it: every fire-and-forget site is inside a `/ds-implement-ticket` run, and that command's Setup prints `TRACKER_TRANSITIONS_MODE` - with its consequence spelled out when the value is `manual` - exactly once before any of them can fire. A suppress-after-first rule would instead require a cross-invocation flag with a named state location and a defined session boundary, and would remain ambiguous across resumed sessions and parallel worktrees. The kernel's "Caller enumeration" block states the same rule and governs it.
+
+Awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - read the payload and format it per their own operator-visible-line conventions instead of this line.
+
+For full details of the Phase 11 writeback subagent brief shape, see the Phase 11 block in `content/commands/ds-implement-ticket.md` - the brief is unchanged except for the addition of `target_state`, `forward_only_guard`, `tracker_state_values`, `pipeline_order`, and `transitions_mode` parameters. Phase 11's own Jira `JIRA_QA_TRANSITION`-gated transition mechanism (see "Behavior" in that Phase 11 block - unaffected, unedited by this plan) and its Linear path both additionally receive the diagnostic-enrichment behavior from `## Tracker Writeback Helper` step 5 when a transition attempt does not succeed, and both have only their TRANSITION step short-circuited by the kill switch above when `transitions_mode` is `manual`. The comment is unaffected on both trackers. The assignee update is unaffected in effect on both, but not in call shape: Jira issues it as its own `jira_update_issue` call and is genuinely untouched, while Linear's `save_issue` carries state and assignee together, so under `manual` Linear makes one assignee-only `save_issue` (no `state` field) when an assignee is configured and no `save_issue` at all when none is - see Phase 11's Linear bullet. Beyond that call-shape difference this plan does not change what Phase 11 writes or when, only what it reports when the transition alone does not write.
