@@ -227,6 +227,7 @@ fail-closed behavior.
 
 
 
+
 **Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, loop-state files - NOT in-flight planning artifacts, which are committed and pushed per `content/references/planning-artifacts.md` §Gate semantics as soon as they are authored, subject to the per-repo gitignore eligibility gate). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both.
 
 There is no in-place exception. The Trivial-path solo `engineer` spawn is also `isolation: "worktree"`: the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout.
@@ -260,6 +261,7 @@ search for the section covering "02-delegation.md".
 - a learning-worthy event has just occurred in the session
 - the architect has just returned a plan and downstream spawning is being considered
 - about to spawn an Elevated-risk engineer
+- review or CI findings are about to be routed to an implementer for a fix pass
 - composing a spawn brief that cites a specific file path for a worktree-isolated subagent to read
 - about to spawn a worktree-isolated agent while the primary checkout has uncommitted changes
 - team.yml is present with enabled: true and a dispatchable role is about to be routed to another harness

@@ -2036,12 +2036,12 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 See `content/references/skeptic-protocol.md` Section 14 for the full calibration specification.
 
 **Step 4. Engineer fix pass.** This is round N>=2 of the same branch. Populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. Spawn a fresh `engineer` agent with:
-- The open Critical and Major findings from `findings_log` (status=open)
+- The open Critical and Major findings from `findings_log` (status=open), verbatim
 - The `last_engineer_summary` from the prior iteration
 - Third-or-later round: `skeptic-protocol.md` §Round budget item 7
 - **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase, not "the prior engineer changed files X, Y, Z". Paste the prior return summary in full (or, when the prior output was committed code, paste the full diff or list the committed files plus their relevant excerpts). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a Skeptic finding listed below. Each edit you make must trace to a specific finding id."* Rationale: a fresh subagent has no session context, so a brief that says "address findings and return revised outputs" causes the Engineer to regenerate from scratch — producing output that diverges from the scoped change because it has no access to prior-iteration state. Anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes.
 - Instruction: "Address only the findings listed below. Do not expand scope. Do not refactor, rename, or clean up code outside the finding scope. For each finding, confirm in your summary what you changed and why it addresses the finding."
-- The branch name and repo path
+- The branch name, repo path, and pushed head SHA; never deliver this pass to the prior engineer via `SendMessage` (`content/sections/02-delegation.md`, "Fix passes are fresh spawns")
 - Instruction to run `$QUALITY_CMD` before finishing
 
 **Telemetry emit (V1):** Bracket the Engineer `Agent` tool call with `ds-emit spawn_start engineer <task_id> ...` before, and `ds-emit spawn_complete engineer <task_id> ...` after - using `ds-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
