@@ -80,7 +80,7 @@ The conductor delegates implementation work aggressively to specialist subagents
 - **Re-route limit + convergence-failure tracking.** Conductor must hold the full loop history across iterations.
 - **Status updates and breadcrumbs to user.** All `[phase: ...]` and `[loop: ...]` emissions originate from the conductor.
 - **Dispatch logic.** Which agent, when, with what brief.
-- **Summary synthesis for downstream spawn briefs.** PR body, tracker comment, findings input - the conductor extracts and reformats subagent outputs for downstream consumers.
+- **Summary synthesis for downstream spawn briefs.** PR body, tracker comment, findings input: subagent outputs rewritten for the named reader (§External Comment Discipline).
 - **`BASE_BRANCH` resolution and `AGENTS.md` config parsing.** Setup phase work.
 - **`gh pr create` in Phase 9.** PR opener stays in the conductor; the synthesis output is consumed inline by the next phase and does not benefit from isolation in a separate spawn.
 - **CI Test URL polling in Phase 10.**
