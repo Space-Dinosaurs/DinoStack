@@ -310,7 +310,7 @@ for tenant in $TENANTS; do
 			fi
 			;;
 		esac
-		"${identity_env[@]}" bash "$installer" --config-dir="$cfg" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" || rc=$?
+		"${identity_env[@]}" bash "$installer" --config-dir="$cfg" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} || rc=$?
 		if [[ "$rc" -eq 0 ]]; then SUCCEEDED+=("$label"); else
 			echo "  ! $label failed (exit $rc)" >&2
 			FAILED+=("$label")
@@ -323,7 +323,7 @@ if [[ "$DO_CURSOR" == true && -f "$REPO_DIR/.cursor/install.sh" ]]; then
 	echo ""
 	echo "==> cursor (global ~/.cursor)"
 	rc=0
-	bash "$REPO_DIR/.cursor/install.sh" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" || rc=$?
+	bash "$REPO_DIR/.cursor/install.sh" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"} || rc=$?
 	if [[ "$rc" -eq 0 ]]; then SUCCEEDED+=("cursor"); else
 		echo "  ! cursor failed (exit $rc)" >&2
 		FAILED+=("cursor")

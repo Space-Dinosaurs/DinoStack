@@ -408,7 +408,7 @@ PYEOF
     fi
     filtered_body_lines+=("$bline")
   done
-  body_lines=("${filtered_body_lines[@]+"${filtered_body_lines[@]}"}")
+  body_lines=(${filtered_body_lines[@]+"${filtered_body_lines[@]}"})
 
   # Build the body string: join accumulated lines.
   # We need to escape backslash and double-quote for the TOML triple-quoted

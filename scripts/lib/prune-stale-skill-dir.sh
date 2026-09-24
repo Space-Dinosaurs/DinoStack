@@ -72,7 +72,7 @@ ae_prune_stale_skill_dir() {
       return 1
     fi
     recognized=0
-    for allowed in "${allowed_real_files[@]+"${allowed_real_files[@]}"}"; do
+    for allowed in ${allowed_real_files[@]+"${allowed_real_files[@]}"}; do
       if [[ "$name" == "$allowed" ]]; then
         recognized=1
         break
