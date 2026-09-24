@@ -64,8 +64,8 @@ remove_symlinks() {
 echo "Removing rule symlinks..."
 remove_symlinks "$RULES_DST" "rules" "*.mdc" rules
 
-for f in "${removed_rules[@]+"${removed_rules[@]}"}"; do echo "  - $f"; done
-for f in "${skipped_rules[@]+"${skipped_rules[@]}"}"; do echo "  = $f"; done
+for f in ${removed_rules[@]+"${removed_rules[@]}"}; do echo "  - $f"; done
+for f in ${skipped_rules[@]+"${skipped_rules[@]}"}; do echo "  = $f"; done
 
 # ---------------------------------------------------------------------------
 # Remove reference doc symlinks (.md files in references/)
@@ -74,8 +74,8 @@ for f in "${skipped_rules[@]+"${skipped_rules[@]}"}"; do echo "  = $f"; done
 echo "Removing reference doc symlinks..."
 remove_symlinks "$REFS_DST" "references" "*.md" refs
 
-for f in "${removed_refs[@]+"${removed_refs[@]}"}"; do echo "  - $f"; done
-for f in "${skipped_refs[@]+"${skipped_refs[@]}"}"; do echo "  = $f"; done
+for f in ${removed_refs[@]+"${removed_refs[@]}"}; do echo "  - $f"; done
+for f in ${skipped_refs[@]+"${skipped_refs[@]}"}; do echo "  = $f"; done
 
 # Also clean up the legacy path ($HOME/.cursor/rules/references/) if present
 _legacy_refs_dir="$HOME/.cursor/rules/references"
@@ -108,8 +108,8 @@ unset _legacy_refs_dir _removed_legacy _f _cur_target
 echo "Removing command symlinks..."
 remove_symlinks "$COMMANDS_DST" "commands" "*.md" commands
 
-for f in "${removed_commands[@]+"${removed_commands[@]}"}"; do echo "  - $f"; done
-for f in "${skipped_commands[@]+"${skipped_commands[@]}"}"; do echo "  = $f"; done
+for f in ${removed_commands[@]+"${removed_commands[@]}"}; do echo "  - $f"; done
+for f in ${skipped_commands[@]+"${skipped_commands[@]}"}; do echo "  = $f"; done
 
 # ---------------------------------------------------------------------------
 # Remove ~/.local/bin/agentic-* and ds-* symlinks

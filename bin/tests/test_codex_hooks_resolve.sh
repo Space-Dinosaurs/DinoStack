@@ -33,7 +33,7 @@
 #                diagnostic could print. Fixed by writing the extractor's
 #                output to a temp file and reading it back with a `while
 #                read` loop, and by guarding the loop expansion with
-#                "${COMMANDS[@]+"${COMMANDS[@]}"}".
+#                ${COMMANDS[@]+"${COMMANDS[@]}"}.
 #
 # Performance: < 1 s wall time (pure shell + python3, no network).
 
@@ -113,7 +113,7 @@ else
   _pass "found ${#COMMANDS[@]} command entries in $HOOKS_JSON"
 fi
 
-for cmd in "${COMMANDS[@]+"${COMMANDS[@]}"}"; do
+for cmd in ${COMMANDS[@]+"${COMMANDS[@]}"}; do
   # Each command has the shape:
   #   <interpreter> "<path-expression-with-$(...)-substitutions>"
   # Extract just the quoted path expression and evaluate it under FAKE_HOME

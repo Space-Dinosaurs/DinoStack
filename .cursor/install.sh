@@ -298,9 +298,9 @@ symlink_files() {
 echo "Linking rules..."
 symlink_files "$RULES_SRC" "$RULES_DST" "rules" "*.mdc" rules
 
-for f in "${installed_rules[@]+"${installed_rules[@]}"}"; do echo "  + $f"; done
-for f in "${skipped_rules[@]+"${skipped_rules[@]}"}"; do echo "  = $f"; done
-for f in "${warned_rules[@]+"${warned_rules[@]}"}"; do echo "  ! $f"; done
+for f in ${installed_rules[@]+"${installed_rules[@]}"}; do echo "  + $f"; done
+for f in ${skipped_rules[@]+"${skipped_rules[@]}"}; do echo "  = $f"; done
+for f in ${warned_rules[@]+"${warned_rules[@]}"}; do echo "  ! $f"; done
 
 # ---------------------------------------------------------------------------
 # Legacy cleanup: remove stale $HOME/.cursor/rules/references/ symlinks
@@ -340,9 +340,9 @@ unset _legacy_refs_dir _removed_legacy _f _cur_target
 echo "Linking reference docs..."
 symlink_files "$REFS_SRC" "$REFS_DST" "references" "*.md" refs
 
-for f in "${installed_refs[@]+"${installed_refs[@]}"}"; do echo "  + $f"; done
-for f in "${skipped_refs[@]+"${skipped_refs[@]}"}"; do echo "  = $f"; done
-for f in "${warned_refs[@]+"${warned_refs[@]}"}"; do echo "  ! $f"; done
+for f in ${installed_refs[@]+"${installed_refs[@]}"}; do echo "  + $f"; done
+for f in ${skipped_refs[@]+"${skipped_refs[@]}"}; do echo "  = $f"; done
+for f in ${warned_refs[@]+"${warned_refs[@]}"}; do echo "  ! $f"; done
 
 # ---------------------------------------------------------------------------
 # Symlink commands (.md files)
@@ -351,9 +351,9 @@ for f in "${warned_refs[@]+"${warned_refs[@]}"}"; do echo "  ! $f"; done
 echo "Linking commands..."
 symlink_files "$COMMANDS_SRC" "$COMMANDS_DST" "commands" "*.md" commands
 
-for f in "${installed_commands[@]+"${installed_commands[@]}"}"; do echo "  + $f"; done
-for f in "${skipped_commands[@]+"${skipped_commands[@]}"}"; do echo "  = $f"; done
-for f in "${warned_commands[@]+"${warned_commands[@]}"}"; do echo "  ! $f"; done
+for f in ${installed_commands[@]+"${installed_commands[@]}"}; do echo "  + $f"; done
+for f in ${skipped_commands[@]+"${skipped_commands[@]}"}; do echo "  = $f"; done
+for f in ${warned_commands[@]+"${warned_commands[@]}"}; do echo "  ! $f"; done
 
 # ---------------------------------------------------------------------------
 # Remove stale pre-DS-26 command symlinks

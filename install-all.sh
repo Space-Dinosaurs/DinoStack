@@ -174,7 +174,7 @@ FAILED_CODES=()
 # Guard the expansion explicitly: bash 3.2 (macOS default) errors on
 # "${ORDERED[@]}" under `set -u` when the array is empty. ORDERED is provably
 # non-empty here, but the +-form makes the invariant safe against refactors.
-for name in "${ORDERED[@]+"${ORDERED[@]}"}"; do
+for name in ${ORDERED[@]+"${ORDERED[@]}"}; do
   echo ""
   echo "==> $name"
   rc=0
