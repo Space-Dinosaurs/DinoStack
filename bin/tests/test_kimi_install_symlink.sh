@@ -10,7 +10,9 @@
 # Public API: ./bin/tests/test_kimi_install_symlink.sh
 #             Exits 0 on all pass, 1 on any failure.
 #
-# Upstream deps: bash, git, python3 (used by install.sh internally), mktemp.
+# Upstream deps: bash, git, python3 (used by install.sh internally, and
+#                invoked directly by check_restore_symlinks_empty_array's
+#                function-body extractor), mktemp.
 #
 # Downstream consumers: developer running locally before commit; can be
 #                       wired into CI.
@@ -34,12 +36,12 @@
 #     dir-symlink with a real directory before writing into it. This test
 #     re-creates the bug-trigger scenario to prevent regression.
 #   - DS-252: _restore_symlinks iterated over "${TRACKED_TARGETS[@]:-}", which
-#     expands an EMPTY array to one EMPTY word rather than to nothing. With no
+#     expands an empty array to one empty word rather than to nothing. With no
 #     tracked symlink present the EXIT trap therefore ran one iteration with
 #     entry="", attempting `rm -f "$SKILL_SRC/"` and `ln -s "" "$SKILL_SRC/"`
-#     against the skill DIRECTORY itself. Fixed to the outer-UNQUOTED
+#     against the skill directory itself. Fixed to the outer-unquoted
 #     ${TRACKED_TARGETS[@]+"${TRACKED_TARGETS[@]}"} and pinned by
-#     check_restore_symlinks_empty_array, which EXECUTES the shipped helper
+#     check_restore_symlinks_empty_array, which executes the shipped helper
 #     against argv-logging rm/ln stubs rather than grepping its spelling.
 
 set -uo pipefail
@@ -87,29 +89,40 @@ _restore_symlinks() {
   done
 }
 
-# DS-252 regression pin on _restore_symlinks' array expansion. It EXTRACTS the
-# shipped function body from THIS file and EXECUTES it against PATH-first `rm`
-# and `ln` stubs that log their own argv, rather than pattern-matching the
+# DS-252 regression pin on _restore_symlinks' array expansion. It extracts the
+# shipped function body from this file and runs it against PATH-first `rm` and
+# `ln` stubs that log their own argv, rather than pattern-matching the
 # expansion's spelling: a spelling pin passes for any construct that merely
 # looks right, and the whole point of DS-252 is that a construct which looks
 # right can be wrong.
 #
-# What is pinned: with an EMPTY TRACKED_TARGETS, the loop must run ZERO times.
-# `"${TRACKED_TARGETS[@]:-}"` expands an empty array to ONE EMPTY WORD under
+# What is pinned: with an empty TRACKED_TARGETS, the loop must run zero times.
+# `"${TRACKED_TARGETS[@]:-}"` expands an empty array to one empty word under
 # /bin/bash 3.2.57, bash 5.3.9 and zsh 5.9 alike, so the loop runs once with
 # entry="" and the EXIT trap then attempts `rm -f "$SKILL_SRC/"` followed by
-# `ln -s "" "$SKILL_SRC/"` against the skill DIRECTORY itself. The correct
-# spelling is the outer-UNQUOTED `${ARR[@]+"${ARR[@]}"}` (AGENTS.md
+# `ln -s "" "$SKILL_SRC/"` against the skill directory itself. The correct
+# spelling is the outer-unquoted `${ARR[@]+"${ARR[@]}"}` (AGENTS.md
 # "Empty-array expansion under `set -u`").
 #
-# Reddening mutations (all three EXECUTED at implementation):
+# The subshell below also inherits the real _restore_symlinks from this
+# script. If the extractor ever stopped locating the definition it would eval
+# an empty block, call that inherited copy, and pass having exercised no
+# extracted text at all; the two guards are what turn that into a failure.
+#
+# Reddening mutations, each executed and reverted:
 #   M1 revert the expansion to `"${TRACKED_TARGETS[@]:-}"` - Case A logs 2
 #      lines (`rm -f <scratch>/` and `ln -s  <scratch>/`) instead of 0.
 #   M2 delete the `ln -s` line from _restore_symlinks - Case B logs 1 line
 #      instead of 2.
-#   M3 rename _restore_symlinks - the extractor hard-fails with
-#      "RESTORE-ARGV VIOLATION: extractor has drifted" rather than passing
-#      silently on an empty block.
+#   M3 break the anchor on the definition line alone, e.g.
+#      `_restore_symlinks () {` - the extract comes back empty and the first
+#      guard reports "could not locate the _restore_symlinks() definition".
+#      Renaming every occurrence of _restore_symlinks instead does not redden
+#      and should not: anchor, definition and call site all move together,
+#      which is a valid refactor.
+#   M4 rename the array inside the function body only - the extract succeeds
+#      and the second guard reports "the extracted block does not carry
+#      TRACKED_TARGETS".
 check_restore_symlinks_empty_array() {
   local ok=0
   local self="${BASH_SOURCE[0]:-$0}"
@@ -186,7 +199,7 @@ ln -s ../../../content/agents $scratch/agents"
       printf '%s\n' "${actual:-<empty>}" | sed 's/^/    got: /' >&2
       printf '%s\n' "${expected:-<empty>}" | sed 's/^/    want: /' >&2
       if [ "$label" = "empty" ]; then
-        echo "  An empty-array expansion that yields one EMPTY word makes the EXIT trap run rm -f and ln -s against \$SKILL_SRC itself - use \${ARR[@]+\"\${ARR[@]}\"}, never \"\${ARR[@]:-}\"." >&2
+        echo "  An empty-array expansion that yields one empty word makes the EXIT trap run rm -f and ln -s against \$SKILL_SRC itself - use \${ARR[@]+\"\${ARR[@]}\"}, never \"\${ARR[@]:-}\"." >&2
       fi
       ok=1
     fi
