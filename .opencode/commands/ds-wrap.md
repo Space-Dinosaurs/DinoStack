@@ -763,7 +763,7 @@ Also resolve `TRACKER_TRANSITIONS_MODE` (same `.agentic/tracker.yml` `transition
     [wrap: Part F] <KEY>: '<current>' -> '<expected>' (evidence: commit [<sha>](<commit-url>)) - FAILED: <error>
     [wrap: Part F] <KEY>: '<current>' -> '<expected>' - SKIPPED: <diagnostic>
 
-`<sha>` is the commit that surfaced `<KEY>` in the detection step above, and `<commit-url>` is built from it per `content/references/conventions-detail.md` §External Comment Discipline; a commit from source 3 that is not on the remote prints as a bare SHA.
+`<sha>` is the newest commit that surfaced `<KEY>` in the detection step above; link or print it bare per `content/references/conventions-detail.md` §External Comment Discipline.
 
 The `<diagnostic>` slot renders the Tracker Writeback Helper's own return payload. When `status == "skipped_transitions_manual"`, `diagnostic` is `null` (per `content/references/tracker-writeback.md`'s `skipped_transitions_manual` clause) - rendering it verbatim would print an empty diagnostic. Render `transitions_mode=manual (no comment posted - the comment above is gated on transitioned: true); run \`ds-tracker set transitions auto\` to re-enable` instead. For every other status this line's `<diagnostic>` holds, render the payload's own diagnostic text unchanged.
 

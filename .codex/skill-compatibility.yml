@@ -20972,16 +20972,6 @@
       "source_token": "Grep"
     },
     {
-      "expected_target": "content/references/conventions-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "06791576898614cf81fb00cc07d3a7c0c63c983f37dc6f3fb3bd07f125b1bdd5",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/references/conventions-detail.md"
-    },
-    {
       "expected_target": "dinostack-codex-wrap",
       "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
@@ -23320,6 +23310,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/.enforcement-fires.jsonl"
+    },
+    {
+      "expected_target": "content/references/conventions-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "88336d8c096d63b1e34238015e24a8015bf0e316b8b6abf4060846115649ec6d",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/conventions-detail.md"
     },
     {
       "expected_target": "dinostack-codex-wrap",

@@ -192,6 +192,8 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: [PR #<N>](<pr-url>) merged @[<sha>](<commit-url>)) - FAILED: <error>
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' - SKIPPED: <diagnostic>
 
+   With commit-only evidence (step 5's direct-commit row), the evidence clause is `(evidence: commit [<sha>](<commit-url>))`, using the newest commit from step 3's `git log`.
+
    The `<diagnostic>` slot renders the Tracker Writeback Helper's own return
    payload. When `status == "skipped_transitions_manual"`, `diagnostic` is
    `null` (per `content/references/tracker-writeback.md`'s
@@ -234,7 +236,7 @@ This sweep is the **backstop**, not the primary path, for merges an agent perfor
 
 Without this line, a project with more than 20 permanently non-terminal pairs would starve the oldest ones - never re-examined, never terminalized, and invisible, since `blocked_by_open_pr` in the breadcrumb (see (j)) only counts what was actually examined this sweep.
 
-**c. Merge-state confirmation.** For each candidate `(ticket_id, pr_number)`: `gh pr view <pr_number> --repo <GH_REPO> --json number,state,mergedAt,url`. Three outcomes:
+**c. Merge-state confirmation.** For each candidate `(ticket_id, pr_number)`: `gh pr view <pr_number> --repo <GH_REPO> --json number,state,mergedAt,mergeCommit,url`. Three outcomes:
 
    - `MERGED` - proceed to (d).
    - `CLOSED` (not merged) - **terminal**. Record `closed_unmerged` per (g); no transition.

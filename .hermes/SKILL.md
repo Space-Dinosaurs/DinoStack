@@ -3064,9 +3064,8 @@ Apply these rules to every external-facing comment:
 - **Every link is clickable where it lands.** This rule also covers chat turns and printed operator lines, not only external comments. Every URL, PR, ticket, or commit reference an agent emits must be clickable in its destination surface:
   - GitHub (PR bodies, comments), Linear, and chat turns: markdown `[text](url)` or a bare URL.
   - Jira: the stored comment needs an ADF `text` node carrying a `link` mark, e.g. `{"type":"text","text":"PR #388","marks":[{"type":"link","attrs":{"href":"<pr-url>"}}]}`. When posting raw ADF, add the mark yourself; when the posting tool takes markdown or wiki text instead of ADF, write the link in that tool's link syntax so it converts to a mark.
-  - Never put a link inside a code span or fence, which renders it as inert text. An operator-line or comment format a command file shows in a code block or code span is the text to emit, rendered, not inside a fence.
-  - A reference the destination does not autolink (`PR #388`, a short SHA, or a ticket key outside its own tracker) carries its URL: `[PR #388](<pr-url>)`, `[db2fc08](<commit-url>)`. A bare `PR #<n>` or SHA in a command's output format stands for this linked form.
-  - Take each URL from a tool, not a hand-built `github.com` string (GitHub Enterprise hosts differ): `<pr-url>` is the `url` field of `gh pr view --json url` or `gh pr list --json url`; `<commit-url>` is the repo URL from `gh repo view --json url -q .url` plus `/commit/<sha>`.
+  - Never put a link inside a code span or fence, which renders it as inert text. When a command file shows a printed operator line or comment body that carries a link inside a code block or code span, emit that line as plain text so the link renders. Commands meant to be run or pasted keep their code formatting.
+  - A reference the destination does not autolink (`PR #388`, a short SHA, or a ticket key outside its own tracker) carries its URL: `[PR #388](<pr-url>)`, `[db2fc08](<commit-url>)`, where `<pr-url>` is the PR's URL and `<commit-url>` is the repository's web URL plus `/commit/<sha>`. A bare `PR #<n>` or SHA in a command's output format stands for this linked form.
   - A reference with no reachable URL (a commit not on the remote, where `git branch -r --contains <sha>` prints nothing) or whose URL lookup failed is printed bare, never as a guessed link.
 - **No marketing voice, no emojis, no agent attribution footers.** The writing-style rules elsewhere in this methodology (plain verbs, no rule-of-three triads, no AI vocabulary, no em dashes) apply with extra force on external surfaces because humans read them quickly and judgmentally.
 - **Length is not the metric; signal-per-line is.** A long comment is fine when every line is load-bearing. A three-line comment that restates the ticket is too long.
@@ -23923,6 +23922,8 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: [PR #<N>](<pr-url>) merged @[<sha>](<commit-url>)) - FAILED: <error>
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' - SKIPPED: <diagnostic>
 
+   With commit-only evidence (step 5's direct-commit row), the evidence clause is `(evidence: commit [<sha>](<commit-url>))`, using the newest commit from step 3's `git log`.
+
    The `<diagnostic>` slot renders the Tracker Writeback Helper's own return
    payload. When `status == "skipped_transitions_manual"`, `diagnostic` is
    `null` (per `content/references/tracker-writeback.md`'s
@@ -23965,7 +23966,7 @@ This sweep is the **backstop**, not the primary path, for merges an agent perfor
 
 Without this line, a project with more than 20 permanently non-terminal pairs would starve the oldest ones - never re-examined, never terminalized, and invisible, since `blocked_by_open_pr` in the breadcrumb (see (j)) only counts what was actually examined this sweep.
 
-**c. Merge-state confirmation.** For each candidate `(ticket_id, pr_number)`: `gh pr view <pr_number> --repo <GH_REPO> --json number,state,mergedAt,url`. Three outcomes:
+**c. Merge-state confirmation.** For each candidate `(ticket_id, pr_number)`: `gh pr view <pr_number> --repo <GH_REPO> --json number,state,mergedAt,mergeCommit,url`. Three outcomes:
 
    - `MERGED` - proceed to (d).
    - `CLOSED` (not merged) - **terminal**. Record `closed_unmerged` per (g); no transition.
@@ -26093,7 +26094,7 @@ Also resolve `TRACKER_TRANSITIONS_MODE` (same `.agentic/tracker.yml` `transition
     [wrap: Part F] <KEY>: '<current>' -> '<expected>' (evidence: commit [<sha>](<commit-url>)) - FAILED: <error>
     [wrap: Part F] <KEY>: '<current>' -> '<expected>' - SKIPPED: <diagnostic>
 
-`<sha>` is the commit that surfaced `<KEY>` in the detection step above, and `<commit-url>` is built from it per `content/references/conventions-detail.md` §External Comment Discipline; a commit from source 3 that is not on the remote prints as a bare SHA.
+`<sha>` is the newest commit that surfaced `<KEY>` in the detection step above; link or print it bare per `content/references/conventions-detail.md` §External Comment Discipline.
 
 The `<diagnostic>` slot renders the Tracker Writeback Helper's own return payload. When `status == "skipped_transitions_manual"`, `diagnostic` is `null` (per `content/references/tracker-writeback.md`'s `skipped_transitions_manual` clause) - rendering it verbatim would print an empty diagnostic. Render `transitions_mode=manual (no comment posted - the comment above is gated on transitioned: true); run \`ds-tracker set transitions auto\` to re-enable` instead. For every other status this line's `<diagnostic>` holds, render the payload's own diagnostic text unchanged.
 
