@@ -20972,6 +20972,16 @@
       "source_token": "Grep"
     },
     {
+      "expected_target": "content/references/conventions-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "06791576898614cf81fb00cc07d3a7c0c63c983f37dc6f3fb3bd07f125b1bdd5",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/conventions-detail.md"
+    },
+    {
       "expected_target": "dinostack-codex-wrap",
       "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
@@ -23135,7 +23145,7 @@
       "expected_target": "dinostack-codex-implement-ticket",
       "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
-      "occurrence_hash": "7ed2756297fd40eda66df394ad6c856a0655f2d73ce5fa388cfc3b77e1587c2f",
+      "occurrence_hash": "7f0353eb078fa9628c542ec93884f0b22998b20e13e6c9585cebd2cf2791cde4",
       "resolution_mode": "native-skill",
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
@@ -24022,16 +24032,6 @@
       "source_token": ".agentic/config.json"
     },
     {
-      "expected_target": ".agentic/knowledge-commit-state.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/knowledge-commit-state.json",
-      "kind": "operational",
-      "occurrence_hash": "bac8b89c9d102eb45ddc207bfe67925e2bff6b8206c60b3f0dd5ca5dce01d8ae",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/knowledge-commit-state.json"
-    },
-    {
       "expected_target": ".agentic/memory.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/memory.md",
       "kind": "operational",
@@ -24300,6 +24300,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
       "source_token": "/ds-wrap"
+    },
+    {
+      "expected_target": ".agentic/knowledge-commit-state.json",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/knowledge-commit-state.json",
+      "kind": "operational",
+      "occurrence_hash": "c467ec70789b2dbe890278ce12fcf1f5e6252b185e34b1d0de2028ea611128fc",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/knowledge-commit-state.json"
     },
     {
       "expected_target": "$HOME/.claude",

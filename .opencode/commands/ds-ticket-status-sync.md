@@ -173,7 +173,7 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
 
 3. **Gather deterministic evidence per remaining ticket key `<KEY>`:**
    - `git log --grep "<KEY>" --oneline` on `BASE_BRANCH`.
-   - `gh pr list --repo <GH_REPO> --state merged --search "<KEY>" --json number,title,mergedAt,mergeCommit`.
+   - `gh pr list --repo <GH_REPO> --state merged --search "<KEY>" --json number,title,mergedAt,mergeCommit,url`.
    - `gh pr list --repo <GH_REPO> --state open --search "<KEY>"`.
 
    Each call soft-fails independently: a failure for one ticket's evidence gathering logs and moves to the next ticket; it never aborts the sweep.
@@ -184,7 +184,7 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
 
 6. **Apply forward-only guard, then transition.** Identical to single-ticket steps 5-6: read the ticket's current tracker state and apply the SAME algorithm - do not restate it here, read `content/references/tracker-writeback.md` `## Tracker Writeback Helper`. If a transition is warranted, spawn the tracker-writeback subagent using the `## Tracker Writeback Helper` invocation contract in `content/references/tracker-writeback.md` verbatim - read that contract, do not re-enumerate its parameters here beyond the following call-site-specific values: `target_state: <expected>`, `forward_only_guard: true`, `tracker_state_values` (the 6 values resolved in Preflight), `diagnostic_enabled` (`$TRACKER_STATE_DIAGNOSTIC` resolved in Preflight), `linear_team_key` (Linear only, `$TICKET_PREFIX`), `pipeline_order` (`$TRACKER_PIPELINE_ORDER` resolved in Preflight), and `transitions_mode` (`$TRACKER_TRANSITIONS_MODE` resolved in Preflight). Soft-fail: a spawn or API failure logs and moves to the next ticket. Additionally, accumulate any `unmatched_state_name` returned by the guard across this sweep; if the tally is non-empty at the end of the `--all` pass, print ONE aggregate line (see Output section) instead of one line per ticket.
 
-7. **Evidence comment (only when the transition succeeded).** Post a comment on the ticket citing the deterministic evidence - PR number(s) and merge commit SHA(s), each carrying its URL - e.g. Reconciled by /ds-ticket-status-sync: shipped in [PR #388](https://github.com/<GH_REPO>/pull/388), commit [db2fc08](https://github.com/<GH_REPO>/commit/<mergeCommit.oid>). On Jira each link lands as a `link` mark (`content/references/conventions-detail.md` §External Comment Discipline). Use `mcp__linear__save_comment` (Linear) or `mcp__mcp-atlassian__jira_add_comment` (Jira), the same tools the Tracker Writeback Helper already uses elsewhere. List every referencing PR if more than one. **Gate the comment on the Writeback Helper's return payload having `transitioned: true`.** If the forward-only guard skipped the transition, the transition failed, or `status == "skipped_unconfigured_state"`, do NOT post a comment - a repeatedly non-transitioning attempt would otherwise re-post the same comment on every `--all` run. A failed comment call (on an otherwise-successful transition) logs and continues independently - it never rolls back or retries the transition.
+7. **Evidence comment (only when the transition succeeded).** Post a comment on the ticket citing the deterministic evidence - PR number(s) and merge commit SHA(s), each carrying its URL - e.g. Reconciled by /ds-ticket-status-sync: shipped in [PR #388](<pr-url>), commit [db2fc08](<commit-url>), where `<pr-url>` is step 3's `url` field and `<commit-url>` is built from `mergeCommit.oid` per `content/references/conventions-detail.md` §External Comment Discipline. On Jira each link lands as a `link` mark (`content/references/conventions-detail.md` §External Comment Discipline). Use `mcp__linear__save_comment` (Linear) or `mcp__mcp-atlassian__jira_add_comment` (Jira), the same tools the Tracker Writeback Helper already uses elsewhere. List every referencing PR if more than one. **Gate the comment on the Writeback Helper's return payload having `transitioned: true`.** If the forward-only guard skipped the transition, the transition failed, or `status == "skipped_unconfigured_state"`, do NOT post a comment - a repeatedly non-transitioning attempt would otherwise re-post the same comment on every `--all` run. A failed comment call (on an otherwise-successful transition) logs and continues independently - it never rolls back or retries the transition.
 
 8. **Operator-visible line per transition attempt (mandatory, never silent - unconditional regardless of comment outcome):**
 
@@ -208,11 +208,11 @@ Runs immediately after the Tier 1 sweep, over the non-terminal ticket set gather
 
 **Absolute rule: Tier 2 never writes.** No tracker transition, no evidence comment, no state mutation of any kind, ever. Report-only.
 
-1. Fetch the last 100 merged PRs in one call: `gh pr list --repo <GH_REPO> --state merged --limit 100 --json number,title,mergedAt`.
+1. Fetch the last 100 merged PRs in one call: `gh pr list --repo <GH_REPO> --state merged --limit 100 --json number,title,mergedAt,url`.
 2. For each Tier 2 candidate ticket, compare its tracker summary/title against the fetched PR titles using judgment (semantic similarity, not just substring match - e.g. ticket "Tracker status drift" plausibly matches PR "fix(tracker): status drift correction"). This is a best-effort judgment call, not a deterministic algorithm; false positives are acceptable because Tier 2 never writes anything.
 3. For each plausible match, print exactly one report-only line and take no other action:
 
-       candidate: <KEY> looks shipped in PR #<N> - confirm and run /ds-ticket-status-sync <KEY>, or close manually
+       candidate: <KEY> looks shipped in [PR #<N>](<pr-url>) - confirm and run /ds-ticket-status-sync <KEY>, or close manually
 
 4. Tickets with no plausible match print nothing - Tier 2 output is opt-in signal, not an exhaustive audit list.
 
@@ -234,7 +234,7 @@ This sweep is the **backstop**, not the primary path, for merges an agent perfor
 
 Without this line, a project with more than 20 permanently non-terminal pairs would starve the oldest ones - never re-examined, never terminalized, and invisible, since `blocked_by_open_pr` in the breadcrumb (see (j)) only counts what was actually examined this sweep.
 
-**c. Merge-state confirmation.** For each candidate `(ticket_id, pr_number)`: `gh pr view <pr_number> --repo <GH_REPO> --json number,state,mergedAt`. Three outcomes:
+**c. Merge-state confirmation.** For each candidate `(ticket_id, pr_number)`: `gh pr view <pr_number> --repo <GH_REPO> --json number,state,mergedAt,url`. Three outcomes:
 
    - `MERGED` - proceed to (d).
    - `CLOSED` (not merged) - **terminal**. Record `closed_unmerged` per (g); no transition.
@@ -264,7 +264,7 @@ GitHub's `--search` matches title and body case-insensitively, so the uppercase 
 
 Record `done` on a successful transition; `guard_skipped` when the forward-only guard in step (f) skipped the transition; `closed_unmerged` from (c). Record `failing` (NOT `guard_skipped`) when the Writeback Helper's return payload has `status == "skipped_unconfigured_state"` - this is a retryable misconfiguration, not a permanent guard decision, so the pair must remain a candidate on future sweeps until the operator fixes `AGENTS.md`; it terminalizes via the same `attempts`/`abandoned` rule as any other `failing` entry below, not immediately. On any other error in (c), (d), (f), or the writeback spawn: append `failing` with `attempts` incremented from the prior latest entry for this pair (starting at 1) and `detail` set to the error string. When `attempts` reaches **3**, append `abandoned` instead and print:
 
-    [ticket-status-sync] <KEY> (PR #<n>) abandoned after 3 failed sweeps: <detail> - run /ds-ticket-status-sync <KEY> to retry manually.
+    [ticket-status-sync] <KEY> ([PR #<n>](<pr-url>)) abandoned after 3 failed sweeps: <detail> - run /ds-ticket-status-sync <KEY> to retry manually.
 
 **`skipped_transitions_manual` writes NO record.** Treat it exactly like the `OPEN` outcome in (c): no entry in `.agentic/pending-merge-state.jsonl` and no `attempts` touched. (Printing is governed separately by (f): suppressed on the automatic session-start path, printed per candidate on a direct operator invocation. The record decision below is the same either way.) This is a deliberate operator setting, not an error, and must NEVER reach the `failing`/`abandoned` escalation above - that would terminalize and permanently drop the candidate after 3 sweeps, the exact silent-no-op failure this key exists to prevent. No record keeps the pair perpetually eligible: (b)'s exclusion only drops a pair whose latest entry is terminal, so it is picked up again next sweep and transitions normally once the operator runs `ds-tracker set transitions auto`. Combined with the automatic path already printing "only when a transition actually fires" (`content/rules/conventions.md` § Session Context and Memory), a project pinned to `manual` produces zero automatic-path output forever, not a line every 60 minutes.
 
