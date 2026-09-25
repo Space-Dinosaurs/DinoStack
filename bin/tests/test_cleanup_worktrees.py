@@ -815,7 +815,7 @@ def test_agentic_events_jsonl_only_is_disposable_by_default(tmp_path):
         (".agentic/.manifest-not-found-warned-x", "1\n"),
         (".agentic/.meta-divergence-last-sweep", "2026-09-24T00:00:00Z\n"),
         (".agentic/.skill-candidates-last-sweep", "2026-09-24T00:00:00Z\n"),
-        (".agentic/context.md", "context\n"),
+        (".agentic/context.md", "# Session Context\n\n---\n\n## Session Activity\n<!-- agentic:derived-activity-region v1 -->\n"),
         (".agentic/skeptic-round-x.json", "{}\n"),
         (".agentic/skeptic-tuid-index.json", "{}\n"),
         (".agentic/skeptic-tuid-index.json.lock", ""),
@@ -861,6 +861,9 @@ def test_agentic_disposable_set_does_not_block_removal(tmp_path, rel_path, conte
         (".agentic/wait-ci-828.sh", "#!/bin/sh\n"),
         (".agentic/qa253/s4_repo1/f", "qa\n"),
         (".agentic/.agentic/events.jsonl", '{"line": 1}\n'),
+        # An unmarked context.md is /wrap notes or a failed migration's
+        # only surviving copy, not the derived rollup.
+        pytest.param(".agentic/context.md", "# Session Context\n\n## Last session\nnotes\n", id="unmarked-context-md"),
         # DS-259: a top-level file pattern never matches a collapsed
         # directory of the same name (git reports `!! .agentic/<name>/`).
         (".agentic/context.md/x", "x\n"),
@@ -889,8 +892,10 @@ def test_agentic_toplevel_patterns_are_anchored_to_toplevel_files():
     `.agentic/`; the same name as a collapsed directory, or nested deeper,
     stays protected."""
     protected = ds_cleanup_worktrees._is_protected_ignored_path
-    assert protected(".agentic/context.md") is False
+    assert protected(".agentic/.telemetry-health.json") is False
+    assert protected(".agentic/context.md") is True
     assert protected(".agentic/context.md/") is True
+    assert protected(".agentic/unknown.lock") is True
     assert protected(".agentic/ds-226/context.md") is True
     assert protected(".agentic/plans/.telemetry-health.json") is True
     assert protected(".agentic/x/skeptic-tuid-index.json.lock") is True

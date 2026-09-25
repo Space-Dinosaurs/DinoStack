@@ -33,8 +33,8 @@ Purpose: DS-259 drift gate for `bin/ds-cleanup-worktrees`' `.agentic/`
     deletable; if the suffix does not match, the file stays protected
     (fail-closed).
 
-    Recall gaps (R3's "fails when a writer's output is not classified" holds
-    only within these bounds): (1) names built at runtime with no literal
+    Recall gaps (this test fails on an unclassified writer output only
+    within these bounds): (1) names built at runtime with no literal
     stem, and prefix tokens whose suffix is unknown; (2) literals that fit
     none of (a), (b), (c); (3) state that agents write because `content/`
     prose tells them to; (4) writers outside the scan scope, e.g.
@@ -95,6 +95,7 @@ DELETABLE_PATTERNS = (
     tuple(tool._AGENTIC_DISPOSABLE_DIR_NAMES)
     + tuple(tool._AGENTIC_DISPOSABLE_BASENAME_PATTERNS)
     + tuple(tool._AGENTIC_DISPOSABLE_TOPLEVEL_PATTERNS)
+    + tuple(tool._AGENTIC_MARKED_TOPLEVEL_FILES)
 )
 PREFIX_SOURCE_PATTERNS = tuple(tool._AGENTIC_DISPOSABLE_BASENAME_PATTERNS) + tuple(
     tool._AGENTIC_DISPOSABLE_TOPLEVEL_PATTERNS
@@ -308,10 +309,19 @@ def _covers(tok: str, name: str) -> bool:
     return tok == name or (_is_prefix_token(tok) and name.startswith(tok[:-1]))
 
 
-def test_incident_names_are_extracted_and_disposable():
+def _marked_worktree(tmp_path: Path) -> str:
+    agentic = tmp_path / ".agentic"
+    agentic.mkdir()
+    for name, marker in tool._AGENTIC_MARKED_TOPLEVEL_FILES.items():
+        (agentic / name).write_bytes(b"# rollup\n" + marker + b"\n")
+    return str(tmp_path)
+
+
+def test_incident_names_are_extracted_and_disposable(tmp_path):
     found = _scan()
+    wt = _marked_worktree(tmp_path)
     for name in INCIDENT_NAMES:
-        assert tool._is_protected_ignored_path(".agentic/" + name.replace("*", "x")) is False, name
+        assert tool._is_protected_ignored_path(".agentic/" + name.replace("*", "x"), wt) is False, name
         assert any(_covers(tok, name) for tok in found), f"no scanned writer token covers {name!r}"
 
 
@@ -345,7 +355,8 @@ def test_scan_scope_reaches_adapters_and_excluded_files():
     assert "bin/ds-migrate" in found.get(".manifest-not-found-warned", set())
 
 
-def test_repair_runtime_markers_are_disposable():
+def test_repair_runtime_markers_are_disposable(tmp_path):
     repair = _load("ds_agentic_repair_registry", "bin/ds-agentic-repair")
+    wt = _marked_worktree(tmp_path)
     for marker in repair._RUNTIME_STATE_MARKERS:
-        assert tool._is_protected_ignored_path(f".agentic/{marker}") is False, marker
+        assert tool._is_protected_ignored_path(f".agentic/{marker}", wt) is False, marker

@@ -1260,8 +1260,8 @@ _PROTECTED_CONTENT_BASENAME_PATTERNS = (
 #: name under `.agentic/` stays protected) means every machine-written
 #: name must be declared positively, one entry per writer, each citing it.
 #: `_AGENTIC_DISPOSABLE_TOPLEVEL_PATTERNS` matches only a top-level FILE
-#: directly under `.agentic/`, so `context.md` does not unprotect
-#: `.agentic/<dir>/context.md`. Drift is caught by
+#: directly under `.agentic/`, so `.telemetry-health.json` does not
+#: unprotect `.agentic/<dir>/.telemetry-health.json`. Drift is caught by
 #: `bin/tests/test_agentic_machine_state_registry.py`, which scans writer
 #: source for `.agentic/` state names and fails on any name neither
 #: covered here nor recorded in its reviewed not-disposable ledger.
@@ -1300,12 +1300,19 @@ _AGENTIC_DISPOSABLE_TOPLEVEL_PATTERNS: Tuple[str, ...] = (
     ".manifest-not-found-warned*",  # bin/ds-migrate:800,804
     ".meta-divergence-last-sweep",  # conductor sweep cursor, content/rules/conventions.md
     ".skill-candidates-last-sweep",  # conductor sweep cursor, content/rules/conventions.md
-    "context.md",  # derived rollup, hooks/stop-context.js:250-257
     "skeptic-round-*.json",  # hooks/enforce-skeptic-round-cap.py
     "skeptic-tuid-index.json",  # hooks/enforce-skeptic-round-cap.py:1243
     "skeptic-tuid-index.json.lock",  # hooks/enforce-skeptic-round-cap.py:1377
     "deferred-work.jsonl.lock",  # bin/ds-defer:158,166
 )
+#: Top-level files deletable only when their content carries the writer's
+#: marker. `context.md` is the derived rollup only when it holds
+#: `hooks/lib/context-rollup.js`'s DERIVED_MARKER; an unmarked one may be
+#: pre-2026-07-27 `/wrap` notes or the sole record left by a failed
+#: `migrateIfNeeded` move into `_wrap.md`, so it stays protected.
+_AGENTIC_MARKED_TOPLEVEL_FILES: Dict[str, bytes] = {
+    "context.md": b"<!-- agentic:derived-activity-region v1 -->",
+}
 
 #: Ephemeral/regenerable allowlist - the round-2 default, kept reachable
 #: via `--strict-ignored` (round-3). Under `--strict-ignored`, an ignored
@@ -1581,7 +1588,23 @@ def _is_agentic_disposable(sub_parts: List[str], *, is_dir: bool) -> bool:
     return any(fnmatch.fnmatch(basename, pattern) for pattern in _AGENTIC_DISPOSABLE_BASENAME_PATTERNS)
 
 
-def _is_protected_ignored_path(rel_path: str) -> bool:
+def _carries_writer_marker(worktree_path: Optional[str], name: str) -> bool:
+    """True only when `<worktree_path>/.agentic/<name>` is a regular file
+    whose bytes contain `_AGENTIC_MARKED_TOPLEVEL_FILES[name]`. No worktree
+    path, a symlink, or any read error returns False (protected)."""
+    if worktree_path is None:
+        return False
+    path = os.path.join(worktree_path, ".agentic", name)
+    try:
+        if os.path.islink(path) or not os.path.isfile(path):
+            return False
+        with open(path, "rb") as handle:
+            return _AGENTIC_MARKED_TOPLEVEL_FILES[name] in handle.read()
+    except OSError:
+        return False
+
+
+def _is_protected_ignored_path(rel_path: str, worktree_path: Optional[str] = None) -> bool:
     """Default mode (round-3 operator decision, round-4 correction inside
     `.agentic/`): True when `rel_path` blocks removal, False when it is
     disposable.
@@ -1607,6 +1630,8 @@ def _is_protected_ignored_path(rel_path: str) -> bool:
     parts = normalized.split("/")
 
     if parts[0] == ".agentic":
+        if len(parts) == 2 and not is_dir and parts[1] in _AGENTIC_MARKED_TOPLEVEL_FILES:
+            return not _carries_writer_marker(worktree_path, parts[1])
         return not _is_agentic_disposable(parts[1:], is_dir=is_dir)
 
     for prefix in _PROTECTED_CONTENT_DIR_PREFIXES:
@@ -1723,7 +1748,7 @@ def _git_status_and_ignored(worktree_path: str, strict_ignored: bool) -> Tuple[s
             continue
         if line.startswith("!! "):
             rel = _unquote_porcelain_path(line[3:])
-            blocked = (not _is_allowlisted_ignored_path(rel)) if strict_ignored else _is_protected_ignored_path(rel)
+            blocked = (not _is_allowlisted_ignored_path(rel)) if strict_ignored else _is_protected_ignored_path(rel, worktree_path)
             if blocked:
                 offenders.append(rel)
         else:
