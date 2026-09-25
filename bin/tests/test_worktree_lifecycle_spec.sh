@@ -154,18 +154,29 @@ content/agents/qa-engineer.md
 content/references/qa-gate.md
 content/references/code-standards-detail.md"
 
+# Shipped prose that restates the rule outside content/, so the absence sweep
+# below covers the sites the rule is actually written at rather than only its
+# home directory. Explicit rather than derived: each path is existence-checked
+# in the sweep, because a path that silently stops resolving drops a site from
+# the sweep and reads as clean. docs/ is deliberately NOT here - its copies are
+# public-facing restatements this list has never covered, and adding a surface
+# to it is a decision, not a side effect of retiring one claim.
+LIFETIME_EXTRA_SITES=".claude/install.sh
+.claude/README.md"
+
 # Claims measured false against the shipped mechanism (the process reparents to
 # launchd and outlives the agent's run), plus the retired section title. This is
 # a denylist: it can only catch a phrasing someone already added here, so a
 # claim a later fix falsifies stays invisible to it unless that fix adds the old
-# wording in the same commit.
+# wording in the same commit, and a paraphrase of an entry escapes the pin.
 RETIRED_LIFETIME_CLAIMS="$RETIRED_LIFETIME_TITLE
 will not survive
 run-scoped only
 survive the agent's run on this harness
 lingers (visibly)
 browser lingers open
-nothing here bounds how long it stays up"
+nothing here bounds how long it stays up
+keeps holding its profile, which is what blocks the next run"
 
 SCRATCH="$(mktemp -d)"
 
@@ -313,8 +324,16 @@ check_reap_wiring() {
 # across two source lines - which is how the retired section title survived the
 # DS-254 rename inside worktree-lifecycle.md's own manifest block, where it is
 # wrapped as "...the Dev-server process" / "lifetime ownership section".
+#
+# The leading comment marker is stripped first for the same reason. In a shell
+# file every wrapped prose line carries one, so a phrase spanning two lines comes
+# out of a bare newline collapse with the next line's "#" embedded mid-phrase and
+# can never match - measured on .claude/install.sh, where an entry spanning
+# "which is" / "what blocks the next run" flattened to "which is # what blocks
+# the next run". A denylist entry longer than one source line was therefore
+# unfireable at exactly the sites this sweep now reads.
 flatten_prose() {
-  tr '\n' ' ' < "$1" | tr -s '[:space:]' ' '
+  sed -E 's/^[[:space:]]*(#|\/\/)[[:space:]]?//' "$1" | tr '\n' ' ' | tr -s '[:space:]' ' '
 }
 
 # DS-254 R5 regression guard, asserted in BOTH directions deliberately: a
@@ -367,13 +386,29 @@ check_process_lifetime_prose() {
     fi
   done <<< "$LIFETIME_POINTER_FILES"
 
-  # Negative: no retired claim survives anywhere under content/.
-  local content_files
+  # Negative: no retired claim survives anywhere under content/, nor at any of
+  # the extra shipped-prose sites the rule is restated at.
+  local content_files extra
   content_files="$(find "$REPO_ROOT/content" -type f 2>/dev/null)"
   if [ -z "$content_files" ]; then
     echo "PROCESS-LIFETIME VIOLATION: find matched no files under content/ - the absence sweep would assert nothing, so this is broken discovery, not a clean result" >&2
     return 1
   fi
+
+  # A listed site that is not there is a dropped site, not a clean one: the
+  # sweep would pass having read nothing at that path.
+  local sweep_files
+  sweep_files="$content_files"
+  while IFS= read -r extra; do
+    [ -n "$extra" ] || continue
+    if [ -f "$REPO_ROOT/$extra" ]; then
+      sweep_files="$sweep_files
+$REPO_ROOT/$extra"
+    else
+      echo "PROCESS-LIFETIME VIOLATION: $extra is listed as a restatement site but does not exist, so the absence sweep does not cover it" >&2
+      ok=1
+    fi
+  done <<< "$LIFETIME_EXTRA_SITES"
 
   local f flat phrase
   while IFS= read -r f; do
@@ -389,7 +424,7 @@ check_process_lifetime_prose() {
         ok=1
       fi
     done <<< "$RETIRED_LIFETIME_CLAIMS"
-  done <<< "$content_files"
+  done <<< "$sweep_files"
 
   return "$ok"
 }

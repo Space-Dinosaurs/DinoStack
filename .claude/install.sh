@@ -1692,11 +1692,15 @@ PYEOF_SHARED
 # agent-browser daemon idle timeout (DS-254 U8)
 #
 # agent-browser detaches its daemon, so a browser an agent opens outlives the
-# session that started it - and that daemon keeps holding its profile, which is
-# what blocks the next run. The CLI reads AGENT_BROWSER_IDLE_TIMEOUT_MS at
-# daemon start and shuts itself, and the browser with it, down after that many
-# ms with no command. Disabled by default, so without this write a leftover
-# browser has no upper bound at all.
+# session that started it. What a leftover daemon costs a later run is not its
+# profile - each launch gets its own randomly-named temp Chrome profile, so two
+# daemons share one only when a run pins --profile <path>, which no shipped flow
+# does - but its session name: the CLI binds one daemon per name, so a later run
+# under the same name attaches to the leftover daemon instead of starting its
+# own, discards its launch options with a warning, and exits 0. The CLI reads
+# AGENT_BROWSER_IDLE_TIMEOUT_MS at daemon start and shuts itself, and the browser
+# with it, down after that many ms with no command. Disabled by default, so
+# without this write a leftover browser has no upper bound at all.
 #
 # 1800000 ms (30 minutes) bounds the gap BETWEEN commands, which is not the
 # same thing as a session limit: every command resets the clock, so a browser
