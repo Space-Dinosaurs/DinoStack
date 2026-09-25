@@ -3061,6 +3061,11 @@ Apply these rules to every external-facing comment:
 - **Bullets over prose.** Each bullet earns its place by adding something the diff, screenshot, or linked artifact does not already show. If a bullet just describes what the diff shows, delete it.
 - **Cut what the reader can see for themselves.** Do not restate the ticket. Do not narrate the agent's own process ("I reviewed", "we investigated", "after analysis"). Do not summarise a diff that is one click away.
 - **Evidence beats description.** A screenshot, a test URL, a log excerpt, or a link to the failing line is worth more than a paragraph of explanation. Link, do not transcribe.
+- **Every link is clickable where it lands.** This rule also covers chat turns and printed operator lines, not only external comments. Every URL, PR, ticket, or commit reference an agent emits must be clickable in its destination surface:
+  - GitHub (PR bodies, comments), Linear, and chat turns: markdown `[text](url)` or a bare URL.
+  - Jira: the stored comment needs an ADF `text` node carrying a `link` mark, e.g. `{"type":"text","text":"PR #388","marks":[{"type":"link","attrs":{"href":"https://github.com/<GH_REPO>/pull/388"}}]}`. When posting raw ADF, add the mark yourself; when the posting tool takes markdown or wiki text instead of ADF, write the link in that tool's link syntax so it converts to a mark.
+  - Never put a link inside a code span or fence, which renders it as inert text.
+  - A reference the destination does not autolink (`PR #388`, a short SHA, or a ticket key outside its own tracker) carries its URL: `[PR #388](https://github.com/<GH_REPO>/pull/388)`, `[db2fc08](https://github.com/<GH_REPO>/commit/<sha>)`.
 - **No marketing voice, no emojis, no agent attribution footers.** The writing-style rules elsewhere in this methodology (plain verbs, no rule-of-three triads, no AI vocabulary, no em dashes) apply with extra force on external surfaces because humans read them quickly and judgmentally.
 - **Length is not the metric; signal-per-line is.** A long comment is fine when every line is load-bearing. A three-line comment that restates the ticket is too long.
 - **Skeptic findings posted as PR review comments** are one finding per comment in the form `[Severity] path:line - issue. Fix: <one-line action>.` No preamble, no sign-off banner, no "Active search" line on per-finding comments - that line belongs to the conductor-internal sign-off, not the PR surface.
@@ -20462,7 +20467,7 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 > [qa_summary]
 > ```
 >
-> (Linear comment may use markdown bold for `Test URL:` and `PR:` labels; Jira comment is plain text.)
+> (Linear may bold the labels. On Jira the links must land as `link` marks, per `content/references/conventions-detail.md` §External Comment Discipline. Leave a pending `TEST_URL` unlinked.)
 >
 > **Filling `[qa_summary]` (binding).** Its reader is a human on a phone: apply `content/rules/conventions.md` §Writing Style, keep the automated-verification inventory in the PR rather than the ticket, and cap the free text at roughly 1500 characters.
 >
@@ -20483,9 +20488,9 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 
 **Jira upload (when `TRACKER=jira`):**
 1. For each screenshot in `qa_screenshot_paths`, `POST /rest/api/3/issue/{key}/attachments` as multipart form data. Required headers: `X-Atlassian-Token: no-check`, `Authorization: Basic base64(<JIRA_USER_EMAIL>:<JIRA_API_TOKEN>)`. The response is an array of `Attachment` objects; capture `attachment[0].content` (authenticated download URL) and `attachment[0].filename`.
-2. ADF inline embedding is NOT attempted (Atlassian Media API UUID is not available from standard Jira REST v3 credentials - see plan §Verified API facts). Instead, post an ADF comment with a plain-text paragraph for each screenshot:
+2. ADF inline embedding is NOT attempted (Atlassian Media API UUID is not available from standard Jira REST v3 credentials - see plan §Verified API facts). Instead, post an ADF comment with a link-marked paragraph for each screenshot:
    ```json
-   {"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"QA Evidence - PASS: <filename> (<content_url>)"}]}]}}
+   {"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"QA Evidence - PASS: "},{"type":"text","text":"<filename>","marks":[{"type":"link","attrs":{"href":"<content_url>"}}]}]}]}}
    ```
    The `content_url` is `attachment[0].content` (authenticated download URL, click-through for Jira users - NOT an inline image). This is the maximum fidelity achievable without a separate Media API integration.
 3. Credentials absent (`JIRA_USER_EMAIL` or `JIRA_API_TOKEN` env var missing): skip upload, post a plain comment noting skipped upload.
@@ -23897,7 +23902,7 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
 
 3. **Gather deterministic evidence per remaining ticket key `<KEY>`:**
    - `git log --grep "<KEY>" --oneline` on `BASE_BRANCH`.
-   - `gh pr list --repo <GH_REPO> --state merged --search "<KEY>" --json number,title,mergedAt`.
+   - `gh pr list --repo <GH_REPO> --state merged --search "<KEY>" --json number,title,mergedAt,mergeCommit`.
    - `gh pr list --repo <GH_REPO> --state open --search "<KEY>"`.
 
    Each call soft-fails independently: a failure for one ticket's evidence gathering logs and moves to the next ticket; it never aborts the sweep.
@@ -23908,12 +23913,12 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
 
 6. **Apply forward-only guard, then transition.** Identical to single-ticket steps 5-6: read the ticket's current tracker state and apply the SAME algorithm - do not restate it here, read `content/references/tracker-writeback.md` `## Tracker Writeback Helper`. If a transition is warranted, spawn the tracker-writeback subagent using the `## Tracker Writeback Helper` invocation contract in `content/references/tracker-writeback.md` verbatim - read that contract, do not re-enumerate its parameters here beyond the following call-site-specific values: `target_state: <expected>`, `forward_only_guard: true`, `tracker_state_values` (the 6 values resolved in Preflight), `diagnostic_enabled` (`$TRACKER_STATE_DIAGNOSTIC` resolved in Preflight), `linear_team_key` (Linear only, `$TICKET_PREFIX`), `pipeline_order` (`$TRACKER_PIPELINE_ORDER` resolved in Preflight), and `transitions_mode` (`$TRACKER_TRANSITIONS_MODE` resolved in Preflight). Soft-fail: a spawn or API failure logs and moves to the next ticket. Additionally, accumulate any `unmatched_state_name` returned by the guard across this sweep; if the tally is non-empty at the end of the `--all` pass, print ONE aggregate line (see Output section) instead of one line per ticket.
 
-7. **Evidence comment (only when the transition succeeded).** Post a comment on the ticket citing the deterministic evidence - PR number(s) and merge commit SHA(s) - e.g. `Reconciled by /ds-ticket-status-sync: shipped in PR #388, commit db2fc08.` Use `mcp__linear__save_comment` (Linear) or `mcp__mcp-atlassian__jira_add_comment` (Jira), the same tools the Tracker Writeback Helper already uses elsewhere. List every referencing PR if more than one. **Gate the comment on the Writeback Helper's return payload having `transitioned: true`.** If the forward-only guard skipped the transition, the transition failed, or `status == "skipped_unconfigured_state"`, do NOT post a comment - a repeatedly non-transitioning attempt would otherwise re-post the same comment on every `--all` run. A failed comment call (on an otherwise-successful transition) logs and continues independently - it never rolls back or retries the transition.
+7. **Evidence comment (only when the transition succeeded).** Post a comment on the ticket citing the deterministic evidence - PR number(s) and merge commit SHA(s), each carrying its URL - e.g. Reconciled by /ds-ticket-status-sync: shipped in [PR #388](https://github.com/<GH_REPO>/pull/388), commit [db2fc08](https://github.com/<GH_REPO>/commit/<mergeCommit.oid>). On Jira each link lands as a `link` mark (`content/references/conventions-detail.md` §External Comment Discipline). Use `mcp__linear__save_comment` (Linear) or `mcp__mcp-atlassian__jira_add_comment` (Jira), the same tools the Tracker Writeback Helper already uses elsewhere. List every referencing PR if more than one. **Gate the comment on the Writeback Helper's return payload having `transitioned: true`.** If the forward-only guard skipped the transition, the transition failed, or `status == "skipped_unconfigured_state"`, do NOT post a comment - a repeatedly non-transitioning attempt would otherwise re-post the same comment on every `--all` run. A failed comment call (on an otherwise-successful transition) logs and continues independently - it never rolls back or retries the transition.
 
 8. **Operator-visible line per transition attempt (mandatory, never silent - unconditional regardless of comment outcome):**
 
-       [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: PR #<N> merged @<sha>) - transitioned
-       [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: PR #<N> merged @<sha>) - FAILED: <error>
+       [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: [PR #<N>](<pr-url>) merged @[<sha>](<commit-url>)) - transitioned
+       [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: [PR #<N>](<pr-url>) merged @[<sha>](<commit-url>)) - FAILED: <error>
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' - SKIPPED: <diagnostic>
 
    The `<diagnostic>` slot renders the Tracker Writeback Helper's own return
@@ -26082,8 +26087,8 @@ Also resolve `TRACKER_TRANSITIONS_MODE` (same `.agentic/tracker.yml` `transition
 
 **Reconcile each detected key.** For each detected ticket key, run the `/ds-ticket-status-sync` single-ticket "Resolution algorithm (single ticket)" (`content/commands/ds-ticket-status-sync.md`) - do NOT duplicate that algorithm here. On a warranted transition, fire the Tracker Writeback Helper (`content/references/tracker-writeback.md` `## Tracker Writeback Helper`) with `forward_only_guard: true`, `tracker_state_values` (the 6 values resolved in the Gate above), `diagnostic_enabled`, `linear_team_key` (Linear only), `pipeline_order` (`$TRACKER_PIPELINE_ORDER` resolved in the Gate above), and `transitions_mode` (`$TRACKER_TRANSITIONS_MODE` resolved in the Gate above), exactly as `/ds-ticket-status-sync` does. **Gate the comment on the Writeback Helper's return payload having `transitioned: true`.** If the forward-only guard skipped the transition, the transition failed, or `status == "skipped_unconfigured_state"`, do NOT post a comment (a repeatedly non-transitioning attempt would otherwise re-post the same comment on every `/ds-wrap` run). Regardless of comment outcome, print one operator-visible line per transition attempt so failures stay visible:
 
-    [wrap: Part F] <KEY>: '<current>' -> '<expected>' (evidence: commit <sha>) - transitioned
-    [wrap: Part F] <KEY>: '<current>' -> '<expected>' (evidence: commit <sha>) - FAILED: <error>
+    [wrap: Part F] <KEY>: '<current>' -> '<expected>' (evidence: commit [<sha>](<commit-url>)) - transitioned
+    [wrap: Part F] <KEY>: '<current>' -> '<expected>' (evidence: commit [<sha>](<commit-url>)) - FAILED: <error>
     [wrap: Part F] <KEY>: '<current>' -> '<expected>' - SKIPPED: <diagnostic>
 
 The `<diagnostic>` slot renders the Tracker Writeback Helper's own return payload. When `status == "skipped_transitions_manual"`, `diagnostic` is `null` (per `content/references/tracker-writeback.md`'s `skipped_transitions_manual` clause) - rendering it verbatim would print an empty diagnostic. Render `transitions_mode=manual (no comment posted - the comment above is gated on transitioned: true); run \`ds-tracker set transitions auto\` to re-enable` instead. For every other status this line's `<diagnostic>` holds, render the payload's own diagnostic text unchanged.

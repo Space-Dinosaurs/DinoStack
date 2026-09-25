@@ -3139,7 +3139,7 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 > [qa_summary]
 > ```
 >
-> (Linear comment may use markdown bold for `Test URL:` and `PR:` labels; Jira comment is plain text.)
+> (Linear may bold the labels. On Jira the links must land as `link` marks, per `content/references/conventions-detail.md` §External Comment Discipline. Leave a pending `TEST_URL` unlinked.)
 >
 > **Filling `[qa_summary]` (binding).** Its reader is a human on a phone: apply `content/rules/conventions.md` §Writing Style, keep the automated-verification inventory in the PR rather than the ticket, and cap the free text at roughly 1500 characters.
 >
@@ -3160,9 +3160,9 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 
 **Jira upload (when `TRACKER=jira`):**
 1. For each screenshot in `qa_screenshot_paths`, `POST /rest/api/3/issue/{key}/attachments` as multipart form data. Required headers: `X-Atlassian-Token: no-check`, `Authorization: Basic base64(<JIRA_USER_EMAIL>:<JIRA_API_TOKEN>)`. The response is an array of `Attachment` objects; capture `attachment[0].content` (authenticated download URL) and `attachment[0].filename`.
-2. ADF inline embedding is NOT attempted (Atlassian Media API UUID is not available from standard Jira REST v3 credentials - see plan §Verified API facts). Instead, post an ADF comment with a plain-text paragraph for each screenshot:
+2. ADF inline embedding is NOT attempted (Atlassian Media API UUID is not available from standard Jira REST v3 credentials - see plan §Verified API facts). Instead, post an ADF comment with a link-marked paragraph for each screenshot:
    ```json
-   {"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"QA Evidence - PASS: <filename> (<content_url>)"}]}]}}
+   {"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"QA Evidence - PASS: "},{"type":"text","text":"<filename>","marks":[{"type":"link","attrs":{"href":"<content_url>"}}]}]}]}}
    ```
    The `content_url` is `attachment[0].content` (authenticated download URL, click-through for Jira users - NOT an inline image). This is the maximum fidelity achievable without a separate Media API integration.
 3. Credentials absent (`JIRA_USER_EMAIL` or `JIRA_API_TOKEN` env var missing): skip upload, post a plain comment noting skipped upload.
