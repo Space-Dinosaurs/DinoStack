@@ -3132,8 +3132,8 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 > ```
 > Implementation complete. Ready for QA.
 >
-> Test URL: [TEST_URL]([TEST_URL])
-> PR: [PR_URL]([PR_URL])
+> Test URL: [TEST_URL]
+> PR: [PR_URL]
 >
 > [qa_summary]
 > ```

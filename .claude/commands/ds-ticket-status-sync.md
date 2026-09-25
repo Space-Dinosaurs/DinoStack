@@ -193,8 +193,8 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
 
 8. **Operator-visible line per transition attempt (mandatory, never silent - unconditional regardless of comment outcome):**
 
-       [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: PR #<N> merged @<sha>) - transitioned
-       [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: PR #<N> merged @<sha>) - FAILED: <error>
+       [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: [PR #<N>](<pr-url>) merged @[<sha>](<commit-url>)) - transitioned
+       [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: [PR #<N>](<pr-url>) merged @[<sha>](<commit-url>)) - FAILED: <error>
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' - SKIPPED: <diagnostic>
 
    The `<diagnostic>` slot renders the Tracker Writeback Helper's own return

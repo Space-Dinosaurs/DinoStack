@@ -282,7 +282,7 @@ Apply these rules to every external-facing comment:
 - **Bullets over prose.** Each bullet earns its place by adding something the diff, screenshot, or linked artifact does not already show. If a bullet just describes what the diff shows, delete it.
 - **Cut what the reader can see for themselves.** Do not restate the ticket. Do not narrate the agent's own process ("I reviewed", "we investigated", "after analysis"). Do not summarise a diff that is one click away.
 - **Evidence beats description.** A screenshot, a test URL, a log excerpt, or a link to the failing line is worth more than a paragraph of explanation. Link, do not transcribe.
-- **Every link is clickable where it lands.** Every URL, PR, ticket, or commit reference an agent emits must be clickable in its destination surface:
+- **Every link is clickable where it lands.** This rule also covers chat turns and printed operator lines, not only external comments. Every URL, PR, ticket, or commit reference an agent emits must be clickable in its destination surface:
   - GitHub (PR bodies, comments), Linear, and chat turns: markdown `[text](url)` or a bare URL.
   - Jira: the stored comment needs an ADF `text` node carrying a `link` mark, e.g. `{"type":"text","text":"PR #388","marks":[{"type":"link","attrs":{"href":"https://github.com/<GH_REPO>/pull/388"}}]}`. When posting raw ADF, add the mark yourself; when the posting tool takes markdown or wiki text instead of ADF, write the link in that tool's link syntax so it converts to a mark.
   - Never put a link inside a code span or fence, which renders it as inert text.

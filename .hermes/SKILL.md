@@ -3061,7 +3061,7 @@ Apply these rules to every external-facing comment:
 - **Bullets over prose.** Each bullet earns its place by adding something the diff, screenshot, or linked artifact does not already show. If a bullet just describes what the diff shows, delete it.
 - **Cut what the reader can see for themselves.** Do not restate the ticket. Do not narrate the agent's own process ("I reviewed", "we investigated", "after analysis"). Do not summarise a diff that is one click away.
 - **Evidence beats description.** A screenshot, a test URL, a log excerpt, or a link to the failing line is worth more than a paragraph of explanation. Link, do not transcribe.
-- **Every link is clickable where it lands.** Every URL, PR, ticket, or commit reference an agent emits must be clickable in its destination surface:
+- **Every link is clickable where it lands.** This rule also covers chat turns and printed operator lines, not only external comments. Every URL, PR, ticket, or commit reference an agent emits must be clickable in its destination surface:
   - GitHub (PR bodies, comments), Linear, and chat turns: markdown `[text](url)` or a bare URL.
   - Jira: the stored comment needs an ADF `text` node carrying a `link` mark, e.g. `{"type":"text","text":"PR #388","marks":[{"type":"link","attrs":{"href":"https://github.com/<GH_REPO>/pull/388"}}]}`. When posting raw ADF, add the mark yourself; when the posting tool takes markdown or wiki text instead of ADF, write the link in that tool's link syntax so it converts to a mark.
   - Never put a link inside a code span or fence, which renders it as inert text.
@@ -20461,8 +20461,8 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 > ```
 > Implementation complete. Ready for QA.
 >
-> Test URL: [TEST_URL]([TEST_URL])
-> PR: [PR_URL]([PR_URL])
+> Test URL: [TEST_URL]
+> PR: [PR_URL]
 >
 > [qa_summary]
 > ```
@@ -23917,8 +23917,8 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
 
 8. **Operator-visible line per transition attempt (mandatory, never silent - unconditional regardless of comment outcome):**
 
-       [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: PR #<N> merged @<sha>) - transitioned
-       [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: PR #<N> merged @<sha>) - FAILED: <error>
+       [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: [PR #<N>](<pr-url>) merged @[<sha>](<commit-url>)) - transitioned
+       [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: [PR #<N>](<pr-url>) merged @[<sha>](<commit-url>)) - FAILED: <error>
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' - SKIPPED: <diagnostic>
 
    The `<diagnostic>` slot renders the Tracker Writeback Helper's own return
@@ -26087,8 +26087,8 @@ Also resolve `TRACKER_TRANSITIONS_MODE` (same `.agentic/tracker.yml` `transition
 
 **Reconcile each detected key.** For each detected ticket key, run the `/ds-ticket-status-sync` single-ticket "Resolution algorithm (single ticket)" (`content/commands/ds-ticket-status-sync.md`) - do NOT duplicate that algorithm here. On a warranted transition, fire the Tracker Writeback Helper (`content/references/tracker-writeback.md` `## Tracker Writeback Helper`) with `forward_only_guard: true`, `tracker_state_values` (the 6 values resolved in the Gate above), `diagnostic_enabled`, `linear_team_key` (Linear only), `pipeline_order` (`$TRACKER_PIPELINE_ORDER` resolved in the Gate above), and `transitions_mode` (`$TRACKER_TRANSITIONS_MODE` resolved in the Gate above), exactly as `/ds-ticket-status-sync` does. **Gate the comment on the Writeback Helper's return payload having `transitioned: true`.** If the forward-only guard skipped the transition, the transition failed, or `status == "skipped_unconfigured_state"`, do NOT post a comment (a repeatedly non-transitioning attempt would otherwise re-post the same comment on every `/ds-wrap` run). Regardless of comment outcome, print one operator-visible line per transition attempt so failures stay visible:
 
-    [wrap: Part F] <KEY>: '<current>' -> '<expected>' (evidence: commit <sha>) - transitioned
-    [wrap: Part F] <KEY>: '<current>' -> '<expected>' (evidence: commit <sha>) - FAILED: <error>
+    [wrap: Part F] <KEY>: '<current>' -> '<expected>' (evidence: commit [<sha>](<commit-url>)) - transitioned
+    [wrap: Part F] <KEY>: '<current>' -> '<expected>' (evidence: commit [<sha>](<commit-url>)) - FAILED: <error>
     [wrap: Part F] <KEY>: '<current>' -> '<expected>' - SKIPPED: <diagnostic>
 
 The `<diagnostic>` slot renders the Tracker Writeback Helper's own return payload. When `status == "skipped_transitions_manual"`, `diagnostic` is `null` (per `content/references/tracker-writeback.md`'s `skipped_transitions_manual` clause) - rendering it verbatim would print an empty diagnostic. Render `transitions_mode=manual (no comment posted - the comment above is gated on transitioned: true); run \`ds-tracker set transitions auto\` to re-enable` instead. For every other status this line's `<diagnostic>` holds, render the payload's own diagnostic text unchanged.
