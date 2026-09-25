@@ -10123,7 +10123,7 @@ Closing what you spawned is therefore the spawning agent's responsibility, not a
 - **A dev server is not automatically reaped.** Nothing in this repo targets one, and no discriminator separates an agent's server from the operator's own server on the same port, so a wrong guess would kill the operator's process. The spawning agent kills what it booted - qa-engineer's teardown does this by port.
 - **A browser is not reaped at the agent's exit either.** Treat an agent-launched browser session as still open until that agent, the tool that owns it, or the session's own idle timeout closes it: an `agent-browser` CLI daemon shuts itself and its browser down once `AGENT_BROWSER_IDLE_TIMEOUT_MS` has passed with no command, when that variable is set (this repo's installer offers 30 minutes). That bounds a leftover daemon; it does not end the agent's obligation to close one, and a daemon already running when the variable was written does not see it.
 
-Treat "restarted and verified" from an agent as a claim about the moment it was verified, never as a promise of availability afterward: the process does survive the run, and closing it stays the booting agent's job - a CLI daemon's own idle timeout is the one thing that ends a session without that agent acting.
+Treat "restarted and verified" from an agent as a claim about the moment it was verified, never as a promise of availability afterward: the process does survive the run, and closing it stays the booting agent's job.
 
 ## Standing authorizations
 

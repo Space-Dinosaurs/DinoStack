@@ -1780,7 +1780,7 @@ env-not-object)
   ;;
 *)
   echo "  agent-browser's daemon detaches from the session that starts it, so a browser an agent opens"
-  echo "  stays open, holding its profile, until something closes it. Setting AGENT_BROWSER_IDLE_TIMEOUT_MS"
+  echo "  stays open until something closes it. Setting AGENT_BROWSER_IDLE_TIMEOUT_MS"
   echo "  to $AE_BROWSER_IDLE_TIMEOUT_MS_VALUE ms (30 minutes) makes that daemon shut itself and its browser down"
   echo "  once no command has arrived for half an hour, while a browser an agent is actively driving"
   echo "  resets that clock on every command and is never cut off."

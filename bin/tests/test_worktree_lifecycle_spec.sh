@@ -33,7 +33,10 @@
 #                by-path pointer to bin/ds-cleanup-worktrees' canonical
 #                "Locked handling:" lock-state caveat;
 #                content/** in full (EVERY file under it, grepped
-#                whitespace-normalized by check_process_lifetime_prose) plus
+#                whitespace-normalized by check_process_lifetime_prose) plus,
+#                via LIFETIME_EXTRA_SITES, the two shipped-prose sites outside
+#                content/ that restate the rule - .claude/install.sh and
+#                .claude/README.md, each existence-checked - plus
 #                content/references/qa-gate.md,
 #                content/references/code-standards-detail.md,
 #                content/agents/engineer.md and
@@ -118,11 +121,20 @@
 #                claims - "Dev-server process lifetime ownership",
 #                "will not survive", "run-scoped only", "survive the
 #                agent's run on this harness", "lingers (visibly)",
-#                "browser lingers open" - still present in ANY file under
-#                content/. Matched whitespace-normalized, so a phrase
-#                re-wrapped across two source lines is still caught;
-#                matched as literal prefixes, never whole sentences, so
-#                rewording the surrounding prose does not redden it.
+#                "browser lingers open", "nothing here bounds how long it
+#                stays up", "keeps holding its profile, which is what
+#                blocks the next run", "the one thing that ends a session",
+#                "stays open, holding its profile" - still present in ANY
+#                file under content/ or at any LIFETIME_EXTRA_SITES path. OR
+#                a LIFETIME_EXTRA_SITES path that no longer exists, OR a
+#                flatten_prose that fails on a swept file (an empty haystack
+#                would make every phrase below read as absent, so this check
+#                would pass having compared nothing). Matched
+#                whitespace-normalized with any leading comment marker
+#                stripped, so a phrase re-wrapped across two source lines is
+#                still caught in a shell file as well as in prose; matched as
+#                literal prefixes, never whole sentences, so rewording the
+#                surrounding prose does not redden it.
 #
 # Performance: sub-second; two `git worktree add`/`remove` calls in a
 #              throwaway repo, plus several grep passes over the doc/bin
@@ -176,7 +188,9 @@ survive the agent's run on this harness
 lingers (visibly)
 browser lingers open
 nothing here bounds how long it stays up
-keeps holding its profile, which is what blocks the next run"
+keeps holding its profile, which is what blocks the next run
+the one thing that ends a session
+stays open, holding its profile"
 
 SCRATCH="$(mktemp -d)"
 
@@ -353,7 +367,7 @@ check_process_lifetime_prose() {
   # on `command -v <tool>` is to hard-fail under ${CI} rather than skip, or the
   # job goes green having asserted nothing. Here the tools are load-bearing, so
   # there is no skip path at all, in CI or out of it.
-  for tool in find grep tr; do
+  for tool in find grep tr sed; do
     if ! command -v "$tool" >/dev/null 2>&1; then
       echo "PROCESS-LIFETIME VIOLATION: required tool '$tool' is not on PATH, so no verdict is available (CI=${CI:-unset}) - refusing to report a pass" >&2
       ok=1
@@ -413,7 +427,17 @@ $REPO_ROOT/$extra"
   local f flat phrase
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    flat="$(flatten_prose "$f")"
+    # A flatten that fails yields an empty string, and an empty haystack makes
+    # every grep below report "not present" - the sweep would pass having read
+    # nothing. Measured with a `sed` that exits 1: this check reported exit 0
+    # while no phrase was ever compared. The pipeline status is checked rather
+    # than the result's emptiness, so a file that legitimately flattens to
+    # nothing is unaffected.
+    if ! flat="$(flatten_prose "$f")"; then
+      echo "PROCESS-LIFETIME VIOLATION: flatten_prose failed on ${f#"$REPO_ROOT"/}, so no retired claim was checked against it" >&2
+      ok=1
+      continue
+    fi
     while IFS= read -r phrase; do
       [ -n "$phrase" ] || continue
       # Here-string, not a pipe into `grep -q`: under `set -o pipefail` an early
