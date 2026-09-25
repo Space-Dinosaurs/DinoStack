@@ -1692,11 +1692,15 @@ PYEOF_SHARED
 # agent-browser daemon idle timeout (DS-254 U8)
 #
 # agent-browser detaches its daemon, so a browser an agent opens outlives the
-# session that started it - and that daemon keeps holding its profile, which is
-# what blocks the next run. The CLI reads AGENT_BROWSER_IDLE_TIMEOUT_MS at
-# daemon start and shuts itself, and the browser with it, down after that many
-# ms with no command. Disabled by default, so without this write a leftover
-# browser has no upper bound at all.
+# session that started it. What a leftover daemon costs a later run is not its
+# profile - each launch gets its own randomly-named temp Chrome profile, so two
+# daemons share one only when a run pins --profile <path>, which no shipped flow
+# does - but its session name: the CLI binds one daemon per name, so a later run
+# under the same name attaches to the leftover daemon instead of starting its
+# own, discards its launch options with a warning, and exits 0. The CLI reads
+# AGENT_BROWSER_IDLE_TIMEOUT_MS at daemon start and shuts itself, and the browser
+# with it, down after that many ms with no command. Disabled by default, so
+# without this write a leftover browser has no upper bound at all.
 #
 # 1800000 ms (30 minutes) bounds the gap BETWEEN commands, which is not the
 # same thing as a session limit: every command resets the clock, so a browser
@@ -1710,6 +1714,14 @@ PYEOF_SHARED
 #   - It BOUNDS the CLI-path residual; it does not remove it. After a normal
 #     session end, that session's daemon and its browser stay up for up to the
 #     timeout before shutting down on their own.
+#
+# Retires when the bound arrives from upstream instead, which is a measurement
+# rather than a judgment: agent-browser's own `--help` lists
+# AGENT_BROWSER_IDLE_TIMEOUT_MS as "disabled by default" (0.27.0), so the
+# condition is that line changing to a non-zero default at or below
+# AE_BROWSER_IDLE_TIMEOUT_MS_VALUE - the daemon then bounds itself with nothing
+# written here. A harness that reaps the daemons it spawned at session end
+# retires this the same way. Neither has happened.
 #
 # Deliberately not a reaper that closes agent-browser sessions by name:
 # `agent-browser session list` exposes session names but no owning run, so such
@@ -1768,7 +1780,7 @@ env-not-object)
   ;;
 *)
   echo "  agent-browser's daemon detaches from the session that starts it, so a browser an agent opens"
-  echo "  stays open, holding its profile, until something closes it. Setting AGENT_BROWSER_IDLE_TIMEOUT_MS"
+  echo "  stays open until something closes it. Setting AGENT_BROWSER_IDLE_TIMEOUT_MS"
   echo "  to $AE_BROWSER_IDLE_TIMEOUT_MS_VALUE ms (30 minutes) makes that daemon shut itself and its browser down"
   echo "  once no command has arrived for half an hour, while a browser an agent is actively driving"
   echo "  resets that clock on every command and is never cut off."
@@ -2234,6 +2246,13 @@ CLAUDE_JSON="$HOME/.claude.json"
 # survive a run, and a server killed without cleanup can leave its temp profile
 # directory behind.
 #
+# Retires when the server's own defaults make the flags redundant, also by
+# measurement: chrome-devtools-mcp 1.10.1 declares `headless: {default: false}`
+# in build/src/config/browser-options.js and leaves `isolated` defaulting to
+# false, so the condition is those two defaults flipping - a registration
+# without either flag then launches headless on a throwaway profile on its own,
+# and the create path and this migration both retire together.
+#
 # An entry whose args carry an argument this migration does not write is
 # reported and left alone, whatever that argument is. The rule is the whole
 # option set rather than a list of spellings to refuse, because no such list
@@ -2249,10 +2268,11 @@ CLAUDE_JSON="$HOME/.claude.json"
 # installer reported the entry configured.
 #
 # State is detected rather than testing only "is the key present", because a
-# registration written before the headless default shipped has the key but
-# lacks the flags - a short-circuit there would leave that operator's window up
-# forever. absent | stale | current are the states this writer can edit; every
-# other state below leaves the file untouched, and none is rewritten blind.
+# registration this installer wrote before it began writing those flags has the
+# key but lacks them - a short-circuit there would leave that operator's window
+# up forever. absent | stale | current are the states this writer can edit;
+# every other state below leaves the file untouched, and none is rewritten
+# blind.
 #
 # On top of that, none of the flag-based states below is reachable for an entry
 # whose args do not invoke the package being configured. The migration's whole

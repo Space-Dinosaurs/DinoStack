@@ -340,9 +340,11 @@ seed_home() {
 }
 
 # ---------------------------------------------------------------------------
-# A pre-existing registration written before the headless default shipped,
-# alongside a sibling MCP server and unrelated top-level keys, so "everything
-# else is untouched" is a real assertion rather than an empty one.
+# A pre-existing registration this installer wrote before it began writing those
+# flags (not an upstream default change - the server's headless default is false
+# and has never moved), alongside a sibling MCP server and unrelated top-level
+# keys, so "everything else is untouched" is a real assertion rather than an
+# empty one.
 # ---------------------------------------------------------------------------
 # The non-ASCII value below is load-bearing, not decoration: a JSON round trip
 # with json.dump's default ensure_ascii=True rewrites every non-ASCII string in

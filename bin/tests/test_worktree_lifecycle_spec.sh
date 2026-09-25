@@ -33,7 +33,10 @@
 #                by-path pointer to bin/ds-cleanup-worktrees' canonical
 #                "Locked handling:" lock-state caveat;
 #                content/** in full (EVERY file under it, grepped
-#                whitespace-normalized by check_process_lifetime_prose) plus
+#                whitespace-normalized by check_process_lifetime_prose) plus,
+#                via LIFETIME_EXTRA_SITES, the two shipped-prose sites outside
+#                content/ that restate the rule - .claude/install.sh and
+#                .claude/README.md, each existence-checked - plus
 #                content/references/qa-gate.md,
 #                content/references/code-standards-detail.md,
 #                content/agents/engineer.md and
@@ -118,11 +121,20 @@
 #                claims - "Dev-server process lifetime ownership",
 #                "will not survive", "run-scoped only", "survive the
 #                agent's run on this harness", "lingers (visibly)",
-#                "browser lingers open" - still present in ANY file under
-#                content/. Matched whitespace-normalized, so a phrase
-#                re-wrapped across two source lines is still caught;
-#                matched as literal prefixes, never whole sentences, so
-#                rewording the surrounding prose does not redden it.
+#                "browser lingers open", "nothing here bounds how long it
+#                stays up", "keeps holding its profile, which is what
+#                blocks the next run", "the one thing that ends a session",
+#                "stays open, holding its profile" - still present in ANY
+#                file under content/ or at any LIFETIME_EXTRA_SITES path. OR
+#                a LIFETIME_EXTRA_SITES path that no longer exists, OR a
+#                flatten_prose that fails on a swept file (an empty haystack
+#                would make every phrase below read as absent, so this check
+#                would pass having compared nothing). Matched
+#                whitespace-normalized with any leading comment marker
+#                stripped, so a phrase re-wrapped across two source lines is
+#                still caught in a shell file as well as in prose; matched as
+#                literal prefixes, never whole sentences, so rewording the
+#                surrounding prose does not redden it.
 #
 # Performance: sub-second; two `git worktree add`/`remove` calls in a
 #              throwaway repo, plus several grep passes over the doc/bin
@@ -154,14 +166,31 @@ content/agents/qa-engineer.md
 content/references/qa-gate.md
 content/references/code-standards-detail.md"
 
+# Shipped prose that restates the rule outside content/, so the absence sweep
+# below covers the sites the rule is actually written at rather than only its
+# home directory. Explicit rather than derived: each path is existence-checked
+# in the sweep, because a path that silently stops resolving drops a site from
+# the sweep and reads as clean. docs/ is deliberately NOT here - its copies are
+# public-facing restatements this list has never covered, and adding a surface
+# to it is a decision, not a side effect of retiring one claim.
+LIFETIME_EXTRA_SITES=".claude/install.sh
+.claude/README.md"
+
 # Claims measured false against the shipped mechanism (the process reparents to
-# launchd and outlives the agent's run), plus the retired section title.
+# launchd and outlives the agent's run), plus the retired section title. This is
+# a denylist: it can only catch a phrasing someone already added here, so a
+# claim a later fix falsifies stays invisible to it unless that fix adds the old
+# wording in the same commit, and a paraphrase of an entry escapes the pin.
 RETIRED_LIFETIME_CLAIMS="$RETIRED_LIFETIME_TITLE
 will not survive
 run-scoped only
 survive the agent's run on this harness
 lingers (visibly)
-browser lingers open"
+browser lingers open
+nothing here bounds how long it stays up
+keeps holding its profile, which is what blocks the next run
+the one thing that ends a session
+stays open, holding its profile"
 
 SCRATCH="$(mktemp -d)"
 
@@ -309,8 +338,16 @@ check_reap_wiring() {
 # across two source lines - which is how the retired section title survived the
 # DS-254 rename inside worktree-lifecycle.md's own manifest block, where it is
 # wrapped as "...the Dev-server process" / "lifetime ownership section".
+#
+# The leading comment marker is stripped first for the same reason. In a shell
+# file every wrapped prose line carries one, so a phrase spanning two lines comes
+# out of a bare newline collapse with the next line's "#" embedded mid-phrase and
+# can never match - measured on .claude/install.sh, where an entry spanning
+# "which is" / "what blocks the next run" flattened to "which is # what blocks
+# the next run". A denylist entry longer than one source line was therefore
+# unfireable at exactly the sites this sweep now reads.
 flatten_prose() {
-  tr '\n' ' ' < "$1" | tr -s '[:space:]' ' '
+  sed -E 's/^[[:space:]]*(#|\/\/)[[:space:]]?//' "$1" | tr '\n' ' ' | tr -s '[:space:]' ' '
 }
 
 # DS-254 R5 regression guard, asserted in BOTH directions deliberately: a
@@ -330,7 +367,7 @@ check_process_lifetime_prose() {
   # on `command -v <tool>` is to hard-fail under ${CI} rather than skip, or the
   # job goes green having asserted nothing. Here the tools are load-bearing, so
   # there is no skip path at all, in CI or out of it.
-  for tool in find grep tr; do
+  for tool in find grep tr sed; do
     if ! command -v "$tool" >/dev/null 2>&1; then
       echo "PROCESS-LIFETIME VIOLATION: required tool '$tool' is not on PATH, so no verdict is available (CI=${CI:-unset}) - refusing to report a pass" >&2
       ok=1
@@ -363,18 +400,44 @@ check_process_lifetime_prose() {
     fi
   done <<< "$LIFETIME_POINTER_FILES"
 
-  # Negative: no retired claim survives anywhere under content/.
-  local content_files
+  # Negative: no retired claim survives anywhere under content/, nor at any of
+  # the extra shipped-prose sites the rule is restated at.
+  local content_files extra
   content_files="$(find "$REPO_ROOT/content" -type f 2>/dev/null)"
   if [ -z "$content_files" ]; then
     echo "PROCESS-LIFETIME VIOLATION: find matched no files under content/ - the absence sweep would assert nothing, so this is broken discovery, not a clean result" >&2
     return 1
   fi
 
+  # A listed site that is not there is a dropped site, not a clean one: the
+  # sweep would pass having read nothing at that path.
+  local sweep_files
+  sweep_files="$content_files"
+  while IFS= read -r extra; do
+    [ -n "$extra" ] || continue
+    if [ -f "$REPO_ROOT/$extra" ]; then
+      sweep_files="$sweep_files
+$REPO_ROOT/$extra"
+    else
+      echo "PROCESS-LIFETIME VIOLATION: $extra is listed as a restatement site but does not exist, so the absence sweep does not cover it" >&2
+      ok=1
+    fi
+  done <<< "$LIFETIME_EXTRA_SITES"
+
   local f flat phrase
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    flat="$(flatten_prose "$f")"
+    # A flatten that fails yields an empty string, and an empty haystack makes
+    # every grep below report "not present" - the sweep would pass having read
+    # nothing. Measured with a `sed` that exits 1: this check reported exit 0
+    # while no phrase was ever compared. The pipeline status is checked rather
+    # than the result's emptiness, so a file that legitimately flattens to
+    # nothing is unaffected.
+    if ! flat="$(flatten_prose "$f")"; then
+      echo "PROCESS-LIFETIME VIOLATION: flatten_prose failed on ${f#"$REPO_ROOT"/}, so no retired claim was checked against it" >&2
+      ok=1
+      continue
+    fi
     while IFS= read -r phrase; do
       [ -n "$phrase" ] || continue
       # Here-string, not a pipe into `grep -q`: under `set -o pipefail` an early
@@ -385,7 +448,7 @@ check_process_lifetime_prose() {
         ok=1
       fi
     done <<< "$RETIRED_LIFETIME_CLAIMS"
-  done <<< "$content_files"
+  done <<< "$sweep_files"
 
   return "$ok"
 }
