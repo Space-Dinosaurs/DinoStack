@@ -135,8 +135,8 @@ Gate order, first match wins, ALL must clear for REMOVE:
      `dist/`, etc.), is disposable and does NOT block - EXCEPT
      `.agentic/**`, which flips to the OPPOSITE polarity (see
      `_is_agentic_disposable`'s docstring): protected by default inside
-     `.agentic/`, disposable ONLY for a small named set of routine
-     telemetry/generated-subdir/cache paths. Round 2 shipped the round-3
+     `.agentic/`, disposable ONLY for a named set of machine-written
+     state (DS-259). Round 2 shipped the round-3
      polarity's opposite (a fail-safe allowlist everywhere) and measured
      `removed=0`; round 3 then blanket-protected `.agentic/**` and
      ALSO measured `removed=0`, because this repo dogfoods its own
@@ -1250,6 +1250,24 @@ _PROTECTED_CONTENT_BASENAME_PATTERNS = (
 #: PROTECTED by default (fail-safe - an unanticipated new file blocks,
 #: never silently vanishes) EXCEPT this named disposable set. Do not
 #: scatter these patterns elsewhere either - see `_is_agentic_disposable`.
+#:
+#: DS-259: on 2026-09-24, 14 of 40 worktrees were refused as
+#: SKIP_PROTECTED_CONTENT because of hook output (figure per DS-259, not
+#: re-measured here) - routine machine-written state (`context.md`,
+#: `context.d/`, `session-log/`, `.ticket-scan-*.json`, fire counters,
+#: sentinels, skeptic round files) that the round-4 set never named. The
+#: hand edit below is unavoidable: the fail-closed default (an unknown
+#: name under `.agentic/` stays protected) means every machine-written
+#: name must be declared positively, one entry per writer, each citing it.
+#: `_AGENTIC_DISPOSABLE_TOPLEVEL_PATTERNS` matches only a top-level FILE
+#: directly under `.agentic/`, so `context.md` does not unprotect
+#: `.agentic/<dir>/context.md`. Drift is caught by
+#: `bin/tests/test_agentic_machine_state_registry.py`, which scans writer
+#: source for `.agentic/` state names and fails on any name neither
+#: covered here nor recorded in its reviewed not-disposable ledger.
+#: Retirement: when every `.agentic/` state writer resolves its path
+#: through one shared machine-state subdirectory, a single dir-name entry
+#: replaces these lists and that scan test is deleted.
 _AGENTIC_DISPOSABLE_DIR_NAMES = (
     "wrap",
     "codex-prompt-generation",
@@ -1257,12 +1275,36 @@ _AGENTIC_DISPOSABLE_DIR_NAMES = (
     "cache",  # ordinary cache dirs
     "__pycache__",  # ordinary cache dirs
     ".cache",  # ordinary cache dirs
+    "context.d",  # per-session context shards (hooks/stop-context.js:250-257)
+    "session-log",  # per-developer session log (hooks/stop-context.js:1577-1582)
 )
 _AGENTIC_DISPOSABLE_BASENAME_PATTERNS = (
     "*.jsonl",  # events.jsonl and any other telemetry log
     "tracker-states.json",
     ".skill-candidate-tally.json",
     "worktree-cleanup-skips.jsonl",  # also covered by *.jsonl above; named explicitly per the operator's own list
+)
+_AGENTIC_DISPOSABLE_TOPLEVEL_PATTERNS: Tuple[str, ...] = (
+    ".ticket-scan-*.json",  # hooks/lib/active-ticket.js:70
+    ".nested-worktree-spawn-*.json",  # hooks/enforce-nested-worktree-spawn.py:220
+    ".telemetry-health.json",  # writer hooks/stop-context.js, reader bin/ds-status:137
+    ".turn-shape-guard-fire-count",  # hooks/enforce-turn-shape.py:625
+    ".abdication-guard-fire-count",  # hooks/enforce-no-abdication.py:321
+    ".capture-gap-last-sweep",  # hooks/lib/capture-gap.js:143
+    ".capture-gap-surfaced",  # hooks/post-tool-use-capture-nudge.js:213
+    ".last-architect-spawn",  # hooks/pre-tool-use-spawn-emit.js:219
+    ".skill-candidate-cursor",  # hooks/lib/skill-candidate-detector.js:117
+    ".skill-candidates-in-session",  # hooks/post-tool-use-capture-nudge.js:147
+    ".ticket-batch-*.json",  # hooks/enforce-ticket-batching.py:1103; also the session-scoped .ticket-batch-grant-*.json
+    ".conductor-overreach-fired-*",  # hooks/conductor-overreach-nudge.js:214
+    ".manifest-not-found-warned*",  # bin/ds-migrate:800,804
+    ".meta-divergence-last-sweep",  # conductor sweep cursor, content/rules/conventions.md
+    ".skill-candidates-last-sweep",  # conductor sweep cursor, content/rules/conventions.md
+    "context.md",  # derived rollup, hooks/stop-context.js:250-257
+    "skeptic-round-*.json",  # hooks/enforce-skeptic-round-cap.py
+    "skeptic-tuid-index.json",  # hooks/enforce-skeptic-round-cap.py:1243
+    "skeptic-tuid-index.json.lock",  # hooks/enforce-skeptic-round-cap.py:1377
+    "deferred-work.jsonl.lock",  # bin/ds-defer:158,166
 )
 
 #: Ephemeral/regenerable allowlist - the round-2 default, kept reachable
@@ -1507,11 +1549,12 @@ def _is_allowlisted_ignored_path(rel_path: str) -> bool:
     return any(fnmatch.fnmatch(basename, pattern) for pattern in _IGNORED_ALLOWLIST_PATTERNS)
 
 
-def _is_agentic_disposable(sub_parts: List[str]) -> bool:
+def _is_agentic_disposable(sub_parts: List[str], *, is_dir: bool) -> bool:
     """Round 4: `sub_parts` is a path INSIDE `.agentic/`, given as its
     segments AFTER the leading `.agentic` segment (e.g. `.agentic/wrap/lock`
     -> `["wrap", "lock"]`). Returns True only when it is on the named
     disposable set (`_AGENTIC_DISPOSABLE_DIR_NAMES` /
+    `_AGENTIC_DISPOSABLE_TOPLEVEL_PATTERNS` /
     `_AGENTIC_DISPOSABLE_BASENAME_PATTERNS`) - the INVERTED default for
     everywhere else in `_is_protected_ignored_path`: inside `.agentic/`,
     NOT being disposable means PROTECTED (fail-safe - an unanticipated new
@@ -1520,11 +1563,20 @@ def _is_agentic_disposable(sub_parts: List[str]) -> bool:
     unit, `sub_parts == []`) is never disposable - it could contain a
     protected file mixed in and there is no way to tell from a collapsed
     entry alone, so it fails closed as protected.
+
+    DS-259: `_AGENTIC_DISPOSABLE_TOPLEVEL_PATTERNS` match only a top-level
+    FILE (`len(sub_parts) == 1 and not is_dir`); a collapsed directory
+    entry of the same name, or the same name nested deeper, stays
+    protected. `is_dir` is keyword-only with no default so a caller must
+    state which it has.
     """
     if not sub_parts:
         return False
     if sub_parts[0] in _AGENTIC_DISPOSABLE_DIR_NAMES:
         return True
+    if len(sub_parts) == 1 and not is_dir:
+        if any(fnmatch.fnmatch(sub_parts[0], pattern) for pattern in _AGENTIC_DISPOSABLE_TOPLEVEL_PATTERNS):
+            return True
     basename = sub_parts[-1]
     return any(fnmatch.fnmatch(basename, pattern) for pattern in _AGENTIC_DISPOSABLE_BASENAME_PATTERNS)
 
@@ -1545,12 +1597,17 @@ def _is_protected_ignored_path(rel_path: str) -> bool:
     reporting a collapsed `docs/planning/` when the whole directory is
     ignored, rather than descending into it) is matched as a PREFIX via
     the leading path segments, not only as an exact filename.
+
+    DS-259: a trailing `/` (git's collapsed-directory form) is recorded as
+    `is_dir` before it is stripped, so `.agentic/` top-level file patterns
+    never match a directory of the same name.
     """
+    is_dir = rel_path.endswith("/")
     normalized = rel_path.strip("/")
     parts = normalized.split("/")
 
     if parts[0] == ".agentic":
-        return not _is_agentic_disposable(parts[1:])
+        return not _is_agentic_disposable(parts[1:], is_dir=is_dir)
 
     for prefix in _PROTECTED_CONTENT_DIR_PREFIXES:
         prefix_parts = prefix.split("/")

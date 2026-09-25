@@ -105,6 +105,9 @@ Upstream deps: Python 3 stdlib only (re, os, pathlib). Scans the live
     it is the thing being checked against, not a candidate source).
 
 Downstream consumers: pytest bin/tests/ (CI, .github/workflows/bin-tests.yml).
+    bin/tests/test_agentic_machine_state_registry.py (DS-259) imports this
+    module and calls `_iter_candidate_files(scan_dirs=..., excluded_files=...)`
+    so its writer scan shares SCAN_DIRS and the walker's filters.
 
 Failure modes: a candidate line not present in the inventory fails with an
     assertion message naming every offending file:line (not just the
@@ -398,8 +401,12 @@ _HOME_PATTERNS = [
 HOME_RE = re.compile("|".join(f"(?:{p})" for p in _HOME_PATTERNS))
 
 
-def _iter_candidate_files():
-    for d in SCAN_DIRS:
+def _iter_candidate_files(scan_dirs=None, excluded_files=None):
+    if scan_dirs is None:
+        scan_dirs = SCAN_DIRS
+    if excluded_files is None:
+        excluded_files = EXCLUDED_FILES
+    for d in scan_dirs:
         base = REPO_ROOT / d
         if not base.is_dir():
             continue
@@ -414,7 +421,7 @@ def _iter_candidate_files():
             if not entry.is_file():
                 continue
             rel = str(entry.relative_to(REPO_ROOT))
-            if rel in EXCLUDED_FILES:
+            if rel in excluded_files:
                 continue
             if any(rel.startswith(p) for p in EXCLUDED_DIR_PREFIXES):
                 continue
