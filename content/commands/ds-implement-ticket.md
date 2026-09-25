@@ -3127,13 +3127,13 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 > ```
 > Implementation complete. Ready for QA.
 >
-> Test URL: [TEST_URL]
-> PR: [PR_URL]
+> Test URL: [TEST_URL]([TEST_URL])
+> PR: [PR_URL]([PR_URL])
 >
 > [qa_summary]
 > ```
 >
-> (Linear comment may use markdown bold for `Test URL:` and `PR:` labels. Both URLs must land clickable; on Jira that means a `link` mark, per `content/references/conventions-detail.md` §External Comment Discipline.)
+> (Linear may bold the labels. On Jira the links must land as `link` marks, per `content/references/conventions-detail.md` §External Comment Discipline. Leave a pending `TEST_URL` unlinked.)
 >
 > **Filling `[qa_summary]` (binding).** Its reader is a human on a phone: apply `content/rules/conventions.md` §Writing Style, keep the automated-verification inventory in the PR rather than the ticket, and cap the free text at roughly 1500 characters.
 >
