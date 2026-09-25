@@ -795,6 +795,31 @@ def test_agentic_events_jsonl_only_is_disposable_by_default(tmp_path):
         (".agentic/.skill-candidate-tally.json", "{}\n"),
         (".agentic/worktree-cleanup-skips.jsonl", '{"skip": true}\n'),
         (".agentic/some-other-log.jsonl", '{"line": 1}\n'),
+        # DS-259: machine-written hook/agent state, one case per new entry.
+        (".agentic/context.d/x.md", "shard\n"),
+        (".agentic/session-log/dev.jsonl", '{"line": 1}\n'),
+        (".agentic/.ticket-scan-x.json", "{}\n"),
+        (".agentic/.nested-worktree-spawn-x.json", "{}\n"),
+        (".agentic/.telemetry-health.json", "{}\n"),
+        (".agentic/.turn-shape-guard-fire-count", "1\n"),
+        (".agentic/.abdication-guard-fire-count", "1\n"),
+        (".agentic/.capture-gap-last-sweep", "2026-09-24T00:00:00Z\n"),
+        (".agentic/.capture-gap-surfaced", "x\n"),
+        (".agentic/.last-architect-spawn", "x\n"),
+        (".agentic/.skill-candidate-cursor", "0\n"),
+        (".agentic/.skill-candidates-in-session", "x\n"),
+        (".agentic/.ticket-batch-x.json", "{}\n"),
+        (".agentic/.ticket-batch-grant-x.json", "{}\n"),
+        (".agentic/.conductor-overreach-fired-x", "1\n"),
+        (".agentic/.manifest-not-found-warned", "1\n"),
+        (".agentic/.manifest-not-found-warned-x", "1\n"),
+        (".agentic/.meta-divergence-last-sweep", "2026-09-24T00:00:00Z\n"),
+        (".agentic/.skill-candidates-last-sweep", "2026-09-24T00:00:00Z\n"),
+        (".agentic/context.md", "# Session Context\n\n---\n\n## Session Activity\n<!-- agentic:derived-activity-region v1 -->\n"),
+        (".agentic/skeptic-round-x.json", "{}\n"),
+        (".agentic/skeptic-tuid-index.json", "{}\n"),
+        (".agentic/skeptic-tuid-index.json.lock", ""),
+        (".agentic/deferred-work.jsonl.lock", ""),
     ],
 )
 def test_agentic_disposable_set_does_not_block_removal(tmp_path, rel_path, content):
@@ -822,7 +847,6 @@ def test_agentic_disposable_set_does_not_block_removal(tmp_path, rel_path, conte
         (".agentic/qa.md", "qa\n"),
         (".agentic/findings-2026.md", "findings\n"),
         (".agentic/memory.md", "memory\n"),
-        (".agentic/context.md", "context\n"),
         (".agentic/_wrap.md", "wrap\n"),
         (".agentic/tracker.yml", "tracker: {}\n"),
         (".agentic/branch-archive/notes.txt", "archive\n"),
@@ -832,6 +856,20 @@ def test_agentic_disposable_set_does_not_block_removal(tmp_path, rel_path, conte
         # inverted-inside-.agentic polarity (a new file blocks, never
         # silently vanishes).
         (".agentic/some-brand-new-thing.txt", "unanticipated\n"),
+        # DS-259: authored scratch agents invent, and a stray nested tree.
+        (".agentic/pr-body-ds207.md", "body\n"),
+        (".agentic/wait-ci-828.sh", "#!/bin/sh\n"),
+        (".agentic/qa253/s4_repo1/f", "qa\n"),
+        (".agentic/.agentic/events.jsonl", '{"line": 1}\n'),
+        # An unmarked context.md is /wrap notes or a failed migration's
+        # only surviving copy, not the derived rollup.
+        pytest.param(".agentic/context.md", "# Session Context\n\n## Last session\nnotes\n", id="unmarked-context-md"),
+        # DS-259: a top-level file pattern never matches a collapsed
+        # directory of the same name (git reports `!! .agentic/<name>/`).
+        (".agentic/context.md/x", "x\n"),
+        (".agentic/.ticket-scan-x.json/x", "x\n"),
+        (".agentic/skeptic-tuid-index.json.lock/x", "x\n"),
+        (".agentic/wrap.lock/x", "x\n"),
     ],
 )
 def test_agentic_protected_set_still_blocks_removal(tmp_path, rel_path, content):
@@ -846,6 +884,38 @@ def test_agentic_protected_set_still_blocks_removal(tmp_path, rel_path, content)
     assert proc.returncode == 0, proc.stderr
     result = outcomes(proc.stdout)
     assert result[str(wt)].startswith("SKIP_PROTECTED_CONTENT"), f"{rel_path} should still block: {result[str(wt)]}"
+    assert str(wt) in worktree_paths(repo)
+
+
+def test_agentic_toplevel_patterns_are_anchored_to_toplevel_files():
+    """DS-259: top-level patterns match only a file directly under
+    `.agentic/`; the same name as a collapsed directory, or nested deeper,
+    stays protected."""
+    protected = ds_cleanup_worktrees._is_protected_ignored_path
+    assert protected(".agentic/.telemetry-health.json") is False
+    assert protected(".agentic/context.md") is True
+    assert protected(".agentic/context.md/") is True
+    assert protected(".agentic/unknown.lock") is True
+    assert protected(".agentic/ds-226/context.md") is True
+    assert protected(".agentic/plans/.telemetry-health.json") is True
+    assert protected(".agentic/x/skeptic-tuid-index.json.lock") is True
+    assert protected(".agentic/wrap.lock/") is True
+
+
+def test_committed_session_log_carve_out_is_dirty_not_removed(tmp_path):
+    """DS-259: in a repo that commits `session-log/` via the
+    `!/.agentic/session-log/` carve-out, the log is untracked (`??`), so the
+    worktree is SKIP_DIRTY and the disposable predicate never sees it."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, "/.agentic/*\n!/.agentic/session-log/\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-sessionlog", "worktree-agent-sessionlog", push=False)
+    (wt / ".agentic" / "session-log").mkdir(parents=True)
+    (wt / ".agentic" / "session-log" / "dev.jsonl").write_text('{"line": 1}\n')
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "SKIP_DIRTY"
     assert str(wt) in worktree_paths(repo)
 
 
