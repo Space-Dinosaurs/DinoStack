@@ -23302,16 +23302,6 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": ".agentic/.enforcement-fires.jsonl",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/.enforcement-fires.jsonl",
-      "kind": "operational",
-      "occurrence_hash": "870543cea30d3aba61a1d0b2aa1f4466c4c656e4c2505a4d2570b0950e28eea9",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/.enforcement-fires.jsonl"
-    },
-    {
       "expected_target": "content/references/conventions-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
       "kind": "operational",
@@ -24362,6 +24352,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "hooks/lib/enforcement_log.py",
+      "generated_token": "$AE_REPO_DIR/hooks/lib/enforcement_log.py",
+      "kind": "operational",
+      "occurrence_hash": "c798386e4ff845ba74f4e2ae6180a8718dbe834828a9e6c3acf6efbfa401f501",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "hooks/lib/enforcement_log.py"
+    },
+    {
       "expected_target": "true",
       "generated_token": "true",
       "kind": "operational",
@@ -25082,16 +25082,6 @@
       "source_token": "content/references/wrap-context-format.md"
     },
     {
-      "expected_target": "hooks/lib/enforcement_log.py",
-      "generated_token": "$AE_REPO_DIR/hooks/lib/enforcement_log.py",
-      "kind": "operational",
-      "occurrence_hash": "f1a287ac05f12c560264ce38b06c8302f427d14d898425846d5fccab184cd8f4",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "hooks/lib/enforcement_log.py"
-    },
-    {
       "expected_target": "dinostack-codex-implement-ticket",
       "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
@@ -25140,6 +25130,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/learnings.md"
+    },
+    {
+      "expected_target": ".agentic/.enforcement-fires.jsonl",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/.enforcement-fires.jsonl",
+      "kind": "operational",
+      "occurrence_hash": "f46ee910de0c3209a38d599f34b13ad87ce1b9e006d7f8dd4db17853876cd6aa",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/.enforcement-fires.jsonl"
     },
     {
       "expected_target": ".agentic/findings.md",

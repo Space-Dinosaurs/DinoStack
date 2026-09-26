@@ -1348,6 +1348,37 @@ for ticket_matcher in (
         f"PreToolUse({ticket_matcher}) ticket-batching guard hook",
     )
 
+# ---- PreToolUse guarded-rm guard (Bash matcher) ----
+# Denies an `rm` whose operand expands an unguarded shell variable
+# (`rm $B/$s/x`), which otherwise makes Claude Code stop the operator with an
+# approval dialog; the deny reason names the `${VAR:?}` rewrite (DS-261).
+# Fail-open on any error. Kill-switch: AE_RM_GUARD_DISABLE=1.
+# Guarded command form, per hooks/AGENTS.md §Registering a new enforce-*.py
+# hook: a bare `python3 <missing>.py` exits 2 and would deny every Bash call.
+ENFORCE_GUARDED_RM_CMD = (
+    f"test -f {hooks_root}/hooks/enforce-guarded-rm.py && "
+    f"python3 {hooks_root}/hooks/enforce-guarded-rm.py || exit 0"
+)
+
+ptu_rm_block = None
+for block in ptu_list:
+    if block.get("matcher") == "Bash":
+        ptu_rm_block = block
+        break
+
+if ptu_rm_block is None:
+    ptu_rm_block = {"matcher": "Bash", "hooks": []}
+    ptu_list.append(ptu_rm_block)
+
+ptu_rm_block.setdefault("hooks", [])
+
+upsert_hook(
+    ptu_rm_block["hooks"],
+    "enforce-guarded-rm.py",
+    {"type": "command", "command": ENFORCE_GUARDED_RM_CMD, "timeout": 5},
+    "PreToolUse(Bash) guarded-rm guard hook",
+)
+
 # ---- PostToolUse capture-nudge hook -----------------------------------------
 # Surfaces an in-session capture-gap nudge when a subagent spawn launches and the
 # session has a learning-worthy event with no learning captured yet. Claude Code

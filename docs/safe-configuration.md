@@ -161,6 +161,13 @@ hook installed separately:
   spawns are not enforced (no real-payload capture exists proving `Task`
   omits `isolation` the same way `Agent` does); disable via
   `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1`.
+- [`enforce-guarded-rm.py`](../hooks/enforce-guarded-rm.py)
+  - PreToolUse (Bash); denies an `rm` command whose operand expands an
+  unguarded shell variable (`rm $B/$s/x`), which otherwise makes Claude Code
+  stop the operator with an approval dialog; the deny reason names the
+  `${VAR:?}` rewrite, so the agent fixes the command itself; applies to the
+  main session and subagents; fails open on anything it cannot parse;
+  disable via `AE_RM_GUARD_DISABLE=1`, set before the session starts.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.
 

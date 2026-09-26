@@ -113,6 +113,7 @@ Unset by default. Set to `1` to disable the named guard for a session.
 | `AE_ABDICATION_GUARD_DISABLE=1` | guard active | Abdication guard Stop hook (only relevant when `abdication_guard_enabled: true`) |
 | `AE_NESTED_WORKTREE_GUARD_DISABLE=1` | guard active | Nested-worktree-spawn advisory hook (`hooks/enforce-nested-worktree-spawn.py`) |
 | `AE_PLANNING_GUARD_DISABLE=1` | guard active | Planning-artifact spawn advisory hook (`hooks/enforce-planning-artifact-spawn.py`) |
+| `AE_RM_GUARD_DISABLE=1` | guard active | Guarded-rm hook denying an `rm` whose operand expands an unguarded variable (`hooks/enforce-guarded-rm.py`). Set it before the session starts: the hook reads its own process environment, so writing it inline in a Bash command does not disable it |
 | `AE_SHIPPABLE_GUARD_DISABLE=1` | guard active | Shippable-edit guard denying conductor-direct shippable edits (`hooks/enforce-shippable-edit.py`) |
 | `AE_SINGULARITY_GUARD_DISABLE=1` | guard active | Orchestrator-singularity hook (prevents subagents from spawning subagents) |
 | `AE_SKEPTIC_NEUTRALITY_GUARD_DISABLE=1` | guard active | Skeptic-brief neutrality hook - enforces two bounded surfaces only, not the full neutrality rule, which is now the general recipient-neutral rule at `content/references/subagent-protocol.md` §11 "Spawn-brief provenance" (`hooks/enforce-skeptic-neutrality.py`) |
