@@ -23,8 +23,8 @@ Retirement: delete this hook, its install.sh block, its bin/ds-doctor
         shows no dialog for `rm $A/$B/x`; or
     (b) zero deny rows in the last 90 days across every fire-log copy on
         the operator's machine, including worktree copies:
-        `find <operator dev root> -name .enforcement-fires.jsonl` piped
-        through
+        `find <operator dev root> -name .enforcement-fires.jsonl -exec cat {} +`
+        piped through
         `jq -c --arg since "<ISO date 90 days ago>" 'select(.hook=="enforce-guarded-rm" and .decision=="deny" and .ts >= $since)'`.
 
 Trigger: PreToolUse, matcher "Bash". Applies to the main session and to
@@ -113,6 +113,8 @@ KILL_SWITCH = "AE_RM_GUARD_DISABLE"
 MAX_INPUT_LEN = 100000
 MAX_DEPTH = 5
 OPERAND_DISPLAY_MAX = 200
+VARS_DISPLAY_MAX = 10
+VAR_NAME_DISPLAY_MAX = 40
 
 REASON_TEMPLATE = (
     "Blocked (enforce-guarded-rm, DS-261): rm operand {op} expands unguarded "
@@ -491,11 +493,7 @@ class _Lexer:
 
 
 def _dedupe(names: List[str]) -> List[str]:
-    seen: List[str] = []
-    for n in names:
-        if n not in seen:
-            seen.append(n)
-    return seen
+    return list(dict.fromkeys(names))
 
 
 def _analyze(command: str, depth: int) -> None:
@@ -572,9 +570,12 @@ def _load_log_fire():
 
 def build_reason(operand: str, names: List[str]) -> str:
     op = operand[:OPERAND_DISPLAY_MAX]
-    return REASON_TEMPLATE.format(
-        op=op, vars=", ".join("$" + n for n in names)
+    shown = ", ".join(
+        "$" + n[:VAR_NAME_DISPLAY_MAX] for n in names[:VARS_DISPLAY_MAX]
     )
+    if len(names) > VARS_DISPLAY_MAX:
+        shown += " (+{} more)".format(len(names) - VARS_DISPLAY_MAX)
+    return REASON_TEMPLATE.format(op=op, vars=shown)
 
 
 def main() -> None:

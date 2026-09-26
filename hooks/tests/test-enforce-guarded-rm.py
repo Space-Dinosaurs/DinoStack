@@ -45,6 +45,8 @@ DENY_CASES = [
     ("X=1 rm $Y/x", "$Y/x", ["Y"]),
     ("AE_RM_GUARD_DISABLE=1 rm $Y/x", "$Y/x", ["Y"]),
     ("echo start\nrm $A/$B/x", "$A/$B/x", ["A", "B"]),
+    ("rm ${X:-$Y}/f", "${X:-$Y}/f", ["X"]),
+    ("rm ${X:-}/f", "${X:-}/f", ["X"]),
 ]
 
 ALLOW_CASES = [
@@ -65,6 +67,8 @@ ALLOW_CASES = [
     'rm "$X',
     "ls",
     "cat <(true) rm $X",
+    "rm a; echo $X",
+    "rm --interactive=$MODE /tmp/f",
 ]
 
 
@@ -159,6 +163,16 @@ def test_reason_text():
     assert "AE_RM_GUARD_DISABLE" not in reason, reason
     long_reason = _mod.build_reason("$B/" + "x" * 500, ["B"])
     assert "$B/" + "x" * 197 + " expands" in long_reason, long_reason
+
+
+def test_reason_vars_bounded():
+    names = ["v%d" % i for i in range(15000)]
+    reason = _mod.build_reason("$v0", names)
+    assert len(reason) < 2000, len(reason)
+    assert "$v0, $v1," in reason, reason
+    assert "(+14990 more)" in reason, reason
+    assert "$" + "n" * 40 + "." in _mod.build_reason("$x", ["n" * 5000])
+    assert _mod._dedupe(["a", "b", "a", "c", "b"]) == ["a", "b", "c"]
 
 
 def test_kill_switch_in_process_env_allows():
