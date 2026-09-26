@@ -977,9 +977,9 @@ def test_scenario_26_task_and_agent_matchers_identical(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Scenario 27: hooks/tests/test-hooks-pep604-guard.py reports 79 checks
+# Scenario 27: hooks/tests/test-hooks-pep604-guard.py reports 83 checks
 # --------------------------------------------------------------------------- #
-def test_scenario_27_pep604_guard_79_checks():
+def test_scenario_27_pep604_guard_83_checks():
     guard_path = _REPO_ROOT / "hooks" / "tests" / "test-hooks-pep604-guard.py"
     result = subprocess.run(
         [sys.executable, str(guard_path)],
@@ -987,7 +987,7 @@ def test_scenario_27_pep604_guard_79_checks():
         text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "All 79 checks passed." in result.stdout
+    assert "All 83 checks passed." in result.stdout
 
 
 # --------------------------------------------------------------------------- #
