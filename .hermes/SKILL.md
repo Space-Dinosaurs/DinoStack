@@ -3065,7 +3065,7 @@ Apply these rules to every external-facing comment:
   - GitHub (PR bodies, comments), Linear, and chat turns: markdown `[text](url)` or a bare URL.
   - Jira: the stored comment needs an ADF `text` node carrying a `link` mark, e.g. `{"type":"text","text":"PR #388","marks":[{"type":"link","attrs":{"href":"<pr-url>"}}]}`. When posting raw ADF, add the mark yourself; when the posting tool takes markdown or wiki text instead of ADF, write the link in that tool's link syntax so it converts to a mark.
   - Never put a link inside a code span or fence, which renders it as inert text. When a command file shows a printed operator line or comment body that carries a link inside a code block or code span, emit that line as plain text so the link renders. Commands meant to be run or pasted keep their code formatting.
-  - A reference the destination does not autolink (`PR #388`, a short SHA, or a ticket key outside its own tracker) carries its URL: `[PR #388](<pr-url>)`, `[db2fc08](<commit-url>)`, where `<pr-url>` is the PR's URL and `<commit-url>` is the repository's web URL plus `/commit/<sha>`. A bare `PR #<n>` or SHA in a command's output format stands for this linked form.
+  - A reference the destination does not autolink (`PR #388`, a short SHA, or a ticket key outside its own tracker) carries its URL: `[PR #388](<pr-url>)`, `[db2fc08](<commit-url>)`, where `<pr-url>` is the PR's URL and `<commit-url>` is the commit's page on the code host. On a GitHub or GitHub Enterprise remote, `gh browse --no-browser <sha>` prints it (the repository web URL plus `/commit/<sha>`) from any checkout, resolving an ssh-form remote itself; use it only when it exits 0. Never build a commit URL from a remote string by hand. On any other host, or when `gh` fails, the SHA is printed bare. A bare `PR #<n>` or SHA in a command's output format stands for this linked form.
   - A reference with no reachable URL (a commit not on the remote, where `git branch -r --contains <sha>` prints nothing) or whose URL lookup failed is printed bare, never as a guessed link.
 - **No marketing voice, no emojis, no agent attribution footers.** The writing-style rules elsewhere in this methodology (plain verbs, no rule-of-three triads, no AI vocabulary, no em dashes) apply with extra force on external surfaces because humans read them quickly and judgmentally.
 - **Length is not the metric; signal-per-line is.** A long comment is fine when every line is load-bearing. A three-line comment that restates the ticket is too long.
@@ -23904,7 +23904,7 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
 3. **Gather deterministic evidence per remaining ticket key `<KEY>`:**
    - `git log --grep "<KEY>" --oneline` on `BASE_BRANCH`.
    - `gh pr list --repo <GH_REPO> --state merged --search "<KEY>" --json number,title,mergedAt,mergeCommit,url`.
-   - `gh pr list --repo <GH_REPO> --state open --search "<KEY>"`.
+   - `gh pr list --repo <GH_REPO> --state open --search "<KEY>" --json number,isDraft,reviewDecision,url`.
 
    Each call soft-fails independently: a failure for one ticket's evidence gathering logs and moves to the next ticket; it never aborts the sweep.
 
@@ -23922,7 +23922,7 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: [PR #<N>](<pr-url>) merged @[<sha>](<commit-url>)) - FAILED: <error>
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' - SKIPPED: <diagnostic>
 
-   With commit-only evidence (step 5's direct-commit row), the evidence clause is `(evidence: commit [<sha>](<commit-url>))`, using the newest commit from step 3's `git log`.
+   With commit-only evidence (step 5's direct-commit row), the evidence clause is `(evidence: commit [<sha>](<commit-url>))`, using the newest commit from step 3's `git log`. With open-PR evidence (step 5's open-PR rows), it is `(evidence: [PR #<N>](<pr-url>) open)`, where `<pr-url>` is step 3's open-PR `url` field.
 
    The `<diagnostic>` slot renders the Tracker Writeback Helper's own return
    payload. When `status == "skipped_transitions_manual"`, `diagnostic` is

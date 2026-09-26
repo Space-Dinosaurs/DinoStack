@@ -173,7 +173,7 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
 3. **Gather deterministic evidence per remaining ticket key `<KEY>`:**
    - `git log --grep "<KEY>" --oneline` on `BASE_BRANCH`.
    - `gh pr list --repo <GH_REPO> --state merged --search "<KEY>" --json number,title,mergedAt,mergeCommit,url`.
-   - `gh pr list --repo <GH_REPO> --state open --search "<KEY>"`.
+   - `gh pr list --repo <GH_REPO> --state open --search "<KEY>" --json number,isDraft,reviewDecision,url`.
 
    Each call soft-fails independently: a failure for one ticket's evidence gathering logs and moves to the next ticket; it never aborts the sweep.
 
@@ -191,7 +191,7 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' (evidence: [PR #<N>](<pr-url>) merged @[<sha>](<commit-url>)) - FAILED: <error>
        [ticket-status-sync] <KEY>: '<current>' -> '<expected>' - SKIPPED: <diagnostic>
 
-   With commit-only evidence (step 5's direct-commit row), the evidence clause is `(evidence: commit [<sha>](<commit-url>))`, using the newest commit from step 3's `git log`.
+   With commit-only evidence (step 5's direct-commit row), the evidence clause is `(evidence: commit [<sha>](<commit-url>))`, using the newest commit from step 3's `git log`. With open-PR evidence (step 5's open-PR rows), it is `(evidence: [PR #<N>](<pr-url>) open)`, where `<pr-url>` is step 3's open-PR `url` field.
 
    The `<diagnostic>` slot renders the Tracker Writeback Helper's own return
    payload. When `status == "skipped_transitions_manual"`, `diagnostic` is
