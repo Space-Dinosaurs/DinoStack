@@ -6806,7 +6806,7 @@ Every non-empty message has this envelope:
 - **ruling:** `Operator ruling, verbatim: "<text>" [per operator, <date>, verbatim]. Sent because <it names <ticket> | it applies to all conducted sessions>. Apply it inside your own plan and review loop.`
 - **state:** `<ticket>: <tracker state, PR, head SHA, CI, loop-state status and last_phase, each tagged [verified-by-execution: <cmd>]>. If you stopped for a decision or approval, reply with the one-line question. Otherwise, if you are stopped, continue from your own loop-state; do not redo completed work.`
 - **hold (open):** `You reported: "<receiver's words>". Take no further destructive or restoring action on it until the operator rules. Reply with recoverability facts only.`
-- **hold (decided):** `Operator decided, verbatim: "<text>" [per operator, <date>, verbatim]. You are the executor; execute it once and report the result.` A non-surfacing session the ruling names gets the same first sentence plus `Do not act on it yourself.`
+- **hold (decided):** `Operator decided, verbatim: "<text>" [per operator, <date>, verbatim]. You are the executor; execute it once and report the result.` A non-reporting session the ruling names gets the same first sentence plus `Do not act on it yourself.`
 - **queue:** `Operator queued for this session, verbatim: "<text>". The operator will start it; no action needed now.`
 
 ## Rulings
@@ -6821,10 +6821,10 @@ On the harness reset prompt ("Your claude.ai usage limit has reset"), send `stat
 
 When a session's status line or reply reports a destructive or restoring action (see §Stoppage relay) for a ticket that has no `holds[]` entry yet:
 
-1. Record `{ticket, session, summary: <the report verbatim>, decision_verbatim: null}`, send `hold (open)` to that session, and present the report verbatim to the operator as an Operator decision. A reply to `hold (open)` is relayed verbatim to the operator, as any reply is.
+1. Record `{ticket, session, summary: <the report verbatim>, decision_verbatim: null}`, send `hold (open)` to that session, and present the report verbatim to the operator as an Operator decision. When the report came from an idle notice, set the session's `surfaced_status` to that notice's dedupe key, so the next identical notice is not surfaced again. A reply to `hold (open)` is relayed verbatim to the operator whether or not it asks a question or reports a stop.
 2. On the operator's decision, record `decision_verbatim`, then send `hold (decided)` once to the reporting session and to any other session the ruling names.
 
-Known limit: a ticket that already has a `holds[]` entry never gets a second hold, even for a different action; any later report about it, including the executor's result report and repeat idle notices, follows §Stoppage relay's branches without this routing, so a decision-naming status still reaches the operator once through the `surfaced_status` dedupe.
+Known limit: a ticket that already has a `holds[]` entry never gets a second hold, even for a different action; any later report about it, including the executor's result report and repeat idle notices, follows §Stoppage relay's branches without this routing and is surfaced only if those branches surface it.
 
 After these steps, re-arm the session's watch as usual; the clearing of `surfaced_status` above still applies.
 
