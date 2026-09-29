@@ -59,7 +59,7 @@ One file, `<repo>/.agentic/runbook-<KEY>.json`, where `KEY` is the triage artifa
 
 Fields: `schema_version`, `runbook_key`, `conductor_session_id`, `repo`, `status` (`active`|`complete`), `updated_at`, `resume_hint`, `waves[]`, `sessions[]` (each `{name, tickets[], adopted_via: issued|operator-confirmed, surfaced_status}`), `rulings[]`, `holds[]`, `queue[]`, `cron_id`.
 
-`holds[]` entries are `{ticket, session, summary, state: open|decided|executed, executor_session, decision_verbatim}`.
+`holds[]` entries are `{ticket, session, summary, decision_verbatim}`. The executor is always the reporting `session`.
 
 PR, CI and ticket state are never stored. Read them live from gh, the tracker and loop-state every time.
 
@@ -129,12 +129,12 @@ On the harness reset prompt ("Your claude.ai usage limit has reset"), send `stat
 
 ## Holds
 
-When a session's status line or reply reports a destructive or restoring action (see §Stoppage relay), first match it by action against every existing hold for that ticket, whatever its state (`open`, `decided` or `executed`). A report, reply or idle notice about the same action as an existing hold updates only that entry's `summary` and never opens a new hold; an idle notice for it re-arms silently, and for an `executed` hold nothing is sent or surfaced. A different destructive or restoring action, on the same ticket or another, opens its own new hold: hold the action and put the decision to the operator:
+When a session's status line or reply reports a destructive or restoring action (see §Stoppage relay) for a ticket that has no `holds[]` entry yet:
 
-1. Record a `holds[]` entry with `state: open` and `executor_session` set to the surfacing session, then send `hold (open)` to it.
-2. Present the decision to the operator as an Operator decision.
-3. On the operator's decision, record `decision_verbatim` and `state: decided`, then send `hold (decided)`, once per hold, to the executor and to any other session the ruling names.
-4. The executor's result report sets `state: executed`.
+1. Record `{ticket, session, summary: <the report verbatim>, decision_verbatim: null}`, send `hold (open)` to that session, and present the report verbatim to the operator as an Operator decision. A reply to `hold (open)` is relayed verbatim to the operator, as any reply is.
+2. On the operator's decision, record `decision_verbatim`, then send `hold (decided)` once to the reporting session and to any other session the ruling names.
+
+Known limit: a ticket that already has a `holds[]` entry never gets a second hold, even for a different action; any later report about it, including the executor's result report and repeat idle notices, follows §Stoppage relay's branches without this routing, so a decision-naming status still reaches the operator once through the `surfaced_status` dedupe.
 
 After these steps, re-arm the session's watch as usual; the clearing of `surfaced_status` above still applies.
 
@@ -161,7 +161,7 @@ After a compaction, the first action is to read the state file. No message is se
 
 ## Close-out
 
-Close out when every ticket in every wave of `waves[]` is done or merged and no wave is left to open, or when the operator asks. First surface every `open` hold and every `decided` hold not yet `executed`, and close only after the operator acknowledges. Then `CronDelete` the recorded `cron_id` and set `status: complete`.
+Close out when every ticket in every wave of `waves[]` is done or merged and no wave is left to open, or when the operator asks. First surface every `holds[]` entry whose `decision_verbatim` is still null, and close only after the operator acknowledges. Then `CronDelete` the recorded `cron_id` and set `status: complete`.
 
 ## Measured unknowns
 
