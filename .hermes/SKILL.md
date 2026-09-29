@@ -6721,10 +6721,12 @@ Failure modes: Prose reference; does not auto-execute. When the tools are
                a crash leaves at most an unsent entry for those; `state`
                sends and watch subscriptions are not recorded. PR, CI and
                ticket state are never cached, so nothing in the file can go
-               stale against gh or the tracker. No executable test can
+               stale against gh or the tracker. `surfaced_status` is
+               recorded after its stoppage is surfaced, so a crash risks a
+               duplicate stoppage, never a lost one. No executable test can
                exercise this procedure, because it is prose a model runs
-               against live cross-session tools; runtime QA scenario 11 is
-               its check.
+               against live cross-session tools; runtime QA of this
+               procedure is its check.
 
 Performance: one cron firing per 30 minutes plus one turn per idle notice;
              each firing reads compact --json fields only (M6).
@@ -6753,7 +6755,7 @@ PR, CI and ticket state are never stored. Read them live from gh, the tracker an
 
 ## Kickoff and naming
 
-The kickoff is never written into the triage artifact. After "conduct", record each lane's `{name, tickets[]}` in `sessions[]` (with `adopted_via: issued`), then print for each lane:
+The kickoff is never written into the triage artifact. After "conduct", record each lane's `{name, tickets[]}` in `sessions[]` (with `adopted_via: issued`) and the lanes' tickets as the first entry of `waves[]`, then print for each lane:
 
 - `Lane N - open a new session in the same permission mode as this one and send these as two separate prompts:`
 - a fence containing `/rename <the lane's ticket IDs joined by "-">`
@@ -6762,13 +6764,14 @@ The kickoff is never written into the triage artifact. After "conduct", record e
 **Adoption.** Match `ListAgents` rows to sessions:
 
 - A row is adopted when its name, minus the ` [hex]` suffix, equals an issued `sessions[].name`.
-- Only issued names are adopted automatically. A session the operator explicitly names is added to `sessions[]` with `adopted_via: operator-confirmed`.
+- Only issued names are adopted automatically. A session the operator explicitly names is added to `sessions[]` with `adopted_via: operator-confirmed`; its `tickets[]` are the tickets the operator names with it.
 - A session's tickets always come from `sessions[].tickets`, never from its name.
 
 ## Watch
 
 - Arm each adopted session with `SendMessage{to, notify_when_idle: true, content: ""}`. This is a subscription, not an envelope message. Re-arm it after every idle notice.
 - Create one cron, every 30 minutes on an off-minute (for example `7,37 * * * *`), whose prompt names the absolute state-file path and this reference. Record its id in `cron_id`. If `CronList` no longer shows it, re-create it (M4).
+- Each firing runs `ListAgents`, re-arms any conducted session missing a watch, and evaluates the close-out condition. An issued session name absent from `ListAgents` (a lane whose `/rename` was skipped) is surfaced once as a stoppage: surface it unless that session's `surfaced_status` is already `absent from ListAgents`, then set it to that.
 - **Silence.** A firing or notice with no stoppage emits no operator-visible text; the turn is tool calls only.
 
 ## Stoppage relay
@@ -6778,11 +6781,11 @@ On an idle notice, read the tracker, gh, and the loop-state of each of the sessi
 Then branch on the notice's own harness status line, `Its harness reports: «<status>»`:
 
 - **Done or merged:** silent, or advance the queue.
-- **Names a decision, an approval, a confirmation, the operator, or this session:** re-arm. If the session's `surfaced_status` equals this status verbatim, emit nothing. Otherwise set `surfaced_status` to it, then surface the quoted status to the operator as a stoppage ("may await approval in its own window"); the session's own question is in its own window. Send the session no `state` message on this branch.
+- **Names a decision, an approval, a confirmation, the operator, or this session:** re-arm. The dedupe key is this status verbatim plus the `last_phase` of the session's tickets' loop-state. If the session's `surfaced_status` equals that key, emit nothing. Otherwise surface the quoted status to the operator as a stoppage ("may await approval in its own window"), then set `surfaced_status` to the key; the session's own question is in its own window. Send the session no `state` message on this branch.
 - **Any other status** (for example CI, its own subagent, a push): re-arm only. No message, no operator text.
 - **No status line:** re-arm only. Usage-limit resume covers it.
 
-Any notice whose status differs from the session's `surfaced_status`, on any branch including Done or merged, clears it.
+Any notice whose status differs from the session's `surfaced_status`, on any branch including Done or merged, clears it, and so does a notice with no status line.
 
 Any SendMessage reply from a conducted session that asks a question or reports a stop is relayed verbatim to the operator as an Operator decision.
 
@@ -6816,12 +6819,12 @@ On the harness reset prompt ("Your claude.ai usage limit has reset"), send `stat
 
 ## Holds
 
-When a session's status line or reply reports a destructive or restoring action (see §Stoppage relay), hold the action and put the decision to the operator:
+When a session's status line or reply reports a destructive or restoring action (see §Stoppage relay), hold the action and put the decision to the operator. At most one hold per ticket is not `executed`. While one exists, any report, reply or idle notice about that ticket's destructive or restoring action updates that entry and never creates a new one, and an idle notice for it re-arms silently. Otherwise:
 
 1. Record a `holds[]` entry with `state: open` and `executor_session` set to the surfacing session, then send `hold (open)` to it.
 2. Present the decision to the operator as an Operator decision.
-3. On the operator's decision, record `decision_verbatim` and `state: decided`, then send `hold (decided)` to the executor and to any other session the ruling names.
-4. When the executor reports the result, set `state: executed`.
+3. On the operator's decision, record `decision_verbatim` and `state: decided`, then send `hold (decided)`, once per hold, to the executor and to any other session the ruling names.
+4. The executor's result report sets `state: executed`.
 
 After these steps, re-arm the session's watch as usual; the clearing of `surfaced_status` above still applies.
 
@@ -6848,7 +6851,7 @@ After a compaction, the first action is to read the state file. No message is se
 
 ## Close-out
 
-When every runbook ticket is done or merged, or the operator asks, close out. First surface any open `holds[]` entry to the operator, then `CronDelete` the recorded `cron_id` and set `status: complete`.
+Close out when every ticket in every wave of `waves[]` is done or merged and no wave is left to open, or when the operator asks. First surface every `open` hold and every `decided` hold not yet `executed`, and close only after the operator acknowledges. Then `CronDelete` the recorded `cron_id` and set `status: complete`.
 
 ## Measured unknowns
 
