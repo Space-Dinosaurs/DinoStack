@@ -40,6 +40,8 @@ Downstream consumers: operator-invoked only (standalone) OR /ds-implement-ticket
                       for the conductor on the operator's next /ds-implement-ticket
                       session; they do not bypass risk classification or Skeptic
                       review.
+                      Output item 8 hands off to content/references/
+                      runbook-conductor.md when the operator replies "conduct".
 
 Output description: triage_result {lanes[], deferred[], in_progress_excluded[],
                     functional_duplicates[], conflict_warnings[], heuristic_only}
@@ -79,7 +81,7 @@ Performance: one tracker API call per ticket in Phase 1 (conductor-direct);
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
-Strategic triage for a set of tickets. Produces a lane-distributed game plan with paste-ready `/ds-implement-ticket` kickoff prompts. Stops at the plan; does not invoke `/ds-implement-ticket`, touch the tracker, or write any `.agentic/` state.
+Strategic triage for a set of tickets. Produces a lane-distributed game plan with paste-ready `/ds-implement-ticket` kickoff prompts. Stops at the plan; does not invoke `/ds-implement-ticket`, touch the tracker, or write any `.agentic/` state. Output item 8 may hand off to content/references/runbook-conductor.md, whose conductor writes its own state only after the operator replies "conduct"; triage itself still writes nothing.
 
 ## When to use
 
@@ -484,6 +486,7 @@ After Phase 4b sign-off (or after the skip condition triggers), print to chat:
 5. If any conflict warnings were emitted, restate the fixed caveat.
 6. If `HEURISTIC_ONLY=true`, restate the Level 1 stamp.
 7. **Zero lanes with in-flight exclusions.** When the artifact contains zero lanes AND zero chains AND every non-lane-assigned ticket is an IN_FLIGHT-sourced exclusion as defined in the Phase 4b skip condition above (equivalently: `## Deferred tickets` is empty AND every entry in `## In-progress tickets` carries `entry.IN_PROGRESS_TRACKER: false` AND `entry.IN_FLIGHT: true`) AND at least one such ticket exists, print: `All candidate tickets are already in flight (open PRs: <keys>). No lanes to recommend. Recommended next action: review those PRs before starting new work - or re-invoke with an explicit ticket id to override.` If `## Deferred tickets` is non-empty, or any In-progress ticket carries `entry.IN_PROGRESS_TRACKER: true` or lacks `entry.IN_FLIGHT: true`, use the ordinary one-line summary (item 4) instead - do not claim ALL tickets are in flight when some are not (a terminal-plus-open-PR ticket lands in `## Deferred tickets`, so its presence alone routes here, not to the special print; a ticket with both flags true reached the table via the tracker column regardless of IN_FLIGHT, so it is not IN_FLIGHT-sourced and also routes here). Note the Phase 4b Skeptic does still run in this case, per the extended skip condition.
+8. **Cross-session conductor offer.** Only when the artifact has at least one lane and both `ListAgents` and `SendMessage` are named among this session's callable tools or its deferred-tool list, print: `Cross-session tools available: reply "conduct" to have this session watch the sessions you open for these lanes (content/references/runbook-conductor.md).` Make no `ToolSearch` call for them unless the operator replies "conduct"; then load them with `ToolSearch select:` and follow that reference. If loading fails, print `Cross-session tools could not be loaded; use the kickoff prompts above.` Otherwise print nothing for this item; all other output is unchanged.
 
 `[phase: ticket-triage | phase=complete]`
 
