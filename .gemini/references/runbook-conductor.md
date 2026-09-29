@@ -91,11 +91,11 @@ On an idle notice, read the tracker, gh, and the loop-state of each of the sessi
 Then branch on the notice's own harness status line, `Its harness reports: «<status>»`:
 
 - **Done or merged:** silent, or advance the queue.
-- **Names a decision, an approval, a confirmation, the operator, or this session:** re-arm. The dedupe key is this status verbatim plus the `last_phase` of the session's tickets' loop-state. If the session's `surfaced_status` equals that key, emit nothing. Otherwise surface the quoted status to the operator as a stoppage ("may await approval in its own window"), then set `surfaced_status` to the key; the session's own question is in its own window. Send the session no `state` message on this branch.
+- **Names a decision, an approval, a confirmation, the operator, or this session:** re-arm. The dedupe key is this status verbatim plus the `last_phase` of the session's tickets' loop-state, as a list in `tickets[]` order when the session has several. If the session's `surfaced_status` equals that key, emit nothing. Otherwise surface the quoted status to the operator as a stoppage ("may await approval in its own window"), then set `surfaced_status` to the key; the session's own question is in its own window. Send the session no `state` message on this branch.
 - **Any other status** (for example CI, its own subagent, a push): re-arm only. No message, no operator text.
 - **No status line:** re-arm only. Usage-limit resume covers it.
 
-Any notice whose status differs from the session's `surfaced_status`, on any branch including Done or merged, clears it, and so does a notice with no status line.
+Any notice whose dedupe key (its status verbatim plus that `last_phase` list) differs from the session's `surfaced_status`, on any branch including Done or merged, clears it, and so does a notice with no status line.
 
 Any SendMessage reply from a conducted session that asks a question or reports a stop is relayed verbatim to the operator as an Operator decision.
 
@@ -129,7 +129,7 @@ On the harness reset prompt ("Your claude.ai usage limit has reset"), send `stat
 
 ## Holds
 
-When a session's status line or reply reports a destructive or restoring action (see §Stoppage relay), hold the action and put the decision to the operator. At most one hold per ticket is not `executed`. While one exists, any report, reply or idle notice about that ticket's destructive or restoring action updates that entry and never creates a new one, and an idle notice for it re-arms silently. Otherwise:
+When a session's status line or reply reports a destructive or restoring action (see §Stoppage relay), first match it by action against every existing hold for that ticket, whatever its state (`open`, `decided` or `executed`). A report, reply or idle notice about the same action as an existing hold updates only that entry's `summary` and never opens a new hold; an idle notice for it re-arms silently, and for an `executed` hold nothing is sent or surfaced. A different destructive or restoring action, on the same ticket or another, opens its own new hold: hold the action and put the decision to the operator:
 
 1. Record a `holds[]` entry with `state: open` and `executor_session` set to the surfacing session, then send `hold (open)` to it.
 2. Present the decision to the operator as an Operator decision.
