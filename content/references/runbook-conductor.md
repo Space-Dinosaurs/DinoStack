@@ -27,8 +27,10 @@ Failure modes: Prose reference; does not auto-execute. When the tools are
                absent or fail to load, triage output is unchanged and the
                operator uses the paste-ready kickoff prompts. The state file
                is conductor-only and written tmp+rename before any message
-               it records, so a crash leaves at most an unsent entry, never
-               a sent but unrecorded one. PR, CI and ticket state are never
+               it records. Rulings, holds, queue sends and relay `state`
+               sends are recorded, so a crash leaves at most an unsent
+               entry for those; other `state` sends and watch
+               subscriptions are not recorded. PR, CI and ticket state are never
                cached, so nothing in the file can go stale against gh or the
                tracker.
 
@@ -42,8 +44,8 @@ An optional mode for a session that has just run `/ds-ticket-triage`. The operat
 
 ## Preconditions and degrade
 
-- Entry is `/ds-ticket-triage` Output item 8, printed only when both `ListAgents` and `SendMessage` are named among the callable tools or the deferred-tool list. When they are not, triage output is byte-identical to a run without this reference, and the kickoff stays the paste-ready one.
-- Load deferred tool schemas with `ToolSearch select:` before first use, and only after the operator replies "conduct". If loading fails, print `Cross-session tools could not be loaded; use the kickoff prompts above.` and stop.
+- Entry is `/ds-ticket-triage` Output item 8. Its print predicate, its load rule and its load-failure line are binding there, not here. Without the tools, the kickoff stays the paste-ready one.
+- Load deferred tool schemas with `ToolSearch select:` before first use.
 - Cloud sessions are watched through gh and the tracker only.
 - Every ticket session must run in this session's permission mode. An idle notice from a session in a different permission class is delivered to the user, not to this session (measured). The Kickoff lane header says so.
 
@@ -51,9 +53,13 @@ An optional mode for a session that has just run `/ds-ticket-triage`. The operat
 
 One file, `<repo>/.agentic/runbook-<KEY>.json`, where `KEY` is the triage artifact stem (`triage-YYYYMMDD-4hex`). Only the conductor writes it, write-ahead: atomic tmp+rename, before any SendMessage it records.
 
-Fields: `schema_version`, `runbook_key`, `conductor_session_id`, `repo`, `status` (`active`|`complete`), `updated_at`, `resume_hint`, `waves[]`, `sessions[]` (each `{name, tickets[], adopted_via: issued|operator-confirmed}`), `rulings[]`, `holds[]`, `queue[]`, `cron_id`.
+Fields: `schema_version`, `runbook_key`, `conductor_session_id`, `repo`, `status` (`active`|`complete`), `updated_at`, `resume_hint`, `waves[]`, `sessions[]` (each `{name, tickets[], adopted_via: issued|operator-confirmed}`), `rulings[]`, `holds[]`, `queue[]`, `relays[]`, `offers[]`, `cron_id`.
 
 `holds[]` entries are `{ticket, session, summary, state: open|decided|executed, executor_session, decision_verbatim}`.
+
+`relays[]` holds at most one entry per session, `{session, status_verbatim, sent_at}`: a `state` relay sent and awaiting a reply.
+
+`offers[]` entries are `{row_name, state: pending|confirmed|declined}`: every row put to the operator by the adoption prefix rule.
 
 PR, CI and ticket state are never stored. Read them live from gh, the tracker and loop-state every time.
 
@@ -68,7 +74,7 @@ The kickoff is never written into the triage artifact. After "conduct", record e
 **Adoption.** Match `ListAgents` rows to sessions:
 
 - A row is adopted when its name, minus the ` [hex]` suffix, equals an issued `sessions[].name`.
-- With a `TICKET_PREFIX`, a row whose name matches a runbook ticket ID by `(^|[^A-Za-z0-9])ID($|[^0-9])` is offered once as an Operator decision; on confirmation record it with `adopted_via: operator-confirmed`.
+- With a `TICKET_PREFIX`, a row not already adopted by issued name whose name matches a runbook ticket ID by `(^|[^A-Za-z0-9])ID($|[^0-9])`, and that is not already in `offers[]`, is offered once as an Operator decision. Record it in `offers[]` before offering; on confirmation record it in `sessions[]` with `adopted_via: operator-confirmed`. A row in `offers[]` is never offered again.
 - With no `TICKET_PREFIX`, only issued names are adopted.
 - A session's tickets always come from `sessions[].tickets`, never from its name.
 
@@ -84,10 +90,12 @@ On an idle notice, read the tracker, gh, and the loop-state of each of the sessi
 
 Then branch on the notice's own harness status line, `Its harness reports: «<status>»`:
 
-- **Done or merged:** silent, or advance the queue.
-- **Names a decision, an approval, a confirmation, the operator, or this session:** re-arm, send `state`, then relay the reply verbatim as an Operator decision. If there is no reply by the next firing, surface the quoted status as a stoppage ("may await approval in its own window").
+- **Done or merged:** remove any `relays[]` entry for the session; otherwise silent, or advance the queue.
+- **Names a decision, an approval, a confirmation, the operator, or this session:** re-arm. If the session's `relays[]` entry already holds this status verbatim, send nothing more: a `state` message wakes the session, so its next idle notice may repeat the same status. Otherwise record `{session, status_verbatim, sent_at}` in `relays[]`, replacing any earlier entry for that session, then send `state`. Relay the reply verbatim as an Operator decision and remove the entry. If an entry still has no reply at the next firing, surface its quoted status as a stoppage ("may await approval in its own window").
 - **Any other status** (for example CI, its own subagent, a push): re-arm only. No message, no operator text.
 - **No status line:** re-arm only. Usage-limit resume covers it.
+
+A status line or reply that reports a destructive or restoring action goes to §Holds, whichever branch above it would otherwise take.
 
 The status line is the session's own free text. It decides only where the notice goes; it is never sent back to the session as a diagnosis.
 
@@ -117,7 +125,7 @@ On the harness reset prompt ("Your claude.ai usage limit has reset"), send `stat
 
 ## Holds
 
-When a session reports a destructive or restoring action, hold the action and put the decision to the operator:
+When a session's status line or reply reports a destructive or restoring action (see §Stoppage relay), hold the action and put the decision to the operator:
 
 1. Record a `holds[]` entry with `state: open` and `executor_session` set to the surfacing session, then send `hold (open)` to it.
 2. Present the decision to the operator as an Operator decision.
@@ -136,7 +144,7 @@ Only on explicit operator request. Until M1 is measured, print the paste line fo
 
 ## Conductor compaction
 
-After a compaction, the first action is to read the state file. No message is sent before it.
+After a compaction, the first action is to read the state file. No message is sent before it. Pending `relays[]` entries carry over: each is surfaced at the next firing if it still has no reply.
 
 ## Ticket-session compaction
 
