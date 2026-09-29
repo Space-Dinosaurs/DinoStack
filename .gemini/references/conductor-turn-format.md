@@ -23,7 +23,7 @@ Everything else - agent spawned, agent returned, phase advanced, unit merged, CI
 
 ## Scope filter
 
-A conductor turn reports on **this session's work only**. Do not mention other concurrent sessions, other tickets, or unrelated in-flight work - the operator is tracking those elsewhere and a cross-session mention adds cost without adding a decision. Do not include rationale unless a decision surfaced in the *same* turn depends on it; rationale for past decisions belongs in the PR body, the plan artifact, or a memory file (see §5, bullet 3).
+A conductor turn reports on **this session's work only**. Do not mention other concurrent sessions, other tickets, or unrelated in-flight work - the operator is tracking those elsewhere and a cross-session mention adds cost without adding a decision. Do not include rationale unless a decision surfaced in the *same* turn depends on it; rationale for past decisions belongs in the PR body, the plan artifact, or a memory file (see §5, bullet 3). Exception: in a runbook-conductor session the conducted ticket sessions are this session's work, and a ticket session's replies to its conductor are SendMessage content, not operator turns; see `content/references/runbook-conductor.md`.
 
 ## Self-discovered defects
 
