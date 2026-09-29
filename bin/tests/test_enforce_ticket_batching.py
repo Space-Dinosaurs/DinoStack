@@ -1993,10 +1993,11 @@ def test_grant_consumption_atomic_under_concurrency():
     separate steps after the ALLOW was already decided - every concurrent
     reader saw the still-present, still-valid file before any of them
     deleted it. `_load_and_consume_grant` closes this by validating THEN
-    attempting `Path.unlink()` as the actual act of consumption, and only
-    returning the grant to the caller whose unlink call succeeds; POSIX
-    serializes directory-entry removal, so at most one of N concurrent
-    unlink calls on the same path can succeed."""
+    attempting `os.rename()` to a per-process claim path as the actual act
+    of consumption, and only returning the grant to the caller whose
+    rename succeeds. An earlier version used `Path.unlink()` as the claim;
+    on macOS APFS concurrent unlinks of one path can all succeed, and this
+    test failed 6 of 10 runs there with two `allow_grant`s."""
     import concurrent.futures
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -2028,8 +2029,9 @@ def test_grant_consumption_atomic_under_concurrency():
 def test_unwritable_agentic_dir_never_allows_grant_unboundedly():
     """M1 (Skeptic Critical-adjacent fix): with `.agentic/` at mode 0o555
     (readable/traversable, NOT writable), a valid grant can never be
-    durably consumed - `Path.unlink()` always fails there (removing a
-    directory entry needs write access to the directory, not the file).
+    durably consumed - the claiming `os.rename()` always fails there
+    (moving a directory entry needs write access to the directory, not
+    the file).
     A round-1 version of this hook deleted the grant only as an
     afterthought AFTER already deciding to allow, so the failed delete
     never undid the allow, and every subsequent denied creation re-read
