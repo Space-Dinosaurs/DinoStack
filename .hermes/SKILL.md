@@ -6717,12 +6717,14 @@ Failure modes: Prose reference; does not auto-execute. When the tools are
                absent or fail to load, triage output is unchanged and the
                operator uses the paste-ready kickoff prompts. The state file
                is conductor-only and written tmp+rename before any message
-               it records. Rulings, holds, queue sends and relay `state`
-               sends are recorded, so a crash leaves at most an unsent
-               entry for those; other `state` sends and watch
-               subscriptions are not recorded. PR, CI and ticket state are never
-               cached, so nothing in the file can go stale against gh or the
-               tracker.
+               it records. Rulings, holds and queue sends are recorded, so
+               a crash leaves at most an unsent entry for those; `state`
+               sends and watch subscriptions are not recorded. PR, CI and
+               ticket state are never cached, so nothing in the file can go
+               stale against gh or the tracker. No executable test can
+               exercise this procedure, because it is prose a model runs
+               against live cross-session tools; runtime QA scenario 11 is
+               its check.
 
 Performance: one cron firing per 30 minutes plus one turn per idle notice;
              each firing reads compact --json fields only (M6).
@@ -6743,13 +6745,9 @@ An optional mode for a session that has just run `/ds-ticket-triage`. The operat
 
 One file, `<repo>/.agentic/runbook-<KEY>.json`, where `KEY` is the triage artifact stem (`triage-YYYYMMDD-4hex`). Only the conductor writes it, write-ahead: atomic tmp+rename, before any SendMessage it records.
 
-Fields: `schema_version`, `runbook_key`, `conductor_session_id`, `repo`, `status` (`active`|`complete`), `updated_at`, `resume_hint`, `waves[]`, `sessions[]` (each `{name, tickets[], adopted_via: issued|operator-confirmed}`), `rulings[]`, `holds[]`, `queue[]`, `relays[]`, `offers[]`, `cron_id`.
+Fields: `schema_version`, `runbook_key`, `conductor_session_id`, `repo`, `status` (`active`|`complete`), `updated_at`, `resume_hint`, `waves[]`, `sessions[]` (each `{name, tickets[], adopted_via: issued|operator-confirmed, surfaced_status}`), `rulings[]`, `holds[]`, `queue[]`, `cron_id`.
 
 `holds[]` entries are `{ticket, session, summary, state: open|decided|executed, executor_session, decision_verbatim}`.
-
-`relays[]` holds at most one entry per session, `{session, status_verbatim, sent_at}`: a `state` relay sent and awaiting a reply.
-
-`offers[]` entries are `{row_name, state: pending|confirmed|declined}`: every row put to the operator by the adoption prefix rule.
 
 PR, CI and ticket state are never stored. Read them live from gh, the tracker and loop-state every time.
 
@@ -6764,8 +6762,7 @@ The kickoff is never written into the triage artifact. After "conduct", record e
 **Adoption.** Match `ListAgents` rows to sessions:
 
 - A row is adopted when its name, minus the ` [hex]` suffix, equals an issued `sessions[].name`.
-- With a `TICKET_PREFIX`, a row not already adopted by issued name whose name matches a runbook ticket ID by `(^|[^A-Za-z0-9])ID($|[^0-9])`, and that is not already in `offers[]`, is offered once as an Operator decision. Record it in `offers[]` before offering; on confirmation record it in `sessions[]` with `adopted_via: operator-confirmed`. A row in `offers[]` is never offered again.
-- With no `TICKET_PREFIX`, only issued names are adopted.
+- Only issued names are adopted automatically. A session the operator explicitly names is added to `sessions[]` with `adopted_via: operator-confirmed`.
 - A session's tickets always come from `sessions[].tickets`, never from its name.
 
 ## Watch
@@ -6780,10 +6777,14 @@ On an idle notice, read the tracker, gh, and the loop-state of each of the sessi
 
 Then branch on the notice's own harness status line, `Its harness reports: «<status>»`:
 
-- **Done or merged:** remove any `relays[]` entry for the session; otherwise silent, or advance the queue.
-- **Names a decision, an approval, a confirmation, the operator, or this session:** re-arm. If the session's `relays[]` entry already holds this status verbatim, send nothing more: a `state` message wakes the session, so its next idle notice may repeat the same status. Otherwise record `{session, status_verbatim, sent_at}` in `relays[]`, replacing any earlier entry for that session, then send `state`. Relay the reply verbatim as an Operator decision and remove the entry. If an entry still has no reply at the next firing, surface its quoted status as a stoppage ("may await approval in its own window").
+- **Done or merged:** silent, or advance the queue.
+- **Names a decision, an approval, a confirmation, the operator, or this session:** re-arm. If the session's `surfaced_status` equals this status verbatim, emit nothing. Otherwise set `surfaced_status` to it, then surface the quoted status to the operator as a stoppage ("may await approval in its own window"); the session's own question is in its own window. Send the session no `state` message on this branch.
 - **Any other status** (for example CI, its own subagent, a push): re-arm only. No message, no operator text.
 - **No status line:** re-arm only. Usage-limit resume covers it.
+
+Any notice whose status differs from the session's `surfaced_status`, on any branch including Done or merged, clears it.
+
+Any SendMessage reply from a conducted session that asks a question or reports a stop is relayed verbatim to the operator as an Operator decision.
 
 A status line or reply that reports a destructive or restoring action goes to §Holds, whichever branch above it would otherwise take.
 
@@ -6822,6 +6823,8 @@ When a session's status line or reply reports a destructive or restoring action 
 3. On the operator's decision, record `decision_verbatim` and `state: decided`, then send `hold (decided)` to the executor and to any other session the ruling names.
 4. When the executor reports the result, set `state: executed`.
 
+After these steps, re-arm the session's watch as usual; the clearing of `surfaced_status` above still applies.
+
 The conductor never executes the held action itself.
 
 ## Waves
@@ -6834,7 +6837,7 @@ Only on explicit operator request. Until M1 is measured, print the paste line fo
 
 ## Conductor compaction
 
-After a compaction, the first action is to read the state file. No message is sent before it. Pending `relays[]` entries carry over: each is surfaced at the next firing if it still has no reply.
+After a compaction, the first action is to read the state file. No message is sent before it.
 
 ## Ticket-session compaction
 
@@ -6845,7 +6848,7 @@ After a compaction, the first action is to read the state file. No message is se
 
 ## Close-out
 
-`CronDelete` the recorded `cron_id`, then set `status: complete`.
+When every runbook ticket is done or merged, or the operator asks, close out. First surface any open `holds[]` entry to the operator, then `CronDelete` the recorded `cron_id` and set `status: complete`.
 
 ## Measured unknowns
 
