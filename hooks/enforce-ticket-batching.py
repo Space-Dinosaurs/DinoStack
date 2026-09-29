@@ -560,9 +560,9 @@ Failure modes:
       creation, so a grant written before that one survives it. Unlike a
       round-1 version of this hook, the grant's DELETE now happens BEFORE
       the ALLOW is decided, not after - `_load_and_consume_grant()`
-      returns a grant to its caller only once its own unlink of the file
-      has already succeeded, so a delete FAILURE here never reaches an
-      ALLOW at all; it falls straight to "no grant" and the ordinary deny
+      returns a grant to its caller only once its own rename of the file
+      to a claim path has already succeeded, so a claim FAILURE never
+      reaches an ALLOW at all; it falls straight to "no grant" and the ordinary deny
       path, closing the concurrent-allow and non-writable-directory bugs
       described in that function's own docstring.
     - A creation routed through a script file WRITTEN to disk and then
@@ -1187,18 +1187,20 @@ def _load_and_consume_grant(path: Path) -> dict | None:
     or empty-reason grant is left ON DISK untouched, never deleted, since
     the hook never reached a state where consuming it would apply. Only
     once the content validates does this function attempt the actual act
-    of consumption: `Path.unlink()` on the grant's own path. On POSIX,
-    removing a directory entry is serialized by the OS - at most one
-    caller's unlink on a given path can succeed; every other concurrent
-    (or later) caller's unlink on the same, already-removed path raises
-    FileNotFoundError. This function returns the grant ONLY to the caller
-    whose unlink SUCCEEDS - every other caller (racing concurrently, or
-    arriving after the grant was already consumed) gets None and falls to
-    the ordinary deny path, which is what makes the grant genuinely
-    one-shot under concurrency.
+    of consumption: `os.rename()` of the grant to a per-process claim
+    path. At most one concurrent rename of a given source path succeeds;
+    every other caller's rename raises FileNotFoundError. `unlink()` is
+    NOT usable as the claim: on macOS APFS, N concurrent unlinks of one
+    path all return success (measured: 4 of 4 racers, 299 of 300 trials),
+    which let two racers each allow on one grant. The winner then reads
+    and re-validates the grant from its own claim path, deletes that
+    claim, and is the ONLY caller the grant is returned to - every other
+    caller (racing concurrently, or arriving after the grant was already
+    consumed) gets None and falls to the ordinary deny path, which is
+    what makes the grant genuinely one-shot under concurrency.
 
-    When the containing directory itself lacks write permission, unlink
-    always fails (removing an entry needs write access to the directory,
+    When the containing directory itself lacks write permission, rename
+    always fails (moving an entry needs write access to the directory,
     not the file), so this function returns None every time a valid
     grant is present there - the deny path applies instead of an
     unbounded allow. This is a deliberate, physical limit, not an
@@ -1210,13 +1212,9 @@ def _load_and_consume_grant(path: Path) -> dict | None:
         if not path.is_file():
             return None
         raw = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(raw, dict):
+        if _grant_reason(raw) is None:
             return None
-        reason = raw.get("reason")
-        if not isinstance(reason, str) or not reason.strip():
-            return None
-        age = _grant_age_seconds(raw.get("granted_at"))
-        if age is None or age < 0 or age > _GRANT_TTL_SECONDS:
+        if not _grant_is_fresh(raw):
             # Missing/unparseable timestamp, a future timestamp (clock
             # skew - never trusted as fresh), or older than the TTL: this
             # grant is never valid, regardless of its `reason`. Prune it
@@ -1235,11 +1233,37 @@ def _load_and_consume_grant(path: Path) -> dict | None:
             return None
     except Exception:
         return None
+    claim_path = path.with_name(f"{path.stem}.claim-{os.getpid()}{path.suffix}")
     try:
-        path.unlink()
+        os.rename(path, claim_path)
     except Exception:
         return None
-    return {"reason": reason.strip()}
+    try:
+        claimed = json.loads(claim_path.read_text(encoding="utf-8"))
+    except Exception:
+        claimed = None
+    try:
+        claim_path.unlink()
+    except Exception:
+        pass
+    reason = _grant_reason(claimed)
+    if reason is None or not _grant_is_fresh(claimed):
+        return None
+    return {"reason": reason}
+
+
+def _grant_reason(raw: object) -> str | None:
+    if not isinstance(raw, dict):
+        return None
+    reason = raw.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        return None
+    return reason.strip()
+
+
+def _grant_is_fresh(raw: dict) -> bool:
+    age = _grant_age_seconds(raw.get("granted_at"))
+    return age is not None and 0 <= age <= _GRANT_TTL_SECONDS
 
 
 _DENY_TEMPLATE = (
