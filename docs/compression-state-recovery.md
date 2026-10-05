@@ -36,7 +36,8 @@ checks it again before atomic publication. State or target changes invalidate th
 review, including changes with identical size and restored modification time.
 Subdirectories resolve to their repository root; linked worktrees stay in their
 own checkout. Non-repository inputs are refused. Symlinks in state/target/lock
-paths or parent directories are refused. JSON numbers that cannot round-trip
+paths or parent directories are refused. Malformed UTF-8 in state or reviewed
+reports is refused before a backup or state rewrite. JSON numbers that cannot round-trip
 through the runtime without changing their value, including overflow, underflow,
 precision loss and negative zero, are refused before a backup or state rewrite.
 

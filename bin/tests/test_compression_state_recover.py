@@ -137,6 +137,62 @@ def test_bad_state(project, raw):
     assert not (project / '.agentic/wrap').exists()
 
 
+@pytest.mark.parametrize('invalid', [b'\xff', b'\xc0\xaf', b'\xed\xa0\x80',
+                                    b'\xf4\x90\x80\x80', b'\xe2\x82'])
+def test_invalid_utf8_state_refused_without_publication(project, invalid):
+    p = state(project)
+    plan, _ = review(project)
+    data = json.loads(p.read_text())
+    data['extra'] = '__invalid__'
+    raw = json.dumps(data).encode().replace(b'__invalid__', invalid)
+    p.write_bytes(raw)
+    before = inventory(project)
+    inspected = run(project)
+    assert inspected.returncode == 1
+    assert 'Invalid UTF-8' in inspected.stderr
+    assert inventory(project) == before
+    applied = run(project, 'apply', '--plan', str(plan))
+    assert applied.returncode == 1
+    assert 'Invalid UTF-8' in applied.stderr
+    assert p.read_bytes() == raw
+    assert not list((project / '.agentic').glob('compression-state.recovery-*'))
+    assert not (project / '.agentic/wrap/lock').exists()
+
+
+@pytest.mark.parametrize('invalid', [b'\xff', b'\xc0\xaf', b'\xed\xa0\x80',
+                                    b'\xf4\x90\x80\x80', b'\xe2\x82'])
+@pytest.mark.parametrize('foreign_lock', [False, True])
+def test_invalid_utf8_review_refused_before_lock_or_publication(project, invalid, foreign_lock):
+    p = state(project, {str(project / 'MEMORY.md'): {**entry(), 'note': NOTE + ' \ufffd'}})
+    plan, report = review(project)
+    plan.write_bytes(json.dumps(report, ensure_ascii=False).encode().replace(b'\xef\xbf\xbd', invalid))
+    if foreign_lock:
+        lock = project / '.agentic/wrap/lock'
+        lock.mkdir(parents=True)
+        (lock / 'owner.json').write_text(json.dumps({'token': 'foreign', 'pid': os.getpid(), 'role': 'commit'}))
+    original = p.read_bytes()
+    before = inventory(project)
+    result = run(project, 'apply', '--plan', str(plan))
+    assert result.returncode == 1
+    assert 'Invalid UTF-8' in result.stderr
+    assert p.read_bytes() == original
+    assert inventory(project) == before
+
+
+def test_valid_utf8_state_and_review_preserved(project):
+    p = state(project, {str(project / 'MEMORY.md'): {**entry(), 'note': NOTE + ' café 漢字 \ufffd'}})
+    data = json.loads(p.read_text())
+    data['extra'] = 'café 漢字 \ufffd'
+    p.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+    plan, report = review(project)
+    plan.write_text(json.dumps(report, ensure_ascii=False), encoding='utf-8')
+    original = p.read_bytes()
+    result = run(project, 'apply', '--plan', str(plan))
+    assert result.returncode == 0, result.stderr
+    assert json.loads(p.read_text())['extra'] == data['extra']
+    assert Path(json.loads(result.stdout)['backup_path']).read_bytes() == original
+
+
 @pytest.mark.parametrize('number', ['1e400', '-1e400', '1e-400', '-0',
                                     '9007199254740993', '0.10000000000000001'])
 @pytest.mark.parametrize('location', ['extra', 'nested', 'unrelated'])

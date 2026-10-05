@@ -4,7 +4,7 @@
  * Public API: [inspect] [--dir project]; apply --dir project --plan inspection.json.
  * Upstream deps: Node built-ins; hooks/lib/{repo-root,wrap-marker}; project state.
  * Downstream consumers: Operators; bin/tests/test_compression_state_recover.py.
- * Failure modes: Refuses stale reports, unsafe paths or lossy JSON numbers;
+ * Failure modes: Refuses stale reports, unsafe paths, malformed UTF-8 or lossy JSON numbers;
  *   exit 1 failure, 2 usage,
  *   5 busy. Exact backups survive publication failures. Never steals locks.
  * Performance: Linear in state and candidate file bytes; synchronous local I/O.
@@ -13,7 +13,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { isDeepStrictEqual } = require('util');
+const { isDeepStrictEqual, TextDecoder } = require('util');
 const { resolveAgenticCwdWithDiagnostics } = require('../hooks/lib/repo-root');
 const { acquireWrapLock, releaseWrapLock, wrapLockPath, readWrapLockOwnerV2 } = require('../hooks/lib/wrap-marker');
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -30,7 +30,9 @@ function normalizedNumber(token) {
   return (mantissa.startsWith('-') ? '-' : '') + coefficient + 'e' + power;
 }
 function parseJson(bytes) {
-  const text = bytes.toString('utf8');
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
+  catch { fail('Invalid UTF-8 in JSON input'); }
   JSON.parse(text);
   let i = 0;
   const space = () => { while (/\s/.test(text[i] || '') && i < text.length) i++; };
