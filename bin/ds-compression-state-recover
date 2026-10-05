@@ -141,7 +141,8 @@ function ownLock(root, initial, token) {
   if (!isDeepStrictEqual(lockIdentity(wrapLockPath(root)), initial)) fail('Lost lock ownership: replaced directory');
   const descriptor = parseJson(read(path.join(wrapLockPath(root), 'owner.json')).bytes);
   const guarded = readWrapLockOwnerV2(root);
-  if (guarded.source !== 'json' || descriptor.token !== token || descriptor.pid !== process.pid || descriptor.role !== 'commit') fail('Lost lock ownership: foreign or malformed descriptor');
+  if (guarded.source !== 'json' || guarded.token !== token || guarded.pid !== process.pid || guarded.role !== 'commit' || descriptor.token !== token || descriptor.pid !== process.pid || descriptor.role !== 'commit') fail('Lost lock ownership: foreign or malformed descriptor');
+  if (!isDeepStrictEqual(lockIdentity(wrapLockPath(root)), initial)) fail('Lost lock ownership: replaced directory');
 }
 function writeExclusive(file, bytes, mode, created) {
   safeParents(file);

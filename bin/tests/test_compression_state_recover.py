@@ -283,3 +283,21 @@ def test_publication_failure(project, failure):
     assert Path(output['backup_path']).read_bytes() == original
     assert not (project / '.agentic/wrap/lock').exists()
     assert not list((project / '.agentic').glob('*.tmp'))
+
+
+def test_replacement_between_owner_reads(project):
+    p = state(project)
+    original = p.read_bytes()
+    plan, _ = review(project)
+    preload = project.parent / 'between.js'
+    preload.write_text("""const fs=require('fs'),path=require('path');const root=process.env.TEST_ROOT;
+    const lock=path.join(root,'.agentic/wrap/lock');const read=fs.readFileSync;let calls=0;
+    fs.readFileSync=function(file,...args){if(typeof file==='string'&&file===lock+'/owner.json'&&++calls===2){
+      const owner=JSON.parse(read(file));fs.renameSync(lock,lock+'-original');fs.mkdirSync(lock);
+      fs.writeFileSync(lock+'/owner.json',JSON.stringify({...owner,token:'replacement'}));}
+      return read(file,...args);};""")
+    env = dict(os.environ, NODE_OPTIONS=f'--require={preload}', TEST_ROOT=str(project))
+    result = run(project, 'apply', '--plan', str(plan), env=env)
+    assert result.returncode == 1, result.stderr
+    assert p.read_bytes() == original
+    assert json.loads((project / '.agentic/wrap/lock/owner.json').read_text())['token'] == 'replacement'
