@@ -119,6 +119,14 @@ REVIEWED_NOT_DISPOSABLE: Dict[str, str] = {
     "skill-candidates.md": "protected: curated skill-candidate backlog",
     "loop-state*": "protected: live review-loop state read across a ticket",
     "batch-state.json": "protected: live batch-run state",
+    "compression-state.json": "protected: live curation state read by bin/ds-compression-state-recover",
+    "compression-state.recovery-*": (
+        "protected: exclusive original-byte backup written by bin/ds-compression-state-recover"
+    ),
+    ".compression-state-*": (
+        "protected: recovery publication temporary from bin/ds-compression-state-recover; "
+        "conservatively protected if orphaned"
+    ),
     "memory-shards": "protected: memory shard store",
     "worktrees": "protected: conductor-created worktree directory",
     "worktree-archive": "protected: archive bundles, sole copy of some branches",
