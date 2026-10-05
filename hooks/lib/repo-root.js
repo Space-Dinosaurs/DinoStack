@@ -21,7 +21,8 @@
  *
  * Upstream deps: node:fs (realpathSync, existsSync), node:path
  *
- * Downstream consumers: hooks/lib/wrap-marker.js, hooks/stop-context.js,
+ * Downstream consumers: bin/ds-compression-state-recover,
+ *   hooks/lib/wrap-marker.js, hooks/stop-context.js,
  *   hooks/pre-tool-use-spawn-emit.js, hooks/subagent-stop-spawn-emit.js,
  *   hooks/conductor-overreach-nudge.js, hooks/post-tool-use-capture-nudge.js,
  *   hooks/session-end-wrap.js, hooks/wrap-daemon.js,

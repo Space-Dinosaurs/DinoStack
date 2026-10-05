@@ -85,7 +85,8 @@
  *                write that log - the daemon does; the helper only derives the path).
  *                claudeHostPath resolves to [cwd]/.agentic/wrap/claude-host.
  *
- * Downstream consumers: hooks/stop-context.js (require this lib; stagePending,
+ * Downstream consumers: bin/ds-compression-state-recover,
+ *   hooks/stop-context.js (require this lib; stagePending,
  *                        touchHeartbeat, lock-aware reads), hooks/session-end-wrap.js
  *                        (finalizeReady, removeHeartbeat - U2), hooks/wrap-daemon.js
  *                        (listReadyMarkers, claimMarker, reclaimAbandonedInProgress,
