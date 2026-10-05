@@ -103,6 +103,11 @@ def test_inspect_apply_preservation_noop_and_rollback(project):
 @pytest.mark.parametrize('changes', [
     {'note': 'Compression deferred; baseline reset'},
     {'note': NOTE + ' Curation successful.'}, {'note': 'not deferred'},
+    *({'note': NOTE + ' ' + success} for success in [
+        'A successful rewrite followed.', 'The rewrite succeeded.',
+        'Compression was eventually completed.', 'Curation successfully finished.',
+        'A completed rewrite followed.', 'The rewrite was performed later.',
+    ]),
     {'extra_field': True}, {'original_backup_path': '/backup'}, {'rolling_snapshots': ['/snapshot']},
     {'entries_deleted_last_run': 1}, {'entries_merged_last_run': None},
     {'last_compressed_size_bytes': -1}, {'last_compressed_size_bytes': 2.5},
@@ -130,6 +135,58 @@ def test_bad_state(project, raw):
     assert run(project).returncode == 1
     assert p.read_bytes() == original
     assert not (project / '.agentic/wrap').exists()
+
+
+@pytest.mark.parametrize('number', ['1e400', '-1e400', '1e-400', '-0',
+                                    '9007199254740993', '0.10000000000000001'])
+@pytest.mark.parametrize('location', ['extra', 'nested', 'unrelated'])
+def test_unrepresentable_numbers_refused_without_mutation(project, number, location):
+    p = state(project)
+    plan, _ = review(project)
+    data = json.loads(p.read_text())
+    if location == 'extra':
+        data['extra'] = '__number__'
+    elif location == 'nested':
+        data['extra'] = {'array': ['__number__']}
+    else:
+        data['targets']['unrelated']['custom'] = '__number__'
+    p.write_text(json.dumps(data).replace('"__number__"', number))
+    before = inventory(project)
+    inspected = run(project)
+    assert inspected.returncode == 1
+    assert 'Unsupported JSON number' in inspected.stderr
+    assert inventory(project) == before
+    applied = run(project, 'apply', '--plan', str(plan))
+    assert applied.returncode == 1
+    assert 'Unsupported JSON number' in applied.stderr
+    assert p.read_text() == json.dumps(data).replace('"__number__"', number)
+    assert not list((project / '.agentic').glob('compression-state.recovery-*'))
+    assert not (project / '.agentic/wrap/lock').exists()
+
+
+@pytest.mark.parametrize('number', ['1e400', '-1e400', '1e-400', '-0',
+                                    '9007199254740993', '0.10000000000000001'])
+def test_unrepresentable_review_numbers_refused(project, number):
+    state(project)
+    plan, report = review(project)
+    report['extra'] = '__number__'
+    plan.write_text(json.dumps(report).replace('"__number__"', number))
+    before = inventory(project)
+    result = run(project, 'apply', '--plan', str(plan))
+    assert result.returncode == 1
+    assert 'Unsupported JSON number' in result.stderr
+    assert inventory(project) == before
+
+
+@pytest.mark.parametrize('number', ['0', '1.0', '1e20', '1e-7', '0.1', '-2.5', '0e400'])
+def test_representable_numbers_preserved(project, number):
+    p = state(project)
+    data = json.loads(p.read_text())
+    data['extra'] = '__number__'
+    p.write_text(json.dumps(data).replace('"__number__"', number))
+    plan, _ = review(project)
+    assert run(project, 'apply', '--plan', str(plan)).returncode == 0
+    assert json.loads(p.read_text())['extra'] == json.loads(number)
 
 
 @pytest.mark.parametrize('args', [['bogus'], ['--bad'], ['--plan', 'file'], ['apply'],

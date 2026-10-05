@@ -18,7 +18,9 @@ state hash. Recognition is deliberately conservative: case-insensitive patterns
 require `compression [was] deferred`, `no rewrite occurred`, and `baseline` or
 `threshold` followed within 100 characters on the same sentence/line by `reset`.
 Existing backups, snapshots, nonzero counters, unknown fields, invalid sizes/dates
-and explicit success claims prevent recovery. Unmatched entries remain ambiguous;
+and explicit success claims prevent recovery. Success or completion wording in
+either order within 100 characters of rewrite, compression or curation in the
+same sentence/line counts as contradictory evidence. Unmatched entries remain ambiguous;
 unknown target paths remain untouched. Only project-root `MEMORY.md`, root
 `CLAUDE.md`, and `.agentic/memory.md` are eligible. A missing target is reported
 explicitly and still requires review.
@@ -34,7 +36,9 @@ checks it again before atomic publication. State or target changes invalidate th
 review, including changes with identical size and restored modification time.
 Subdirectories resolve to their repository root; linked worktrees stay in their
 own checkout. Non-repository inputs are refused. Symlinks in state/target/lock
-paths or parent directories are refused.
+paths or parent directories are refused. JSON numbers that cannot round-trip
+through the runtime without changing their value, including overflow, underflow,
+precision loss and negative zero, are refused before a backup or state rewrite.
 
 The output names changed targets, the exact original-state backup and SHA256, and
 the resulting state hash. Verify the backup hash against the inspection's
