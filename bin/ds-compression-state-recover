@@ -1,0 +1,244 @@
+#!/usr/bin/env node
+/**
+ * Purpose: Inspect and recover reviewed historical deferred compression baselines.
+ * Public API: [inspect] [--dir project]; apply --dir project --plan inspection.json.
+ * Upstream deps: Node built-ins; hooks/lib/{repo-root,wrap-marker}; project state.
+ * Downstream consumers: Operators; bin/tests/test_compression_state_recover.py.
+ * Failure modes: Refuses stale reports, unsafe paths, malformed UTF-8 or lossy JSON numbers;
+ *   exit 1 failure, 2 usage,
+ *   5 busy. Exact backups survive publication failures. Never steals locks.
+ * Performance: Linear in state and candidate file bytes; synchronous local I/O.
+ */
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { isDeepStrictEqual, TextDecoder } = require('util');
+const { resolveAgenticCwdWithDiagnostics } = require('../hooks/lib/repo-root');
+const { acquireWrapLock, releaseWrapLock, wrapLockPath, readWrapLockOwnerV2 } = require('../hooks/lib/wrap-marker');
+const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const fail = (message, code = 1) => { throw Object.assign(new Error(message), { code }); };
+
+function normalizedNumber(token) {
+  const [mantissa, exponent = '0'] = token.toLowerCase().split('e');
+  const [whole, fraction = ''] = mantissa.replace(/^-/, '').split('.');
+  const digits = (whole + fraction).replace(/^0+/, '');
+  if (!digits) return '0';
+  const coefficient = digits.replace(/0+$/, '');
+  const power = BigInt(exponent) - BigInt(fraction.length) + BigInt(digits.length - coefficient.length);
+  return (mantissa.startsWith('-') ? '-' : '') + coefficient + 'e' + power;
+}
+function parseJson(bytes) {
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
+  catch { fail('Invalid UTF-8 in JSON input'); }
+  JSON.parse(text);
+  let i = 0;
+  const space = () => { while (/\s/.test(text[i] || '') && i < text.length) i++; };
+  function string() {
+    const start = i++;
+    while (i < text.length) {
+      if (text[i++] === '"') return JSON.parse(text.slice(start, i));
+      if (text[i - 1] === '\\') i++;
+    }
+    fail('Unterminated JSON string');
+  }
+  function value() {
+    space();
+    if (text[i] === '{') {
+      i++; space(); const keys = new Set();
+      if (text[i] === '}') { i++; return; }
+      for (;;) {
+        space(); const key = string();
+        if (keys.has(key)) fail('Duplicate JSON key: ' + key);
+        keys.add(key); space(); i++; value(); space();
+        if (text[i++] === '}') return;
+      }
+    }
+    if (text[i] === '[') {
+      i++; space(); if (text[i] === ']') { i++; return; }
+      for (;;) { value(); space(); if (text[i++] === ']') return; }
+    }
+    if (text[i] === '"') { string(); return; }
+    const start = i;
+    while (i < text.length && !/[\s,}\]]/.test(text[i])) i++;
+    const token = text.slice(start, i);
+    if (/^-?\d/.test(token)) {
+      const number = Number(token);
+      if (!Number.isFinite(number) || Object.is(number, -0) || normalizedNumber(token) !== normalizedNumber(JSON.stringify(number))) fail('Unsupported JSON number: ' + token);
+    }
+  }
+  value();
+  return JSON.parse(text);
+}
+
+function safeParents(file) {
+  const parents = []; let p = path.dirname(file);
+  while (p !== path.dirname(p)) { parents.push(p); p = path.dirname(p); }
+  parents.push(p);
+  for (const parent of parents.reverse()) {
+    try {
+      const st = fs.lstatSync(parent);
+      if (!st.isDirectory() || st.isSymbolicLink()) fail('Unsafe parent: ' + parent);
+    } catch (err) { if (err.code !== 'ENOENT') throw err; }
+  }
+}
+function identity(st) {
+  return { dev: String(st.dev), ino: String(st.ino), size: String(st.size),
+    mtime_ns: String(st.mtimeNs), ctime_ns: String(st.ctimeNs), mode: Number(st.mode) & 0o7777 };
+}
+function read(file) {
+  safeParents(file);
+  let before;
+  try { before = fs.lstatSync(file, { bigint: true }); }
+  catch (err) { if (err.code === 'ENOENT') return { bytes: null, snapshot: { exists: false } }; throw err; }
+  if (!before.isFile() || before.isSymbolicLink()) fail('Not a regular file: ' + file);
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  try {
+    const opened = fs.fstatSync(fd, { bigint: true });
+    if (!opened.isFile() || !isDeepStrictEqual(identity(before), identity(opened))) fail('File changed: ' + file);
+    const bytes = fs.readFileSync(fd);
+    const after = fs.fstatSync(fd, { bigint: true });
+    const final = fs.lstatSync(file, { bigint: true });
+    safeParents(file);
+    if (!isDeepStrictEqual(identity(before), identity(after)) || !isDeepStrictEqual(identity(before), identity(final))) fail('File changed: ' + file);
+    return { bytes, snapshot: { exists: true, regular_file: true, ...identity(after), sha256: hash(bytes) } };
+  } finally { fs.closeSync(fd); }
+}
+const fields = new Set(['note', 'last_compressed_size_bytes', 'last_compressed_at', 'original_backup_path', 'rolling_snapshots',
+  'entries_deleted_last_run', 'entries_merged_last_run', 'entries_converted_to_pointer_last_run']);
+function reasons(entry) {
+  const errors = [];
+  const note = typeof entry.note === 'string' ? entry.note : '';
+  const signals = [/\bcompression\s+(?:was\s+)?deferred\b/i, /\bno\s+rewrite\s+occurred\b/i,
+    /\b(?:baseline|threshold)\b[^.\n]{0,100}\breset\b/i];
+  if (!signals.every(pattern => pattern.test(note))) errors.push('Incomplete historical deferral/no-rewrite/reset claims');
+  if (/\b(?:rewrite|compression|curation)\b[^.\n]{0,100}\b(?:success(?:ful(?:ly)?)?|succeeded|complet(?:e|ed)|performed)\b|\b(?:success(?:ful(?:ly)?)?|succeeded|complet(?:e|ed)|performed)\b[^.\n]{0,100}\b(?:rewrite|compression|curation)\b/i.test(note)) errors.push('Contradictory success claim');
+  if (!Number.isSafeInteger(entry.last_compressed_size_bytes) || entry.last_compressed_size_bytes < 0) errors.push('Invalid size');
+  const date = entry.last_compressed_at;
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date) errors.push('Invalid date');
+  if (entry.original_backup_path != null) errors.push('Existing original backup');
+  if (entry.rolling_snapshots !== undefined && (!Array.isArray(entry.rolling_snapshots) || entry.rolling_snapshots.length)) errors.push('Existing or invalid snapshots');
+  for (const key of ['entries_deleted_last_run', 'entries_merged_last_run', 'entries_converted_to_pointer_last_run']) {
+    if (entry[key] !== undefined && entry[key] !== 0) errors.push('Nonzero or invalid curation counter: ' + key);
+  }
+  if (Object.keys(entry).some(key => !fields.has(key))) errors.push('Unknown entry fields');
+  return errors;
+}
+function inspect(root) {
+  const statePath = path.join(root, '.agentic/compression-state.json');
+  const source = read(statePath);
+  const report = { schema_version: 1, project_root: root, state_path: statePath, state_sha256: source.snapshot.sha256 || null,
+    state_snapshot: source.snapshot, targets: {}, candidates: [], ambiguous: [], proposed_state_sha256: source.snapshot.sha256 || null };
+  if (!source.bytes) return { report, bytes: null, replacement: null };
+  const state = parseJson(source.bytes);
+  if (!object(state) || !object(state.targets)) fail('State must be an object with object-valued targets');
+  for (const [key, entry] of Object.entries(state.targets)) if (!object(entry)) fail('Malformed target entry: ' + key);
+  for (const relative of ['MEMORY.md', '.agentic/memory.md', 'CLAUDE.md']) {
+    const key = path.join(root, relative);
+    if (!Object.hasOwn(state.targets, key)) continue;
+    const entry = state.targets[key]; const why = reasons(entry);
+    if (why.length) { report.ambiguous.push({ target: key, entry, reasons: why }); continue; }
+    report.targets[key] = read(key).snapshot;
+    report.candidates.push({ target: key, entry, reasons: ['Historical note claims compression deferred, no rewrite occurred, and baseline/threshold reset; independent review required'] });
+  }
+  const proposed = parseJson(source.bytes);
+  for (const candidate of report.candidates) delete proposed.targets[candidate.target];
+  const replacement = report.candidates.length ? Buffer.from(JSON.stringify(proposed, null, 2) + '\n') : source.bytes;
+  report.proposed_state_sha256 = hash(replacement);
+  return { report, bytes: source.bytes, replacement };
+}
+function lockIdentity(lock) {
+  safeParents(lock);
+  const st = fs.lstatSync(lock, { bigint: true });
+  if (!st.isDirectory() || st.isSymbolicLink()) fail('Lost lock ownership: unsafe lock');
+  return { dev: String(st.dev), ino: String(st.ino) };
+}
+function ownLock(root, initial, token) {
+  if (!isDeepStrictEqual(lockIdentity(wrapLockPath(root)), initial)) fail('Lost lock ownership: replaced directory');
+  const descriptor = parseJson(read(path.join(wrapLockPath(root), 'owner.json')).bytes);
+  const guarded = readWrapLockOwnerV2(root);
+  if (guarded.source !== 'json' || guarded.token !== token || guarded.pid !== process.pid || guarded.role !== 'commit' || descriptor.token !== token || descriptor.pid !== process.pid || descriptor.role !== 'commit') fail('Lost lock ownership: foreign or malformed descriptor');
+  if (!isDeepStrictEqual(lockIdentity(wrapLockPath(root)), initial)) fail('Lost lock ownership: replaced directory');
+}
+function writeExclusive(file, bytes, mode, created) {
+  safeParents(file);
+  const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, mode);
+  try {
+    if (created) created(identity(fs.fstatSync(fd, { bigint: true })));
+    fs.fchmodSync(fd, mode); fs.writeFileSync(fd, bytes); fs.fsyncSync(fd);
+  }
+  finally { fs.closeSync(fd); }
+}
+function apply(root, plan) {
+  const reviewed = parseJson(read(plan).bytes);
+  const lock = wrapLockPath(root); safeParents(lock);
+  try {
+    const st = fs.lstatSync(lock);
+    if (!st.isDirectory() || st.isSymbolicLink()) fail('Invalid wrap lock marker');
+    fail('Wrap lock busy', 5);
+  } catch (err) { if (err.code !== 'ENOENT') throw err; }
+  const token = crypto.randomUUID();
+  if (!acquireWrapLock(root, String(process.pid), undefined, { role: 'commit', pid: process.pid, token })) fail('Cannot acquire wrap lock', 5);
+  let initial, backup = null, temp = null, tempIdentity = null, published = false, result, problem;
+  try {
+    initial = lockIdentity(lock); ownLock(root, initial, token);
+    const current = inspect(root);
+    if (!isDeepStrictEqual(reviewed, current.report)) fail('Reviewed inspection is stale or modified');
+    result = { changed_targets: [], backup_path: null, backup_sha256: null, resulting_state_sha256: current.report.state_sha256 };
+    if (current.report.candidates.length) {
+      backup = path.join(root, '.agentic/compression-state.recovery-' + crypto.randomUUID() + '.json');
+      writeExclusive(backup, current.bytes, 0o600);
+      result.backup_path = backup; result.backup_sha256 = hash(current.bytes);
+      temp = path.join(root, '.agentic/.compression-state-' + crypto.randomUUID() + '.tmp');
+      writeExclusive(temp, current.replacement, current.report.state_snapshot.mode, stat => { tempIdentity = stat; });
+      if (!isDeepStrictEqual(inspect(root).report, reviewed)) fail('Inputs changed before publication');
+      ownLock(root, initial, token);
+      fs.renameSync(temp, current.report.state_path); temp = null; published = true;
+      result.changed_targets = current.report.candidates.map(candidate => candidate.target);
+      result.resulting_state_sha256 = hash(current.replacement);
+    }
+  } catch (err) { problem = err; }
+  finally {
+    if (temp && tempIdentity) {
+      try {
+        safeParents(temp);
+        const stat = fs.lstatSync(temp, { bigint: true });
+        if (!stat.isFile() || String(stat.dev) !== tempIdentity.dev || String(stat.ino) !== tempIdentity.ino) fail('Temporary artifact replaced; preserving it');
+        fs.unlinkSync(temp);
+      } catch (err) { problem ||= err; }
+    }
+    try {
+      ownLock(root, initial, token);
+      if (releaseWrapLock(root, token) !== 'released') fail('Could not release owned lock');
+    } catch (err) { problem ||= new Error('Lost lock ownership; replacement marker preserved: ' + err.message); }
+  }
+  if (problem) {
+    process.stdout.write(JSON.stringify({ ...result, published, backup_path: backup, error: problem.message }) + '\n');
+    throw problem;
+  }
+  return result;
+}
+function main() {
+  const args = process.argv.slice(2);
+  if (args.length === 1 && args[0] === '--help') {
+    console.log('Usage: ds-compression-state-recover [inspect] [--dir project]\n       ds-compression-state-recover apply --dir project --plan inspection.json'); return;
+  }
+  let command = 'inspect', dir = process.cwd(), plan, explicitDir = false;
+  if (args[0] === 'inspect' || args[0] === 'apply') command = args.shift();
+  const seen = new Set();
+  while (args.length) {
+    const flag = args.shift();
+    if (!['--dir', '--plan'].includes(flag) || seen.has(flag) || !args.length || args[0].startsWith('--')) fail('Invalid arguments', 2);
+    seen.add(flag); const value = args.shift();
+    if (flag === '--dir') { dir = value; explicitDir = true; } else plan = value;
+  }
+  if ((command === 'inspect' && plan) || (command === 'apply' && (!plan || !explicitDir))) fail('Invalid command combination', 2);
+  dir = path.resolve(dir); safeParents(path.join(dir, '.entry'));
+  const resolved = resolveAgenticCwdWithDiagnostics(dir);
+  if (!resolved.foundGitAncestor || !path.isAbsolute(resolved.root)) fail('Unsupported project root resolution');
+  const root = resolved.root;
+  console.log(JSON.stringify(command === 'inspect' ? inspect(root).report : apply(root, path.resolve(plan)), null, 2));
+}
+try { main(); } catch (err) { console.error(err.message); process.exitCode = typeof err.code === 'number' ? err.code : 1; }
