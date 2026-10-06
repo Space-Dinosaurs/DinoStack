@@ -111,6 +111,7 @@ Unset by default. Set to `1` to disable the named guard for a session.
 | Variable | Default (unset) | What it disables |
 |---|---|---|
 | `AE_ABDICATION_GUARD_DISABLE=1` | guard active | Abdication guard Stop hook (only relevant when `abdication_guard_enabled: true`) |
+| `AE_BROWSER_REAPER_DISABLE=1` | reaper active | agent-browser reaper SubagentStop/SessionEnd hook (`hooks/reap-agent-browsers.py`), which closes sessions the ending agent provably opened and sweeps orphaned automation Chrome; disabled runs still log `verdict=disabled` to `~/.agentic/browser-reaper.log` |
 | `AE_NESTED_WORKTREE_GUARD_DISABLE=1` | guard active | Nested-worktree-spawn advisory hook (`hooks/enforce-nested-worktree-spawn.py`) |
 | `AE_PLANNING_GUARD_DISABLE=1` | guard active | Planning-artifact spawn advisory hook (`hooks/enforce-planning-artifact-spawn.py`) |
 | `AE_RM_GUARD_DISABLE=1` | guard active | Guarded-rm hook denying an `rm` whose operand expands an unguarded variable (`hooks/enforce-guarded-rm.py`). Set it before the session starts: the hook reads its own process environment, so writing it inline in a Bash command does not disable it |
@@ -224,7 +225,10 @@ Key points:
   `"1800000"` (30 minutes), so an `agent-browser` daemon a run leaves behind
   shuts itself and its browser down once no command has arrived for that long.
   The prompt defaults to declining, so an unattended install leaves the
-  variable unset and such a daemon unbounded. It sets the key into the existing
+  variable unset. The installer separately wires the reaper hook
+  `hooks/reap-agent-browsers.py` on SubagentStop and SessionEnd, which closes a
+  session an agent provably opened when that agent ends; a daemon it cannot
+  attribute stays unbounded without the timeout. It sets the key into the existing
   `env` object and leaves every other key there alone. A value already present
   is reported and left as it is, whatever it is, so raising it is a durable
   change rather than one the next install undoes. Cost, and the way back, are

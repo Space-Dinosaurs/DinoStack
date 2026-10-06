@@ -26,6 +26,13 @@
 #                 -> no prompt at all and the operator's number is left as it
 #                 is. Rewriting it back to the default would make the
 #                 documented way back ("raise it") a lie
+#            A4 - CLAUDE_CONFIG_DIR redirected to $home/.claude-alt, operator
+#                 accepts -> the key lands in .claude-alt/settings.json and is
+#                 absent from $home/.claude/settings.json
+#            S1 - static: one AE_BROWSER_IDLE_TIMEOUT_MS_VALUE assignment, its
+#                 numeral nowhere else outside a comment, no spelled-out
+#                 duration on a non-comment line of the idle block, and every
+#                 duration a comment there states agrees with the value
 #            B1 - the extracted writer on a canonical fixture -> the file on
 #                 disk is byte-for-byte a re-serialization of the same document
 #                 with the one key added, the non-ASCII sibling value is not
@@ -66,6 +73,10 @@
 #                reddens
 #            (k) take the compared stat from the path after the read instead of
 #                from the descriptor the read came through -> B6 reddens
+#            (l) the idle block reads and writes $HOME/.claude/settings.json
+#                instead of $SETTINGS                     -> A4 reddens
+#            (m) hardcode the value in the writer's call  -> S1 reddens
+#            (n) spell "30 minutes" in a printed line     -> S1 reddens
 #          (d), (e) and (i) name lines in the shared write helper
 #          ae_json_write_helper, which the installer splices in ahead of this
 #          writer's own body; the extraction below follows that splice.
@@ -96,8 +107,8 @@
 #                git shim below can escape its sandbox and mutate the live
 #                primary checkout's pre-commit hook symlink - see Seed 6.
 #
-# Performance: 7 install runs (three cases plus four installer-level mutation
-#              runs), ~50 s on a warm tree. Every other case runs the extracted
+# Performance: 9 install runs (four cases plus five installer-level mutation
+#              runs), ~65 s on a warm tree. Every other case runs the extracted
 #              writer directly, at negligible cost, as do the writer halves of
 #              (b)-(f) and (i).
 
@@ -286,10 +297,14 @@ import json, os, pty, select, sys, time
 script, home, answers_json = sys.argv[1:4]
 answers = [(n.encode(), a.encode()) for n, a in json.loads(answers_json)]
 
+# AE_TEST_CLAUDE_CONFIG_DIR, when set, is passed through as CLAUDE_CONFIG_DIR
+# instead of unsetting it, so a case can drive the redirected-config-dir path.
+ccd = os.environ.get("AE_TEST_CLAUDE_CONFIG_DIR", "")
 cmd = [
     "env",
-    "-u", "AGENTIC_CONFIG_DIR", "-u", "CLAUDE_CONFIG_DIR",
+    "-u", "AGENTIC_CONFIG_DIR",
     "-u", "CODEX_HOME", "-u", "PI_CODING_AGENT_DIR",
+] + (["CLAUDE_CONFIG_DIR=" + ccd] if ccd else ["-u", "CLAUDE_CONFIG_DIR"]) + [
     "PATH=" + os.environ["AE_TEST_PATH"],
     "HOME=" + home,
     "bash", script, "--mode=opt-out", "--profile=default", "--no-identity",
@@ -537,6 +552,99 @@ PYEOF
     return 1
   fi
   return 0
+}
+
+# ---------------------------------------------------------------------------
+# A4: with CLAUDE_CONFIG_DIR redirected, the accepted write lands in that dir's
+# settings.json and nowhere else. The active config dir missing the key was the
+# root cause of the 2026-10-06 memory-exhaustion shutdown.
+# ---------------------------------------------------------------------------
+case_install_redirected_config_dir() {
+  local script="$1" out rc
+  local home="$TMP_ROOT/a4-home"
+  local alt="$home/.claude-alt"
+  mkdir -p "$alt"
+  seed_home "$home" ""
+  rm -f "$home/.claude/settings.json"
+  write_settings_fixture "$alt/settings.json" ""
+  export AE_TEST_CLAUDE_CONFIG_DIR="$alt"
+
+  out="$(run_install "$script" "$home" "[[\"$PROMPT_NEEDLE\", \"y\n\"]]")"
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    _fail "A4: install exited $rc"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if ! grep -qF "$PROMPT_NEEDLE $alt/settings.json" <<< "$out"; then
+    _fail "A4: the prompt did not name the redirected settings.json"
+    return 1
+  fi
+  python3 - "$alt/settings.json" "$home/.claude/settings.json" "$IDLE_DEFAULT" <<'PYEOF'
+import json, sys
+alt = json.load(open(sys.argv[1], encoding="utf-8"))
+assert alt["env"].get("AGENT_BROWSER_IDLE_TIMEOUT_MS") == sys.argv[3], alt["env"]
+try:
+    home = json.load(open(sys.argv[2], encoding="utf-8"))
+except FileNotFoundError:
+    home = {}
+assert "AGENT_BROWSER_IDLE_TIMEOUT_MS" not in (home.get("env") or {}), home
+PYEOF
+  if [[ $? -ne 0 ]]; then
+    _fail "A4: the key did not land in the redirected settings.json alone"
+    return 1
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# S1: the timeout value and its duration wording are single-sourced. Static,
+# against the installer under test: exactly one AE_BROWSER_IDLE_TIMEOUT_MS_VALUE
+# assignment; its numeral appears nowhere else except in a comment; inside the
+# idle-timeout block no non-comment line spells a duration ("30 minutes",
+# "half an hour") rather than deriving it; and every duration a comment there
+# states agrees with the value.
+# ---------------------------------------------------------------------------
+case_single_source() {
+  local script="$1"
+  python3 - "$script" <<'PYEOF'
+import re, sys
+
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+fails = []
+assigns = [i for i, l in enumerate(lines) if l.startswith("AE_BROWSER_IDLE_TIMEOUT_MS_VALUE=")]
+if len(assigns) != 1:
+    print("FAIL: S1: expected one AE_BROWSER_IDLE_TIMEOUT_MS_VALUE assignment, found %d" % len(assigns),
+          file=sys.stderr)
+    sys.exit(1)
+m = re.fullmatch(r'AE_BROWSER_IDLE_TIMEOUT_MS_VALUE="(\d+)"', lines[assigns[0]])
+value = int(m.group(1))
+minutes = value // 60000
+
+numeral = re.compile(r"(^|[^0-9])%d([^0-9]|$)" % value)
+for i, l in enumerate(lines):
+    if i != assigns[0] and numeral.search(l) and not l.lstrip().startswith("#"):
+        fails.append("the timeout value appears as a literal outside its single definition (line %d)" % (i + 1))
+
+start = next(i for i, l in enumerate(lines) if "agent-browser daemon idle timeout (DS-254 U8)" in l)
+end = next(i for i in range(start, len(lines)) if "Deferred-wrap .claude-host sentinel" in lines[i])
+for i in range(start, end):
+    l = lines[i]
+    mins = [int(n) for n in re.findall(r"(\d+)[ -]minutes?\b", l, re.I)]
+    half = re.search(r"half an hour", l, re.I)
+    if not l.lstrip().startswith("#"):
+        if mins or half:
+            fails.append("a duration literal outside a comment (line %d)" % (i + 1))
+        continue
+    if any(n != minutes for n in mins) or (half and minutes != 30):
+        fails.append("a comment's duration disagrees with the value (line %d)" % (i + 1))
+    if any(int(n) != value for n in re.findall(r"\b(\d+) ms\b", l)):
+        fails.append("a comment's ms figure disagrees with the value (line %d)" % (i + 1))
+
+for f in fails:
+    print("FAIL: S1: " + f, file=sys.stderr)
+sys.exit(1 if fails else 0)
+PYEOF
 }
 
 # ---------------------------------------------------------------------------
@@ -979,6 +1087,16 @@ run_case "A3: an already-set key is reported and left at the operator's value" \
   case_install_already_set "$INSTALL_SH"
 
 echo ""
+echo "=== A4: the write follows a CLAUDE_CONFIG_DIR redirect ==="
+run_case "A4: the key lands in the redirected settings.json and not in \$HOME/.claude" \
+  case_install_redirected_config_dir "$INSTALL_SH"
+
+echo ""
+echo "=== S1: the value and its duration wording are single-sourced ==="
+run_case "S1: one definition, no duration literal outside a comment, comments agree" \
+  case_single_source "$INSTALL_SH"
+
+echo ""
 echo "=== B1: the write is a pure re-serialization with one key added ==="
 run_case "B1: byte-identical apart from the new key, non-ASCII intact, mode carried over" \
   case_writer_preserves_bytes "$INSTALL_SH"
@@ -1048,6 +1166,16 @@ expect_mutation_fails 's|^  echo "  The cost: .*$|  true|' \
 # between is compared against itself and the writer clobbers it.
 expect_mutation_fails 's|^        before = os.fstat(f.fileno())$|        before = os.stat(target)|' \
   "read-window-stat" "$INSTALL_SH" case_writer_read_window "the writer accepted a target that changed"
+# (l) the idle block's classifier and writer read and write $HOME/.claude
+# instead of the resolved $SETTINGS.
+expect_mutation_fails "s|^  AE_SETTINGS_PATH=\"\\\$SETTINGS\" python3 - <<'PYEOF' 2>/dev/null\$|  AE_SETTINGS_PATH=\"\\\$HOME/.claude/settings.json\" python3 - <<'PYEOF' 2>/dev/null|;s|} \\| AE_SETTINGS_PATH=\"\\\$SETTINGS\" python3 - \"\\\$AE_BROWSER_IDLE_TIMEOUT_MS_VALUE\"|} \\| AE_SETTINGS_PATH=\"\\\$HOME/.claude/settings.json\" python3 - \"\\\$AE_BROWSER_IDLE_TIMEOUT_MS_VALUE\"|" \
+  "idle-block-home-claude" "$INSTALL_SH" case_install_redirected_config_dir "A4:"
+# (m) the writer is handed a hardcoded value instead of the single definition.
+expect_mutation_fails 's#python3 - "\$AE_BROWSER_IDLE_TIMEOUT_MS_VALUE"#python3 - "1800000"#' \
+  "value-hardcoded-in-writer" "$INSTALL_SH" case_single_source "outside its single definition"
+# (n) a printed duration spelled out instead of derived from the value.
+expect_mutation_fails 's#(\$AE_BROWSER_IDLE_TIMEOUT_MIN minutes) makes#(30 minutes) makes#' \
+  "minutes-literal-in-echo" "$INSTALL_SH" case_single_source "a duration literal outside a comment"
 
 # ---------------------------------------------------------------------------
 # The git shim must have kept the ambient hooks dir out of this test's reach.

@@ -977,9 +977,9 @@ def test_scenario_26_task_and_agent_matchers_identical(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Scenario 27: hooks/tests/test-hooks-pep604-guard.py reports 83 checks
+# Scenario 27: hooks/tests/test-hooks-pep604-guard.py reports every check
 # --------------------------------------------------------------------------- #
-def test_scenario_27_pep604_guard_83_checks():
+def test_scenario_27_pep604_guard_all_checks():
     guard_path = _REPO_ROOT / "hooks" / "tests" / "test-hooks-pep604-guard.py"
     result = subprocess.run(
         [sys.executable, str(guard_path)],
@@ -987,7 +987,15 @@ def test_scenario_27_pep604_guard_83_checks():
         text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "All 83 checks passed." in result.stdout
+    # The guard scans every *.py under hooks/, hooks/tests/ and hooks/lib/ and
+    # smoke-runs all of them but itself, so its total is derived from disk.
+    scanned = sum(
+        1
+        for d in ("hooks", "hooks/tests", "hooks/lib")
+        for p in (_REPO_ROOT / d).glob("*.py")
+        if p.is_file()
+    )
+    assert f"All {2 * scanned - 1} checks passed." in result.stdout, result.stdout
 
 
 # --------------------------------------------------------------------------- #

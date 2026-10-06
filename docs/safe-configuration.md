@@ -77,9 +77,10 @@ for that edge case.
 
 ## Hooks
 
-DinoStack ships hooks in [`hooks/`](../hooks/). PreToolUse and Stop hooks are
-wired into `~/.claude/settings.json` by the installer; `pre-commit` is a git
-hook installed separately:
+DinoStack ships hooks in [`hooks/`](../hooks/). PreToolUse and Stop hooks, and
+the SubagentStop/SessionEnd browser reaper, are wired into
+`~/.claude/settings.json` by the installer; `pre-commit` is a git hook
+installed separately:
 
 - [`enforce-askuserquestion-default.py`](../hooks/enforce-askuserquestion-default.py)
   - PreToolUse; denies a co-equal multiple-choice prompt with no recommended default.
@@ -168,6 +169,14 @@ hook installed separately:
   `${VAR:?}` rewrite, so the agent fixes the command itself; applies to the
   main session and subagents; fails open on anything it cannot parse;
   disable via `AE_RM_GUARD_DISABLE=1`, set before the session starts.
+- [`reap-agent-browsers.py`](../hooks/reap-agent-browsers.py)
+  - SubagentStop and SessionEnd, never Stop; never blocks. Runs
+  `agent-browser close --session <name>` only for a session the ending agent
+  provably opened (its own transcript ran the `open`, and the live daemon
+  started during it), and SIGTERMs only an orphaned Chrome on a temporary
+  agent-browser or Playwright profile, so the operator's own Chrome and any
+  browser another agent still drives are out of reach. Logs every run to
+  `~/.agentic/browser-reaper.log`; disable via `AE_BROWSER_REAPER_DISABLE=1`.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.
 

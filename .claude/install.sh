@@ -7,8 +7,10 @@
 #          ~/.claude/settings.json to point there instead of the checkout;
 #          writes activation mode + risk profile; optionally configures
 #          permissions, MCPs, developer identity, and the agent-browser
-#          daemon idle timeout (env.AGENT_BROWSER_IDLE_TIMEOUT_MS in
-#          ~/.claude/settings.json); writes repo_dir to
+#          daemon idle timeout (env.AGENT_BROWSER_IDLE_TIMEOUT_MS in the
+#          active config dir's settings.json); wires the agent-browser
+#          reaper hook (hooks/reap-agent-browsers.py) on SubagentStop and
+#          SessionEnd, never Stop; writes repo_dir to
 #          ~/.agentic/agentic-engineering-config.json with a clobber-guard
 #          (never overwrites a valid different repo_dir).
 #
@@ -1120,6 +1122,26 @@ upsert_hook(
     "SessionEnd deferred-wrap hook",
 )
 
+# agent-browser reaper: closes the agent-browser sessions the ending agent
+# provably opened, then sweeps orphaned automation Chrome. Registered on
+# SessionEnd here and on SubagentStop below, never on Stop: a Stop fires at
+# the end of every main-conversation turn, and the main conversation's
+# browser must survive between turns. Guarded form for the same reason as
+# enforce-turn-shape.py above. "timeout": 10 also raises Claude Code's overall
+# SessionEnd hook budget from its 1.5 s default to 10 s. The ownership rule is
+# in the hook's own module docstring.
+REAP_AGENT_BROWSERS_CMD = (
+    f"test -f {hooks_root}/hooks/reap-agent-browsers.py && "
+    f"python3 {hooks_root}/hooks/reap-agent-browsers.py || exit 0"
+)
+
+upsert_hook(
+    session_end_star["hooks"],
+    "reap-agent-browsers.py",
+    {"type": "command", "command": REAP_AGENT_BROWSERS_CMD, "timeout": 10},
+    "SessionEnd agent-browser reaper hook",
+)
+
 # ---- SessionStart hook (version notice + deferred-wrap self-heal/launch) -----
 # First SessionStart registration: the wrapper composes the version-check
 # notice with the self-healing .claude-host sentinel and the guarded daemon
@@ -1441,6 +1463,13 @@ upsert_hook(
     "SubagentStop spawn-emit telemetry hook",
 )
 
+upsert_hook(
+    subagent_stop_star["hooks"],
+    "reap-agent-browsers.py",
+    {"type": "command", "command": REAP_AGENT_BROWSERS_CMD, "timeout": 10},
+    "SubagentStop agent-browser reaper hook",
+)
+
 # ---- PreToolUse AskUserQuestion default-enforcement hook --------------------
 ptu_list = hooks.setdefault("PreToolUse", [])
 ENFORCE_AUQ_CMD = f"python3 {hooks_root}/hooks/enforce-askuserquestion-default.py"
@@ -1730,8 +1759,14 @@ PYEOF_SHARED
 # under the same name attaches to the leftover daemon instead of starting its
 # own, discards its launch options with a warning, and exits 0. The CLI reads
 # AGENT_BROWSER_IDLE_TIMEOUT_MS at daemon start and shuts itself, and the browser
-# with it, down after that many ms with no command. Disabled by default, so
-# without this write a leftover browser has no upper bound at all.
+# with it, down after that many ms with no command. Disabled by default.
+#
+# The reaper hook wired above (hooks/reap-agent-browsers.py, SubagentStop and
+# SessionEnd) closes a session an agent provably opened when that agent ends.
+# This timeout remains the only bound for what the reaper cannot attribute: a
+# session opened through an unparsed wrapper or a script file, the `default`
+# session, a run on a harness other than Claude Code, and a daemon that
+# predates the `open` naming it. Without this write those have no upper bound.
 #
 # 1800000 ms (30 minutes) bounds the gap BETWEEN commands, which is not the
 # same thing as a session limit: every command resets the clock, so a browser
@@ -1742,9 +1777,9 @@ PYEOF_SHARED
 # Two things this does NOT do, stated here so neither is read as solved:
 #   - A daemon already running when the value is written read the variable at
 #     its own start and ignores it. The effect begins at the next daemon start.
-#   - It BOUNDS the CLI-path residual; it does not remove it. After a normal
-#     session end, that session's daemon and its browser stay up for up to the
-#     timeout before shutting down on their own.
+#   - It BOUNDS the residual the reaper cannot attribute; it does not remove
+#     it. Such a daemon and its browser stay up for up to the timeout after
+#     their last command before shutting down on their own.
 #
 # Retires when the bound arrives from upstream instead, which is a measurement
 # rather than a judgment: agent-browser's own `--help` lists
@@ -1754,12 +1789,16 @@ PYEOF_SHARED
 # written here. A harness that reaps the daemons it spawned at session end
 # retires this the same way. Neither has happened.
 #
-# Deliberately not a reaper that closes agent-browser sessions by name:
-# `agent-browser session list` exposes session names but no owning run, so such
-# a predicate would be a guess that can close a concurrent run's browser, or
-# the operator's.
+# The reaper takes ownership from the ending agent's own transcript plus the
+# daemon's start time, not from `agent-browser session list`: that list
+# exposes session names but no owning run, so a predicate built on it would be
+# a guess that can close a concurrent run's browser, or the operator's. A
+# session counts as the agent's only when its live daemon started inside the
+# window of an `open` that agent ran, which a later reuse of the same name
+# cannot satisfy.
 # ---------------------------------------------------------------------------
 AE_BROWSER_IDLE_TIMEOUT_MS_VALUE="1800000"
+AE_BROWSER_IDLE_TIMEOUT_MIN=$((AE_BROWSER_IDLE_TIMEOUT_MS_VALUE / 60000))
 AE_BROWSER_IDLE_STATE="$(
   AE_SETTINGS_PATH="$SETTINGS" python3 - <<'PYEOF' 2>/dev/null
 import json, os, sys
@@ -1812,10 +1851,10 @@ env-not-object)
 *)
   echo "  agent-browser's daemon detaches from the session that starts it, so a browser an agent opens"
   echo "  stays open until something closes it. Setting AGENT_BROWSER_IDLE_TIMEOUT_MS"
-  echo "  to $AE_BROWSER_IDLE_TIMEOUT_MS_VALUE ms (30 minutes) makes that daemon shut itself and its browser down"
-  echo "  once no command has arrived for half an hour, while a browser an agent is actively driving"
+  echo "  to $AE_BROWSER_IDLE_TIMEOUT_MS_VALUE ms ($AE_BROWSER_IDLE_TIMEOUT_MIN minutes) makes that daemon shut itself and its browser down"
+  echo "  once no command has arrived for that long, while a browser an agent is actively driving"
   echo "  resets that clock on every command and is never cut off."
-  echo "  The cost: a QA run that idles longer than 30 minutes loses its browser session mid-run, and the"
+  echo "  The cost: a QA run that idles longer than $AE_BROWSER_IDLE_TIMEOUT_MIN minutes loses its browser session mid-run, and the"
   echo "  next command silently relaunches a fresh browser with no cookies, no auth state and no navigation"
   echo "  position. To reverse this, unset AGENT_BROWSER_IDLE_TIMEOUT_MS in $SETTINGS (or raise it) and the"
   echo "  next daemon start picks that up."
