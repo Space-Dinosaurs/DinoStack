@@ -272,39 +272,41 @@ if new_stop_list != stop_list:
         del hooks["Stop"]
         print("  - Removed empty Stop key")
 
-# ---- Remove subagent-stop-spawn-emit.js hook from SubagentStop (DS-160) ----
-# NOTE (Skeptic finding, Minor): this is the only PreToolUse/PostToolUse/
-# SessionStart/SubagentStop-family hook this script removes; the equivalent
+# ---- Remove SubagentStop / SessionEnd hooks (DS-160, agent-browser reaper) --
+# NOTE (Skeptic finding, Minor): subagent-stop-spawn-emit.js and
+# reap-agent-browsers.py are the only PreToolUse/PostToolUse/SessionStart/
+# SubagentStop/SessionEnd-family hooks this script removes; the equivalent
 # removal logic for the other install.sh-wired hooks in those families
 # (pre-tool-use-spawn-emit.js, post-tool-use-capture-nudge.js, the
-# SessionStart chain, etc.) does not exist here - a pre-existing gap,
-# deferred rather than fixed in this change. SubagentStop is added here
-# because it is the hook this change introduces; leaving a brand-new hook
-# type with zero uninstall path would make the gap worse, not just leave it
-# unchanged.
-subagent_stop_list = hooks.get("SubagentStop", [])
-new_subagent_stop_list = []
-for block in subagent_stop_list:
-    new_hooks = [
-        e for e in block.get("hooks", [])
-        if "hooks/subagent-stop-spawn-emit.js" not in e.get("command", "")
-    ]
-    removed_count = len(block.get("hooks", [])) - len(new_hooks)
-    if removed_count:
-        changed = True
-        print(f"  - Removed subagent-stop-spawn-emit.js hook from SubagentStop matcher '{block.get('matcher', '')}'")
-    if new_hooks:
-        block["hooks"] = new_hooks
-        new_subagent_stop_list.append(block)
-    elif removed_count:
-        print(f"    (matcher block now empty - removed)")
+# SessionStart chain, session-end-wrap.js, etc.) does not exist here - a
+# pre-existing gap, deferred rather than fixed. Each of these two was added
+# here by the change that introduced it; leaving a brand-new hook with zero
+# uninstall path would make the gap worse, not just leave it unchanged.
+def remove_hook(event, needle, label):
+    global changed
+    event_list = hooks.get(event, [])
+    kept = []
+    for block in event_list:
+        new_hooks = [e for e in block.get("hooks", []) if needle not in e.get("command", "")]
+        removed_count = len(block.get("hooks", [])) - len(new_hooks)
+        if removed_count:
+            changed = True
+            print(f"  - Removed {label} hook from {event} matcher '{block.get('matcher', '')}'")
+        if new_hooks:
+            block["hooks"] = new_hooks
+            kept.append(block)
+        elif removed_count:
+            print(f"    (matcher block now empty - removed)")
+    if kept != event_list:
+        if kept:
+            hooks[event] = kept
+        elif event in hooks:
+            del hooks[event]
+            print(f"  - Removed empty {event} key")
 
-if new_subagent_stop_list != subagent_stop_list:
-    if new_subagent_stop_list:
-        hooks["SubagentStop"] = new_subagent_stop_list
-    elif "SubagentStop" in hooks:
-        del hooks["SubagentStop"]
-        print("  - Removed empty SubagentStop key")
+remove_hook("SubagentStop", "hooks/subagent-stop-spawn-emit.js", "subagent-stop-spawn-emit.js")
+remove_hook("SubagentStop", "hooks/reap-agent-browsers.py", "reap-agent-browsers.py")
+remove_hook("SessionEnd", "hooks/reap-agent-browsers.py", "reap-agent-browsers.py")
 
 if hooks != settings.get("hooks", {}):
     if hooks:

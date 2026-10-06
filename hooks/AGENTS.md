@@ -1,8 +1,9 @@
 # hooks/
 
 Claude Code lifecycle hooks that enforce methodology rules at the harness
-level and write session telemetry to disk. Twenty-six scripts in the table
-below (16 Python PreToolUse/Stop enforcers, 7 Node lifecycle handlers, 3 Bash helpers).
+level and write session telemetry to disk. Twenty-seven scripts in the table
+below. By language: 17 Python (16 PreToolUse/Stop enforcers plus one
+SubagentStop/SessionEnd cleanup hook), 7 Node lifecycle handlers, 3 Bash helpers.
 `pre-commit` is also present but is a git hook, not a Claude Code lifecycle
 hook, and is out of scope for this table. `lib/` holds shared utilities;
 the repo-root resolver trio specifically (`lib/repo_root.py`/
@@ -56,6 +57,7 @@ module-group map.
 | `enforce-worktree-write.py` | Python | PreToolUse (Write/Edit/MultiEdit) | Write-side companion to `enforce-worktree-read.py`, sharing the same `lib/git_worktree.py::is_git_worktree()` discriminator: deny a worktree-isolated subagent's `Write`/`Edit`/`MultiEdit` that resolves inside the primary checkout instead of the agent's own worktree. Catches the case `enforce-shippable-edit.py` cannot - a subagent that has silently fallen back to the primary checkout still carries a present `agent_id` and passes that guard's agent_id-absence check. Same `caller_root`/`primary_root` derivation and `realpath` normalization as the read guard. SEPARATE config-driven exemption list (`worktree_write_guard_exemptions` in `<primary_root>/.agentic/config.json`) ships empty. Fail-open, kill-switch `AE_WORKTREE_WRITE_GUARD_DISABLE=1`. |
 | `post-tool-use-capture-nudge.js` | Node | PostToolUse (Task/Agent) | Surface an in-session capture-gap nudge when a learning-worthy event has no captured learning. Stdin read via `lib/stdin-guard.js` (bounded, never blocks). |
 | `pre-tool-use-spawn-emit.js` | Node | PreToolUse (Task/Agent) | Append a `spawn_start` event to `.agentic/events.jsonl` on every subagent spawn (populates telemetry in ad-hoc sessions), with a self-generated `data.spawn_id` correlation key plus best-effort `data.tool_use_id`/`data.parent_agent_id`, and write the `.last-architect-spawn` sentinel on architect spawns. DS-246: written to the primary checkout's file, with `task_id` from `lib/active-ticket.js`. Stdin read via `lib/stdin-guard.js` (bounded, never blocks). |
+| `reap-agent-browsers.py` | Python | SubagentStop / SessionEnd (never Stop) | Cleanup, never blocks: close the `agent-browser` sessions the ending agent provably opened (an `agent-browser ... open` in its own transcript whose window contains the live daemon's start time; SessionEnd also scans the session's `subagents/agent-*.jsonl`), skip the close while work that subagent launched is still in flight (a `background_tasks`/`session_crons` entry other than itself whose id its own transcript names - both lists are session-wide and list the ending subagent itself), then SIGTERM orphaned automation Chrome (temp agent-browser/Playwright profile, parent gone). One log line per run, every verdict, to `~/.agentic/browser-reaper.log`; kill switch `AE_BROWSER_REAPER_DISABLE=1`. Catch and retirement condition in its module docstring. |
 | `session-end-wrap.js` | Node | SessionEnd | Finalize the deferred-`/ds-wrap` pending-to-ready marker transition and optionally launch `wrap-daemon.js` detached. Stdin read via `lib/stdin-guard.js` (bounded, never blocks). |
 | `session-start-version-check.sh` | Bash | (sub-script, not wired directly) | Emit a "newer version available" `systemMessage` via the version-check core; called by `session-start-wrap.sh`. |
 | `session-start-wrap.sh` | Bash | SessionStart | Compose EIGHT concerns into one fail-open handler: version notice, hooks-snapshot staleness nudge, auth-failure notice, artifact migration, guarded daemon launch, a deferred-work open-count nudge, a worktree-accumulation nudge, and an opt-in machine-wide worst-project nudge. |
