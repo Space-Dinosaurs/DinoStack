@@ -51,7 +51,7 @@ Before drafting, verify any factual claims the entry will make:
 
 1. Read the current MEMORY.md (create it with just `# Memory\n\n` if it does not exist).
 2. Assess against what is already there:
-   - **Update existing**: decision clarifies or supersedes a prior entry - update that entry in place, adjusting the date
+   - **Update existing**: decision clarifies or supersedes a prior entry - update that entry in place, adjusting the date (compiled mode: never in place - write a new entry citing the old entry's shard id, see Part 4)
    - **New entry**: decision is not yet captured - draft a new date-stamped bullet
    - **No-op**: decision is already accurately captured - return: "No-op: decision already captured."
 3. Entry format - one date-stamped bullet per decision:
@@ -66,6 +66,8 @@ Apply the change directly to the file at $MEMORY_PATH:
 - New entry: append the bullet
 - Update existing: replace the prior bullet in place
 - If MEMORY.md does not exist: create it with the header `# Memory\n\n` then write the bullet
+
+**Compiled mode** - if `ds-memory-capture detect --dir <project root>` reports `two-tier` or `two-tier-unresolved` (or, without that tool, `grep -l '^index:' .agentic/memory-shards/*.md` finds a hit), never edit MEMORY.md: append the bullet as one line of `<project root>/.agentic/memory-capture-inbox.md`, then run `ds-memory-capture flush --dir <project root>` and return its `captured:` line (exit 1: the entry stays queued; say so). See `content/references/memory-shard-convention.md` §Two-tier capture.
 
 Do not commit - committing is the user's responsibility. Return confirmation when done.
 ---

@@ -3284,6 +3284,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - `pr_url`: the PR URL captured at Phase 9.
 - `conversation_summary`: a brief recap of the conductor's session covering this ticket.
 - `learnings_extracted`: the `learning_ids[]` array from the `learning-extractor` return at Phase 6 clean exit (or `[]` if learning extraction was skipped/soft-failed).
+- `memory_mode`: `compiled` when `ds-memory-capture detect --dir "$REPO"` reports a two-tier mode (`memory-shard-convention.md` §Two-tier capture); else omit.
 
 **Failure semantics:**
 
@@ -3292,6 +3293,8 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - If `wrap-ticket` returns within 60s but the output is not parseable as JSON: conductor warns the operator (`"Phase 11b: wrap-ticket return was not valid JSON; proceeding without learnings capture."`) and proceeds.
 - If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock release for this outcome happens after the timeout fires, per the scoped release sentence below.
 - If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
+
+Compiled mode: after `wrap-ticket` returns, before release, run `ds-memory-capture flush --dir "$REPO"` (soft-fail).
 
 Lock release: this applies ONLY within the "If the lock is acquired" branch above - the conductor runs `ds-wrap-release-lock "$REPO"` (PATH-wired helper) unconditionally on every `wrap-ticket` outcome in that branch (success, non-JSON return, timeout, soft-fail) before advancing to Phase 12. The release root MUST match the root passed to the acquire calls in step 1 and step 2 above - a bare `ds-wrap-release-lock` resolves against the conductor's cwd instead, and if cwd differs from `$REPO` the release is a silent no-op that leaks the lock for the rest of the session. The two skip-conditions paths and every lock-acquisition-failed path (the first attempt's non-0/non-5 exit code, and the bounded-wait attempt's 45s timeout or non-0/non-2 exit code) never acquired the lock in this session and must NOT call the release helper.
 
@@ -3319,7 +3322,7 @@ Where `$REPO_CWD` is the absolute project root and the `cluster_results` value f
 
 wrap-ticket has no Bash tool and is a leaf agent (see `$AE_REPO_DIR/content/agents/wrap-ticket.md` Rules: "No subagent spawning"), so the conductor runs this itself, after wrap-ticket returns (or is skipped) and after lock release, whenever Phase 9 opened a PR - prior-session drift alone can trip it.
 
-**Skip entirely** if wrap-ticket's return carried `skipped_reason: "wrap-lock-contention"`, or a READ-ONLY existence check of `$AE_PROJECT_DIR/.agentic/wrap/lock` (no acquire/release) shows it present - write-time acquisition is authoritative (see `$AE_REPO_DIR/content/commands/ds-wrap.md` Part E's "Async-path amendment"), not this probe.
+**Skip entirely** in compiled mode (`MEMORY.md` is not a Part E target there), if wrap-ticket's return carried `skipped_reason: "wrap-lock-contention"`, or a READ-ONLY existence check of `$AE_PROJECT_DIR/.agentic/wrap/lock` (no acquire/release) shows it present - write-time acquisition is authoritative (see `$AE_REPO_DIR/content/commands/ds-wrap.md` Part E's "Async-path amendment"), not this probe.
 
 1. Stat `[cwd]/MEMORY.md` (skip if absent) and read `$AE_PROJECT_DIR/.agentic/compression-state.json` if present.
 2. Apply `$dinostack-codex-wrap` Part E's gate (`$AE_REPO_DIR/content/commands/ds-wrap.md` Part E "Gate" - canonical thresholds).
@@ -3741,6 +3744,16 @@ else
           fi
         fi
       done
+      # Two-tier: a staged MEMORY.md ships with its new shards.
+      case ",$KC_LIST," in *,MEMORY.md,*)
+        KC_NEW=$(ds-memory-capture new-shards --dir "$REPO" --ref "origin/${BRANCH_NAME}" 2>/dev/null || true)
+        while IFS= read -r KC_S; do
+          [ -n "$KC_S" ] || continue
+          KC_ADD_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" add -- "$KC_S" 2>&1 >/dev/null)
+          if [ $? -ne 0 ]; then echo "WARNING: [phase: knowledge-commit] git add $KC_S failed: $KC_ADD_ERR"; continue; fi
+          KC_N=$((KC_N + 1)); KC_LIST="$KC_LIST,$KC_S"; KC_JSON_STAGED="$KC_JSON_STAGED,\"$KC_S\""
+        done <<< "$KC_NEW"
+      esac
 
       if [ "$KC_RESET_FAILED" = "yes" ]; then
         # Checked BEFORE the KC_N == 0 branch below, deliberately: KC_N == 0

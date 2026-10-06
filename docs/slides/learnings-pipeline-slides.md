@@ -244,7 +244,7 @@ No Severity field. Used for env facts, dead-ends, architectural rationale, tool-
 </div>
 </div>
 
-LRN and KNW maintain **independent per-day counters**. learnings-agent may also append at most one pointer entry directly to `MEMORY.md`, in the same invocation, for conductor-behavioral events.
+LRN and KNW maintain **independent per-day counters**. learnings-agent may also append at most one pointer entry directly to `MEMORY.md`, in the same invocation, for conductor-behavioral events (in a two-tier project, to the capture inbox instead).
 
 ---
 
@@ -326,7 +326,7 @@ ds-learning-shard (4 roles) ──> shard entry ──> ~/.agentic/learnings-sha
 learning-extractor ──> LRN entry ──> .agentic/learnings.md (committed)
 learnings-agent    ──> LRN entry ──> .agentic/learnings.md (committed)
 learnings-agent    ──> KNW/LRN entry ──> .agentic/learnings.md (always)
-learnings-agent    ──> conductor-behavioral? ──> MEMORY.md (same invocation, at most 1 entry)
+learnings-agent    ──> conductor-behavioral? ──> MEMORY.md or two-tier inbox (at most 1 entry)
 ```
 
 <div class="callout">

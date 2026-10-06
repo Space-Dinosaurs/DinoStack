@@ -1,0 +1,423 @@
+#!/usr/bin/env python3
+"""
+Purpose: Capture path for projects whose root MEMORY.md is a compiled
+         two-tier index (some shard under `.agentic/memory-shards/` carries
+         an `index:` field). In those projects a writer must never edit
+         MEMORY.md directly: the project's own `ingest` refuses an edited
+         compiled block, and a prose line nobody ingests desyncs the compile.
+         Writers instead append their dated bullet to a durable inbox
+         (`.agentic/memory-capture-inbox.md`); `flush` is the single path
+         that turns inbox lines into shards, by inserting them after the
+         preamble and running the project's own `ingest`. Standard projects
+         (no `index:` shard) are never touched. Canonical prose:
+         content/references/memory-shard-convention.md §Two-tier capture.
+
+Public API:
+  ds-memory-capture [--dir D] detect
+      Always exit 0. Prints JSON {mode, compiler, verbatim_shards,
+      verbatim_bytes, indexed_shards, batch_threshold_bytes, batch_due,
+      reason}; mode is "standard" | "two-tier" | "two-tier-unresolved".
+  ds-memory-capture [--dir D] flush
+      0 inbox drained; 1 entries remain (refused or unresolved, reasons
+      printed); 2 standard mode, nothing touched; 3 usage error.
+      Prints `captured: <id> (deferred-verbatim; batch trigger: ...)` per
+      new shard and a final `flush:` summary line carrying batch_due.
+  ds-memory-capture [--dir D] new-shards --ref R
+      Always exit 0. Prints the non-ignored files under
+      `.agentic/memory-shards/` whose path is absent from
+      `git ls-tree -r --name-only R`, one per line. Prints nothing in
+      standard mode or when R does not resolve.
+  ds-memory-capture [--dir D] repair --ref R
+      Deletes the new-shards files that carry no `index:`, then runs
+      `ingest` so their MEMORY.md lines are re-captured with fresh,
+      unique sequences. 0 ok; 1 refused (deleted files restored);
+      2 standard mode.
+  --dir (before or after the subcommand) defaults to
+  `git rev-parse --show-toplevel` (cwd if that fails).
+
+Upstream deps: Python 3 stdlib only; `git` on PATH; the project's own
+  compiler, named in `_preamble.md` as exactly one distinct backticked
+  `<interpreter> <tracked-file> ingest` span (interpreter in
+  {node, python3, python, bash, sh}); it is run as an argv list with cwd D,
+  never through a shell.
+
+Downstream consumers: content/commands/ds-wrap.md Part B / Part G,
+  content/commands/ds-implement-ticket.md Phase 11b / Phase 11e,
+  content/commands/ds-memory-update.md (its Worker). wrap-ticket and
+  learnings-agent only write the inbox; they never run this.
+
+Failure modes: never writes `index:` or supersession fields. `flush`
+  claims the inbox by atomic rename under `.agentic/memory-capture.lock`
+  (flock), so a writer appending mid-flush lands in a fresh inbox. Leftover
+  `*.claimed-*` files from a crashed flush are re-read next run; entries
+  byte-identical to an existing shard body are dropped, so a re-read never
+  loops. A refused `ingest` restores MEMORY.md only when it still equals
+  the snapshot plus this run's bytes. Every refused entry is re-queued by
+  O_APPEND, never dropped. Lock busy past 30 s: exit 1, nothing touched.
+
+Performance: one or two subprocess runs of the project compiler per flush;
+  reads every shard file once.
+"""
+import argparse
+import fcntl
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+SHARD_REL = os.path.join(".agentic", "memory-shards")
+INBOX_REL = os.path.join(".agentic", "memory-capture-inbox.md")
+LOCK_REL = os.path.join(".agentic", "memory-capture.lock")
+PREAMBLE = "_preamble.md"
+BATCH_THRESHOLD_BYTES = 40000
+INTERPRETERS = {"node", "python3", "python", "bash", "sh"}
+ENTRY_RE = re.compile(r"^- \*\*\d{4}-\d{2}-\d{2}")
+INDEX_RE = re.compile(r"^index:", re.M)
+FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.S)
+SPAN_RE = re.compile(r"`([^`\n]+)`")
+LOCK_TIMEOUT_SECONDS = 30
+
+
+class UsageError(Exception):
+    pass
+
+
+class _Parser(argparse.ArgumentParser):
+    def error(self, message):
+        raise UsageError(message)
+
+
+def _git(d, *args):
+    return subprocess.run(["git", "-C", d, *args], capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL)
+
+
+def _default_dir():
+    r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True,
+                       text=True, stdin=subprocess.DEVNULL)
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else os.getcwd()
+
+
+def _shard_files(d):
+    sd = os.path.join(d, SHARD_REL)
+    if not os.path.isdir(sd):
+        return []
+    return sorted(p for p in glob.glob(os.path.join(sd, "*.md"))
+                  if os.path.basename(p) != PREAMBLE)
+
+
+def _read(p):
+    with open(p, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _parse(p):
+    """(frontmatter, body) or (None, None) for a file without frontmatter."""
+    m = FRONTMATTER_RE.match(_read(p))
+    return (m.group(1), m.group(2)) if m else (None, None)
+
+
+def _shard_id(p):
+    return os.path.basename(p)[:-3]
+
+
+def _resolve_compiler(d):
+    """(argv list, None) when the preamble names exactly one allowlisted,
+    tracked ingest command; (None, reason) otherwise."""
+    pre = os.path.join(d, SHARD_REL, PREAMBLE)
+    if not os.path.isfile(pre):
+        return None, "no _preamble.md"
+    spans = {s.strip() for s in SPAN_RE.findall(_read(pre))}
+    cmds = sorted(s[: -len(" ingest")] for s in spans if s.endswith(" ingest") and len(s) > 7)
+    if len(cmds) != 1:
+        return None, "_preamble.md names %d distinct `<compiler> ingest` spans (need exactly 1)" % len(cmds)
+    argv = cmds[0].split()
+    if len(argv) != 2 or argv[0] not in INTERPRETERS:
+        return None, "ingest command %r is not `<interpreter> <file>` with interpreter in %s" % (
+            cmds[0], sorted(INTERPRETERS))
+    real_d = os.path.realpath(d)
+    target = os.path.realpath(os.path.join(d, argv[1]))
+    if not target.startswith(real_d + os.sep) or not os.path.isfile(target):
+        return None, "compiler file %s is not a file inside %s" % (argv[1], d)
+    if _git(d, "ls-files", "--error-unmatch", "--", argv[1]).returncode != 0:
+        return None, "compiler file %s is not git-tracked" % argv[1]
+    return argv, None
+
+
+def detect(d):
+    verbatim_n = verbatim_b = indexed_n = 0
+    for p in _shard_files(d):
+        fm, body = _parse(p)
+        if fm is None:
+            continue
+        if INDEX_RE.search(fm):
+            indexed_n += 1
+        else:
+            verbatim_n += 1
+            verbatim_b += len(body.encode("utf-8"))
+    out = {"mode": "standard", "compiler": None, "verbatim_shards": verbatim_n,
+           "verbatim_bytes": verbatim_b, "indexed_shards": indexed_n,
+           "batch_threshold_bytes": BATCH_THRESHOLD_BYTES,
+           "batch_due": verbatim_b > BATCH_THRESHOLD_BYTES, "reason": ""}
+    if indexed_n == 0:
+        out["batch_due"] = False
+        out["reason"] = "no shard carries an index: field"
+        return out
+    argv, why = _resolve_compiler(d)
+    if argv is None:
+        out["mode"] = "two-tier-unresolved"
+        out["reason"] = why
+    else:
+        out["mode"] = "two-tier"
+        out["compiler"] = argv
+        out["reason"] = "index: shard present; compiler named in _preamble.md"
+    return out
+
+
+def _run_compiler(d, argv, sub):
+    r = subprocess.run(argv + [sub], cwd=d, capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL)
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def _lock(d):
+    path = os.path.join(d, LOCK_REL)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fh = open(path, "a")
+    deadline = time.time() + LOCK_TIMEOUT_SECONDS
+    while True:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fh
+        except OSError:
+            if time.time() > deadline:
+                fh.close()
+                return None
+            time.sleep(0.2)
+
+
+def _claim_inbox(d):
+    """Rename the live inbox aside and return every claimed file (leftovers
+    from a crashed run first). A writer appending after the rename creates a
+    fresh inbox, which this run never reads or deletes."""
+    inbox = os.path.join(d, INBOX_REL)
+    claimed = sorted(glob.glob(inbox + ".claimed-*"))
+    if os.path.exists(inbox):
+        dest = "%s.claimed-%d-%d" % (inbox, os.getpid(), time.time_ns())
+        os.rename(inbox, dest)
+        claimed.append(dest)
+    return claimed
+
+
+def _entries(paths):
+    """Split claimed text into entries: a line starting `- ` opens one; any
+    following non-blank line that does not start `- ` joins it."""
+    out = []
+    for p in paths:
+        for line in _read(p).split("\n"):
+            if not line.strip():
+                continue
+            if line.startswith("- ") or not out:
+                out.append(line)
+            else:
+                out[-1] += "\n" + line
+    return out
+
+
+def _requeue(d, items):
+    if not items:
+        return
+    path = os.path.join(d, INBOX_REL)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    try:
+        os.write(fd, "".join(text + "\n" for text, _ in items).encode("utf-8"))
+    finally:
+        os.close(fd)
+    for text, why in items:
+        print("requeued (%s): %s" % (why, text.split("\n")[0][:100]))
+
+
+def _write_atomic(path, text):
+    tmp = "%s.tmp-%d" % (path, os.getpid())
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+def _base_ref(d):
+    r = _git(d, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else "<base>"
+
+
+def _repair_hint(d, output):
+    if "duplicate sequence" in output:
+        print("hint: a merge left two shards on one sequence - run "
+              "`ds-memory-capture repair --ref %s`" % _base_ref(d))
+
+
+def flush(d):
+    info = detect(d)
+    if info["mode"] == "standard":
+        print("flush: standard mode (%s) - nothing touched" % info["reason"])
+        return 2
+    fh = _lock(d)
+    if fh is None:
+        print("flush: %s busy for %ds - nothing touched" % (LOCK_REL, LOCK_TIMEOUT_SECONDS))
+        return 1
+    try:
+        return _flush_locked(d, info)
+    finally:
+        fh.close()
+
+
+def _flush_locked(d, info):
+    claimed = _claim_inbox(d)
+    entries = _entries(claimed)
+    bodies = {}
+    for p in _shard_files(d):
+        fm, body = _parse(p)
+        if body is not None:
+            bodies.setdefault(body.rstrip("\n"), _shard_id(p))
+    keep, requeue, seen, skipped = [], [], set(), 0
+    for e in entries:
+        if e in bodies or e in seen:
+            print("skipped (duplicate): %s" % bodies.get(e, "earlier inbox line"))
+            skipped += 1
+        elif "\n" in e or not ENTRY_RE.match(e):
+            requeue.append((e, "not one line matching ^- **YYYY-MM-DD"))
+        else:
+            keep.append(e)
+            seen.add(e)
+    captured = 0
+    if keep and info["mode"] != "two-tier":
+        requeue += [(e, "two-tier-unresolved: " + info["reason"]) for e in keep]
+        keep = []
+    if keep:
+        captured, failed = _capture(d, info["compiler"], keep)
+        requeue += failed
+    _requeue(d, requeue)
+    for p in claimed:
+        os.remove(p)
+    after = detect(d)
+    print("flush: captured %d, skipped %d duplicate(s), requeued %d; verbatim_bytes=%d batch_due=%s"
+          % (captured, skipped, len(requeue), after["verbatim_bytes"],
+             "true" if after["batch_due"] else "false"))
+    return 1 if requeue else 0
+
+
+def _capture(d, compiler, keep):
+    """Insert `keep` after the preamble and ingest. Returns (captured count,
+    [(entry, reason)] to re-queue)."""
+    rc, out = _run_compiler(d, compiler, "ingest")
+    if rc != 0:
+        print("pre-ingest refused - MEMORY.md left untouched:\n" + out)
+        _repair_hint(d, out)
+        return 0, [(e, "pre-ingest refused") for e in keep]
+    mem = os.path.join(d, "MEMORY.md")
+    pre = _read(os.path.join(d, SHARD_REL, PREAMBLE))
+    snapshot = _read(mem) if os.path.isfile(mem) else ""
+    if not snapshot.startswith(pre):
+        return 0, [(e, "MEMORY.md does not start with _preamble.md") for e in keep]
+    ours = pre + "".join(e + "\n" for e in keep) + snapshot[len(pre):]
+    before = set(_shard_files(d))
+    _write_atomic(mem, ours)
+    rc, out = _run_compiler(d, compiler, "ingest")
+    if rc != 0:
+        if _read(mem) == ours:
+            _write_atomic(mem, snapshot)
+            print("ingest refused - MEMORY.md restored:\n" + out)
+        else:
+            print("ingest refused and MEMORY.md changed underneath - NOT restored:\n" + out)
+        _repair_hint(d, out)
+        return 0, [(e, "ingest refused") for e in keep]
+    verbatim = detect(d)["verbatim_bytes"]
+    new = sorted(set(_shard_files(d)) - before)
+    for p in new:
+        print("captured: %s (deferred-verbatim; batch trigger: verbatim_bytes > %d, now %d)"
+              % (_shard_id(p), BATCH_THRESHOLD_BYTES, verbatim))
+    return len(new), []
+
+
+def new_shards(d, ref):
+    if detect(d)["mode"] == "standard":
+        return []
+    if _git(d, "rev-parse", "--verify", "-q", ref + "^{tree}").returncode != 0:
+        print("new-shards: ref %s does not resolve - listing nothing" % ref, file=sys.stderr)
+        return []
+    at_ref = _git(d, "ls-tree", "-r", "--name-only", ref, "--", SHARD_REL)
+    listed = _git(d, "ls-files", "--cached", "--others", "--exclude-standard", "--", SHARD_REL)
+    if at_ref.returncode != 0 or listed.returncode != 0:
+        return []
+    present = set(at_ref.stdout.splitlines())
+    return sorted({p for p in listed.stdout.splitlines()
+                   if p not in present and os.path.isfile(os.path.join(d, p))})
+
+
+def repair(d, ref):
+    info = detect(d)
+    if info["mode"] == "standard":
+        print("repair: standard mode - nothing touched")
+        return 2
+    if info["mode"] != "two-tier":
+        print("repair: two-tier-unresolved (%s) - nothing touched" % info["reason"])
+        return 1
+    fh = _lock(d)
+    if fh is None:
+        print("repair: %s busy - nothing touched" % LOCK_REL)
+        return 1
+    try:
+        saved = {}
+        for rel in new_shards(d, ref):
+            p = os.path.join(d, rel)
+            fm, _ = _parse(p)
+            if fm is not None and not INDEX_RE.search(fm):
+                saved[p] = _read(p)
+        for p in saved:
+            os.remove(p)
+        rc, out = _run_compiler(d, info["compiler"], "ingest")
+        if rc != 0:
+            for p, text in saved.items():
+                _write_atomic(p, text)
+            print("repair: ingest refused - %d shard(s) restored:\n%s" % (len(saved), out))
+            return 1
+        print("repair: re-ingested after removing %d shard(s) absent at %s\n%s"
+              % (len(saved), ref, out))
+        return 0
+    finally:
+        fh.close()
+
+
+def main(argv=None):
+    parser = _Parser(prog="ds-memory-capture")
+    parser.add_argument("--dir", default=None)
+    sub = parser.add_subparsers(dest="cmd")
+    for name in ("detect", "flush", "new-shards", "repair"):
+        p = sub.add_parser(name)
+        p.add_argument("--dir", dest="sub_dir", default=None)
+        if name in ("new-shards", "repair"):
+            p.add_argument("--ref", required=True)
+    try:
+        args = parser.parse_args(argv)
+        if not args.cmd:
+            raise UsageError("a subcommand is required: detect | flush | new-shards | repair")
+    except UsageError as err:
+        print("ds-memory-capture: %s" % err, file=sys.stderr)
+        return 3
+    d = os.path.abspath(args.sub_dir or args.dir or _default_dir())
+    if args.cmd == "detect":
+        print(json.dumps(detect(d)))
+        return 0
+    if args.cmd == "flush":
+        return flush(d)
+    if args.cmd == "new-shards":
+        for p in new_shards(d, args.ref):
+            print(p)
+        return 0
+    return repair(d, args.ref)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

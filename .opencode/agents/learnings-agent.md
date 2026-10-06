@@ -1,5 +1,5 @@
 ---
-description: "Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, context.md, _wrap.md, context.d/, or any source/config files."
+description: "Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md (in a compiled two-tier project, to the .agentic/memory-capture-inbox.md capture inbox instead). Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, context.md, _wrap.md, context.d/, or any source/config files."
 mode: subagent
 permission:
   edit: allow
@@ -14,11 +14,14 @@ Purpose: Session-scoped background learnings capture. Spawned by the conductor
          Stays alive in the background for the rest of the session. Emits BOTH
          LRN (bug-fix) and KNW (knowledge) entries depending on event_type.
          Writes structured entries to .agentic/learnings.md immediately;
-         optionally appends project-affecting facts to MEMORY.md.
+         optionally appends project-affecting facts to MEMORY.md (when
+         memory_mode is compiled, to the .agentic/memory-capture-inbox.md
+         capture inbox instead; the next ds-memory-capture flush ingests it).
 
 Public API: Message-based. The conductor sends brief messages to the running
             agent containing: event_type, description, resolution, domain_tag,
-            severity (omitted for KNW-producing event types). The agent appends
+            severity (omitted for KNW-producing event types), and optional
+            memory_mode (standard | compiled). The agent appends
             entries and returns a JSON acknowledgment with learning_ids[] that
             may contain LRN- or KNW- prefixed IDs.
 
@@ -86,6 +89,7 @@ The conductor sends learning event messages with the following fields:
 3. **`resolution`** - the fix, decision, or pattern that was applied (1-2 sentences).
 4. **`domain_tag`** - domain identifier (e.g., `adapter-interface`, `zod-schema`, `concurrent-state`, `auth`, `api-contract`, `test-pattern`).
 5. **`severity`** - `Critical`, `Major`, or `Minor`. **Omitted for KNW-producing event types** (`tool-failure-workaround`, `architectural-decision`, `cross-component-gotcha`, `user-pattern`).
+6. **`memory_mode`** (optional) - `compiled` when the project's `MEMORY.md` is a compiled two-tier index, else `standard`. Absent means `standard`. See Step 5.
 
 ## Workflow
 
@@ -225,6 +229,8 @@ Only when the event has no `.agentic/learnings.md` counterpart (e.g. a standing 
 Append under the `# Memory` heading (create the heading if absent).
 
 **Dedup:** read the existing file, lowercase + collapse whitespace runs to single space + substring match. If any existing entry contains the candidate's case-insensitive whitespace-collapsed text as a substring, skip the append and record `"skipped (duplicate): MEMORY.md"` in `writer_actions[]`.
+
+**Compiled mode (`memory_mode: compiled`).** Never write `MEMORY.md` and never create a heading. Dedup against it as above, then append the entry, verbatim in the format above, as one line of `.agentic/memory-capture-inbox.md` (create if absent); the next `ds-memory-capture flush` (run by `/ds-wrap`, Phase 11b or `/ds-memory-update`) turns it into a shard. Return `memory_md_appended: false` and record `".agentic/memory-capture-inbox.md: queued 1 entry"` in `writer_actions[]`. See `content/references/memory-shard-convention.md` §Two-tier capture.
 
 ### 6. Return
 
