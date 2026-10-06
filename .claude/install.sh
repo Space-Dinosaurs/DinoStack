@@ -1785,11 +1785,14 @@ PYEOF_SHARED
 # session, a run on a harness other than Claude Code, and a daemon that
 # predates the `open` naming it. Without this write those have no upper bound.
 #
-# 1800000 ms (30 minutes) bounds the gap BETWEEN commands, which is not the
+# 600000 ms (10 minutes) bounds the gap BETWEEN commands, which is not the
 # same thing as a session limit: every command resets the clock, so a browser
-# under active drive is never cut off mid-run. Half an hour clears the gaps a
-# run realistically leaves - a build, a test suite, a subagent review - while
-# still bounding a leftover window.
+# under active drive is never cut off mid-run. The timeout still applies to
+# every daemon; what the reaper changes is the need, since fewer sessions now
+# rely on it as their only cleanup. The cost: an agent
+# that pauses more than 10 minutes between browser commands - a long build, a
+# test suite, waiting on a review - loses its browser state, and its next
+# command starts a fresh about:blank browser.
 #
 # Two things this does NOT do, stated here so neither is read as solved:
 #   - A daemon already running when the value is written read the variable at
@@ -1815,7 +1818,7 @@ PYEOF_SHARED
 # when the `open` never returned), so a later reuse of the same name is out of
 # reach once that window has passed.
 # ---------------------------------------------------------------------------
-AE_BROWSER_IDLE_TIMEOUT_MS_VALUE="1800000"
+AE_BROWSER_IDLE_TIMEOUT_MS_VALUE="600000"
 AE_BROWSER_IDLE_TIMEOUT_MIN=$((AE_BROWSER_IDLE_TIMEOUT_MS_VALUE / 60000))
 AE_BROWSER_IDLE_STATE="$(
   AE_SETTINGS_PATH="$SETTINGS" python3 - <<'PYEOF' 2>/dev/null

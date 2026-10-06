@@ -228,7 +228,7 @@ Key points:
   rest) to the main session's context at startup, resume, compact and clear.
   It has no config key or kill switch; a repo without the marker is untouched.
 - The installer also offers to set `env.AGENT_BROWSER_IDLE_TIMEOUT_MS` to
-  `"1800000"` (30 minutes), so an `agent-browser` daemon a run leaves behind
+  `"600000"` (10 minutes), so an `agent-browser` daemon a run leaves behind
   shuts itself and its browser down once no command has arrived for that long.
   The prompt defaults to declining, so an unattended install leaves the
   variable unset. The installer separately wires the reaper hook

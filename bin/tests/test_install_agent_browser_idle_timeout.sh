@@ -76,7 +76,7 @@
 #            (l) the idle block reads and writes $HOME/.claude/settings.json
 #                instead of $SETTINGS                     -> A4 reddens
 #            (m) hardcode the value in the writer's call  -> S1 reddens
-#            (n) spell "30 minutes" in a printed line     -> S1 reddens
+#            (n) spell "10 minutes" in a printed line     -> S1 reddens
 #          (d), (e) and (i) name lines in the shared write helper
 #          ae_json_write_helper, which the installer splices in ahead of this
 #          writer's own body; the extraction below follows that splice.
@@ -119,7 +119,7 @@ INSTALL_SH="$REPO_DIR/.claude/install.sh"
 MUTATION_GLOB="$REPO_DIR/.claude/.mutation-install-$$-*"
 
 IDLE_KEY="AGENT_BROWSER_IDLE_TIMEOUT_MS"
-IDLE_DEFAULT="1800000"
+IDLE_DEFAULT="600000"
 PROMPT_NEEDLE="Set $IDLE_KEY in"
 COST_NEEDLE="loses its browser session mid-run"
 
@@ -601,7 +601,7 @@ PYEOF
 # S1: the timeout value and its duration wording are single-sourced. Static,
 # against the installer under test: exactly one AE_BROWSER_IDLE_TIMEOUT_MS_VALUE
 # assignment; its numeral appears nowhere else except in a comment; inside the
-# idle-timeout block no non-comment line spells a duration ("30 minutes",
+# idle-timeout block no non-comment line spells a duration ("10 minutes",
 # "half an hour") rather than deriving it; and every duration a comment there
 # states agrees with the value.
 # ---------------------------------------------------------------------------
@@ -1171,10 +1171,10 @@ expect_mutation_fails 's|^        before = os.fstat(f.fileno())$|        before 
 expect_mutation_fails "s|^  AE_SETTINGS_PATH=\"\\\$SETTINGS\" python3 - <<'PYEOF' 2>/dev/null\$|  AE_SETTINGS_PATH=\"\\\$HOME/.claude/settings.json\" python3 - <<'PYEOF' 2>/dev/null|;s|} \\| AE_SETTINGS_PATH=\"\\\$SETTINGS\" python3 - \"\\\$AE_BROWSER_IDLE_TIMEOUT_MS_VALUE\"|} \\| AE_SETTINGS_PATH=\"\\\$HOME/.claude/settings.json\" python3 - \"\\\$AE_BROWSER_IDLE_TIMEOUT_MS_VALUE\"|" \
   "idle-block-home-claude" "$INSTALL_SH" case_install_redirected_config_dir "A4:"
 # (m) the writer is handed a hardcoded value instead of the single definition.
-expect_mutation_fails 's#python3 - "\$AE_BROWSER_IDLE_TIMEOUT_MS_VALUE"#python3 - "1800000"#' \
+expect_mutation_fails 's#python3 - "\$AE_BROWSER_IDLE_TIMEOUT_MS_VALUE"#python3 - "600000"#' \
   "value-hardcoded-in-writer" "$INSTALL_SH" case_single_source "outside its single definition"
 # (n) a printed duration spelled out instead of derived from the value.
-expect_mutation_fails 's#(\$AE_BROWSER_IDLE_TIMEOUT_MIN minutes) makes#(30 minutes) makes#' \
+expect_mutation_fails 's#(\$AE_BROWSER_IDLE_TIMEOUT_MIN minutes) makes#(10 minutes) makes#' \
   "minutes-literal-in-echo" "$INSTALL_SH" case_single_source "a duration literal outside a comment"
 
 # ---------------------------------------------------------------------------
