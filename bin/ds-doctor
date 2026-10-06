@@ -36,7 +36,9 @@ Purpose: Inspect global dinostack install health and (with --fix)
          (DS-198) that no enabled Claude Code plugin registers a
          PreToolUse hook on the Agent/Task spawn tools, which could
          silently mutate subagent spawn input - see
-         check_foreign_agent_hooks. With --fix,
+         check_foreign_agent_hooks, and that the installed Claude Code CLI
+         (`claude --version`) is not older than CLAUDE_VERSION_FLOOR - see
+         check_claude_version (WARN only; --fix never upgrades it). With --fix,
          re-points ours-to-own broken/stale symlinks and rewrites hook paths
          in settings.json (atomic read-merge-write); when the expected
          in-repo target for an ours-to-own symlink no longer exists at all
@@ -188,6 +190,11 @@ Failure modes: missing config -> falls back to ~/DinoStack; no crash. Missing
                posture; it does not mark it unfixable, since nothing here is
                a broken install. Writing the outputStyle key is prohibited
                outright, not merely unimplemented.
+               check_claude_version: below CLAUDE_VERSION_FLOOR -> WARN,
+               never FAIL and never marked unfixable (non-blocking; the
+               repair is `claude update`, the operator's to run). claude not
+               on PATH, a nonzero exit, a timeout (5 s), or output with no
+               X.Y.Z version -> SKIP, never WARN.
                check_foreign_agent_hooks: MISSING is not governed by a
                single rule - it varies deliberately by site (a missing
                ~/.claude/plugins dir, a missing settings.json/enabledPlugins
@@ -241,6 +248,8 @@ Performance: base checks are O(small) (<100 ms). With --cross-harness the
              --cross-harness run is bounded by those subprocess timeouts, not
              sub-100 ms. check_hooks_snapshot_staleness shells out to bash
              once (sub-50ms per hooks-staleness-core.sh's own perf note).
+             check_claude_version runs `claude --version` once, bounded by a
+             5 s timeout.
 """
 
 from __future__ import annotations
@@ -2328,6 +2337,70 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
             )
 
 
+# ---------------------------------------------------------------------------
+# Check (f5): installed Claude Code CLI is at or above the known-good floor
+# ---------------------------------------------------------------------------
+
+# Claude Code 2.1.280 re-loads an isolation worktree's own CLAUDE.md /
+# AGENTS.md / MEMORY.md as nested_memory on a subagent's first file access,
+# duplicating the instruction prefix already loaded from the primary checkout.
+# Measured: 52/93 worktree-subagent transcripts affected on 2.1.280, 0/309 on
+# 2.1.287. 2.1.281-2.1.286 were never observed, so this is the earliest version
+# KNOWN to be fixed - a conservative floor, not the exact fix version.
+CLAUDE_VERSION_FLOOR = (2, 1, 287)
+_CLAUDE_VERSION_TIMEOUT_S = 5
+
+
+def check_claude_version(doc: Doctor) -> None:
+    """WARN when `claude --version` reports a version below
+    CLAUDE_VERSION_FLOOR. Never FAIL and never unfixable: an old CLI is an
+    advisory, and upgrading it is the operator's to perform. Any state where
+    the version cannot be determined (claude not on PATH - DinoStack supports
+    other harnesses - a nonzero exit, a timeout, or unparseable output) is a
+    SKIP, never a WARN.
+    """
+    import subprocess
+
+    exe = shutil.which("claude")
+    if not exe:
+        doc.skip("claude_version", "claude", "not on PATH; Claude Code not installed")
+        return
+    try:
+        result = subprocess.run(
+            [exe, "--version"],
+            capture_output=True, text=True, timeout=_CLAUDE_VERSION_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        doc.skip("claude_version", exe, f"`claude --version` failed: {type(exc).__name__}")
+        return
+    if result.returncode != 0:
+        doc.skip("claude_version", exe, f"`claude --version` exited {result.returncode}")
+        return
+    match = re.search(r"\b(\d+)\.(\d+)\.(\d+)\b", result.stdout or "")
+    if not match:
+        doc.skip(
+            "claude_version", exe,
+            f"unparseable `claude --version` output: {_truncate_for_message((result.stdout or '').strip(), 80)!r}",
+        )
+        return
+
+    version = tuple(int(g) for g in match.groups())
+    found = ".".join(match.groups())
+    floor = ".".join(str(n) for n in CLAUDE_VERSION_FLOOR)
+    if version >= CLAUDE_VERSION_FLOOR:
+        doc.ok("claude_version", f"Claude Code {found} >= {floor}")
+        return
+    doc.warn(
+        "claude_version",
+        f"Claude Code {found} is older than {floor}. Older versions (2.1.280 "
+        "measured) re-load an isolation worktree's CLAUDE.md/AGENTS.md/MEMORY.md "
+        f"into subagents, roughly doubling their context. {floor} is the earliest "
+        "version known to be fixed (a conservative floor, not the exact fix "
+        "version). ds-doctor cannot fix this, in --fix or otherwise: run "
+        "`claude update`.",
+    )
+
+
 def check_cross_harness(doc: "Doctor") -> None:
     """Validate the cross-harness team stack: configs, harnesses, model handles."""
     at = _load_agentic_team_module()
@@ -2537,6 +2610,9 @@ def main() -> int:
 
     # (f4) foreign PreToolUse hooks targeting the Agent/Task spawn tool (DS-198)
     check_foreign_agent_hooks(doc)
+
+    # (f5) installed Claude Code CLI is at or above the known-good floor
+    check_claude_version(doc)
 
     # (g) cross-harness team stack (opt-in via --cross-harness)
     if args.cross_harness:
