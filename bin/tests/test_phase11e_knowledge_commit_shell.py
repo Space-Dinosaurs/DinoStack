@@ -11,9 +11,9 @@ Purpose: Executes the two shell blocks Phase 11e added to
          fails open, `files_committed` populated on a failure path), and each
          was confirmed to go RED under a mutation of the implementation.
 
-Public API: none (pytest test module; 37 parametrized functions x {bash, zsh}
-            = 74 collected IDs, plus 3 static shell-independent assertions =
-            77 - see the collected-count floor in
+Public API: none (pytest test module; 38 parametrized functions x {bash, zsh}
+            = 76 collected IDs, plus 3 static shell-independent assertions =
+            79 - see the collected-count floor in
             .github/workflows/bin-tests.yml).
 
 Upstream deps: bin/tests/lib/md_shell_extract.py (extraction + non-exported
@@ -1469,6 +1469,23 @@ def test_two_tier_new_shard_rides_with_memory_md(tmp_path, shell):
 
     files = _origin_tip_files(fixture)
     assert MEMORY in files and NEW_SHARD in files, f"{files}\n{result.stdout}\n{result.stderr}"
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_two_tier_new_shards_diagnostic_reaches_stderr(tmp_path, shell):
+    """With the helper missing, its shards silently stay behind unless the
+    failure is visible. Mutation: redirect the new-shards call's stderr to
+    /dev/null."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path)
+    _seed_shards(fixture, indexed=True)
+    fixture.env["PATH"] = fixture.env["PATH"].replace(f"{REPO_ROOT / 'bin'}{os.pathsep}", "", 1)
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert "ds-memory-capture" in result.stderr, result.stderr
+    assert MEMORY in _origin_tip_files(fixture), "positive control: the knowledge commit still happened"
 
 
 @pytest.mark.parametrize("shell", SHELLS)

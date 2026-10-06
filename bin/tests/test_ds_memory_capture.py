@@ -339,6 +339,21 @@ def test_i_new_shards_lists_exactly_paths_absent_from_ref(tmp_path):
     assert tool(repo, "new-shards", "--ref", "no-such-ref").stdout == ""
 
 
+def test_i_new_shards_handles_non_ascii_names(tmp_path):
+    """git quotes non-ASCII paths unless -z is used, so a quoted name never
+    matches a file on disk and drops out. Mutation: drop -z."""
+    repo = make_repo(tmp_path)
+    (repo / SHARDS / "2026-02-06-über.md").write_text(_shard(5000, "- **2026-02-06:** u\n"))
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "u")
+    (repo / SHARDS / "2026-02-04-café.md").write_text(_shard(6000, "- **2026-02-04:** c\n"))
+
+    r = tool(repo, "new-shards", "--ref", "HEAD")
+
+    assert r.returncode == 0
+    assert r.stdout.splitlines() == [".agentic/memory-shards/2026-02-04-café.md"], r.stdout
+
+
 def test_i_new_shards_prints_nothing_in_standard_mode(tmp_path):
     repo = make_repo(tmp_path, indexed=False)
     base = _git(repo, "rev-parse", "HEAD").stdout.strip()
@@ -409,6 +424,24 @@ def test_j_repair_restores_a_shard_whose_line_is_missing(tmp_path):
     assert r.returncode == 1, r.stdout
     assert "not re-captured" in r.stdout
     assert (repo / SHARDS / name).read_bytes() == before
+
+
+def test_j_repair_failure_removes_shards_its_ingest_created(tmp_path):
+    """On a failed repair, ingest may already have captured some other line
+    (here a hand-added one); that shard must go too, or a rollback leaves a
+    shard nobody committed to. Mutation: skip the cleanup of new shards."""
+    repo = make_repo(tmp_path)
+    committed = (repo / "MEMORY.md").read_text()
+    write_inbox(repo, "- **%s:** sole-copy fact" % DATE)
+    assert tool(repo, "flush").returncode == 0
+    before = {n: sha(repo / SHARDS / n) for n in shard_files(repo)}
+    (repo / "MEMORY.md").write_text(
+        PREAMBLE_TEXT + "- **%s:** hand-added line\n" % DATE + committed[len(PREAMBLE_TEXT):])
+
+    r = tool(repo, "repair", "--ref", "HEAD")
+
+    assert r.returncode == 1 and "not re-captured" in r.stdout, r.stdout
+    assert {n: sha(repo / SHARDS / n) for n in shard_files(repo)} == before
 
 
 def test_j_repair_keeps_indexed_shards_absent_at_ref(tmp_path):

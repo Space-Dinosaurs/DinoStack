@@ -3284,7 +3284,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - `pr_url`: the PR URL captured at Phase 9.
 - `conversation_summary`: a brief recap of the conductor's session covering this ticket.
 - `learnings_extracted`: the `learning_ids[]` array from the `learning-extractor` return at Phase 6 clean exit (or `[]` if learning extraction was skipped/soft-failed).
-- `memory_mode`: `compiled` if `ds-memory-capture detect --dir "$REPO"` reports a two-tier mode; else omit.
+- `memory_mode`: `compiled` in compiled mode (memory-shard-convention.md: `detect`, else the `^index:` grep); else omit.
 
 **Failure semantics:**
 
@@ -3744,9 +3744,9 @@ else
           fi
         fi
       done
-      # Two-tier: a staged MEMORY.md ships with its new shards.
+      # Two-tier: ship new shards with MEMORY.md.
       case ",$KC_LIST," in *,MEMORY.md,*)
-        KC_NEW=$(ds-memory-capture new-shards --dir "$REPO" --ref "origin/${BRANCH_NAME}" 2>/dev/null || true)
+        KC_NEW=$(ds-memory-capture new-shards --dir "$REPO" --ref "origin/${BRANCH_NAME}" || true)
         while IFS= read -r KC_S; do
           [ -n "$KC_S" ] || continue
           KC_ADD_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" add -- "$KC_S" 2>&1 >/dev/null)

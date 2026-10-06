@@ -2427,8 +2427,9 @@ capture, do not wait for acknowledgment.
 
 The conductor's message contains: `event_type`, `description`, `resolution`,
 `domain_tag`, `severity` (omit `severity` for KNW-producing event types), and
-`memory_mode: compiled` when `ds-memory-capture detect` reports a two-tier mode
-(omit it otherwise). The agent
+`memory_mode: compiled` in compiled mode (`ds-memory-capture detect`, else the
+`^index:` grep; see `content/references/memory-shard-convention.md` §Two-tier
+capture), omitted otherwise. The agent
 writes immediately to `.agentic/learnings.md` with no batching. The Stop hook removes
 `.agentic/learnings-agent.session` on session exit.
 
@@ -5565,10 +5566,12 @@ shard's frontmatter has an `^index:` line. Then it is `two-tier` when
 `_preamble.md` names exactly one distinct backticked `<interpreter> <file>
 ingest` span (interpreter in {node, python3, python, bash, sh}; the file
 git-tracked inside the project; run with the project as cwd, no shell), else
-`two-tier-unresolved`. Either two-tier mode is `memory_mode: compiled` for
-writers; everything else is `standard` and behaves exactly as before. If
-the helper is not installed, a project is `compiled` iff
-`grep -l '^index:' .agentic/memory-shards/*.md` finds a hit. Nothing here
+`two-tier-unresolved`.
+
+**Compiled mode** (`memory_mode: compiled`), the rule every use site
+applies: `detect` reports either two-tier mode, or, when `ds-memory-capture`
+is not installed, `grep -l '^index:' .agentic/memory-shards/*.md` finds a
+hit. Everything else is `standard` and behaves exactly as before. Nothing here
 names a project; a two-tier project's own convention doc is authoritative
 for its shard format.
 
@@ -20813,7 +20816,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - `pr_url`: the PR URL captured at Phase 9.
 - `conversation_summary`: a brief recap of the conductor's session covering this ticket.
 - `learnings_extracted`: the `learning_ids[]` array from the `learning-extractor` return at Phase 6 clean exit (or `[]` if learning extraction was skipped/soft-failed).
-- `memory_mode`: `compiled` if `ds-memory-capture detect --dir "$REPO"` reports a two-tier mode; else omit.
+- `memory_mode`: `compiled` in compiled mode (memory-shard-convention.md: `detect`, else the `^index:` grep); else omit.
 
 **Failure semantics:**
 
@@ -21273,9 +21276,9 @@ else
           fi
         fi
       done
-      # Two-tier: a staged MEMORY.md ships with its new shards.
+      # Two-tier: ship new shards with MEMORY.md.
       case ",$KC_LIST," in *,MEMORY.md,*)
-        KC_NEW=$(ds-memory-capture new-shards --dir "$REPO" --ref "origin/${BRANCH_NAME}" 2>/dev/null || true)
+        KC_NEW=$(ds-memory-capture new-shards --dir "$REPO" --ref "origin/${BRANCH_NAME}" || true)
         while IFS= read -r KC_S; do
           [ -n "$KC_S" ] || continue
           KC_ADD_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" add -- "$KC_S" 2>&1 >/dev/null)
@@ -26106,7 +26109,7 @@ After the root write succeeds - and only after, inside the held lock - rewrite `
 
 3. **If the file exists**: read its content. For each non-deferred entry, check whether the same fact is already captured - not just as an exact string match, but semantically (same architectural decision, same gotcha, same command). Also check `.agentic/learnings.md` (read at Step 1, per that step's note): if the same fact is captured as a structured learning entry, skip the new memory entry. If an existing entry covers the same fact, skip the new entry. If the new entry supersedes an existing one (same topic but updated or corrected), replace the existing entry in place with the new one - **name every supersession** in the return line by quoting the existing entry's text beside its replacement. Otherwise append the new entry. Write the merged result, per Atomic write discipline <!-- aw-site: memory-md-merge --> (unconditional publish). Return: "Updated MEMORY.md at [path] (N entries added, M entries superseded [superseded-entry-text -> replacement-text, ...], K deferred to memory-pending.md)."
 
-**Compiled mode** (`ds-memory-capture detect` reports `two-tier` or `two-tier-unresolved`; see `content/references/memory-shard-convention.md` §Two-tier capture) replaces steps 2-3: dedup as in step 3, but never edit `MEMORY.md` and never replace in place. Append each surviving entry as one line of `.agentic/memory-capture-inbox.md`, citing a superseded entry's shard id in its text, then run `ds-memory-capture flush` and carry its `captured:` and `flush:` lines into the return line.
+**Compiled mode** (`ds-memory-capture detect` reports `two-tier` or `two-tier-unresolved`, else the `^index:` grep fallback; see `content/references/memory-shard-convention.md` §Two-tier capture) replaces steps 2-3: dedup as in step 3, but never edit `MEMORY.md` and never replace in place. Append each surviving entry as one line of `.agentic/memory-capture-inbox.md`, citing a superseded entry's shard id in its text, then run `ds-memory-capture flush` and carry its `captured:` and `flush:` lines into the return line.
 
 **Part C — Write AGENTS.md updates**
 

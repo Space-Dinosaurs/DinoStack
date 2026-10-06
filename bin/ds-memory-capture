@@ -376,13 +376,15 @@ def new_shards(d, ref):
     if _git(d, "rev-parse", "--verify", "-q", ref + "^{tree}").returncode != 0:
         print("new-shards: ref %s does not resolve - listing nothing" % ref, file=sys.stderr)
         return []
-    at_ref = _git(d, "ls-tree", "-r", "--name-only", ref, "--", SHARD_REL)
-    listed = _git(d, "ls-files", "--cached", "--others", "--exclude-standard", "--", SHARD_REL)
+    at_ref = _git(d, "ls-tree", "-r", "-z", "--name-only", ref, "--", SHARD_REL)
+    listed = _git(d, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", SHARD_REL)
     if at_ref.returncode != 0 or listed.returncode != 0:
+        print("new-shards: git failed - listing nothing:\n%s%s" % (at_ref.stderr, listed.stderr),
+              file=sys.stderr)
         return []
-    present = set(at_ref.stdout.splitlines())
-    return sorted({p for p in listed.stdout.splitlines()
-                   if p not in present and os.path.isfile(os.path.join(d, p))})
+    present = set(at_ref.stdout.split("\0"))
+    return sorted({p for p in listed.stdout.split("\0")
+                   if p and p not in present and os.path.isfile(os.path.join(d, p))})
 
 
 def repair(d, ref):

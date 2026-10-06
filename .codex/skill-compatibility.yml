@@ -11352,16 +11352,6 @@
       "source_token": "then"
     },
     {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "new-shards",
-      "kind": "display-only",
-      "occurrence_hash": "7b3a8a1fa4d6fe96984d971d62f9154252cdb9ef57f340cc1c1f3f326467d242",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "new-shards"
-    },
-    {
       "expected_target": "printf",
       "generated_token": "printf",
       "kind": "operational",
@@ -13000,6 +12990,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "KC_SKIP_THIS"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "new-shards",
+      "kind": "display-only",
+      "occurrence_hash": "9396c402f6dc0b5555cb78f336820b571fcde2ddef484443ef74742b58985686",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "new-shards"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -15612,6 +15612,16 @@
       "source_token": "-C"
     },
     {
+      "expected_target": "true",
+      "generated_token": "true",
+      "kind": "operational",
+      "occurrence_hash": "b5e378555946a2771dd162a8e8d14bfc36be50d6b049379831d3f868e51f4857",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "true"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
@@ -15640,16 +15650,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "/dev",
-      "kind": "display-only",
-      "occurrence_hash": "b68465c9aa5668fd450a8b25b30fee5de731f441469eb3f2a5110356f2d3c7d6",
-      "resolution_mode": "display-only",
-      "scope": "display-only",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/dev"
     },
     {
       "expected_target": ".agentic/qa-regressions.md",
@@ -17550,16 +17550,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/session-log/"
-    },
-    {
-      "expected_target": "true",
-      "generated_token": "true",
-      "kind": "operational",
-      "occurrence_hash": "cfe6c9017de4c265d93434102aaa5c6a11c19c7a4bb8fffc921c02fefa20d794",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "true"
     },
     {
       "expected_target": "dinostack-codex-wrap",
@@ -23162,6 +23152,16 @@
       "source_token": "/ds-wrap"
     },
     {
+      "expected_target": ".agentic/memory-capture-inbox.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/memory-capture-inbox.md",
+      "kind": "operational",
+      "occurrence_hash": "746f9eef99aecd190443c0f0d2522214f6b90c621aef9de7b95200073e6380be",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/memory-capture-inbox.md"
+    },
+    {
       "expected_target": ".claude/<name>.md",
       "generated_token": "$AE_PROJECT_DIR/.claude/<name>.md",
       "kind": "operational",
@@ -23740,6 +23740,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "Read"
+    },
+    {
+      "expected_target": "content/references/memory-shard-convention.md",
+      "generated_token": "$AE_REPO_DIR/content/references/memory-shard-convention.md",
+      "kind": "operational",
+      "occurrence_hash": "96f8dbc91954f8d576d6956d8488e22e2916332aa4c73208cb3a45f1af5bbcd3",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/memory-shard-convention.md"
     },
     {
       "expected_target": "content/rules/conventions.md",
@@ -25122,16 +25132,6 @@
       "source_token": ".agentic/wrap/claude-host"
     },
     {
-      "expected_target": "content/references/memory-shard-convention.md",
-      "generated_token": "$AE_REPO_DIR/content/references/memory-shard-convention.md",
-      "kind": "operational",
-      "occurrence_hash": "eb3e4e8b40d2ea4704d1265f1b674869688168b94c794e0cdbb3c9e24b22b9a6",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/references/memory-shard-convention.md"
-    },
-    {
       "expected_target": ".agentic/config.json>",
       "generated_token": "$AE_PROJECT_DIR/.agentic/config.json>",
       "kind": "operational",
@@ -25510,16 +25510,6 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "Read"
-    },
-    {
-      "expected_target": ".agentic/memory-capture-inbox.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/memory-capture-inbox.md",
-      "kind": "operational",
-      "occurrence_hash": "ff133abeb458291378d176be12ec82fffb69b59013134bfcb8911a4ac42f2855",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/memory-capture-inbox.md"
     },
     {
       "expected_target": ".agentic/learnings.md",

@@ -50,6 +50,28 @@ def test_each_writer_has_a_compiled_clause_naming_the_inbox(rel):
     )
 
 
+FALLBACK = "`^index:` grep"
+
+
+def test_convention_doc_defines_compiled_mode_with_the_missing_tool_fallback():
+    text = _text("content/references/memory-shard-convention.md")
+    rule = _between(text, "**Compiled mode** (`memory_mode: compiled`)", "\n\n")
+    assert "grep -l '^index:' .agentic/memory-shards/*.md" in rule
+
+
+@pytest.mark.parametrize("rel,anchor", [
+    ("content/commands/ds-implement-ticket.md", "- `memory_mode`: `compiled`"),
+    ("content/commands/ds-wrap.md", "**Compiled mode** (`ds-memory-capture detect`"),
+    ("content/references/conductor-operating-rules.md", "`memory_mode: compiled` in compiled mode"),
+])
+def test_each_mode_decision_site_names_the_missing_tool_fallback(rel, anchor):
+    """Without the helper installed, a site that only consults `detect` falls
+    back to writing MEMORY.md in a two-tier project."""
+    text = _text(rel)
+    clause = text[text.index(anchor):][:400]
+    assert FALLBACK in clause, f"{rel}: mode decision does not name the {FALLBACK} fallback"
+
+
 def test_phase_11b_flushes_before_releasing_the_lock_and_skips_part_e():
     phase = _between(_text("content/commands/ds-implement-ticket.md"),
                      "## Phase 11b:", "## Phase 11d:")

@@ -223,8 +223,9 @@ capture, do not wait for acknowledgment.
 
 The conductor's message contains: `event_type`, `description`, `resolution`,
 `domain_tag`, `severity` (omit `severity` for KNW-producing event types), and
-`memory_mode: compiled` when `ds-memory-capture detect` reports a two-tier mode
-(omit it otherwise). The agent
+`memory_mode: compiled` in compiled mode (`ds-memory-capture detect`, else the
+`^index:` grep; see `content/references/memory-shard-convention.md` §Two-tier
+capture), omitted otherwise. The agent
 writes immediately to `.agentic/learnings.md` with no batching. The Stop hook removes
 `.agentic/learnings-agent.session` on session exit.
 

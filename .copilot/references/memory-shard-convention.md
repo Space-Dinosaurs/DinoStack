@@ -357,10 +357,12 @@ shard's frontmatter has an `^index:` line. Then it is `two-tier` when
 `_preamble.md` names exactly one distinct backticked `<interpreter> <file>
 ingest` span (interpreter in {node, python3, python, bash, sh}; the file
 git-tracked inside the project; run with the project as cwd, no shell), else
-`two-tier-unresolved`. Either two-tier mode is `memory_mode: compiled` for
-writers; everything else is `standard` and behaves exactly as before. If
-the helper is not installed, a project is `compiled` iff
-`grep -l '^index:' .agentic/memory-shards/*.md` finds a hit. Nothing here
+`two-tier-unresolved`.
+
+**Compiled mode** (`memory_mode: compiled`), the rule every use site
+applies: `detect` reports either two-tier mode, or, when `ds-memory-capture`
+is not installed, `grep -l '^index:' .agentic/memory-shards/*.md` finds a
+hit. Everything else is `standard` and behaves exactly as before. Nothing here
 names a project; a two-tier project's own convention doc is authoritative
 for its shard format.
 
