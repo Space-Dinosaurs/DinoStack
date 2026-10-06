@@ -192,10 +192,10 @@ Static review (Skeptic) + runtime review (qa-engineer) = the protocol's two-pass
 An agent-driven browser opens no window on your desktop, and the CLI path's daemon does not have to outlive its run indefinitely:
 
 - **MCP path** - `chrome-devtools` is registered `--headless --isolated`: no window, and a throwaway profile per server
-- **CLI path** - `agent-browser` daemons detach from their session; on Claude Code a reaper hook closes a session when the agent that opened it ends, and the optional `AGENT_BROWSER_IDLE_TIMEOUT_MS` stops any daemon after 30 idle minutes
+- **CLI path** - `agent-browser` daemons detach from their session; on Claude Code a reaper hook closes a session when the agent that opened it ends, and the optional `AGENT_BROWSER_IDLE_TIMEOUT_MS` stops any daemon after 10 idle minutes
 
 <div class="callout">
-The reaper closes only sessions it can attribute to the ending agent. Anything else stays up for 30 idle minutes, or unbounded if the timeout prompt (default no) was declined.
+The reaper closes only sessions it can attribute to the ending agent. Anything else stays up for 10 idle minutes, or unbounded if the timeout prompt (default no) was declined.
 </div>
 
 ---

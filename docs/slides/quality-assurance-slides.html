@@ -475,10 +475,10 @@ hr {
 <p>An agent-driven browser opens no window on your desktop, and the CLI path's daemon does not have to outlive its run indefinitely:</p>
 <ul>
 <li><strong>MCP path</strong> - <code>chrome-devtools</code> is registered <code>--headless --isolated</code>: no window, and a throwaway profile per server</li>
-<li><strong>CLI path</strong> - <code>agent-browser</code> daemons detach from their session; on Claude Code a reaper hook closes a session when the agent that opened it ends, and the optional <code>AGENT_BROWSER_IDLE_TIMEOUT_MS</code> stops any daemon after 30 idle minutes</li>
+<li><strong>CLI path</strong> - <code>agent-browser</code> daemons detach from their session; on Claude Code a reaper hook closes a session when the agent that opened it ends, and the optional <code>AGENT_BROWSER_IDLE_TIMEOUT_MS</code> stops any daemon after 10 idle minutes</li>
 </ul>
 <div class="callout">
-The reaper closes only sessions it can attribute to the ending agent. Anything else stays up for 30 idle minutes, or unbounded if the timeout prompt (default no) was declined.
+The reaper closes only sessions it can attribute to the ending agent. Anything else stays up for 10 idle minutes, or unbounded if the timeout prompt (default no) was declined.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="4" data-marpit-scope-s003="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
