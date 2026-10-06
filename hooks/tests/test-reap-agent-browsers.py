@@ -54,6 +54,9 @@ HOME = os.environ["HOME"]
 AB_DIR = os.path.join(HOME, ".agent-browser")
 LOG = os.path.join(HOME, ".agentic", "browser-reaper.log")
 NOW = 1_800_000_000.0
+# Real subagent transcript lines carry their agentId, so the ending agent's
+# own id always appears in its own transcript.
+AGENT_ID = "a670c93d0ae6ec5dc"
 
 
 def iso(t):
@@ -140,6 +143,7 @@ def write_transcript(path, items):
     with open(path, "w") as f:
         for ts, role, content in items:
             f.write(json.dumps({"type": role, "timestamp": iso(ts),
+                                "agentId": AGENT_ID,
                                 "message": {"role": role, "content": content}}) + "\n")
 
 
@@ -259,14 +263,20 @@ def log_text():
         return ""
 
 
-def owned_fixture(name="mine", now=NOW):
+def owned_fixture(name="mine", now=NOW, launched_task=None):
     """A transcript that opened `name` at now-100..now-95 and a live daemon
-    for it that started at now-97."""
+    for it that started at now-97. launched_task, when given, is the id of a
+    background task this agent started, named in its own tool_result."""
     path = os.path.join(HOME, "proj", "sess.jsonl")
-    write_transcript(path, [
+    items = [
         (now - 100, "assistant", [bash_use("t1", "agent-browser open u --session " + name)]),
         (now - 95, "user", [result("t1")]),
-    ])
+    ]
+    if launched_task:
+        items.append((now - 90, "assistant", [bash_use("t2", "sleep 60")]))
+        items.append((now - 90, "user", [{"type": "tool_result", "tool_use_id": "t2",
+                                           "content": "running in background with ID: " + launched_task}]))
+    write_transcript(path, items)
     rows = {4242: (1, 97, "agent-browser daemon")}
     return path, rows, {name: 4242}
 
@@ -295,23 +305,57 @@ def test_subagent_stop_closes_owned_session():
     assert "closed=[mine]" in log_text(), log_text()
 
 
-def test_subagent_stop_with_background_tasks_defers_close():
+SELF_TASK ={"id": AGENT_ID, "type": "subagent", "status": "running",
+             "description": "x", "agent_type": "general-purpose"}
+
+
+def bg_payload(path, tasks=(), crons=()):
+    return {"hook_event_name": "SubagentStop", "agent_id": AGENT_ID,
+            "agent_transcript_path": path, "background_tasks": list(tasks),
+            "session_crons": list(crons)}
+
+
+def test_own_background_task_defers_close():
     reset_home()
-    path, rows, pids = owned_fixture()
+    path, rows, pids = owned_fixture(launched_task="bshell123abc")
     rows[77] = ORPHAN_ROWS[10]
-    rec = run_main({"hook_event_name": "SubagentStop", "agent_transcript_path": path,
-                    "background_tasks": [{"id": "b1", "type": "shell", "status": "running",
-                                          "description": "x"}]}, rows, pids)
+    task = {"id": "bshell123abc", "type": "shell", "status": "running", "description": "x"}
+    rec = run_main(bg_payload(path, [SELF_TASK, task]), rows, pids)
     assert rec.closes == [], rec.closes
     assert rec.signals == [77], rec.signals
-    assert "verdict=deferred background_tasks=1(shell)" in log_text(), log_text()
+    assert "verdict=deferred own_pending=[bshell123abc]" in log_text(), log_text()
 
 
-def test_subagent_stop_with_session_crons_defers_close():
+def test_own_session_cron_defers_close():
+    reset_home()
+    path, rows, pids = owned_fixture(launched_task="cron98765xyz")
+    rec = run_main(bg_payload(path, crons=[{"id": "cron98765xyz", "schedule": "* * * * *",
+                                            "recurring": False, "prompt": "p"}]), rows, pids)
+    assert rec.closes == [], rec.closes
+
+
+def test_background_subagent_listing_only_itself_still_closes():
+    # Measured on Claude Code 2.1.287: a background subagent's own SubagentStop
+    # lists that subagent in background_tasks.
     reset_home()
     path, rows, pids = owned_fixture()
-    rec = run_main({"hook_event_name": "SubagentStop", "agent_transcript_path": path,
-                    "session_crons": [{"id": "c"}]}, rows, pids)
+    rec = run_main(bg_payload(path, [SELF_TASK]), rows, pids)
+    assert [a[3] for a in rec.closes] == ["mine"], rec.closes
+
+
+def test_sibling_background_work_does_not_block_close():
+    reset_home()
+    path, rows, pids = owned_fixture()
+    sibling = {"id": "asibling00000001", "type": "subagent", "status": "running", "description": "y"}
+    rec = run_main(bg_payload(path, [SELF_TASK, sibling]), rows, pids)
+    assert [a[3] for a in rec.closes] == ["mine"], rec.closes
+    assert "others_in_flight=1" in log_text(), log_text()
+
+
+def test_unidentified_background_entry_defers_close():
+    reset_home()
+    path, rows, pids = owned_fixture()
+    rec = run_main(bg_payload(path, [{"type": "shell"}]), rows, pids)
     assert rec.closes == [], rec.closes
 
 

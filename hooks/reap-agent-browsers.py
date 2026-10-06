@@ -52,9 +52,18 @@ Ownership: a session is closed only when (1) a Bash tool_use in a scanned
 
 Decisions:
     Background work (SubagentStop): the payload's `background_tasks` and
-        `session_crons` lists say whether the agent is paused waiting to
-        be woken rather than done. When either is non-empty the close is
-        skipped and logged as `deferred`; the orphan sweep still runs.
+        `session_crons` say whether work that can wake the agent is still
+        in flight. Both are session-wide, not per agent: measured on Claude
+        Code 2.1.287, a background subagent's own SubagentStop lists that
+        subagent itself (`id` == `agent_id`, type `subagent`), and a
+        sibling's or the main session's work appears too. Deferring on any
+        non-empty list would therefore keep every background subagent's
+        browser until SessionEnd. The close is skipped (logged `deferred`
+        with `own_pending=`) only for an entry other than the agent itself
+        whose id appears in the agent's own transcript - work that agent
+        launched - or an entry with no usable id. Other in-flight work is
+        logged as `others_in_flight=` and does not block the close. The
+        orphan sweep runs either way.
     Resume after a true stop: a subagent can be resumed after a
         SubagentStop with neither list set (KNW-20260920-006 measured
         repeat stops in 13 of 21 sampled worktree agents). Its browser is
@@ -100,6 +109,7 @@ Public API:
         name -> [(t_lo, t_hi_or_None)]
     owned(cands, daemon_start, now, slack=2.0) -> set
     select_orphans(rows) -> list   rows: pid -> (ppid, etime_s, command)
+    own_pending_work(payload, paths) -> (set, int)
     main() -> None                 never raises past _entry(); exit 0
 
 Upstream deps: Python 3.9+ stdlib only. `/bin/ps -axo pid=,ppid=,etime=,
@@ -594,6 +604,37 @@ def _transcripts(payload, event):
     return paths
 
 
+def own_pending_work(payload, paths):
+    """(ids of in-flight work this agent started, count of other in-flight
+    work). `background_tasks` and `session_crons` are session-wide and list
+    the ending subagent itself, so an entry counts as this agent's own only
+    when its id is not the agent's and appears in the agent's own
+    transcript (the tool_result that launched it names it). An entry with
+    no usable id counts as own, which keeps the browser."""
+    agent_id = payload.get("agent_id")
+    entries = []
+    for key in ("background_tasks", "session_crons"):
+        value = payload.get(key) or []
+        entries.extend(value if isinstance(value, list) else [value])
+    ids, own = [], set()
+    for entry in entries:
+        tid = entry.get("id") if isinstance(entry, dict) else None
+        if not isinstance(tid, str) or not tid:
+            own.add("unidentified")
+        elif tid != agent_id:
+            ids.append(tid)
+    if ids:
+        text = ""
+        for path in paths:
+            try:
+                with open(path, errors="replace") as f:
+                    text += f.read()
+            except OSError:
+                continue
+        own.update(tid for tid in ids if tid in text)
+    return own, len([tid for tid in ids if tid not in own])
+
+
 def main():
     started = time.monotonic()
     raw = sys.stdin.read()
@@ -616,16 +657,13 @@ def main():
         write_log(head + " verdict=disabled")
         return
 
-    deferred = ""
+    deferred, waits_note = "", ""
     if event == "SubagentStop":
-        bg = payload.get("background_tasks") or []
-        crons = payload.get("session_crons") or []
-        if bg or crons:
-            types = sorted({str(t.get("type", "?")) for t in bg if isinstance(t, dict)})
-            deferred = " background_tasks=%d%s session_crons=%d" % (
-                len(bg) if isinstance(bg, list) else 1,
-                "(" + ",".join(types) + ")" if types else "",
-                len(crons) if isinstance(crons, list) else 1)
+        own, others = own_pending_work(payload, _transcripts(payload, event))
+        if own:
+            deferred = " own_pending=%s" % _fmt(own)
+        if others:
+            waits_note = " others_in_flight=%d" % others
 
     rows = ps_rows(timeout=2.0)
     now = time.time()
@@ -673,9 +711,9 @@ def main():
         run_bounded([[ab, "session", "list"]], LIST_BUDGET_S)
         pruned = True
 
-    write_log("%s verdict=%s%s candidates=%s closed=%s skipped=%s orphans_killed=%d%s "
+    write_log("%s verdict=%s%s%s candidates=%s closed=%s skipped=%s orphans_killed=%d%s "
               "pruned=%s%s elapsed=%.2fs" % (
-                  head, "deferred" if deferred else "ran", deferred, _fmt(cands),
+                  head, "deferred" if deferred else "ran", deferred, waits_note, _fmt(cands),
                   _fmt(closed), "[" + ",".join(skipped) + "]", len(killed),
                   " orphan_pids=%s" % killed if killed else "", pruned,
                   " scan_truncated=True" if truncated else "",
