@@ -24642,16 +24642,6 @@
       "source_token": "content/references/conductor-operating-rules.md"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "c936716f7e55c8a45e7d00dee9639f8c82f8f11fcada5acaeccfc09e452c8bb3",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "gh",
       "generated_token": "gh",
       "kind": "operational",
@@ -24840,6 +24830,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": "<cwd>/.agentic/learnings.md"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "d41f9a0d6a309dc9f00384e3c9b1d8556066754552cd098b276bb5986b6fbd11",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
     },
     {
       "expected_target": "content/commands/ds-wrap-deferred.md",
@@ -25272,6 +25272,16 @@
       "source_token": ".claude/settings.json"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "ef831ad1ef15eaf099f5f54a4ed3e2b551634aa3764bc7daf0252e4a0b7e15a3",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "apply_patch",
       "generated_token": "Edit",
       "kind": "semantic-reference",
@@ -25540,6 +25550,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/tracking.md"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "fe3b57888fe8eccf2fbab46316848e54edea7d009f833893b54c5d131b9a27a7",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
     },
     {
       "expected_target": "filesystem read",
