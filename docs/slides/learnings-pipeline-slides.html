@@ -663,7 +663,7 @@ Knowledge learning. Fields:<br />
 No Severity field. Used for env facts, dead-ends, architectural rationale, tool-failure workarounds, and cross-component gotchas. Emitted by <code>learnings-agent</code> only.
 </div>
 </div>
-<p>LRN and KNW maintain <strong>independent per-day counters</strong>. learnings-agent may also append at most one pointer entry directly to <code>MEMORY.md</code>, in the same invocation, for conductor-behavioral events.</p>
+<p>LRN and KNW maintain <strong>independent per-day counters</strong>. learnings-agent may also append at most one pointer entry directly to <code>MEMORY.md</code>, in the same invocation, for conductor-behavioral events (in a two-tier project, to the capture inbox instead).</p>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="5" data-marpit-scope-s004="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
 section {
@@ -1183,7 +1183,7 @@ hr {
 learning-extractor ──&gt; LRN entry ──&gt; .agentic/learnings.md (committed)
 learnings-agent    ──&gt; LRN entry ──&gt; .agentic/learnings.md (committed)
 learnings-agent    ──&gt; KNW/LRN entry ──&gt; .agentic/learnings.md (always)
-learnings-agent    ──&gt; conductor-behavioral? ──&gt; MEMORY.md (same invocation, at most 1 entry)
+learnings-agent    ──&gt; conductor-behavioral? ──&gt; MEMORY.md or two-tier inbox (at most 1 entry)
 </code></pre>
 <div class="callout">
 Four stores, four writers, four audiences. The shard buffer is the only external one - it feeds the durable stores through a classified drain, never directly. Mixing the durable stores corrupts the `@MEMORY.md` import contract that keeps MEMORY.md clean for every session start.

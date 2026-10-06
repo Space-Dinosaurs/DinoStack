@@ -68,12 +68,10 @@
 #              correctness requirement. See
 #              content/references/memory-shard-convention.md's
 #              Verification section for the corrected prose. This ships
-#              the compiler + convention only; nothing
-#              writes into .agentic/memory-shards/ yet (writer wiring is a
-#              later unit's scope, gated by the new memory_shard_mode
-#              toggle, default false), so this negation makes the directory
-#              committable ahead of that wiring rather than retrofitting it
-#              later.
+#              the compiler + convention; capture writers write into
+#              .agentic/memory-shards/ only in a two-tier project (see
+#              bin/ds-memory-capture), and this negation keeps the
+#              directory committable for both.
 # Public API: read by bin/ds-migrate; version field (scaffolding_version) compared
 #             against <project>/.agentic/config.json scaffolding_version stamp.
 #             Also read directly by /ds-init-project Step 9, which invokes

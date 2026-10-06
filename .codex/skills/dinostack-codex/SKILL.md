@@ -215,7 +215,7 @@ Run manual workflow 'ds-help' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds
 - **references/memory-shard-convention.md** - git-tracked per-fact shard directory
   (`$AE_PROJECT_DIR/.agentic/memory-shards/`) a project's root MEMORY.md compiles from, the frontmatter
   every shard carries, and the split/regenerate round-trip's entry-loss and reordering
-  refusal guards; read when working on `$AE_REPO_DIR/bin/ds-memory-shard`, `$AE_REPO_DIR/hooks/lib/memory-shard.js`,
+  refusal guards; read when working on `$AE_REPO_DIR/bin/ds-memory-shard`, `$AE_REPO_DIR/bin/ds-memory-capture`, `$AE_REPO_DIR/hooks/lib/memory-shard.js`,
   or any writer that captures a fact into a shard.
 
 ## Rules (read on trigger)

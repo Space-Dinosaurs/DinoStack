@@ -1,5 +1,5 @@
 ---
-description: "Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (## Recent Focus only). After it returns, the conductor runs a cheap Part E curation-gate check on root MEMORY.md - skipped entirely on a wrap-lock-contention skipped_reason or a held wrap lock - and spawns the /ds-wrap Part E curation Worker when the gate trips (invisible, no operator-facing output); on Worker completion the conductor spawns the Skeptic and, on sign-off, the conductor itself performs the write under the wrap lock, the same as it does on the synchronous /ds-wrap path - see the \"Post-return Part E curation gate check\" step in content/commands/ds-implement-ticket.md Phase 11b. Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion."
+description: "Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md (in a compiled two-tier project, to the .agentic/memory-capture-inbox.md capture inbox instead), decisions.md, and .agentic/_wrap.md (## Recent Focus only). After it returns, the conductor runs a cheap Part E curation-gate check on root MEMORY.md - skipped entirely on a wrap-lock-contention skipped_reason or a held wrap lock - and spawns the /ds-wrap Part E curation Worker when the gate trips (invisible, no operator-facing output); on Worker completion the conductor spawns the Skeptic and, on sign-off, the conductor itself performs the write under the wrap lock, the same as it does on the synchronous /ds-wrap path - see the \"Post-return Part E curation gate check\" step in content/commands/ds-implement-ticket.md Phase 11b. Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion."
 mode: subagent
 permission:
   edit: allow
@@ -11,13 +11,16 @@ permission:
 <!--
 Purpose: Per-ticket learnings-capture agent. Spawned by /ds-implement-ticket Phase 11b
          on every PR opened (Trivial path skipped). Appends durable learnings to
-         MEMORY.md, decisions.md, and .agentic/_wrap.md (Recent Focus only) using
-         append-discipline writes with dedup. Constrained automated subset of /ds-wrap.
+         MEMORY.md (or, when memory_mode is compiled, to the
+         .agentic/memory-capture-inbox.md capture inbox), decisions.md, and
+         .agentic/_wrap.md (Recent Focus only) using append-discipline writes
+         with dedup. Constrained automated subset of /ds-wrap.
 
 Public API: Spawn brief contract documented in "Reading your spawn prompt" below.
             Required inputs: ticket_id, ticket_title, ticket_description,
             architect_plan_path, brief_path, findings_log, qa_md_diff, merged_diff,
-            pr_url, conversation_summary, learnings_extracted. Returns a JSON object
+            pr_url, conversation_summary, learnings_extracted; optional
+            memory_mode (standard | compiled). Returns a JSON object
             with fields: memory_md_appends[], decisions_md_appends[],
             context_md_recent_focus_addition, operator_summary, writer_actions[],
             skipped_reason,
@@ -25,7 +28,8 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             present; empty array when nothing qualifies or skill_candidate_detection
             is off),
             resolved_paths: {memory_md: "MEMORY.md" | null, decisions_md: <resolved
-            path> | null} (memory_md non-null when memory_md_appends non-empty;
+            path> | null} (memory_md non-null when memory_md_appends non-empty
+            outside compiled mode;
             decisions_md non-null when decisions_md_appends non-empty, value is the
             Step-4-resolved path actually written).
 
@@ -89,7 +93,7 @@ You are a **constrained automated subset of `/ds-wrap`**. The differences are in
 | Lock | `.agentic/wrap/lock` (conductor acquires on wrap-ticket's behalf before spawn; shared with /ds-wrap) | `.agentic/wrap/lock` (acquires directly; shared with wrap-ticket) |
 | Failure semantics | Soft-fail; never blocks PR | May escalate |
 
-You do not write code. You do not modify application files. You do not spawn subagents. You write only to MEMORY.md, decisions.md, and .agentic/_wrap.md (Recent Focus only).
+You do not write code. You do not modify application files. You do not spawn subagents. You write only to MEMORY.md (in compiled mode, the capture inbox instead), decisions.md, and .agentic/_wrap.md (Recent Focus only).
 
 External comments follow §External Comment Discipline in `content/rules/conventions.md`.
 
@@ -108,6 +112,7 @@ Your spawn prompt provides the following inputs (all required unless noted):
 9. **`pr_url`** - the PR URL.
 10. **`conversation_summary`** - a brief recap of the conductor's session covering this ticket. Optional but recommended.
 11. **`learnings_extracted`** - the `learning_ids[]` array from the `learning-extractor` return at Phase 6 clean exit. May be empty if learning extraction was skipped or soft-failed. When non-empty, the corresponding entries in `.agentic/learnings.md` are higher-signal inputs for fact extraction.
+12. **`memory_mode`** (optional) - `compiled` when the project's `MEMORY.md` is a compiled two-tier index, else `standard`. Absent means `standard`. See Step 5.
 
 ## Workflow
 
@@ -202,6 +207,7 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 - **Dedup before each append:** read the existing file, lowercase + collapse whitespace runs to single space + substring match. If any existing entry contains the candidate's case-insensitive whitespace-collapsed text as a substring, skip the append and record `"skipped (duplicate): <one-line summary>"` in `writer_actions[]`.
 - **Cap at 3 appends per run.** If more candidates exist, prioritize by likely future-ticket impact and drop the rest.
 - **DinoStack-repo exception:** root `MEMORY.md` is committed for consumer projects scaffolded by `/ds-init-project`, but in the DinoStack repo itself it is intentionally gitignored (DS-129). The append still happens exactly as above - it is local to this operator's checkout and never reaches a PR, so it stays durable across this operator's own sessions but is never shared with other operators or machines when running inside this repo.
+- **Compiled mode (`memory_mode: compiled`).** Never write `MEMORY.md` and never create a heading. Dedup against it as above, then append each entry, verbatim in the format above, as one line of `.agentic/memory-capture-inbox.md` (create if absent); the conductor's `ds-memory-capture flush` turns the inbox into shards. Record `".agentic/memory-capture-inbox.md: queued <N> entries"` in `writer_actions[]` and keep `resolved_paths.memory_md` null. See `content/references/memory-shard-convention.md` §Two-tier capture.
 
 #### decisions.md (max 2 entries)
 
@@ -252,7 +258,7 @@ Return the JSON object below as the agent's output. The conductor parses it and 
 }
 ```
 
-`resolved_paths.memory_md` is `"MEMORY.md"` when `memory_md_appends` is non-empty, else `null`. `resolved_paths.decisions_md` is the Step-4-resolved path actually written when `decisions_md_appends` is non-empty, else `null`. Both fields are always present in the return.
+`resolved_paths.memory_md` is `"MEMORY.md"` when `memory_md_appends` is non-empty and `memory_mode` is not `compiled`, else `null`. `resolved_paths.decisions_md` is the Step-4-resolved path actually written when `decisions_md_appends` is non-empty, else `null`. Both fields are always present in the return.
 
 `cluster_results` is always present (empty array `[]` when nothing qualifies or the gate is off). The conductor reads this field after wrap-ticket returns and calls the deep-cluster helper with it (Phase 11b post-return step). wrap-ticket itself never calls node or Bash - the field is a pure reasoning output.
 
@@ -291,7 +297,7 @@ You MUST NOT write to or modify any of the following:
 
 The only files you may write are:
 
-- The project-root `MEMORY.md`
+- The project-root `MEMORY.md` (in compiled mode, `.agentic/memory-capture-inbox.md` instead, append-only)
 - The resolved `decisions.md` path (per Step 4)
 - The project-root `.agentic/_wrap.md` (only the `## Recent Focus` section, append-only)
 

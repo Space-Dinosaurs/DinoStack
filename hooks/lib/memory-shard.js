@@ -29,11 +29,11 @@
  *   a bare `node` in any consumer project, which has no guaranteed
  *   node_modules of its own.
  *
- * Downstream consumers: bin/ds-memory-shard (CLI). NOTHING in
- *   content/commands or content/agents calls this yet - DS-221 Unit 1 ships
- *   the compiler only, with `memory_shard_mode` defaulting `false`. Writer
- *   wiring (/ds-wrap Part E, wrap-ticket, /ds-memory-update) is later units'
- *   scope.
+ * Downstream consumers: bin/ds-memory-shard (CLI). Nothing in content/
+ *   calls it: its shards carry no `index:`, so its projects stay standard
+ *   mode and writers append to MEMORY.md directly. Two-tier projects capture
+ *   through bin/ds-memory-capture and their own compiler instead (see
+ *   content/references/memory-shard-convention.md §Two-tier capture).
  *
  * Failure modes: `regenerateCommand` REFUSES and writes nothing whenever the
  *   current `memoryPath` contains any physical line absent from the freshly

@@ -11,9 +11,9 @@ Purpose: Executes the two shell blocks Phase 11e added to
          fails open, `files_committed` populated on a failure path), and each
          was confirmed to go RED under a mutation of the implementation.
 
-Public API: none (pytest test module; 34 parametrized functions x {bash, zsh}
-            = 68 collected IDs, plus 3 static shell-independent assertions =
-            71 - see the collected-count floor in
+Public API: none (pytest test module; 38 parametrized functions x {bash, zsh}
+            = 76 collected IDs, plus 3 static shell-independent assertions =
+            79 - see the collected-count floor in
             .github/workflows/bin-tests.yml).
 
 Upstream deps: bin/tests/lib/md_shell_extract.py (extraction + non-exported
@@ -1415,3 +1415,104 @@ def test_static_extraction_is_non_vacuous():
     phase12 = _block(MARKER_PHASE12)
     for anchor in ("KC_KNOWLEDGE_PUSHED", "--auto", "auto-merge-deferred"):
         assert anchor in phase12, f"expected literal anchor {anchor!r} in the Phase 12 block"
+
+
+# ---------------------------------------------------------------------------
+# Two-tier ride-along: a committed MEMORY.md must carry its new shards, or
+# the project's compile-equality CI goes red on the PR.
+# ---------------------------------------------------------------------------
+
+COMPILER = REPO_ROOT / "bin" / "tests" / "fixtures" / "two_tier" / "compiler.py"
+NEW_SHARD = ".agentic/memory-shards/2026-10-05-session-new.md"
+
+
+def _seed_shards(fixture: git_fixture.Fixture, *, indexed: bool) -> None:
+    """Commit a shard directory to the PR branch tip, then leave one new,
+    untracked shard on disk and ds-memory-capture on PATH."""
+    repo = fixture.repo_dir
+    with open(repo / ".gitignore", "a", encoding="utf-8") as fh:
+        fh.write("!.agentic/memory-shards/\n")
+    shards = repo / ".agentic" / "memory-shards"
+    shards.mkdir(parents=True, exist_ok=True)
+    (shards / "_preamble.md").write_text("Captured by `python3 scripts/compiler.py ingest`.\n\n")
+    index = 'index:\n  - "Rule A"\n' if indexed else ""
+    (shards / "2026-01-01-a.md").write_text(
+        "---\nmetadata:\n  type: project\nsequence: 1000\n" + index + "---\n- **2026-01-01:** fact A\n"
+    )
+    (repo / "scripts").mkdir(exist_ok=True)
+    shutil.copy(COMPILER, repo / "scripts" / "compiler.py")
+    env = git_fixture._commit_env(fixture.env)
+    for args in (
+        ["add", "--", ".gitignore", "scripts", ".agentic/memory-shards"],
+        ["commit", "-q", "-m", "shards"],
+        ["push", "-q", "origin", f"HEAD:{fixture.branch_name}"],
+    ):
+        r = subprocess.run(["git", "-C", str(repo), *args], env=env, capture_output=True,
+                           text=True, timeout=GIT_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL)
+        assert r.returncode == 0, r.stderr
+    (repo / NEW_SHARD).write_text(
+        "---\nmetadata:\n  type: project\nsequence: 0\n---\n- **2026-10-05:** new fact\n"
+    )
+    fixture.env["PATH"] = f"{REPO_ROOT / 'bin'}{os.pathsep}{fixture.env['PATH']}"
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_two_tier_new_shard_rides_with_memory_md(tmp_path, shell):
+    """Mutation: delete the `new-shards` read after the staging loop - the
+    commit then carries MEMORY.md without the shard it compiles from."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path)
+    _seed_shards(fixture, indexed=True)
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    files = _origin_tip_files(fixture)
+    assert MEMORY in files and NEW_SHARD in files, f"{files}\n{result.stdout}\n{result.stderr}"
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_two_tier_new_shards_diagnostic_reaches_stderr(tmp_path, shell):
+    """With the helper missing, its shards silently stay behind unless the
+    failure is visible. Mutation: redirect the new-shards call's stderr to
+    /dev/null."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path)
+    _seed_shards(fixture, indexed=True)
+    fixture.env["PATH"] = fixture.env["PATH"].replace(f"{REPO_ROOT / 'bin'}{os.pathsep}", "", 1)
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert "ds-memory-capture" in result.stderr, result.stderr
+    assert MEMORY in _origin_tip_files(fixture), "positive control: the knowledge commit still happened"
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_two_tier_shard_stays_behind_when_memory_md_is_excluded(tmp_path, shell):
+    """The ride-along is keyed on MEMORY.md actually being staged."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path)
+    _seed_shards(fixture, indexed=True)
+    _write_config(fixture, {"knowledge_commit_exclude": [MEMORY]})
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    files = _origin_tip_files(fixture)
+    assert MEMORY not in files and NEW_SHARD not in files, files
+    assert DECISIONS in files, f"positive control: the commit still happened: {files}"
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_verbatim_shard_repo_commits_no_shard(tmp_path, shell):
+    """A ds-memory-shard (no `index:`) project is standard mode: T4, the
+    commit is exactly what it was before this change."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path)
+    _seed_shards(fixture, indexed=False)
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert _origin_tip_files(fixture) == sorted([MEMORY, DECISIONS, LEARNINGS, AGENTS, TRACKING])

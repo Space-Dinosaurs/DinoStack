@@ -128,6 +128,9 @@ REVIEWED_NOT_DISPOSABLE: Dict[str, str] = {
         "conservatively protected if orphaned"
     ),
     "memory-shards": "protected: memory shard store",
+    "memory-capture-inbox.md": "protected: queued two-tier captures, sole copy until bin/ds-memory-capture flush",
+    ".claimed-*": "protected: inbox claimed by an interrupted bin/ds-memory-capture flush, re-read next run",
+    "memory-capture.lock": "protected: flock file serializing bin/ds-memory-capture flush/repair",
     "worktrees": "protected: conductor-created worktree directory",
     "worktree-archive": "protected: archive bundles, sole copy of some branches",
     "reaped-telemetry": "protected: telemetry salvaged from reaped worktrees",

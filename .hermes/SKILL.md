@@ -2312,7 +2312,7 @@ Compounding that, a `role:'agent'` lock carries `pid: null` by construction, so 
 
 `.agentic/wrap/deferred-activity.jsonl` is **no longer produced** - spillover existed only because a held lock skipped the write. `/ds-wrap` Part A still DRAINS a pre-existing file (the drain step is unchanged), so records preserved from before this change are not orphaned. The daemon is launched by the SessionStart hook (`hooks/wrap-daemon.js`); it resumes each cleanly-ended session headlessly and runs the non-interactive single-pass `/ds-wrap-deferred`, the sole consumer of the per-session `pending.json` marker - there is no in-session draft-formatter agent. For the `pending.json` / `last-wrap` / `deferred-activity.jsonl` data model and the daemon enrichment protocol, see `content/commands/ds-wrap-deferred.md`.
 
-Root `MEMORY.md` is written by wrap-ticket and learnings-agent (append-with-dedup), `/ds-memory-update` (interactive), `/ds-init-project`'s CLAUDE.md-split Worker (one-time), and - as of DS-90 - `/ds-wrap` Part B (staging-drain promotion, capped 3/run) and Part E (compression). Because `/ds-wrap` performs a genuine read-modify-write of root `MEMORY.md`, it IS within the `wrap/lock` scope. The lock's actual scope is broader than a short list can stay accurate for: at minimum it also covers `_wrap.md`, `.agentic/compression-state.json`, `decisions.md` (shared with `/ds-implement-ticket` - see that command's "The lock is shared with" note), and - as of DS-90 - `.agentic/memory.md` and `.agentic/memory-pending.md`, both rewritten inside the held lock by Part B. Treat this as a non-exhaustive list of files known to be in scope, not a closed enumeration. `wrap-ticket` already serializes on that same lock before every Phase 11b spawn, so its own append-writes to `MEMORY.md` are unaffected by this addition. Part G commits root `MEMORY.md` when it survives gating, but Part G runs OUTSIDE the lock (after release) and authors no content of its own - it is a verbatim copy-and-commit of whatever Part B/E already wrote.
+Root `MEMORY.md` is written by wrap-ticket and learnings-agent (append-with-dedup), `/ds-memory-update` (interactive), `/ds-init-project`'s CLAUDE.md-split Worker (one-time), and - as of DS-90 - `/ds-wrap` Part B (staging-drain promotion, capped 3/run) and Part E (compression). Because `/ds-wrap` performs a genuine read-modify-write of root `MEMORY.md`, it IS within the `wrap/lock` scope. The lock's actual scope is broader than a short list can stay accurate for: at minimum it also covers `_wrap.md`, `.agentic/compression-state.json`, `decisions.md` (shared with `/ds-implement-ticket` - see that command's "The lock is shared with" note), and - as of DS-90 - `.agentic/memory.md` and `.agentic/memory-pending.md`, both rewritten inside the held lock by Part B. Treat this as a non-exhaustive list of files known to be in scope, not a closed enumeration. `wrap-ticket` already serializes on that same lock before every Phase 11b spawn, so its own append-writes to `MEMORY.md` are unaffected by this addition. Part G commits root `MEMORY.md` when it survives gating, but Part G runs OUTSIDE the lock (after release) and authors no content of its own - it is a verbatim copy-and-commit of whatever Part B/E already wrote. In a compiled two-tier project every one of these writers instead appends to `.agentic/memory-capture-inbox.md`, and `ds-memory-capture flush` (Part B, Phase 11b under the held lock, `/ds-memory-update`'s Worker) is the sole writer of `MEMORY.md` and its shards; Part E skips `MEMORY.md` there. See `content/references/memory-shard-convention.md` §Two-tier capture.
 
 ## learnings-agent background capture
 
@@ -2426,7 +2426,10 @@ the entry or spawns `learnings-agent` autonomously - do not ask the user whether
 capture, do not wait for acknowledgment.
 
 The conductor's message contains: `event_type`, `description`, `resolution`,
-`domain_tag`, `severity` (omit `severity` for KNW-producing event types). The agent
+`domain_tag`, `severity` (omit `severity` for KNW-producing event types), and
+`memory_mode: compiled` in compiled mode (`ds-memory-capture detect`, else the
+`^index:` grep; see `content/references/memory-shard-convention.md` §Two-tier
+capture), omitted otherwise. The agent
 writes immediately to `.agentic/learnings.md` with no batching. The Stop hook removes
 `.agentic/learnings-agent.session` on session exit.
 
@@ -5226,12 +5229,9 @@ Downstream consumers: `bin/ds-memory-shard` (DS-221 Unit 1, SHIPPED),
                        `sequence`, and compiles a project's root
                        `MEMORY.md` from them (see "Compiled output
                        shape" below for exactly what it emits around the
-                       shard bodies); a later unit's `/ds-wrap` Part E
-                       writer wiring (NOT YET WIRED - Unit 1 ships the
-                       compiler only, gated inert by the
-                       `memory_shard_mode` toggle, default `false`),
-                       which will write one new shard file per captured
-                       fact instead of inlining prose into `MEMORY.md`;
+                       shard bodies); `bin/ds-memory-capture` and the
+                       capture writers that route through it in a
+                       two-tier project (see "Two-tier capture" below);
                        and any future pruning change, which edits or
                        deletes individual shard files and re-runs
                        `regenerate --allow-removal` rather than touching
@@ -5245,33 +5245,26 @@ Failure modes: `regenerate` REFUSES and writes nothing whenever
                loudly by the compiler, naming the offending file.
 ```
 
-## Status (DS-221 Unit 1 - compiler shipped, writers NOT wired)
+## Status
 
-`bin/ds-memory-shard` (backed by `hooks/lib/memory-shard.js`) exists and can
-`split` an existing `MEMORY.md` into `.agentic/memory-shards/` (a git-tracked
-`_preamble.md` plus one shard file per entry) and `regenerate` recompiles
-`MEMORY.md` from them byte-for-byte. **Nothing calls this yet.** `/ds-wrap`
-Part E, wrap-ticket, and `/ds-memory-update` do not write shards on new-fact
-capture - that wiring is a later unit's scope. The `memory_shard_mode`
-project-config toggle ships `false` and is read by nothing; every existing
-project behaves exactly as it did before this convention existed.
+`bin/ds-memory-shard` (backed by `hooks/lib/memory-shard.js`) can `split` an
+existing `MEMORY.md` into `.agentic/memory-shards/` (a git-tracked
+`_preamble.md` plus one shard file per entry), and `regenerate` recompiles
+`MEMORY.md` from them byte-for-byte. Its shards never carry an `index:`
+field, so a project split with it stays in **standard mode**: writers keep
+appending new facts DIRECTLY to `MEMORY.md`, exactly as before, and this
+remains explicitly safe - `regenerate` REFUSES to write `MEMORY.md` whenever
+the current file contains an entry line the shard set does not (see
+"Regenerate's entry-loss and reordering guards" below), so a hand-appended
+entry cannot be silently dropped. The correct response when that refusal
+fires is `split --force` (to capture the entry into a fresh shard set), then
+`regenerate` again.
 
-**Interim rule, stated plainly because it is easy to get backwards: keep
-appending new facts DIRECTLY to `MEMORY.md` by hand, exactly as every session
-has always done - this remains explicitly safe.** Nothing writes a shard for
-a hand-appended entry yet, and `regenerate` is built to make that safe rather
-than merely hope for it: because it REFUSES to write `MEMORY.md` whenever the
-current file contains an entry line the shard set does not (see "Regenerate's
-entry-loss and reordering guards" below), a hand-appended entry cannot be
-silently dropped by a later `regenerate` run - the command will name it and
-refuse instead. The correct response when that refusal fires is
-`split --force` (to capture the hand-appended entry into a fresh shard set),
-then `regenerate` again.
-
-Shard-first authoring becomes the rule only once a later unit wires writer
-support - not before. Until then, the Filename/Frontmatter sections below
-describe the convention the compiler already consumes; ordinary session
-capture should keep targeting `MEMORY.md` directly.
+Writers are wired for **two-tier** projects only: a project whose own
+compiler gives some shards an `index:` field and compiles them to one-line
+rules. Mode is detected from project state on every run (see "Two-tier
+capture" below), never from configuration. The `memory_shard_mode`
+project-config toggle ships `false` and is still read by nothing.
 
 ## Directory
 
@@ -5565,6 +5558,82 @@ as the check.
 Confirming the carve-out works is what makes a shard written here visible to
 `git status`/`git add` in every worktree, not silently dropped the way a
 file landing in a gitignored path can be otherwise.
+
+## Two-tier capture
+
+**Detection.** `ds-memory-capture detect` reports `standard` unless some
+shard's frontmatter has an `^index:` line. Then it is `two-tier` when
+`_preamble.md` names exactly one distinct backticked `<interpreter> <file>
+ingest` span (interpreter in {node, python3, python, bash, sh}; the file
+git-tracked inside the project; run with the project as cwd, no shell), else
+`two-tier-unresolved`.
+
+**Compiled mode** (`memory_mode: compiled`), the rule every use site
+applies: `detect` reports either two-tier mode, or, when `ds-memory-capture`
+is not installed, `grep -l '^index:' .agentic/memory-shards/*.md` finds a
+hit. Everything else is `standard` and behaves exactly as before. Nothing here
+names a project; a two-tier project's own convention doc is authoritative
+for its shard format.
+
+**Writer contract (compiled mode).** Append your documented single-line
+dated bullet, verbatim, as one line of `.agentic/memory-capture-inbox.md`
+(gitignored; create it if absent) with Write or Edit. Never touch
+`MEMORY.md`, never create a heading. Writers stay Bash-free by design, not
+by constraint: wrap-ticket's lock contract assumes it runs no commands, and
+the conductor already holds the lock where `flush` runs. Dedup against the
+compiled `MEMORY.md` as usual - its index lines are the rules to compare
+against. To supersede a fact, cite the old shard's id in the new bullet.
+
+**`ds-memory-capture flush`** is the only compiled-mode writer of
+`MEMORY.md` and shards. Under `.agentic/memory-capture.lock` it claims the
+inbox by rename (a line written meanwhile lands in a fresh inbox), drops
+lines byte-identical to an existing shard body, runs `ingest` once (which
+captures any dated line already in `MEMORY.md`; a project's `ingest` may
+return "nothing to ingest" without compiling, so this does not prove the
+file is unwedged), inserts the lines right after the preamble, and runs
+`ingest` again. A refusal restores only its own bytes and re-queues the
+lines; nothing is dropped. Exit 0 drained, 1 entries remain or two shards
+share a sequence (then nothing is touched), 2 standard mode (nothing
+touched). It prints `captured: <id> (deferred-verbatim; batch trigger:
+verbatim_bytes > 40000, now <B>)` per new shard and a `flush:` summary
+carrying `batch_due`. Callers: `/ds-wrap` Part B, `/ds-implement-ticket`
+Phase 11b, `/ds-memory-update`'s Worker. learnings-agent lines wait in the
+inbox for the next of those.
+
+**Why deferred-verbatim.** Every capture leaves its shard with no `index`.
+Indexing at capture needs a Skeptic-reviewed index row, which a subagent
+cannot obtain, and a hand-written `index:` fails the project's own
+refcheck. The project's batch PR indexes the backlog (`set-index --from
+<reviewed.jsonl>`, then `regenerate --allow-removal`); capture never needs
+`regenerate`.
+
+**Part E.** In compiled mode `MEMORY.md` is not a `/ds-wrap` Part E target
+and Phase 11b skips its gate: Part E would hand-edit compiled output, which
+`ingest` refuses. Shard curation is the project's batch.
+
+**Ride-along.** Two-tier CI asserts the compile equals `MEMORY.md`, so a
+committed `MEMORY.md` travels with its new shards: Phase 11e and Part G add
+`ds-memory-capture new-shards --ref <ref>` (files under the shard directory
+absent from `<ref>`'s tree) whenever they commit `MEMORY.md`. Capture only
+adds shards; a shard changed by `repair` is committed by hand.
+
+**Merge conflicts.** Two branches that each flush both insert after the
+preamble, so `MEMORY.md` conflicts. Resolve keeping both lines, commit, then
+run `ds-memory-capture repair --ref <base>`: it deletes the no-`index` shards
+absent at `<base>` and re-runs `ingest`, which re-captures the lines on
+unique sequences. It restores every deleted shard and exits 1 if any body is
+not re-captured or a duplicate sequence remains, and on success lists the
+shard changes to commit. `flush` refuses, printing this command, whenever
+two shards share a sequence.
+
+| Piece | Catches | Retires when |
+|---|---|---|
+| Inbox, `memory_mode`, `flush` | wedged `ingest`, desynced `MEMORY.md`, background-writer loss | two-tier mode is gone, or the project compiler exposes direct capture |
+| `new-shards` and ride-along | red compile-equality CI | two-tier mode is gone |
+| `repair` | a duplicate sequence after a merge | the project assigns collision-free sequences |
+| Part E exclusion, Phase 11b skip | Part E editing compiled output | two-tier mode is gone |
+| Batch line | silent regrowth | the project gates verbatim bytes itself |
+| Fixture and tests | regression in the mechanism they test | they retire with that mechanism |
 
 ---
 
@@ -6465,7 +6534,7 @@ The conductor reads `.agentic/config.json` to resolve twenty-five project-level 
 - `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive default). Controls the Stop hook (`hooks/enforce-turn-shape.py`) that checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156 this is NOT uniformly advisory: `_execution_prose_flag` (structural shape of a non-Answer turn) is BLOCKING and can block the stop; `_decision_item_sprawl_flag` (operator-decisions per-item shape) remains advisory-only and only logs. As of DS-ANSWERFIRST the zero-warrant status-only check (`_status_only_flag`) is RESTORED to this hook and BLOCKING - it fires only when all three of: zero warrants, the turn is not the first assistant turn following a genuine operator message (so it follows a tool result, a background task-notification, or the conductor's own prior turn - a transcript-POSITION predicate, not a test of the operator's grammar or message length), and the message is not answer-shaped prose. The same ticket added `SLOT_LINE_MAX_COUNT` (3), a blocking count and duplicate-label bound on the general branch's status slot lines (the sole-stoppage branch's `Waiting:` count stays unbounded). Two prior checks remain retired from this hook: the answer relevance check (`_answer_relevance_flag`, opening-preamble/closing-recap) and the whole-message turn-volume check (`_turn_charge`/`_volume_flag`). Their always-loaded carrier is the kernel paragraph in `content/sections/02-delegation.md` - NOT the `dinostack` Claude Code output style (`content/output-styles/dinostack.md`), which `.claude/install.sh` installs but never selects; DS-171 assumed that style was always injected and it was not, which is why those rules ran on no harness until this ticket. The style stays a real secondary carrier once selected via `/config`, and additionally carries two rules with no hook-mechanized form: self-narrating candor, and editorial addenda (the ban on any conductor-selected item that carries none of the four turn warrants, in any position in the turn and whether or not it is bundled - a labelled package of such observations is the canonical form, not the boundary). Set to `false` to opt out of the surviving hook checks; also disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Canonical reference: `content/references/conductor-turn-format.md`.
 - `worktree_read_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). Each entry is a path prefix relative to the primary checkout root; a `Read` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent reading outside its own worktree. Read by `hooks/enforce-worktree-read.py` (PreToolUse(Read) guard, DS-150); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_READ_GUARD_DISABLE=1`.
 - `worktree_write_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). SEPARATE from `worktree_read_guard_exemptions` - writes carry a different risk profile than reads. Each entry is a path prefix relative to the primary checkout root; a `Write`/`Edit`/`MultiEdit` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent writing outside its own worktree. Read by `hooks/enforce-worktree-write.py` (PreToolUse(Write/Edit/MultiEdit) guard); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_WRITE_GUARD_DISABLE=1`.
-- `memory_shard_mode` - boolean, default `false` (opt-in). Ships inert as of DS-221 Unit 1: the memory-shard compiler (`bin/ds-memory-shard`, `hooks/lib/memory-shard.js`) exists and splits/regenerates `MEMORY.md` against `.agentic/memory-shards/`, but no writer (`/ds-wrap` Part E, wrap-ticket, `/ds-memory-update`) reads this toggle yet - reading it is later-unit scope. Full semantics: `content/references/memory-shard-convention.md`.
+- `memory_shard_mode` - boolean, default `false` (opt-in). Ships inert as of DS-221 Unit 1: the memory-shard compiler (`bin/ds-memory-shard`, `hooks/lib/memory-shard.js`) exists and splits/regenerates `MEMORY.md` against `.agentic/memory-shards/`, but nothing reads this toggle. Capture writers route through shards only in a two-tier project, detected from shard state (`bin/ds-memory-capture`). Full semantics: `content/references/memory-shard-convention.md`.
 
 ## Tier Declaration Detail
 
@@ -12535,7 +12604,7 @@ The only file you may write is:
 ---
 name: learnings-agent
 model: sonnet
-description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, context.md, _wrap.md, context.d/, or any source/config files.
+description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md (in a compiled two-tier project, to the .agentic/memory-capture-inbox.md capture inbox instead). Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, context.md, _wrap.md, context.d/, or any source/config files.
 tools: Read, Edit, Write
 ---
 **Required reading before acting.** Read `content/references/conductor-operating-rules.md` §learnings-agent background capture for the mandatory trigger list, session-tracking file behavior (`.agentic/learnings-agent.session`), first-event spawn semantics, dedup and cap discipline, and Stop hook cleanup expectations.
@@ -12547,11 +12616,14 @@ Purpose: Session-scoped background learnings capture. Spawned by the conductor
          Stays alive in the background for the rest of the session. Emits BOTH
          LRN (bug-fix) and KNW (knowledge) entries depending on event_type.
          Writes structured entries to .agentic/learnings.md immediately;
-         optionally appends project-affecting facts to MEMORY.md.
+         optionally appends project-affecting facts to MEMORY.md (when
+         memory_mode is compiled, to the .agentic/memory-capture-inbox.md
+         capture inbox instead; the next ds-memory-capture flush ingests it).
 
 Public API: Message-based. The conductor sends brief messages to the running
             agent containing: event_type, description, resolution, domain_tag,
-            severity (omitted for KNW-producing event types). The agent appends
+            severity (omitted for KNW-producing event types), and optional
+            memory_mode (standard | compiled). The agent appends
             entries and returns a JSON acknowledgment with learning_ids[] that
             may contain LRN- or KNW- prefixed IDs.
 
@@ -12619,6 +12691,7 @@ The conductor sends learning event messages with the following fields:
 3. **`resolution`** - the fix, decision, or pattern that was applied (1-2 sentences).
 4. **`domain_tag`** - domain identifier (e.g., `adapter-interface`, `zod-schema`, `concurrent-state`, `auth`, `api-contract`, `test-pattern`).
 5. **`severity`** - `Critical`, `Major`, or `Minor`. **Omitted for KNW-producing event types** (`tool-failure-workaround`, `architectural-decision`, `cross-component-gotcha`, `user-pattern`).
+6. **`memory_mode`** (optional) - `compiled` when the project's `MEMORY.md` is a compiled two-tier index, else `standard`. Absent means `standard`. See Step 5.
 
 ## Workflow
 
@@ -12758,6 +12831,8 @@ Only when the event has no `.agentic/learnings.md` counterpart (e.g. a standing 
 Append under the `# Memory` heading (create the heading if absent).
 
 **Dedup:** read the existing file, lowercase + collapse whitespace runs to single space + substring match. If any existing entry contains the candidate's case-insensitive whitespace-collapsed text as a substring, skip the append and record `"skipped (duplicate): MEMORY.md"` in `writer_actions[]`.
+
+**Compiled mode (`memory_mode: compiled`).** Never write `MEMORY.md` and never create a heading. Dedup against it as above, then append the entry, verbatim in the format above, as one line of `.agentic/memory-capture-inbox.md` (create if absent); the next `ds-memory-capture flush` (run by `/ds-wrap`, Phase 11b or `/ds-memory-update`) turns it into a shard. Return `memory_md_appended: false` and record `".agentic/memory-capture-inbox.md: queued 1 entry"` in `writer_actions[]`. See `content/references/memory-shard-convention.md` §Two-tier capture.
 
 ### 6. Return
 
@@ -14944,7 +15019,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 ---
 name: wrap-ticket
 model: haiku
-description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (## Recent Focus only). After it returns, the conductor runs a cheap Part E curation-gate check on root MEMORY.md - skipped entirely on a wrap-lock-contention skipped_reason or a held wrap lock - and spawns the /ds-wrap Part E curation Worker when the gate trips (invisible, no operator-facing output); on Worker completion the conductor spawns the Skeptic and, on sign-off, the conductor itself performs the write under the wrap lock, the same as it does on the synchronous /ds-wrap path - see the "Post-return Part E curation gate check" step in content/commands/ds-implement-ticket.md Phase 11b. Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
+description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md (in a compiled two-tier project, to the .agentic/memory-capture-inbox.md capture inbox instead), decisions.md, and .agentic/_wrap.md (## Recent Focus only). After it returns, the conductor runs a cheap Part E curation-gate check on root MEMORY.md - skipped entirely on a wrap-lock-contention skipped_reason or a held wrap lock - and spawns the /ds-wrap Part E curation Worker when the gate trips (invisible, no operator-facing output); on Worker completion the conductor spawns the Skeptic and, on sign-off, the conductor itself performs the write under the wrap lock, the same as it does on the synchronous /ds-wrap path - see the "Post-return Part E curation gate check" step in content/commands/ds-implement-ticket.md Phase 11b. Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
 tools: Read, Edit, Write
 ---
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
@@ -14953,13 +15028,16 @@ tools: Read, Edit, Write
 <!--
 Purpose: Per-ticket learnings-capture agent. Spawned by /ds-implement-ticket Phase 11b
          on every PR opened (Trivial path skipped). Appends durable learnings to
-         MEMORY.md, decisions.md, and .agentic/_wrap.md (Recent Focus only) using
-         append-discipline writes with dedup. Constrained automated subset of /ds-wrap.
+         MEMORY.md (or, when memory_mode is compiled, to the
+         .agentic/memory-capture-inbox.md capture inbox), decisions.md, and
+         .agentic/_wrap.md (Recent Focus only) using append-discipline writes
+         with dedup. Constrained automated subset of /ds-wrap.
 
 Public API: Spawn brief contract documented in "Reading your spawn prompt" below.
             Required inputs: ticket_id, ticket_title, ticket_description,
             architect_plan_path, brief_path, findings_log, qa_md_diff, merged_diff,
-            pr_url, conversation_summary, learnings_extracted. Returns a JSON object
+            pr_url, conversation_summary, learnings_extracted; optional
+            memory_mode (standard | compiled). Returns a JSON object
             with fields: memory_md_appends[], decisions_md_appends[],
             context_md_recent_focus_addition, operator_summary, writer_actions[],
             skipped_reason,
@@ -14967,7 +15045,8 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             present; empty array when nothing qualifies or skill_candidate_detection
             is off),
             resolved_paths: {memory_md: "MEMORY.md" | null, decisions_md: <resolved
-            path> | null} (memory_md non-null when memory_md_appends non-empty;
+            path> | null} (memory_md non-null when memory_md_appends non-empty
+            outside compiled mode;
             decisions_md non-null when decisions_md_appends non-empty, value is the
             Step-4-resolved path actually written).
 
@@ -15031,7 +15110,7 @@ You are a **constrained automated subset of `/ds-wrap`**. The differences are in
 | Lock | `.agentic/wrap/lock` (conductor acquires on wrap-ticket's behalf before spawn; shared with /ds-wrap) | `.agentic/wrap/lock` (acquires directly; shared with wrap-ticket) |
 | Failure semantics | Soft-fail; never blocks PR | May escalate |
 
-You do not write code. You do not modify application files. You do not spawn subagents. You write only to MEMORY.md, decisions.md, and .agentic/_wrap.md (Recent Focus only).
+You do not write code. You do not modify application files. You do not spawn subagents. You write only to MEMORY.md (in compiled mode, the capture inbox instead), decisions.md, and .agentic/_wrap.md (Recent Focus only).
 
 External comments follow §External Comment Discipline in `content/rules/conventions.md`.
 
@@ -15050,6 +15129,7 @@ Your spawn prompt provides the following inputs (all required unless noted):
 9. **`pr_url`** - the PR URL.
 10. **`conversation_summary`** - a brief recap of the conductor's session covering this ticket. Optional but recommended.
 11. **`learnings_extracted`** - the `learning_ids[]` array from the `learning-extractor` return at Phase 6 clean exit. May be empty if learning extraction was skipped or soft-failed. When non-empty, the corresponding entries in `.agentic/learnings.md` are higher-signal inputs for fact extraction.
+12. **`memory_mode`** (optional) - `compiled` when the project's `MEMORY.md` is a compiled two-tier index, else `standard`. Absent means `standard`. See Step 5.
 
 ## Workflow
 
@@ -15144,6 +15224,7 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 - **Dedup before each append:** read the existing file, lowercase + collapse whitespace runs to single space + substring match. If any existing entry contains the candidate's case-insensitive whitespace-collapsed text as a substring, skip the append and record `"skipped (duplicate): <one-line summary>"` in `writer_actions[]`.
 - **Cap at 3 appends per run.** If more candidates exist, prioritize by likely future-ticket impact and drop the rest.
 - **DinoStack-repo exception:** root `MEMORY.md` is committed for consumer projects scaffolded by `/ds-init-project`, but in the DinoStack repo itself it is intentionally gitignored (DS-129). The append still happens exactly as above - it is local to this operator's checkout and never reaches a PR, so it stays durable across this operator's own sessions but is never shared with other operators or machines when running inside this repo.
+- **Compiled mode (`memory_mode: compiled`).** Never write `MEMORY.md` and never create a heading. Dedup against it as above, then append each entry, verbatim in the format above, as one line of `.agentic/memory-capture-inbox.md` (create if absent); the conductor's `ds-memory-capture flush` turns the inbox into shards. Record `".agentic/memory-capture-inbox.md: queued <N> entries"` in `writer_actions[]` and keep `resolved_paths.memory_md` null. See `content/references/memory-shard-convention.md` §Two-tier capture.
 
 #### decisions.md (max 2 entries)
 
@@ -15194,7 +15275,7 @@ Return the JSON object below as the agent's output. The conductor parses it and 
 }
 ```
 
-`resolved_paths.memory_md` is `"MEMORY.md"` when `memory_md_appends` is non-empty, else `null`. `resolved_paths.decisions_md` is the Step-4-resolved path actually written when `decisions_md_appends` is non-empty, else `null`. Both fields are always present in the return.
+`resolved_paths.memory_md` is `"MEMORY.md"` when `memory_md_appends` is non-empty and `memory_mode` is not `compiled`, else `null`. `resolved_paths.decisions_md` is the Step-4-resolved path actually written when `decisions_md_appends` is non-empty, else `null`. Both fields are always present in the return.
 
 `cluster_results` is always present (empty array `[]` when nothing qualifies or the gate is off). The conductor reads this field after wrap-ticket returns and calls the deep-cluster helper with it (Phase 11b post-return step). wrap-ticket itself never calls node or Bash - the field is a pure reasoning output.
 
@@ -15233,7 +15314,7 @@ You MUST NOT write to or modify any of the following:
 
 The only files you may write are:
 
-- The project-root `MEMORY.md`
+- The project-root `MEMORY.md` (in compiled mode, `.agentic/memory-capture-inbox.md` instead, append-only)
 - The resolved `decisions.md` path (per Step 4)
 - The project-root `.agentic/_wrap.md` (only the `## Recent Focus` section, append-only)
 
@@ -20735,6 +20816,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - `pr_url`: the PR URL captured at Phase 9.
 - `conversation_summary`: a brief recap of the conductor's session covering this ticket.
 - `learnings_extracted`: the `learning_ids[]` array from the `learning-extractor` return at Phase 6 clean exit (or `[]` if learning extraction was skipped/soft-failed).
+- `memory_mode`: `compiled` in compiled mode (memory-shard-convention.md: `detect`, else the `^index:` grep); else omit.
 
 **Failure semantics:**
 
@@ -20743,6 +20825,8 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - If `wrap-ticket` returns within 60s but the output is not parseable as JSON: conductor warns the operator (`"Phase 11b: wrap-ticket return was not valid JSON; proceeding without learnings capture."`) and proceeds.
 - If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock release for this outcome happens after the timeout fires, per the scoped release sentence below.
 - If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
+
+Compiled mode: after `wrap-ticket` returns, before release, run `ds-memory-capture flush --dir "$REPO"` (soft-fail) and print its `captured:`/`flush:` lines with `operator_summary`.
 
 Lock release: this applies ONLY within the "If the lock is acquired" branch above - the conductor runs `ds-wrap-release-lock "$REPO"` (PATH-wired helper) unconditionally on every `wrap-ticket` outcome in that branch (success, non-JSON return, timeout, soft-fail) before advancing to Phase 12. The release root MUST match the root passed to the acquire calls in step 1 and step 2 above - a bare `ds-wrap-release-lock` resolves against the conductor's cwd instead, and if cwd differs from `$REPO` the release is a silent no-op that leaks the lock for the rest of the session. The two skip-conditions paths and every lock-acquisition-failed path (the first attempt's non-0/non-5 exit code, and the bounded-wait attempt's 45s timeout or non-0/non-2 exit code) never acquired the lock in this session and must NOT call the release helper.
 
@@ -20770,7 +20854,7 @@ Where `$REPO_CWD` is the absolute project root and the `cluster_results` value f
 
 wrap-ticket has no Bash tool and is a leaf agent (see `content/agents/wrap-ticket.md` Rules: "No subagent spawning"), so the conductor runs this itself, after wrap-ticket returns (or is skipped) and after lock release, whenever Phase 9 opened a PR - prior-session drift alone can trip it.
 
-**Skip entirely** if wrap-ticket's return carried `skipped_reason: "wrap-lock-contention"`, or a READ-ONLY existence check of `.agentic/wrap/lock` (no acquire/release) shows it present - write-time acquisition is authoritative (see `content/commands/ds-wrap.md` Part E's "Async-path amendment"), not this probe.
+**Skip entirely** in compiled mode (`MEMORY.md` is not a Part E target there), if wrap-ticket's return carried `skipped_reason: "wrap-lock-contention"`, or a READ-ONLY existence check of `.agentic/wrap/lock` (no acquire/release) shows it present - write-time acquisition is authoritative (see `content/commands/ds-wrap.md` Part E's "Async-path amendment"), not this probe.
 
 1. Stat `[cwd]/MEMORY.md` (skip if absent) and read `[cwd]/.agentic/compression-state.json` if present.
 2. Apply `/ds-wrap` Part E's gate (`content/commands/ds-wrap.md` Part E "Gate" - canonical thresholds).
@@ -21192,6 +21276,16 @@ else
           fi
         fi
       done
+      # Two-tier: ship new shards with MEMORY.md.
+      case ",$KC_LIST," in *,MEMORY.md,*)
+        KC_NEW=$(ds-memory-capture new-shards --dir "$REPO" --ref "origin/${BRANCH_NAME}" || true)
+        while IFS= read -r KC_S; do
+          [ -n "$KC_S" ] || continue
+          KC_ADD_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" add -- "$KC_S" 2>&1 >/dev/null)
+          if [ $? -ne 0 ]; then echo "WARNING: [phase: knowledge-commit] git add $KC_S failed: $KC_ADD_ERR"; continue; fi
+          KC_N=$((KC_N + 1)); KC_LIST="$KC_LIST,$KC_S"; KC_JSON_STAGED="$KC_JSON_STAGED,\"$KC_S\""
+        done <<< "$KC_NEW"
+      esac
 
       if [ "$KC_RESET_FAILED" = "yes" ]; then
         # Checked BEFORE the KC_N == 0 branch below, deliberately: KC_N == 0
@@ -22453,7 +22547,7 @@ Seed with these documented defaults exactly:
 - `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on); set `false` to opt out, or disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Governs the Stop hook (`hooks/enforce-turn-shape.py`) checking the conductor's final turn shape - `_execution_prose_flag` and `_status_only_flag` are both BLOCKING (the latter restored by DS-ANSWERFIRST), `_decision_item_sprawl_flag` is advisory-only. One toggle and one kill switch govern all three; there is no per-check toggle. Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
 - `worktree_read_guard_exemptions` - list of strings, default `[]`; each entry is a path prefix exempted from the worktree-isolated Read guard (`hooks/enforce-worktree-read.py`). Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
 - `worktree_write_guard_exemptions` - list of strings, default `[]`; SEPARATE from `worktree_read_guard_exemptions` - each entry is a path prefix exempted from the worktree-isolated Write/Edit/MultiEdit guard (`hooks/enforce-worktree-write.py`). Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
-- `memory_shard_mode` - boolean, default `false` (opt-in). Ships inert as of DS-221 Unit 1: the memory-shard compiler (`bin/ds-memory-shard`) exists, but nothing in `/ds-wrap`, wrap-ticket, or `/ds-memory-update` reads this toggle yet - writer wiring is a later unit's scope. Full semantics: `content/references/memory-shard-convention.md`.
+- `memory_shard_mode` - boolean, default `false` (opt-in). Ships inert as of DS-221 Unit 1: the memory-shard compiler (`bin/ds-memory-shard`) exists, but nothing reads this toggle. Capture writers route through shards only in a two-tier project, detected from shard state (`bin/ds-memory-capture`). Full semantics: `content/references/memory-shard-convention.md`.
 
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
@@ -22543,7 +22637,7 @@ This is the SAME command the migrate-adoption path (`bin/ds-migrate`, driven by 
 
 **If `"status"` is `"self_repo_exempt"`, STOP here - this is a terminal, self-contained outcome.** It means `<project-root>` IS the dinostack methodology source repo itself, not a real consumer project (see `content/references/activation-detail.md` Step 6d; `/ds-init-project` should not ordinarily be run against that repo at all). The `self_repo_exempt` JSON carries only `{"status": ..., "reason": ...}` - it has no `gitignore_verification` field, and none is expected. Do not evaluate the `gitignore_verification` clause below against it, and do not fall through to the fallback path: `apply` against a self-repo `project_root` is itself a no-op by design (see Step 9's `ds-migrate apply` description above), so there is nothing to verify and nothing to repair.
 
-For every other case, confirm it reports `"status": "ok"` AND its `gitignore_verification` field (present in the `ok` JSON as of round 11) reads `"behavioral"` - as of round 10 a `"behavioral"` verification asks `git check-ignore` directly whether every manifest-negated path is actually reachable, not just whether the `.gitignore` text is shaped like a recognized pattern, so a `"behavioral"` `ok` is authoritative regardless of which .gitignore spelling produced the current state - for every EXACT-path negation (`!.agentic/config.json`, `!.agentic/qa.md`, etc. - 11 of the manifest's current 15 negation patterns). It has one measured, accepted limit: for the four DIRECTORY-form negations (`!.agentic/session-log/` + its `!.agentic/session-log/**` twin, and `!.agentic/memory-shards/` + its `!.agentic/memory-shards/**` twin), the probe set must synthesize candidate paths when no real file exists yet under that directory, and a defeater keyed to a filename none of the synthesized candidates happens to match can still read `"ok"` (e.g. `.agentic/session-log/nested/` or `.agentic/session-log/dev.*` with no matching file present). Once a real file exists at any name under the directory, that file is itself probed and the check is authoritative for it. `session-log/` is narrow and self-healing - it is populated automatically by `/ds-implement-ticket` Phase 8 on confirmed identity, so the next `check` run, once the file exists, catches it. `memory-shards/` does NOT share that automatic-population story as of DS-221 Unit 1: nothing writes into it yet (`memory_shard_mode` ships `false`, no writer wired), so its residual window can stay open indefinitely until a human runs `ds-memory-shard split` by hand or a later unit's writer ships - stated plainly rather than silently inherited into "self-healing." Either way, a `"behavioral"` `ok` reported before any file has been written under a directory-form negation does not yet prove that negation's eventual spelling is safe (see `_compute_negations_defeated` in `bin/ds-migrate`). An `ok` with `gitignore_verification: "unavailable"` (no git on PATH, or `project_root` is not a git working tree) is NOT behaviorally verified - it fell back to the pre-round-10 syntactic ordering/bare-form signals and must not be read as authoritative; treat it the same as `check` being unavailable below. If `check` is unavailable for some reason, fall back to reading the resulting `.gitignore` and `content/project-scaffolding.yml`'s current `gitignore:` list (from this same `dinostack` install) by eye, and confirm the file contains the umbrella line `.agentic/*` (or an equivalent umbrella pattern) AND a `!.agentic/<file>` negation line for EVERY `!.agentic/<file>` pattern in the manifest's current `gitignore:` list - not just one. If `check` reports drift, or the umbrella is missing, or even a single manifest negation is missing - regardless of `apply`'s own exit code - treat this exactly like "`ds-migrate` cannot be resolved" below and take the fallback path.
+For every other case, confirm it reports `"status": "ok"` AND its `gitignore_verification` field (present in the `ok` JSON as of round 11) reads `"behavioral"` - as of round 10 a `"behavioral"` verification asks `git check-ignore` directly whether every manifest-negated path is actually reachable, not just whether the `.gitignore` text is shaped like a recognized pattern, so a `"behavioral"` `ok` is authoritative regardless of which .gitignore spelling produced the current state - for every EXACT-path negation (`!.agentic/config.json`, `!.agentic/qa.md`, etc. - 11 of the manifest's current 15 negation patterns). It has one measured, accepted limit: for the four DIRECTORY-form negations (`!.agentic/session-log/` + its `!.agentic/session-log/**` twin, and `!.agentic/memory-shards/` + its `!.agentic/memory-shards/**` twin), the probe set must synthesize candidate paths when no real file exists yet under that directory, and a defeater keyed to a filename none of the synthesized candidates happens to match can still read `"ok"` (e.g. `.agentic/session-log/nested/` or `.agentic/session-log/dev.*` with no matching file present). Once a real file exists at any name under the directory, that file is itself probed and the check is authoritative for it. `session-log/` is narrow and self-healing - it is populated automatically by `/ds-implement-ticket` Phase 8 on confirmed identity, so the next `check` run, once the file exists, catches it. `memory-shards/` does NOT share that automatic-population story: capture writes shards only in a project that already has indexed shards (two-tier mode), so in a fresh project its residual window can stay open indefinitely until a human runs `ds-memory-shard split` or the project's own compiler by hand - stated plainly rather than silently inherited into "self-healing." Either way, a `"behavioral"` `ok` reported before any file has been written under a directory-form negation does not yet prove that negation's eventual spelling is safe (see `_compute_negations_defeated` in `bin/ds-migrate`). An `ok` with `gitignore_verification: "unavailable"` (no git on PATH, or `project_root` is not a git working tree) is NOT behaviorally verified - it fell back to the pre-round-10 syntactic ordering/bare-form signals and must not be read as authoritative; treat it the same as `check` being unavailable below. If `check` is unavailable for some reason, fall back to reading the resulting `.gitignore` and `content/project-scaffolding.yml`'s current `gitignore:` list (from this same `dinostack` install) by eye, and confirm the file contains the umbrella line `.agentic/*` (or an equivalent umbrella pattern) AND a `!.agentic/<file>` negation line for EVERY `!.agentic/<file>` pattern in the manifest's current `gitignore:` list - not just one. If `check` reports drift, or the umbrella is missing, or even a single manifest negation is missing - regardless of `apply`'s own exit code - treat this exactly like "`ds-migrate` cannot be resolved" below and take the fallback path.
 
 `ds-migrate apply` is:
 - **Default-deny.** It writes a single `.agentic/*` umbrella ignore, then an explicit `!.agentic/<file>` negation for each tracked knowledge file - currently `config.json`, `qa.md`, `deploy.md`, `tracking.md`, `qa-regressions.md`, `learnings.md`, `team.yml`, `skill-candidates.md`, `session-log/` (with a second, redundant `session-log/**` negation kept for explicitness - measured: a plain directory negation already recurses into nested files on its own, so the `**` line does not change behavior, but it documents nested-file coverage explicitly rather than relying on an implicit git recursion rule a future reader might not know to assume), `phase0-classifiers.yml`, `deferred-work.jsonl`, and `presets.yml`. Anything under `.agentic/` NOT in that list - including any future runtime artifact nobody has enumerated yet - is ignored by default. This is the safe direction: a newly-added machine-local runtime file needs no `.gitignore` change at all to stay unignored-by-mistake, and the only way to leak one into source control is an explicit negation someone had to add on purpose.
@@ -22832,7 +22926,7 @@ Before drafting, verify any factual claims the entry will make:
 
 1. Read the current MEMORY.md (create it with just `# Memory\n\n` if it does not exist).
 2. Assess against what is already there:
-   - **Update existing**: decision clarifies or supersedes a prior entry - update that entry in place, adjusting the date
+   - **Update existing**: decision clarifies or supersedes a prior entry - update that entry in place, adjusting the date (compiled mode: never in place - write a new entry citing the old entry's shard id, see Part 4)
    - **New entry**: decision is not yet captured - draft a new date-stamped bullet
    - **No-op**: decision is already accurately captured - return: "No-op: decision already captured."
 3. Entry format - one date-stamped bullet per decision:
@@ -22847,6 +22941,8 @@ Apply the change directly to the file at $MEMORY_PATH:
 - New entry: append the bullet
 - Update existing: replace the prior bullet in place
 - If MEMORY.md does not exist: create it with the header `# Memory\n\n` then write the bullet
+
+**Compiled mode** - if `ds-memory-capture detect --dir <project root>` reports `two-tier` or `two-tier-unresolved` (or, without that tool, `grep -l '^index:' .agentic/memory-shards/*.md` finds a hit), never edit MEMORY.md: append the bullet as one line of `<project root>/.agentic/memory-capture-inbox.md`, then run `ds-memory-capture flush --dir <project root>` and return its `captured:` line (exit 1: the entry stays queued; say so). See `content/references/memory-shard-convention.md` §Two-tier capture.
 
 Do not commit - committing is the user's responsibility. Return confirmation when done.
 ---
@@ -26005,13 +26101,15 @@ After the root write succeeds - and only after, inside the held lock - rewrite `
 
 **Skip test.** Skip Part B entirely only if the memory entries input is "None" **AND** `<cwd>/.agentic/memory.md` is absent or empty. **A run with no fresh entries but a non-empty staging area MUST still run Part B.**
 
-**Open-PR deferral pass (run BEFORE the read/merge steps below).** For each proposed memory entry (fresh or drained-from-staging), cross-reference the file paths, directory paths, and feature keys cited in the entry against the Open-PR overlap set captured in Step 0. An entry is **post-merge-deferred** if any cited path or key appears in the `modified_files[]` list of any open PR, OR the Worker tagged the entry with `[defer-pr: <pr_number>]`. Strip the marker from the entry text and route the entry to `<cwd>/.agentic/memory-pending.md` (append-only; create the file if missing) under a heading `## Pending PR #<pr_number> (<head_branch>)`, per Atomic write discipline <!-- aw-site: memory-pending --> (unconditional publish - read current content if present, append, write back). Non-deferred entries continue to the steps below. The pending file is plain markdown — a follow-up doc PR after the source PRs merge can move entries from `.agentic/memory-pending.md` into root `MEMORY.md`. Rationale: docs land on the conductor's branch (typically `main`) before source PRs merge; without deferral, `MEMORY.md` describes paths or keys that do not yet exist on the target branch.
+**Open-PR deferral pass (run BEFORE the read/merge steps below).** For each proposed memory entry (fresh or drained-from-staging), cross-reference the file paths, directory paths, and feature keys cited in the entry against the Open-PR overlap set captured in Step 0. An entry is **post-merge-deferred** if any cited path or key appears in the `modified_files[]` list of any open PR, OR the Worker tagged the entry with `[defer-pr: <pr_number>]`. Strip the marker from the entry text and route the entry to `<cwd>/.agentic/memory-pending.md` (append-only; create the file if missing) under a heading `## Pending PR #<pr_number> (<head_branch>)`, per Atomic write discipline <!-- aw-site: memory-pending --> (unconditional publish - read current content if present, append, write back). Non-deferred entries continue to the steps below. The pending file is plain markdown - a follow-up doc PR after the source PRs merge can move entries from `.agentic/memory-pending.md` into root `MEMORY.md` (in compiled mode, below, into `.agentic/memory-capture-inbox.md` instead). Rationale: docs land on the conductor's branch (typically `main`) before source PRs merge; without deferral, `MEMORY.md` describes paths or keys that do not yet exist on the target branch.
 
 1. Use the Read tool to attempt to read the file at the root `MEMORY.md` path.
 
 2. **If the file does not exist**: write all non-deferred entries directly as a markdown list, per Atomic write discipline <!-- aw-site: memory-md-fresh --> (unconditional publish). Return: "Wrote fresh MEMORY.md to [path] (N entries written, M deferred to memory-pending.md)."
 
 3. **If the file exists**: read its content. For each non-deferred entry, check whether the same fact is already captured - not just as an exact string match, but semantically (same architectural decision, same gotcha, same command). Also check `.agentic/learnings.md` (read at Step 1, per that step's note): if the same fact is captured as a structured learning entry, skip the new memory entry. If an existing entry covers the same fact, skip the new entry. If the new entry supersedes an existing one (same topic but updated or corrected), replace the existing entry in place with the new one - **name every supersession** in the return line by quoting the existing entry's text beside its replacement. Otherwise append the new entry. Write the merged result, per Atomic write discipline <!-- aw-site: memory-md-merge --> (unconditional publish). Return: "Updated MEMORY.md at [path] (N entries added, M entries superseded [superseded-entry-text -> replacement-text, ...], K deferred to memory-pending.md)."
+
+**Compiled mode** (`ds-memory-capture detect` reports `two-tier` or `two-tier-unresolved`, else the `^index:` grep fallback; see `content/references/memory-shard-convention.md` §Two-tier capture) replaces steps 2-3: dedup as in step 3, but never edit `MEMORY.md` and never replace in place. Append each surviving entry as one line of `.agentic/memory-capture-inbox.md`, citing a superseded entry's shard id in its text, then run `ds-memory-capture flush` and carry its `captured:` and `flush:` lines into the return line.
 
 **Part C — Write AGENTS.md updates**
 
@@ -26132,7 +26230,7 @@ Part E does two things in one pass: token-density compression (unchanged from pr
 Skip Part E only if Parts B and C both reported no changes (no new memory entries, no AGENTS.md updates) **AND no target below is over its size gate** - citing `bin/tests/reach_model.py` invariant R2: a target that crossed its gate from prior-session drift, with no Part B/C change this session, must still be compressed. Part A always writes `_wrap.md` and is not a signal of session-meaningful change (and `_wrap.md` is not a Part E target - see below).
 
 **Targets:**
-- `[cwd]/MEMORY.md` (**primary** - `@`-imported into every session, so its size is per-session resident cost).
+- `[cwd]/MEMORY.md` (**primary** - `@`-imported into every session, so its size is per-session resident cost). Not a target in compiled mode (see Part B): editing compiled output wedges the project's `ingest`.
 - `.agentic/memory.md` (the DS-90 staging area) if it exists.
 - `[cwd]/CLAUDE.md` if it exists at the project root.
 
@@ -26315,6 +26413,8 @@ Write-ordering among the five files is not a `/ds-wrap`-internal question, becau
 
   No marker cleanup is needed. Once the ticket PR merges, the file matches `origin/<BASE_BRANCH>` and the preceding byte-identity bullet skips it first, so a stale marker is inert rather than harmful. Accepted residual: a file changed AGAIN after the Phase 11e commit correctly does not fire this gate, so that content lands on two branches; Part G has no merge algorithm by design, and the PR diff is where a human catches it.
 
+**Compiled-mode ride-along.** When `<cwd>/MEMORY.md` survives gating in compiled mode (see Part B), every path printed by `ds-memory-capture new-shards --ref origin/<BASE_BRANCH>` survives with it and is copied and staged in steps 2-3 below, so the committed `MEMORY.md` ships with the shards capture added (capture never changes or deletes a shard).
+
 If NO file survives gating, Part G is a no-op: emit the `[phase: wrap-part-g]` breadcrumb - no worktree, no branch, no commit - but it still emits one `ds-emit knowledge_commit` event per step 10 below, with `status: "no-changes"`, so the no-op outcome remains auditable in `events.jsonl` the same as every other outcome.
 
 **Otherwise (at least one file survives):**
@@ -26340,7 +26440,7 @@ If NO file survives gating, Part G is a no-op: emit the `[phase: wrap-part-g]` b
 
 **Residual coverage.** `/ds-wrap` is manual and synchronous (see line 13, "Manual `/ds-wrap` is synchronous"), and the deferred-wrap daemon that can complete a forgotten wrap headlessly is Claude-only and opt-in, defaulting to `deferred_wrap_daemon: false` (see the "Claude-host + opt-in + non-daemon guard" note under Step 0a). So a session that ends without ever invoking `/ds-wrap` still strands its knowledge-file writes until a LATER session's start-up sweep fires the read-only notice (`content/rules/conventions.md` §Session Context and Memory, the knowledge-strand sweep) - and permanently, if no later session ever runs. Part G narrows this gap; it does not close it.
 
-Relay confirmation to the user. Include all paths written (`_wrap.md`, root `MEMORY.md`, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false), the Part F outcome (ticket keys detected and any transitions fired, or "no tracker configured" / "no ticket keys detected this session" / "skipped - zero-substance path"), and the Part G outcome (files committed and the pushed branch name plus ready-to-paste `gh pr create` command, or the no-op/soft-fail reason: "no knowledge-file changes this session" / "<file> is gitignored" / "<file> has a defeated negation - fix .gitignore by hand" / "setup failed" / "git user.name/user.email not configured" / "git commit failed" / "push failed" / "skipped - zero-substance path" / "<file> already captured on the ticket PR branch"). Also include the cleanup summary if Step 5 ran.
+Relay confirmation to the user. Include all paths written (`_wrap.md`, root `MEMORY.md`, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false), the Part F outcome (ticket keys detected and any transitions fired, or "no tracker configured" / "no ticket keys detected this session" / "skipped - zero-substance path"), and the Part G outcome (files committed and the pushed branch name plus ready-to-paste `gh pr create` command, or the no-op/soft-fail reason: "no knowledge-file changes this session" / "<file> is gitignored" / "<file> has a defeated negation - fix .gitignore by hand" / "setup failed" / "git user.name/user.email not configured" / "git commit failed" / "push failed" / "skipped - zero-substance path" / "<file> already captured on the ticket PR branch"). Also include the cleanup summary if Step 5 ran. When Part B's `flush` captured a shard and its `flush:` line reads `batch_due=true`, add: "Verbatim memory shards exceed the 40000 B batch trigger - run this project's index batch (see its memory-shard convention doc)."
 
 **Commit-ownership notice.** When Part B or Part E modified root `MEMORY.md` this session, the confirmation MUST also state that file's Part G commit status - read from Part G's actual status enum below (`committed`, `no-changes`, `setup-failed`, `commit-failed`, `push-failed`, `failed`; never invent a value outside that enum). If the status is anything other than `committed`, append: "Commit it before ending the session - the next session's git preflight may stash or reset it."
 

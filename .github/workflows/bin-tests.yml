@@ -96,16 +96,16 @@ jobs:
         timeout-minutes: 2
         run: |
           python3 -m pytest bin/tests/test_knowledge_harness_smoke.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 31) { print "expected >= 31 collected tests (13 functions x 2 shells + 5 static), got " $1; exit 1 } }'
-      - name: floor collected test_phase11e_knowledge_commit_shell.py count at 71
-        # 37 test functions - 34 parametrized x {bash, zsh} (68) plus 3 static,
-        # shell-independent assertions (3) = 71 collected IDs (DS-170 round 4
-        # added test_reset_failure_dominates_when_every_candidate_is_also_skipped,
-        # a regression test for Minor m3). Adding or removing a test
+      - name: floor collected test_phase11e_knowledge_commit_shell.py count at 79
+        # 41 test functions - 38 parametrized x {bash, zsh} (76) plus 3 static,
+        # shell-independent assertions (3) = 79 collected IDs (four two-tier
+        # memory-shard ride-along cases added with bin/ds-memory-capture).
+        # Adding or removing a test
         # function in bin/tests/test_phase11e_knowledge_commit_shell.py
         # obliges updating the floor below in the same PR.
         timeout-minutes: 2
         run: |
-          python3 -m pytest bin/tests/test_phase11e_knowledge_commit_shell.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 71) { print "expected >= 71 collected tests (34 functions x 2 shells + 3 static), got " $1; exit 1 } }'
+          python3 -m pytest bin/tests/test_phase11e_knowledge_commit_shell.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 79) { print "expected >= 79 collected tests (38 functions x 2 shells + 3 static), got " $1; exit 1 } }'
       - name: floor collected test_agent_return_contract_mutation.py count at 26
         # 21 mutation entries in MUTATIONS (one test_mutation_<id> each - 17
         # pre-round-6, 3 round-6 regression mutations (one per Major

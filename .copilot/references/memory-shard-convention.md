@@ -20,12 +20,9 @@ Downstream consumers: `bin/ds-memory-shard` (DS-221 Unit 1, SHIPPED),
                        `sequence`, and compiles a project's root
                        `MEMORY.md` from them (see "Compiled output
                        shape" below for exactly what it emits around the
-                       shard bodies); a later unit's `/ds-wrap` Part E
-                       writer wiring (NOT YET WIRED - Unit 1 ships the
-                       compiler only, gated inert by the
-                       `memory_shard_mode` toggle, default `false`),
-                       which will write one new shard file per captured
-                       fact instead of inlining prose into `MEMORY.md`;
+                       shard bodies); `bin/ds-memory-capture` and the
+                       capture writers that route through it in a
+                       two-tier project (see "Two-tier capture" below);
                        and any future pruning change, which edits or
                        deletes individual shard files and re-runs
                        `regenerate --allow-removal` rather than touching
@@ -39,33 +36,26 @@ Failure modes: `regenerate` REFUSES and writes nothing whenever
                loudly by the compiler, naming the offending file.
 ```
 
-## Status (DS-221 Unit 1 - compiler shipped, writers NOT wired)
+## Status
 
-`bin/ds-memory-shard` (backed by `hooks/lib/memory-shard.js`) exists and can
-`split` an existing `MEMORY.md` into `.agentic/memory-shards/` (a git-tracked
-`_preamble.md` plus one shard file per entry) and `regenerate` recompiles
-`MEMORY.md` from them byte-for-byte. **Nothing calls this yet.** `/ds-wrap`
-Part E, wrap-ticket, and `/ds-memory-update` do not write shards on new-fact
-capture - that wiring is a later unit's scope. The `memory_shard_mode`
-project-config toggle ships `false` and is read by nothing; every existing
-project behaves exactly as it did before this convention existed.
+`bin/ds-memory-shard` (backed by `hooks/lib/memory-shard.js`) can `split` an
+existing `MEMORY.md` into `.agentic/memory-shards/` (a git-tracked
+`_preamble.md` plus one shard file per entry), and `regenerate` recompiles
+`MEMORY.md` from them byte-for-byte. Its shards never carry an `index:`
+field, so a project split with it stays in **standard mode**: writers keep
+appending new facts DIRECTLY to `MEMORY.md`, exactly as before, and this
+remains explicitly safe - `regenerate` REFUSES to write `MEMORY.md` whenever
+the current file contains an entry line the shard set does not (see
+"Regenerate's entry-loss and reordering guards" below), so a hand-appended
+entry cannot be silently dropped. The correct response when that refusal
+fires is `split --force` (to capture the entry into a fresh shard set), then
+`regenerate` again.
 
-**Interim rule, stated plainly because it is easy to get backwards: keep
-appending new facts DIRECTLY to `MEMORY.md` by hand, exactly as every session
-has always done - this remains explicitly safe.** Nothing writes a shard for
-a hand-appended entry yet, and `regenerate` is built to make that safe rather
-than merely hope for it: because it REFUSES to write `MEMORY.md` whenever the
-current file contains an entry line the shard set does not (see "Regenerate's
-entry-loss and reordering guards" below), a hand-appended entry cannot be
-silently dropped by a later `regenerate` run - the command will name it and
-refuse instead. The correct response when that refusal fires is
-`split --force` (to capture the hand-appended entry into a fresh shard set),
-then `regenerate` again.
-
-Shard-first authoring becomes the rule only once a later unit wires writer
-support - not before. Until then, the Filename/Frontmatter sections below
-describe the convention the compiler already consumes; ordinary session
-capture should keep targeting `MEMORY.md` directly.
+Writers are wired for **two-tier** projects only: a project whose own
+compiler gives some shards an `index:` field and compiles them to one-line
+rules. Mode is detected from project state on every run (see "Two-tier
+capture" below), never from configuration. The `memory_shard_mode`
+project-config toggle ships `false` and is still read by nothing.
 
 ## Directory
 
@@ -359,3 +349,79 @@ as the check.
 Confirming the carve-out works is what makes a shard written here visible to
 `git status`/`git add` in every worktree, not silently dropped the way a
 file landing in a gitignored path can be otherwise.
+
+## Two-tier capture
+
+**Detection.** `ds-memory-capture detect` reports `standard` unless some
+shard's frontmatter has an `^index:` line. Then it is `two-tier` when
+`_preamble.md` names exactly one distinct backticked `<interpreter> <file>
+ingest` span (interpreter in {node, python3, python, bash, sh}; the file
+git-tracked inside the project; run with the project as cwd, no shell), else
+`two-tier-unresolved`.
+
+**Compiled mode** (`memory_mode: compiled`), the rule every use site
+applies: `detect` reports either two-tier mode, or, when `ds-memory-capture`
+is not installed, `grep -l '^index:' .agentic/memory-shards/*.md` finds a
+hit. Everything else is `standard` and behaves exactly as before. Nothing here
+names a project; a two-tier project's own convention doc is authoritative
+for its shard format.
+
+**Writer contract (compiled mode).** Append your documented single-line
+dated bullet, verbatim, as one line of `.agentic/memory-capture-inbox.md`
+(gitignored; create it if absent) with Write or Edit. Never touch
+`MEMORY.md`, never create a heading. Writers stay Bash-free by design, not
+by constraint: wrap-ticket's lock contract assumes it runs no commands, and
+the conductor already holds the lock where `flush` runs. Dedup against the
+compiled `MEMORY.md` as usual - its index lines are the rules to compare
+against. To supersede a fact, cite the old shard's id in the new bullet.
+
+**`ds-memory-capture flush`** is the only compiled-mode writer of
+`MEMORY.md` and shards. Under `.agentic/memory-capture.lock` it claims the
+inbox by rename (a line written meanwhile lands in a fresh inbox), drops
+lines byte-identical to an existing shard body, runs `ingest` once (which
+captures any dated line already in `MEMORY.md`; a project's `ingest` may
+return "nothing to ingest" without compiling, so this does not prove the
+file is unwedged), inserts the lines right after the preamble, and runs
+`ingest` again. A refusal restores only its own bytes and re-queues the
+lines; nothing is dropped. Exit 0 drained, 1 entries remain or two shards
+share a sequence (then nothing is touched), 2 standard mode (nothing
+touched). It prints `captured: <id> (deferred-verbatim; batch trigger:
+verbatim_bytes > 40000, now <B>)` per new shard and a `flush:` summary
+carrying `batch_due`. Callers: `/ds-wrap` Part B, `/ds-implement-ticket`
+Phase 11b, `/ds-memory-update`'s Worker. learnings-agent lines wait in the
+inbox for the next of those.
+
+**Why deferred-verbatim.** Every capture leaves its shard with no `index`.
+Indexing at capture needs a Skeptic-reviewed index row, which a subagent
+cannot obtain, and a hand-written `index:` fails the project's own
+refcheck. The project's batch PR indexes the backlog (`set-index --from
+<reviewed.jsonl>`, then `regenerate --allow-removal`); capture never needs
+`regenerate`.
+
+**Part E.** In compiled mode `MEMORY.md` is not a `/ds-wrap` Part E target
+and Phase 11b skips its gate: Part E would hand-edit compiled output, which
+`ingest` refuses. Shard curation is the project's batch.
+
+**Ride-along.** Two-tier CI asserts the compile equals `MEMORY.md`, so a
+committed `MEMORY.md` travels with its new shards: Phase 11e and Part G add
+`ds-memory-capture new-shards --ref <ref>` (files under the shard directory
+absent from `<ref>`'s tree) whenever they commit `MEMORY.md`. Capture only
+adds shards; a shard changed by `repair` is committed by hand.
+
+**Merge conflicts.** Two branches that each flush both insert after the
+preamble, so `MEMORY.md` conflicts. Resolve keeping both lines, commit, then
+run `ds-memory-capture repair --ref <base>`: it deletes the no-`index` shards
+absent at `<base>` and re-runs `ingest`, which re-captures the lines on
+unique sequences. It restores every deleted shard and exits 1 if any body is
+not re-captured or a duplicate sequence remains, and on success lists the
+shard changes to commit. `flush` refuses, printing this command, whenever
+two shards share a sequence.
+
+| Piece | Catches | Retires when |
+|---|---|---|
+| Inbox, `memory_mode`, `flush` | wedged `ingest`, desynced `MEMORY.md`, background-writer loss | two-tier mode is gone, or the project compiler exposes direct capture |
+| `new-shards` and ride-along | red compile-equality CI | two-tier mode is gone |
+| `repair` | a duplicate sequence after a merge | the project assigns collision-free sequences |
+| Part E exclusion, Phase 11b skip | Part E editing compiled output | two-tier mode is gone |
+| Batch line | silent regrowth | the project gates verbatim bytes itself |
+| Fixture and tests | regression in the mechanism they test | they retire with that mechanism |

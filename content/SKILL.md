@@ -150,7 +150,7 @@ Run `/ds-help` for the full command inventory.
 - **references/memory-shard-convention.md** - git-tracked per-fact shard directory
   (`.agentic/memory-shards/`) a project's root MEMORY.md compiles from, the frontmatter
   every shard carries, and the split/regenerate round-trip's entry-loss and reordering
-  refusal guards; read when working on `bin/ds-memory-shard`, `hooks/lib/memory-shard.js`,
+  refusal guards; read when working on `bin/ds-memory-shard`, `bin/ds-memory-capture`, `hooks/lib/memory-shard.js`,
   or any writer that captures a fact into a shard.
 
 ## Rules (read on trigger)
