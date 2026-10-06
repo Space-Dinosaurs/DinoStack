@@ -181,6 +181,12 @@ installed separately:
   practice, within 600 s of an `open` whose agent was killed mid-command.
   Logs every run to
   `~/.agentic/browser-reaper.log`; disable via `AE_BROWSER_REAPER_DISABLE=1`.
+- [`session-start-memory.py`](../hooks/session-start-memory.py)
+  - SessionStart; never blocks and writes nothing. Reads root `CLAUDE.md`
+  and `MEMORY.md` and, only when root `CLAUDE.md` carries the line
+  `<!-- dinostack:memory-main-only -->`, adds `MEMORY.md` (or its head plus
+  a directive to Read the rest) to the main session's context. Prints `{}`
+  otherwise, including when any `CLAUDE.md` still imports `MEMORY.md`.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.
 

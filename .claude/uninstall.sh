@@ -272,14 +272,15 @@ if new_stop_list != stop_list:
         del hooks["Stop"]
         print("  - Removed empty Stop key")
 
-# ---- Remove SubagentStop / SessionEnd hooks (DS-160, agent-browser reaper) --
-# NOTE (Skeptic finding, Minor): subagent-stop-spawn-emit.js and
-# reap-agent-browsers.py are the only PreToolUse/PostToolUse/SessionStart/
-# SubagentStop/SessionEnd-family hooks this script removes; the equivalent
+# ---- Remove SubagentStop / SessionEnd / SessionStart hooks owned here -------
+# NOTE (Skeptic finding, Minor): subagent-stop-spawn-emit.js,
+# reap-agent-browsers.py and session-start-memory.py are the only
+# PreToolUse/PostToolUse/SessionStart/SubagentStop/SessionEnd-family
+# hooks this script removes; the equivalent
 # removal logic for the other install.sh-wired hooks in those families
 # (pre-tool-use-spawn-emit.js, post-tool-use-capture-nudge.js, the
 # SessionStart chain, session-end-wrap.js, etc.) does not exist here - a
-# pre-existing gap, deferred rather than fixed. Each of these two was added
+# pre-existing gap, deferred rather than fixed. Each of these was added
 # here by the change that introduced it; leaving a brand-new hook with zero
 # uninstall path would make the gap worse, not just leave it unchanged.
 def remove_hook(event, needle, label):
@@ -307,6 +308,7 @@ def remove_hook(event, needle, label):
 remove_hook("SubagentStop", "hooks/subagent-stop-spawn-emit.js", "subagent-stop-spawn-emit.js")
 remove_hook("SubagentStop", "hooks/reap-agent-browsers.py", "reap-agent-browsers.py")
 remove_hook("SessionEnd", "hooks/reap-agent-browsers.py", "reap-agent-browsers.py")
+remove_hook("SessionStart", "hooks/session-start-memory.py", "session-start-memory.py")
 
 if hooks != settings.get("hooks", {}):
     if hooks:

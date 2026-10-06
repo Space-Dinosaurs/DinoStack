@@ -1141,10 +1141,12 @@ upsert_hook(
     "SessionEnd agent-browser reaper hook",
 )
 
-# ---- SessionStart hook (version notice + deferred-wrap self-heal/launch) -----
-# First SessionStart registration: the wrapper composes the version-check
-# notice with the self-healing .claude-host sentinel and the guarded daemon
-# launch. Find-or-create; re-running install must NOT duplicate it.
+# ---- SessionStart hooks (version notice + deferred-wrap, root MEMORY.md) ----
+# Two SessionStart registrations share the "*" block: session-start-wrap.sh
+# composes the version-check notice with the self-healing .claude-host
+# sentinel and the guarded daemon launch, and session-start-memory.py
+# (registered after it, below) delivers root MEMORY.md to the main session
+# only. Find-or-create; re-running install must NOT duplicate either.
 SESSION_START_CMD = f"bash {hooks_root}/hooks/session-start-wrap.sh"
 
 session_start_list = hooks.setdefault("SessionStart", [])
@@ -1166,6 +1168,22 @@ upsert_hook(
     "session-start-wrap.sh",
     {"type": "command", "command": SESSION_START_CMD, "timeout": 5},
     "SessionStart deferred-wrap hook",
+)
+
+# Main-session-only MEMORY.md delivery for repos whose root CLAUDE.md carries
+# the hook's MARKER line in place of an `@MEMORY.md` import. SessionStart
+# fires for the main session only, at startup, resume, compact and clear.
+# Guarded form for the same reason as enforce-turn-shape.py above.
+SESSION_START_MEMORY_CMD = (
+    f"test -f {hooks_root}/hooks/session-start-memory.py && "
+    f"python3 {hooks_root}/hooks/session-start-memory.py || exit 0"
+)
+
+upsert_hook(
+    session_start_star["hooks"],
+    "session-start-memory.py",
+    {"type": "command", "command": SESSION_START_MEMORY_CMD, "timeout": 5},
+    "SessionStart main-session MEMORY.md hook",
 )
 
 # ---- PreToolUse background-spawn + orchestrator-singularity + tier hooks ----

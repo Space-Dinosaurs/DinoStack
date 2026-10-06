@@ -23,9 +23,10 @@
 #          ~/.agentic/cleanup-worktrees.json, that names the single worst
 #          project for stale worktrees across every configured repo when it
 #          differs from the current one and clears the same threshold.
-#          It is the FIRST and only SessionStart registration install.sh
-#          makes; the version-check script is no longer wired directly - it
-#          is invoked from here.
+#          It is the first of the two SessionStart registrations install.sh
+#          makes (the second is hooks/session-start-memory.py); the
+#          version-check script is no longer wired directly - it is invoked
+#          from here.
 # Public API: bash hooks/session-start-wrap.sh
 #             (reads the SessionStart JSON payload on stdin, extracts `cwd`;
 #              writes a single JSON object to stdout; always exits 0.)

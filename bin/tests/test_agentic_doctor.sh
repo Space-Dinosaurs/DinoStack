@@ -721,6 +721,40 @@ fi
 rm -rf "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
+# Test 12d: check_hook_scripts_exist recognizes session-start-memory.py (the
+# main-session-only MEMORY.md SessionStart hook) as a managed hook basename.
+# Same omission class as T12c.
+# ---------------------------------------------------------------------------
+setup_fixture
+
+mkdir -p "$FAKE_REPO/hooks"
+cat > "$TEMP_HOME/.claude/settings.json" <<EOF
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {"type": "command", "command": "test -f $FAKE_REPO/hooks/session-start-memory.py && python3 $FAKE_REPO/hooks/session-start-memory.py || exit 0", "timeout": 5}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+invoke_doctor
+OUT=$(cat "$TEMP_HOME/.out")
+
+if echo "$OUT" | grep -q "^FAIL hook_scripts:.*session-start-memory.py.*does not exist on disk"; then
+  _pass "T12d hook_scripts: missing session-start-memory.py reported as FAIL (MANAGED_HOOK_BASENAMES omission regression guard)"
+else
+  _fail "T12d hook_scripts: expected FAIL for missing session-start-memory.py (MANAGED_HOOK_BASENAMES omission regressed)\n$OUT"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
 # Tests 13-15 (DS-54): hooks-snapshot staleness check
 # (check_hooks_snapshot_staleness / _fix_hooks_snapshot).
 #
