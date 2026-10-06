@@ -51,14 +51,16 @@ Performance: Standard.
 `agent-browser` is installed globally. Use it via Bash for all browser verification tasks instead of MCP browser tools.
 
 ```bash
-agent-browser open <url>      # navigate
-agent-browser snapshot        # get page structure with element refs
-agent-browser click @e1       # click by ref
-agent-browser fill @e2 "text" # fill input by ref
-agent-browser close           # close the session when done (close --all closes every session)
+agent-browser open <url> --session <name>      # navigate
+agent-browser snapshot --session <name>        # get page structure with element refs
+agent-browser click @e1 --session <name>       # click by ref
+agent-browser fill @e2 "text" --session <name> # fill input by ref
+agent-browser close --session <name>           # close each session you opened when done
 ```
 
-After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close it when verification is done (`agent-browser close`, or `close --all` to close every session) - otherwise the session and its browser process are not reaped when your run ends and persist afterward. `agent-browser` is headless by default, so no window is left open; what persists is the session's live process, consuming resources and able to collide with a concurrent run (see `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership).
+Use one `<name>` unique to this run on every call; without `--session` all agents share one machine-wide default session. Never run `agent-browser close --all`: it closes every concurrent agent's live session, not just yours.
+
+After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close each session you opened when verification is done (`agent-browser close --session <name>`) - otherwise the session and its browser process are not reaped when your run ends and persist afterward. `agent-browser` is headless by default, so no window is left open; what persists is the session's live process, consuming resources and able to collide with a concurrent run (see `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership).
 
 ## Discovery-Based Check Discipline
 
