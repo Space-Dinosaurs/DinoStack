@@ -1127,9 +1127,8 @@ upsert_hook(
 # SessionEnd here and on SubagentStop below, never on Stop: a Stop fires at
 # the end of every main-conversation turn, and the main conversation's
 # browser must survive between turns. Guarded form for the same reason as
-# enforce-turn-shape.py above. "timeout": 10 also raises Claude Code's overall
-# SessionEnd hook budget from its 1.5 s default to 10 s. The ownership rule is
-# in the hook's own module docstring.
+# enforce-turn-shape.py above. The ownership rule is in the hook's own module
+# docstring.
 REAP_AGENT_BROWSERS_CMD = (
     f"test -f {hooks_root}/hooks/reap-agent-browsers.py && "
     f"python3 {hooks_root}/hooks/reap-agent-browsers.py || exit 0"
