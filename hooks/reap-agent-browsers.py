@@ -42,13 +42,16 @@ Ownership: a session is closed only when (1) a Bash tool_use in a scanned
            in program position (see opened_sessions), and (2) that
            session's live daemon (`~/.agent-browser/<name>.pid`, start
            time = now - ps etime) started inside
-           [tool_use time - 2 s, (tool_result time or now) + 2 s] of at
-           least one such `open`. Condition (2) is what keeps a later
-           session that reuses the name, or a daemon the `open` merely
-           attached to, out of reach. `default` is never closed. If the
-           transcript scan overruns its deadline, an `open` with no
-           tool_result seen yet is dropped rather than given `now` as its
-           upper bound.
+           [tool_use time - 2 s, min(tool_result time or now,
+           tool_use time + 600 s) + 2 s] of at least one such `open`.
+           Condition (2) is what keeps a later session that reuses the
+           name, or a daemon the `open` merely attached to, out of reach.
+           The 600 s cap is the Bash tool's maximum timeout: an `open` with
+           no tool_result (its agent was killed mid-command) cannot claim a
+           daemon started after it could have finished. The residual is a
+           same-name daemon started within 600 s of such a killed `open`.
+           `default` is never closed. If the transcript scan overruns its
+           deadline, an `open` with no tool_result seen yet is dropped.
 
 Decisions:
     Background work (SubagentStop): the payload's `background_tasks` and
@@ -109,7 +112,7 @@ Public API:
         name -> [(t_lo, t_hi_or_None)]
     owned(cands, daemon_start, now, slack=2.0) -> set
     select_orphans(rows) -> list   rows: pid -> (ppid, etime_s, command)
-    own_pending_work(payload, paths) -> (set, int)
+    own_pending_work(payload, paths, deadline) -> (set, int)
     main() -> None                 never raises past _entry(); exit 0
 
 Upstream deps: Python 3.9+ stdlib only. `/bin/ps -axo pid=,ppid=,etime=,
@@ -124,14 +127,21 @@ Downstream consumers: Claude Code hook runner (SubagentStop, SessionEnd).
 Failure modes: always exits 0. Any exception after a known event is logged
     as `fatal`; before one, nothing is written. Each close runs
     `agent-browser close --session <n>` in its own process group; all
-    closes share a 4 s deadline, after which stragglers are SIGKILLed.
-    Misses (bounded only by AGENT_BROWSER_IDLE_TIMEOUT_MS): sessions opened
-    from script files or unlisted wrappers, `default`, a
-    `run_in_background` open, and a daemon that predates its `open`.
+    closes share a 3.5 s deadline, after which stragglers are SIGKILLed.
+    Both transcript reads (own_pending_work and the `open` scan) share one
+    2 s deadline; an overrun in the first defers the close, and an overrun
+    in the second drops every `open` with no tool_result, so a slow read
+    never adds a close. A `ps` that exceeds 1.5 s raises, which is logged as
+    `fatal` and closes nothing. Misses (bounded only by
+    AGENT_BROWSER_IDLE_TIMEOUT_MS): sessions opened from script files or
+    unlisted wrappers, `default`, a `run_in_background` open, and a daemon
+    that predates its `open`.
 
-Performance: usually well under 1 s; worst case about 9.5 s (2 s `ps`, 2.5 s
-    transcript scan, 4 s of closes, 1 s `session list`), inside the 10 s
-    timeout.
+Performance: usually well under 1 s. Worst case inside main() is about 8 s
+    (1.5 s `ps`, 2 s for both transcript reads, 3.5 s of closes, 1 s
+    `session list`), leaving about 2 s of the registered 10 s timeout for
+    interpreter startup, reading stdin and the log write (startup measured
+    at well under 0.2 s).
 """
 
 import datetime
@@ -152,10 +162,12 @@ AB_DIR = "~/.agent-browser"
 LOCAL_BIN = "~/.local/bin/agent-browser"
 PS_CMD = ["/bin/ps", "-axo", "pid=,ppid=,etime=,command="]
 
-SCAN_BUDGET_S = 2.5
-CLOSE_BUDGET_S = 4.0
+PS_BUDGET_S = 1.5
+SCAN_BUDGET_S = 2.0
+CLOSE_BUDGET_S = 3.5
 LIST_BUDGET_S = 1.0
 SLACK_S = 2.0
+MAX_OPEN_S = 600.0
 MAX_SHELL_DEPTH = 2
 
 SESSION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -437,7 +449,7 @@ def owned(cands, daemon_start, now, slack=SLACK_S):
             continue
         start = daemon_start[name]
         for lo, hi in wins:
-            upper = hi if hi is not None else now
+            upper = min(hi if hi is not None else now, lo + MAX_OPEN_S)
             if lo - slack <= start <= upper + slack:
                 out.add(name)
                 break
@@ -604,13 +616,14 @@ def _transcripts(payload, event):
     return paths
 
 
-def own_pending_work(payload, paths):
+def own_pending_work(payload, paths, deadline):
     """(ids of in-flight work this agent started, count of other in-flight
     work). `background_tasks` and `session_crons` are session-wide and list
     the ending subagent itself, so an entry counts as this agent's own only
     when its id is not the agent's and appears in the agent's own
     transcript (the tool_result that launched it names it). An entry with
-    no usable id counts as own, which keeps the browser."""
+    no usable id counts as own, and so does a read that overruns
+    `deadline` (`scan-deadline`); both keep the browser."""
     agent_id = payload.get("agent_id")
     entries = []
     for key in ("background_tasks", "session_crons"):
@@ -624,13 +637,21 @@ def own_pending_work(payload, paths):
         elif tid != agent_id:
             ids.append(tid)
     if ids:
-        text = ""
+        chunks = []
         for path in paths:
             try:
                 with open(path, errors="replace") as f:
-                    text += f.read()
+                    while True:
+                        if time.monotonic() > deadline:
+                            own.add("scan-deadline")
+                            return own, 0
+                        chunk = f.read(1 << 20)
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
             except OSError:
                 continue
+        text = "".join(chunks)
         own.update(tid for tid in ids if tid in text)
     return own, len([tid for tid in ids if tid not in own])
 
@@ -657,15 +678,16 @@ def main():
         write_log(head + " verdict=disabled")
         return
 
+    scan_deadline = time.monotonic() + SCAN_BUDGET_S
     deferred, waits_note = "", ""
     if event == "SubagentStop":
-        own, others = own_pending_work(payload, _transcripts(payload, event))
+        own, others = own_pending_work(payload, _transcripts(payload, event), scan_deadline)
         if own:
             deferred = " own_pending=%s" % _fmt(own)
         if others:
             waits_note = " others_in_flight=%d" % others
 
-    rows = ps_rows(timeout=2.0)
+    rows = ps_rows(timeout=PS_BUDGET_S)
     now = time.time()
     ab_dir = os.path.expanduser(AB_DIR)
     starts, dead_pid_file = daemon_states(ab_dir, rows, now)
@@ -674,7 +696,6 @@ def main():
     cands = {}
     closed, skipped, truncated = set(), [], False
     if not deferred:
-        scan_deadline = time.monotonic() + SCAN_BUDGET_S
         for path in _transcripts(payload, event):
             if time.monotonic() > scan_deadline:
                 truncated = True

@@ -1793,8 +1793,9 @@ PYEOF_SHARED
 # exposes session names but no owning run, so a predicate built on it would be
 # a guess that can close a concurrent run's browser, or the operator's. A
 # session counts as the agent's only when its live daemon started inside the
-# window of an `open` that agent ran, which a later reuse of the same name
-# cannot satisfy.
+# window of an `open` that agent ran (capped at the Bash tool's 600 s limit
+# when the `open` never returned), so a later reuse of the same name is out of
+# reach once that window has passed.
 # ---------------------------------------------------------------------------
 AE_BROWSER_IDLE_TIMEOUT_MS_VALUE="1800000"
 AE_BROWSER_IDLE_TIMEOUT_MIN=$((AE_BROWSER_IDLE_TIMEOUT_MS_VALUE / 60000))

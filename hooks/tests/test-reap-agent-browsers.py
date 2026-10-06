@@ -124,8 +124,12 @@ def test_owned_rejects_daemon_that_predates_open():
     assert mod.owned({"s": [(100.0, 110.0)]}, {"s": 50.0}, NOW) == set()
 
 
-def test_owned_without_result_extends_to_now():
-    assert mod.owned({"s": [(100.0, None)]}, {"s": 900.0}, 1000.0) == {"s"}
+def test_owned_without_result_is_capped_at_the_bash_timeout():
+    # An open with no tool_result (agent killed mid-command) may still own a
+    # daemon that came up while the command could have been running...
+    assert mod.owned({"s": [(100.0, None)]}, {"s": 650.0}, 10_000.0) == {"s"}
+    # ...but never one started after the Bash tool's 600 s maximum.
+    assert mod.owned({"s": [(100.0, None)]}, {"s": 900.0}, 10_000.0) == set()
 
 
 def test_owned_never_default_or_dead():
@@ -357,6 +361,29 @@ def test_unidentified_background_entry_defers_close():
     path, rows, pids = owned_fixture()
     rec = run_main(bg_payload(path, [{"type": "shell"}]), rows, pids)
     assert rec.closes == [], rec.closes
+
+
+def test_own_pending_read_past_deadline_defers():
+    reset_home()
+    path, _rows, _pids = owned_fixture()
+    sibling = {"id": "asibling00000001", "type": "subagent", "status": "running", "description": "y"}
+    own, _others = mod.own_pending_work(bg_payload(path, [SELF_TASK, sibling]), [path],
+                                        time.monotonic() - 1)
+    assert "scan-deadline" in own, own
+
+
+def test_slow_own_pending_read_defers_close_in_main():
+    reset_home()
+    path, rows, pids = owned_fixture()
+    sibling = {"id": "asibling00000001", "type": "subagent", "status": "running", "description": "y"}
+    saved = mod.SCAN_BUDGET_S
+    mod.SCAN_BUDGET_S = -1.0
+    try:
+        rec = run_main(bg_payload(path, [SELF_TASK, sibling]), rows, pids)
+    finally:
+        mod.SCAN_BUDGET_S = saved
+    assert rec.closes == [], rec.closes
+    assert "own_pending=[scan-deadline]" in log_text(), log_text()
 
 
 def test_session_end_closes_main_and_unstopped_subagent_sessions():

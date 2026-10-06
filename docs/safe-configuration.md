@@ -171,11 +171,15 @@ installed separately:
   disable via `AE_RM_GUARD_DISABLE=1`, set before the session starts.
 - [`reap-agent-browsers.py`](../hooks/reap-agent-browsers.py)
   - SubagentStop and SessionEnd, never Stop; never blocks. Runs
-  `agent-browser close --session <name>` only for a session the ending agent
-  provably opened (its own transcript ran the `open`, and the live daemon
-  started during it), and SIGTERMs only an orphaned Chrome on a temporary
-  agent-browser or Playwright profile, so the operator's own Chrome and any
-  browser another agent still drives are out of reach. Logs every run to
+  `agent-browser close --session <name>` only for a session whose live daemon
+  started during an `open` in the ending agent's own transcript (within 2 s
+  of that command's run, which is capped at the Bash tool's 600 s limit when
+  the command never returned), and SIGTERMs only an orphaned Chrome on a
+  temporary agent-browser or Playwright profile. The operator's own Chrome is
+  never matched. Another agent's browser can be closed only if that agent
+  started a daemon under the same session name inside such a window - in
+  practice, within 600 s of an `open` whose agent was killed mid-command.
+  Logs every run to
   `~/.agentic/browser-reaper.log`; disable via `AE_BROWSER_REAPER_DISABLE=1`.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.
