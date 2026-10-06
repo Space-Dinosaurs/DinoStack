@@ -2005,14 +2005,16 @@ Performance: Standard.
 `agent-browser` is installed globally. Use it via Bash for all browser verification tasks instead of MCP browser tools.
 
 ```bash
-agent-browser open <url>      # navigate
-agent-browser snapshot        # get page structure with element refs
-agent-browser click @e1       # click by ref
-agent-browser fill @e2 "text" # fill input by ref
-agent-browser close           # close the session when done (close --all closes every session)
+agent-browser open <url> --session <name>      # navigate
+agent-browser snapshot --session <name>        # get page structure with element refs
+agent-browser click @e1 --session <name>       # click by ref
+agent-browser fill @e2 "text" --session <name> # fill input by ref
+agent-browser close --session <name>           # close each session you opened when done
 ```
 
-After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close it when verification is done (`agent-browser close`, or `close --all` to close every session) - otherwise the session and its browser process are not reaped when your run ends and persist afterward. `agent-browser` is headless by default, so no window is left open; what persists is the session's live process, consuming resources and able to collide with a concurrent run (see `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership).
+Use one `<name>` unique to this run on every call; without `--session` all agents share one machine-wide default session. Never run `agent-browser close --all`: it closes every concurrent agent's live session, not just yours.
+
+After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close each session you opened when verification is done (`agent-browser close --session <name>`) - otherwise the session and its browser process are not reaped when your run ends and persist afterward. `agent-browser` is headless by default, so no window is left open; what persists is the session's live process, consuming resources and able to collide with a concurrent run (see `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership).
 
 ## Discovery-Based Check Discipline
 
@@ -13656,11 +13658,11 @@ If the port doesn't respond within 30 seconds, report BLOCKED with: "Dev server 
 **Teardown (run on every exit path - PASS, FAIL, BLOCKED, INCONCLUSIVE, or error).** After QA completes, close the browser session AND kill the dev server. Run both unconditionally, even when verification was blocked or bailed early - a leaked `agent-browser` session is not reaped when your run ends - it survives as a live process, consuming resources and able to collide with a concurrent run. It is headless by default, so no window is left on screen; the session's browser process is what persists (see `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership):
 
 ```bash
-agent-browser close --all 2>/dev/null || true   # close every agent-browser session
-kill $(lsof -ti:<port>) 2>/dev/null || true      # kill the dev server
+agent-browser close --session <name> 2>/dev/null || true   # once per session you opened
+kill $(lsof -ti:<port> -sTCP:LISTEN) 2>/dev/null || true    # kill only the server listening on your port, never its clients
 ```
 
-The `|| true` guards ensure an already-closed session or unbound port never errors the run. Playwright needs no separate teardown: the `with sync_playwright()` context manager plus `browser.close()` in the Playwright snippet below handles it.
+Pass a `--session <name>` unique to this run on every `agent-browser` call, and close each such session by name. **Never run `agent-browser close --all`** - it tears down every concurrent agent's session, not just yours. The `|| true` guards ensure an already-closed session or unbound port never errors the run. Every Playwright script (Python or Node, including axe runs) must close its browser on every path: the `with sync_playwright()` context manager in Python, or `try { ... } finally { await browser.close() }` around everything after `chromium.launch()` in Node.
 
 **Temp-file cleanup.** `qa-engineer` is responsible for the temp files it creates. Run this in teardown after the browser/dev-server steps above, choosing the branch that matches the result you are about to report:
 
@@ -13699,7 +13701,7 @@ If the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallba
 
 ## Workflow
 
-> **Teardown obligation.** Once you have opened an `agent-browser` session, you MUST run the teardown from the Dev server section (`agent-browser close --all`) before returning - including on any BLOCKED, INCONCLUSIVE, or early-exit return in the steps and scenario sections below. The teardown is unconditional. This also includes the temp-file cleanup block: delete `/tmp/qa_*` (except PASS screenshots) and `/tmp/qa_devserver.log` on every exit path.
+> **Teardown obligation.** Once you have opened an `agent-browser` session, you MUST run the teardown from the Dev server section (`agent-browser close --session <name>` for each session you opened; never `close --all`) before returning - including on any BLOCKED, INCONCLUSIVE, or early-exit return in the steps and scenario sections below. The teardown is unconditional. This also includes the temp-file cleanup block: delete `/tmp/qa_*` (except PASS screenshots) and `/tmp/qa_devserver.log` on every exit path.
 
 ### 1. Pre-flight
 
@@ -13729,12 +13731,14 @@ Two tools are available. Choose based on complexity:
 
 **agent-browser** (globally installed CLI) - for navigation, visual checks, simple interactions:
 ```bash
-agent-browser open <url>          # navigate to a page
-agent-browser snapshot            # get page structure with element refs (@e1, @e2, ...)
-agent-browser click @e1           # click an element by ref
-agent-browser fill @e2 "text"     # fill an input field by ref
-agent-browser screenshot          # capture visual state
+agent-browser open <url> --session <name>          # navigate to a page
+agent-browser snapshot --session <name>            # get page structure with element refs (@e1, @e2, ...)
+agent-browser click @e1 --session <name>           # click an element by ref
+agent-browser fill @e2 "text" --session <name>     # fill an input field by ref
+agent-browser screenshot --session <name>          # capture visual state
 ```
+
+Use one `<name>` unique to this run on every call; without `--session` all agents share one machine-wide default session.
 
 **Playwright** (Python) - for multi-step flows, form interaction, console error capture, network inspection:
 ```python
