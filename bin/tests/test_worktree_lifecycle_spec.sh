@@ -181,7 +181,7 @@ LIFETIME_EXTRA_SITES=".claude/install.sh
 # a denylist: it can only catch a phrasing someone already added here, so a
 # claim a later fix falsifies stays invisible to it unless that fix adds the old
 # wording in the same commit, and a paraphrase of an entry escapes the pin.
-# The last four were falsified by hooks/reap-agent-browsers.py; each is the old
+# The last five were falsified by hooks/reap-agent-browsers.py; each is the old
 # sentence's exact shape, not a bare clause, because the same clause stays true
 # of the chrome-devtools MCP's Chrome and of every non-Claude harness.
 RETIRED_LIFETIME_CLAIMS="$RETIRED_LIFETIME_TITLE
@@ -197,7 +197,8 @@ stays open, holding its profile
 A browser is not reaped at the agent's exit either
 its parent is not the agent that started it, and the agent's own exit reaps nothing
 without this write a leftover browser has no upper bound at all
-Deliberately not a reaper that closes agent-browser sessions by name"
+Deliberately not a reaper that closes agent-browser sessions by name
+a leaked \`agent-browser\` session is not reaped when your run ends"
 
 SCRATCH="$(mktemp -d)"
 
