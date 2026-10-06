@@ -117,21 +117,24 @@ def _header(path):
     )
 
 
-def _tail_directive(n_bytes, last, path):
+def _tail_directive(n_bytes, n_lines, last, path):
     return (
-        "MEMORY.md is %d bytes; only lines 1-%d are shown. Before your first "
-        "decision this session, Read %s from line %d to EOF in full "
-        "(offset/limit; halve limit if a Read is too large). After a compact "
-        "or clear, repeat this whenever lines %d to EOF are no longer visible "
-        "in this conversation." % (n_bytes, last, path, last + 1, last + 1)
+        "MEMORY.md is %d bytes, %d lines; only lines 1-%d are shown. Before "
+        "your first decision this session, Read %s lines %d-%d in full: one "
+        "Read can stop short, so keep reading from the next unread line "
+        "(offset/limit; halve limit if a Read is too large) until you have "
+        "seen line %d. After a compact or clear, repeat this whenever lines "
+        "%d-%d are no longer visible in this conversation."
+        % (n_bytes, n_lines, last, path, last + 1, n_lines, n_lines, last + 1, n_lines)
     )
 
 
-def _none_shown_directive(n_bytes, path):
+def _none_shown_directive(n_bytes, n_lines, path):
     return (
-        "MEMORY.md is %d bytes; its first line exceeds the cap, so none is "
-        "shown. Read %s in full from line 1 before your first decision."
-        % (n_bytes, path)
+        "MEMORY.md is %d bytes, %d lines; its first line exceeds the cap, so "
+        "none is shown. Before your first decision, Read %s lines 1-%d in "
+        "full, continuing from the next unread line until you have seen "
+        "line %d." % (n_bytes, n_lines, path, n_lines, n_lines)
     )
 
 
@@ -148,12 +151,12 @@ def build_context(path):
     last = 0
     for i, line in enumerate(lines, start=1):
         used += _esc_len(line)
-        if used + _esc_len(_tail_directive(len(raw), i, path)) > CAP:
+        if used + _esc_len(_tail_directive(len(raw), len(lines), i, path)) > CAP:
             break
         last = i
     if last == 0:
-        return header + _none_shown_directive(len(raw), path)
-    return header + "".join(lines[:last]) + "\n" + _tail_directive(len(raw), last, path)
+        return header + _none_shown_directive(len(raw), len(lines), path)
+    return header + "".join(lines[:last]) + "\n" + _tail_directive(len(raw), len(lines), last, path)
 
 
 def _emit_ctx(ctx):

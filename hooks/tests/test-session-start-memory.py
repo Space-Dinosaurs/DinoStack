@@ -4,7 +4,7 @@ Tests for hooks/session-start-memory.py.
 
 Every case runs the hook as a subprocess against a scratch git repo, the
 way the Claude Code hook runner does. After the T1-T11 pass against the
-real hook, each named mutation (a)-(f) is applied to a copy of the hook and
+real hook, each named mutation (a)-(g) is applied to a copy of the hook and
 the test it targets is run against that copy; the suite fails if the
 mutation does not redden it.
 """
@@ -26,10 +26,15 @@ CAP = 8500
 MARKER = "<!-- dinostack:memory-main-only -->"
 SCRATCH = tempfile.mkdtemp(prefix="ssm-test-")
 DIRECTIVE = (
-    "MEMORY.md is %d bytes; only lines 1-%d are shown. Before your first decision this session, "
-    "Read %s from line %d to EOF in full (offset/limit; halve limit if a Read is too large). "
-    "After a compact or clear, repeat this whenever lines %d to EOF are no longer visible in this conversation."
+    "MEMORY.md is %d bytes, %d lines; only lines 1-%d are shown. Before your first decision this session, "
+    "Read %s lines %d-%d in full: one Read can stop short, so keep reading from the next unread line "
+    "(offset/limit; halve limit if a Read is too large) until you have seen line %d. "
+    "After a compact or clear, repeat this whenever lines %d-%d are no longer visible in this conversation."
 )
+
+
+def directive(n, n_lines, last, path):
+    return DIRECTIVE % (n, n_lines, last, path, last + 1, n_lines, n_lines, last + 1, n_lines)
 
 
 def make_repo(name, claude_md=None, memory=None, extra=None):
@@ -104,18 +109,18 @@ def check_head_cut(root, memory):
     assert len(json.dumps(ctx, ensure_ascii=True)) <= CAP, len(json.dumps(ctx, ensure_ascii=True))
     path = os.path.join(root, "MEMORY.md")
     n = len(memory.encode("utf-8"))
-    marker = "MEMORY.md is %d bytes; only lines 1-" % n
+    lines = split_lines(memory)
+    marker = "MEMORY.md is %d bytes, %d lines; only lines 1-" % (n, len(lines))
     assert marker in ctx, ctx[-600:]
     last = int(ctx.split(marker, 1)[1].split(" ", 1)[0])
     assert last >= 1, last
-    lines = split_lines(memory)
     head = "".join(lines[:last])
     assert head in ctx, "shown text is not exactly lines 1-%d" % last
     after_head = ctx.split(head, 1)[1]
     assert after_head.startswith("\nMEMORY.md is "), repr(after_head[:80])
-    assert after_head[1:] == DIRECTIVE % (n, last, path, last + 1, last + 1), after_head[-600:]
+    assert after_head[1:] == directive(n, len(lines), last, path), after_head[-600:]
     assert os.path.isabs(path)
-    grown = ctx.split(head, 1)[0] + head + lines[last] + "\n" + DIRECTIVE % (n, last + 1, path, last + 2, last + 2)
+    grown = ctx.split(head, 1)[0] + head + lines[last] + "\n" + directive(n, len(lines), last + 1, path)
     assert len(json.dumps(grown, ensure_ascii=True)) > CAP, "L is not the longest prefix that fits"
     return stdout
 
@@ -189,8 +194,9 @@ def t9_first_line_too_long():
     root = make_repo("t9", migrated(), memory)
     ctx = ctx_of(run_payload(root))
     path = os.path.join(root, "MEMORY.md")
-    want = ("MEMORY.md is %d bytes; its first line exceeds the cap, so none is shown. "
-            "Read %s in full from line 1 before your first decision." % (len(memory), path))
+    want = ("MEMORY.md is %d bytes, 2 lines; its first line exceeds the cap, so none is shown. "
+            "Before your first decision, Read %s lines 1-2 in full, continuing from the next "
+            "unread line until you have seen line 2." % (len(memory), path))
     assert want in ctx, ctx[-400:]
     assert "zzzz" not in ctx and "second line" not in ctx
 
@@ -242,6 +248,9 @@ MUTATIONS = [
     ("(f) UTF-8 bytes instead of escaped length",
      "    return len(json.dumps(s, ensure_ascii=True)) - 2\n",
      '    return len(s.encode("utf-8"))\n', "T11"),
+    ("(g) EOF line number dropped from the directive",
+     '_tail_directive(len(raw), len(lines), last, path)\n',
+     '_tail_directive(len(raw), last + 1, last, path)\n', "T2"),
 ]
 
 

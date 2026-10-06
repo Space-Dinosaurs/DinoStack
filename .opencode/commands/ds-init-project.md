@@ -435,7 +435,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 12. **Root `CLAUDE.md` memory main-only migration** - root `MEMORY.md` reaches only the main session (Claude Code: DinoStack's `session-start-memory` SessionStart hook), never subagents. Write these two lines byte-exact:
     ```
     <!-- dinostack:memory-main-only -->
-    MEMORY.md (durable facts, operator rulings) is not auto-loaded. Main session: a DinoStack SessionStart hook delivers it; if it is absent or truncated, Read all of it before your first decision. Subagents: grep on demand (`grep -n -i '<topic>' MEMORY.md`); if your worktree lacks it, use the primary checkout's copy.
+    MEMORY.md (durable facts, operator rulings) is not auto-loaded. Main session: a DinoStack SessionStart hook delivers it; if it is absent or truncated, Read all of it before any other tool call, whatever the task. Subagents: grep on demand (`grep -n -i '<topic>' MEMORY.md`); if your worktree lacks it, grep the primary checkout's copy, never Read it (Read is denied there).
     ```
     - **IMPORT** = a line equal, after trimming whitespace, to `@MEMORY.md` or `@./MEMORY.md`, in root `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md`. **MARKER present** = root `CLAUDE.md` has a line equal, after trimming, to the first line above.
     - **Host guard (first):** if `CLAUDECODE=1` and `session-start-memory.py` does not appear in `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json`, plan no change and report "Memory main-only migration skipped: run the DinoStack installer or ds-update, then re-run /ds-init-project." If `CLAUDECODE` is unset, add the report line "Claude Code teammates without the DinoStack installer fall back to the pointer line."
