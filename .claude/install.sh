@@ -1787,9 +1787,9 @@ PYEOF_SHARED
 #
 # 600000 ms (10 minutes) bounds the gap BETWEEN commands, which is not the
 # same thing as a session limit: every command resets the clock, so a browser
-# under active drive is never cut off mid-run. With the reaper in place this
-# timeout bounds only the sessions the reaper cannot attribute, so a tighter
-# bound costs less than it did when it was the only bound. The cost: an agent
+# under active drive is never cut off mid-run. The timeout still applies to
+# every daemon; what the reaper changes is the need, since fewer sessions now
+# rely on it as their only cleanup. The cost: an agent
 # that pauses more than 10 minutes between browser commands - a long build, a
 # test suite, waiting on a review - loses its browser state, and its next
 # command starts a fresh about:blank browser.
