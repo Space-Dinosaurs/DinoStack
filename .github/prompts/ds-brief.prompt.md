@@ -21,7 +21,7 @@ Upstream deps: content/references/planning-artifacts.md (Brief template and fiel
                content/sections/02-delegation.md (surface-and-proceed protocol);
                content/rules/conventions.md (git worktree conventions, base-branch resolution);
                .agentic/brief-session.json (resume state, includes rubric array);
-               MEMORY.md (prior-decisions scan, already in context via the `@MEMORY.md` import in CLAUDE.md);
+               MEMORY.md (prior-decisions scan, delivered to the main session at start; Read it in full if not in context);
                docs/overview/_proposed/outcome-rubric.md (when product-discovery was run first).
 
 Downstream consumers: content/commands/ds-implement-ticket.md Phase 0b (brief_path check);
@@ -331,7 +331,7 @@ Full framing review is in scope.
 
 Runs after intent capture, before the gray-area menu.
 
-**MEMORY.md:** already in context (via the `@MEMORY.md` import in the project root `CLAUDE.md`). NO file read.
+**MEMORY.md:** in the main session's context (SessionStart hook); if absent or truncated, Read it in full first.
 Scan in-context content for keyword overlap with intent (substring match on
 space-separated keywords from the intent statement).
 

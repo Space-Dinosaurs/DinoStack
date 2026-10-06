@@ -224,7 +224,7 @@ The hierarchy gives agents the right context at the right time - broad rules glo
 <div class="card" style="border-left-color: #4ea3ff;">
 <strong>Claude Code users</strong><br/><br/>
 Native when no project <code>CLAUDE.md</code> exists (not yet on Bedrock/Vertex/Foundry; toggle in <code>/config</code>).<br/><br/>
-To also load <code>MEMORY.md</code>, create <code>CLAUDE.md</code> with <code>@AGENTS.md</code> + <code>@MEMORY.md</code> import lines.
+DinoStack's <code>CLAUDE.md</code> imports <code>@AGENTS.md</code>; <code>MEMORY.md</code> reaches the main session via a SessionStart hook.
 </div>
 <div class="card" style="border-left-color: #3ad99a;">
 <strong>Codex CLI users</strong><br/><br/>
@@ -335,7 +335,7 @@ Drift between code and these files is <strong>intent debt</strong> - distinct fr
 ```
 myproject/
   AGENTS.md              ← root (under 40 lines)
-  CLAUDE.md              ← imports: @AGENTS.md + @MEMORY.md  (Claude Code loader)
+  CLAUDE.md              ← imports: @AGENTS.md + memory marker/pointer  (Claude Code loader)
   api/AGENTS.md          ← backend track detail
   web/AGENTS.md          ← frontend track detail
   .claude/settings.json  ← MCP servers, shared config

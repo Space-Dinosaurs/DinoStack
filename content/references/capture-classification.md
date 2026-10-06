@@ -74,7 +74,7 @@ Only reach here when (a) and (b) both fail to resolve. Apply the two-gate bar be
 
 - A regression test, type, lint rule, schema, or CI check already enforces the constraint.
 - The fact is visible by reading the diff or the code directly.
-- The fact is already in AGENTS.md, MEMORY.md, or the project glossary.
+- The fact is already in AGENTS.md, MEMORY.md, or the project glossary (MEMORY.md is not in a subagent's context: grep it before relying on this).
 - It is a one-off tied to a specific environment or timestamp that will not recur.
 - It restates a methodology rule already loaded in the agent's context.
 

@@ -744,7 +744,7 @@ Operator attention is the scarce resource this methodology protects and the prim
 
 ## Project Structure Convention
 
-`AGENTS.md` is the canonical project-instructions file across Claude Code, Codex, Cursor, and other tools. Claude Code reads it natively (not yet on Bedrock/Vertex/Foundry; toggle under Project instructions in `/config`) when no project-level `CLAUDE.md` is present - a project `CLAUDE.md` supersedes it unless that file imports it (DinoStack's own scaffold does, via `@AGENTS.md`/`@MEMORY.md` lines, since MEMORY.md is not loaded natively). Always structure projects with a lean root `AGENTS.md` and deeper context in subdirectory `AGENTS.md` files co-located with the code they describe.
+`AGENTS.md` is the canonical project-instructions file across Claude Code, Codex, Cursor, and other tools. Claude Code reads it natively (not yet on Bedrock/Vertex/Foundry; toggle under Project instructions in `/config`) when no project-level `CLAUDE.md` is present - a project `CLAUDE.md` supersedes it unless that file imports it (DinoStack's own scaffold does, via an `@AGENTS.md` line; a nested AGENTS.md likewise loads only via a sibling `CLAUDE.md` containing `@AGENTS.md`). Always structure projects with a lean root `AGENTS.md` and deeper context in subdirectory `AGENTS.md` files co-located with the code they describe.
 
 - **Root `AGENTS.md`** - one-paragraph summary, resolved architecture decisions, cross-cutting conventions, repo structure map. Keep it under ~40 lines. This limit applies to project root AGENTS.md files. The global `~/.claude/CLAUDE.md` is exempt.
 - **Subdirectory `AGENTS.md`** (e.g. `backend/AGENTS.md`, `contracts/AGENTS.md`) - loaded only when working in that directory. Can be as detailed as needed without polluting other contexts. Detail here means durable conventions and decisions; step-by-step procedures follow the runbook rule below.
@@ -789,7 +789,7 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 **Session context.** **The read contract is unchanged: read `.agentic/context.md` as the first action of every session.** How it is produced changed: the Stop hook writes this session's own `.agentic/context.d/<session_id>.md` shard after every agent turn, and `.agentic/context.md` is then recomposed as a DERIVED ROLLUP of `.agentic/_wrap.md` (the curated region) plus the shard set. Nothing writes `context.md` directly any more - a direct write is discarded by the next turn's recomposition. Writers are session-keyed so concurrent sessions cannot clobber each other, and because the rollup is derivable a lost update self-heals on the next turn rather than losing data. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/ds-wrap` is available for richer on-demand summarization; it writes `_wrap.md`. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
 **Knowledge-file routing (three distinct stores):**
-- `<cwd>/MEMORY.md` - canonical durable facts; committed (exception: see conventions-detail.md); loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`; written by `/ds-wrap` (Part B promotion, capped 3/run, plus a one-time migration stub seed), wrap-ticket, `/ds-memory-update`.
+- `<cwd>/MEMORY.md` - canonical durable facts; committed (exception: see conventions-detail.md); delivered to the main session only, by a SessionStart hook (never `@`-imported); written by `/ds-wrap` (Part B promotion, capped 3/run, plus a one-time migration stub seed), wrap-ticket, `/ds-memory-update`.
 - `.agentic/memory.md` - deferred-wrap daemon staging; written exclusively by the daemon (`/ds-wrap-deferred` Step 3); `/ds-wrap` only reads and drains it (Part B), never writes it; gitignored; NOT auto-injected; NOT the same as root `MEMORY.md`.
 - `.agentic/learnings.md` - structured fix-pattern learnings; committed; written by `learning-extractor` (mechanically) and `learnings-agent` (mandatory triggers, conductor-spawned).
 
@@ -827,7 +827,7 @@ One of 5 stacked first-user-turn notices in this section (meta-divergence, skill
 
 **TEAM dimension.** `ds-cost team` aggregates all `.agentic/session-log/*.jsonl` files found locally. Session-logs are committed to git via the Phase 8 telemetry commit (when `commit_telemetry: true` and identity is confirmed), so `team` reflects sessions from any developer whose telemetry has landed on the current branch via pull after merge.
 
-**MEMORY.md** is loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`). It stores stable facts learned about the project - architecture, key file paths, user preferences, recurring solutions. Include rationale with each entry ("chose X because Y"). Rules:
+**MEMORY.md** is delivered to the main session only, by a SessionStart hook (never `@`-imported). It stores stable facts learned about the project - architecture, key file paths, user preferences, recurring solutions. Include rationale with each entry ("chose X because Y"). Rules:
 - Before adding an entry, check if it supersedes an existing one and update it in place (adjust the date)
 - Remove entries that are no longer true
 - Do not duplicate what is already in `AGENTS.md`
@@ -1895,7 +1895,7 @@ Only reach here when (a) and (b) both fail to resolve. Apply the two-gate bar be
 
 - A regression test, type, lint rule, schema, or CI check already enforces the constraint.
 - The fact is visible by reading the diff or the code directly.
-- The fact is already in AGENTS.md, MEMORY.md, or the project glossary.
+- The fact is already in AGENTS.md, MEMORY.md, or the project glossary (MEMORY.md is not in a subagent's context: grep it before relying on this).
 - It is a one-off tied to a specific environment or timestamp that will not recur.
 - It restates a methodology rule already loaded in the agent's context.
 
@@ -2850,7 +2850,7 @@ A project's intent is encoded across a small set of artifacts. Treat them as a c
 - `docs/overview/vision.md` - product vision and purpose; operator-owned, agents read but never write
 - `docs/overview/requirements.md` - scoped functional and non-functional requirements; operator-owned, agents read but never write
 - `AGENTS.md` - project-level decisions and conventions (tool-agnostic).
-- `MEMORY.md` - stable facts learned about the project, with rationale. Canonical durable-facts store; loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`). Written by `/ds-wrap` (Part B staging-drain promotion, capped 3/run), `learnings-agent` (project-affecting KNW events, 1/event), wrap-ticket, and `/ds-memory-update`. Part E bounds the file's size via compression once it crosses its gate. Root `<cwd>/MEMORY.md` only - NOT `.agentic/memory.md` (that is now deferred-wrap-daemon staging, gitignored, drained into root `MEMORY.md` by the next synchronous `/ds-wrap`). Committed by default for consumer projects scaffolded by `/ds-init-project`. Exception: in the DinoStack repo itself, root `MEMORY.md` is intentionally gitignored (DS-129) - it is the methodology's own self-improvement scratch, not a shippable artifact for consumers to inherit, so writes from `/ds-wrap`, `learnings-agent`, wrap-ticket, and `/ds-memory-update` here are local-only and never reach a PR.
+- `MEMORY.md` - stable facts learned about the project, with rationale. Canonical durable-facts store; delivered to the main session only, by a SessionStart hook (never `@`-imported). Written by `/ds-wrap` (Part B staging-drain promotion, capped 3/run), `learnings-agent` (project-affecting KNW events, 1/event), wrap-ticket, and `/ds-memory-update`. Part E bounds the file's size via compression once it crosses its gate. Root `<cwd>/MEMORY.md` only - NOT `.agentic/memory.md` (that is now deferred-wrap-daemon staging, gitignored, drained into root `MEMORY.md` by the next synchronous `/ds-wrap`). Committed by default for consumer projects scaffolded by `/ds-init-project`. Exception: in the DinoStack repo itself, root `MEMORY.md` is intentionally gitignored (DS-129) - it is the methodology's own self-improvement scratch, not a shippable artifact for consumers to inherit, so writes from `/ds-wrap`, `learnings-agent`, wrap-ticket, and `/ds-memory-update` here are local-only and never reach a PR.
 - `.agentic/learnings.md` - structured fix-pattern learnings from resolved Skeptic cycles; committed (not gitignored). Written by `learning-extractor` at `/ds-implement-ticket` Phase 6 clean exit (mechanically wired) and by `learnings-agent` (spawned on the mandatory capture triggers).
 - `decisions.md` - the project's decision log, where used.
 - `.agentic/findings.md` - curated Skeptic-finding patterns; gitignored/machine-local. Written by `findings-curator` at Phase 6 loop exit.
@@ -15363,7 +15363,7 @@ Upstream deps: content/references/planning-artifacts.md (Brief template and fiel
                content/sections/02-delegation.md (surface-and-proceed protocol);
                content/rules/conventions.md (git worktree conventions, base-branch resolution);
                .agentic/brief-session.json (resume state, includes rubric array);
-               MEMORY.md (prior-decisions scan, already in context via the `@MEMORY.md` import in CLAUDE.md);
+               MEMORY.md (prior-decisions scan, delivered to the main session at start; Read it in full if not in context);
                docs/overview/_proposed/outcome-rubric.md (when product-discovery was run first).
 
 Downstream consumers: content/commands/ds-implement-ticket.md Phase 0b (brief_path check);
@@ -15673,7 +15673,7 @@ Full framing review is in scope.
 
 Runs after intent capture, before the gray-area menu.
 
-**MEMORY.md:** already in context (via the `@MEMORY.md` import in the project root `CLAUDE.md`). NO file read.
+**MEMORY.md:** in the main session's context (SessionStart hook); if absent or truncated, Read it in full first.
 Scan in-context content for keyword overlap with intent (substring match on
 space-separated keywords from the intent statement).
 
@@ -18788,7 +18788,7 @@ Read:
 - Files mentioned in the ticket description
 - Sibling files to understand existing patterns
 - `$REPO/AGENTS.md` for conventions
-- The project's `MEMORY.md` (already in context via the `@MEMORY.md` import in the project root `CLAUDE.md`, added by `/ds-init-project`) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
+- The project's `MEMORY.md` (delivered to the main session at start; Read it in full if it is not in context) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
 - Any `[track]/AGENTS.md` files for tracks touched by this ticket - track-specific conventions, stack, and gotchas
 
 Focus on understanding enough to make a solid plan - don't over-read.
@@ -21894,7 +21894,7 @@ Wait for tracker confirmation before proceeding. A "no" / "neither" / "skip" / e
 
 Before writing any files, check which files already exist. The full set of files this command would create:
 
-- `AGENTS.md` (root) - the canonical project-instructions file, read by Claude Code, Codex, Cursor, and other tools. Claude Code reads it natively (not yet on Bedrock/Vertex/Foundry; toggle under Project instructions in `/config`) when no project-level `CLAUDE.md` is present; this scaffold creates a `CLAUDE.md` with `@AGENTS.md`/`@MEMORY.md` import lines so `MEMORY.md` (not natively loaded) is also picked up.
+- `AGENTS.md` (root) - the canonical project-instructions file, read by Claude Code, Codex, Cursor, and other tools. Claude Code reads it natively (not yet on Bedrock/Vertex/Foundry; toggle under Project instructions in `/config`) when no project-level `CLAUDE.md` is present; this scaffold creates a `CLAUDE.md` with an `@AGENTS.md` import plus the memory marker and pointer lines; `MEMORY.md` reaches the main session via a SessionStart hook, not an import.
 - `[track]/AGENTS.md` for each track the user named (omit if no tracks were named)
 - `.claude/settings.json`
 - `.claude/settings.local.json`
@@ -21907,7 +21907,7 @@ Before writing any files, check which files already exist. The full set of files
 - `.agentic/preferences.json` - tool-agnostic, gitignored session-agent preferences file; always created empty (`{}`) so the session-start scaffolding check has a place to persist "never prompt again"
 - `.agentic/config.json` - committed (NOT gitignored) project-level methodology toggles; always created with documented defaults so the conductor has a stable file to read
 - `glossary.md` (root) - the project's Ubiquitous Language; seeded with a header and TODO bullet so the team and agents have a place to record domain terms
-- `MEMORY.md` (root) - canonical durable-facts store, loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`; `/ds-init-project` seeds it with a stub if absent
+- `MEMORY.md` (root) - canonical durable-facts store, delivered to the main session only, by a SessionStart hook (never `@`-imported); `/ds-init-project` seeds it with a stub if absent
 - `.gitignore`
 - `docs/overview/vision.md`, `docs/overview/requirements.md`, `docs/technical/.gitkeep`, `docs/planning/.gitkeep`, `docs/research/.gitkeep`
 
@@ -21950,14 +21950,14 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
 0. **Pre-AGENTS.md migration (CLAUDE.md only)** — runs BEFORE item 1 below. Detect pre-AGENTS.md layout via both:
    - Root `AGENTS.md` is absent, AND
-   - Root `CLAUDE.md` exists and contains more than the `@AGENTS.md` and/or `@MEMORY.md` import pointer lines (i.e. has real content — prose, sections, or instructions beyond those imports).
+   - Root `CLAUDE.md` exists and contains more than the `@AGENTS.md`/`@MEMORY.md` import lines and the memory marker and pointer lines (i.e. has real content - prose, sections, or instructions beyond those imports).
 
-   If detected, run a Worker+Skeptic split before Step 2a's other items. If NOT detected (both `AGENTS.md` and a non-pointer `CLAUDE.md` exist, or `CLAUDE.md` is already just the import pointer line(s) (`@AGENTS.md` and/or `@MEMORY.md`), or neither exists), skip item 0 entirely and proceed to item 1.
+   If detected, run a Worker+Skeptic split before Step 2a's other items. If NOT detected (both `AGENTS.md` and a non-pointer `CLAUDE.md` exist, or `CLAUDE.md` is already just the import pointer line(s) (`@AGENTS.md`, `@MEMORY.md`, memory marker, memory pointer), or neither exists), skip item 0 entirely and proceed to item 1.
 
    **Main agent pre-work (inline, before spawning Worker):** read the existing root `CLAUDE.md` and classify its content into three buckets:
-   - **agentic** — content that belongs in the scaffolded `AGENTS.md`: project description, `## Decisions`, repo structure map, `## Tools`, `## Docs`, `## Conventions`, `## Session start`, tracker metadata. This is dinostack's canonical project-instructions surface.
+   - **agentic** - content that belongs in the scaffolded `AGENTS.md`: project description, `## Decisions`, repo structure map, `## Tools`, `## Docs`, `## Conventions`, `## Session start`, tracker metadata, setup command sequences. This is dinostack's canonical project-instructions surface.
    - **project-specific-keep** — content the user may want to keep in a Claude-Code-specific file: user-authored prose addressed specifically to Claude Code ("Claude, when you see X, do Y"), Claude Code MCP conventions, or any explicit Claude-only guidance. Residual `CLAUDE.md` content after the split.
-   - **stable-facts** — content that reads as "what we learned" or "here is how it works" (detailed rationale paragraphs, implementation details, setup command sequences, decision alternatives considered, dated observations). Destined for `MEMORY.md` per the `- **YYYY-MM-DD:** [what and why]` format described in Step 3.
+   - **stable-facts** - content that reads as "what we learned" or "here is how it works" (detailed rationale paragraphs, implementation details, decision alternatives considered, dated observations). Destined for `MEMORY.md` per the `- **YYYY-MM-DD:** [what and why]` format described in Step 3.
 
    **Spawn Worker** (labeled "CLAUDE.md split Worker") with the following, each conductor-composed section a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**":
    - The raw existing root `CLAUDE.md` content.
@@ -21965,7 +21965,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    - The target `AGENTS.md` structure (from Step 3 template).
    - Instruction to produce three artifacts:
      1. **Proposed `AGENTS.md`** — the dinostack canonical file, conforming to the Step 3 structure, populated from the agentic bucket.
-     2. **Residual `CLAUDE.md`** — contains only the project-specific-keep bucket. If this bucket is empty after the split, the Worker must return `CLAUDE.md: empty` so the conductor can replace the file with the `@AGENTS.md` and `@MEMORY.md` import pointers (root `MEMORY.md` is already ensured by this run's Step 8 seeding, so the import resolves).
+     2. **Residual `CLAUDE.md`** - contains only the project-specific-keep bucket. If this bucket is empty after the split, the Worker must return `CLAUDE.md: empty` so the conductor can replace the file with the `@AGENTS.md` import plus the memory marker and pointer lines of item 12 (root `MEMORY.md` is already ensured by this run's Step 8 seeding).
      3. **`MEMORY.md` additions** — stable-facts bucket formatted as `- **YYYY-MM-DD:** [what and why, one-two sentences]` entries using today's date.
 
    **Spawn Skeptic** (fresh, background) with this adversarial brief verbatim, followed by the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the original root `CLAUDE.md` path; field 6 is the three proposed artifacts' file paths or inline content; field 7 (conductor spawn brief) is `n/a - internal scaffolding artifact (no conductor claim-bearing brief text distinct from the artifact itself)`), then the Worker's three artifacts to review:
@@ -21983,7 +21983,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    [Worker's proposed AGENTS.md content]
 
    ─── Residual CLAUDE.md (AFTER) ─────────────────────────────
-   [Worker's residual CLAUDE.md content, OR "(empty — will be replaced with the @AGENTS.md and @MEMORY.md import pointers)"]
+   [Worker's residual CLAUDE.md content, OR "(empty - will be replaced with the @AGENTS.md import plus the memory marker and pointer lines)"]
 
    ─── MEMORY.md additions (APPEND) ───────────────────────────
    [Worker's MEMORY.md entries]
@@ -21992,7 +21992,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    ```
 
    Accept:
-   - `y` / `yes` / `1`: apply the split. Write the proposed `AGENTS.md`. Write the residual `CLAUDE.md`; if the residual is empty, replace `CLAUDE.md` with the `@AGENTS.md` and `@MEMORY.md` import pointers instead (root `MEMORY.md` is already ensured by Step 8 seeding within this same run, so the import resolves). Append the MEMORY.md entries per Step 3's semantic-dedup merge rule. **Enter alone does NOT apply** - this is a destructive three-way write; require an explicit `y`.
+   - `y` / `yes` / `1`: apply the split. Write the proposed `AGENTS.md`. Write the residual `CLAUDE.md`; if the residual is empty, replace `CLAUDE.md` with the `@AGENTS.md` import plus the memory marker and pointer lines of item 12 instead (root `MEMORY.md` is already ensured by Step 8 seeding within this same run). Append the MEMORY.md entries per Step 3's semantic-dedup merge rule. **Enter alone does NOT apply** - this is a destructive three-way write; require an explicit `y`.
    - `n` / `no` / `2` / empty (Enter): abort the pre-AGENTS.md migration for this run. Do NOT proceed to items 1+ of Step 2a (which assume AGENTS.md exists) — instead, print: "Pre-AGENTS.md migration declined. Existing CLAUDE.md left untouched. /ds-init-project cannot continue in update mode without a canonical AGENTS.md. Re-run /ds-init-project later, or run the greenfield creation flow manually." and exit the command.
    - `edit` / `e`: prompt for a free-form correction nudge ("What should change? One or two sentences."), then re-spawn the Worker with the original CLAUDE.md plus the user's nudge, re-spawn a fresh Skeptic, and present the revised three-way split. **Iteration cap: 3.** After 3 `edit` iterations, fall back to: "Three edit iterations reached. The split still needs manual review. Aborting /ds-init-project; edit CLAUDE.md and AGENTS.md manually, then re-run /ds-init-project." and exit.
 
@@ -22056,12 +22056,21 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
     **Per-track coverage:** apply the same four rules to every per-track path (`<track>/.claude/qa.md` and `<track>/.claude/deploy.md`) for every track detected in Step 0. A project may have a mix of migrated and legacy per-track paths; each is evaluated independently.
     List each planned `git mv` in the diff preview under a `Legacy migration:` heading so the user sees the moves before confirming.
 
-12. **Root `CLAUDE.md` `@MEMORY.md` import upgrade** - ensure an already-scaffolded project loads its durable-facts store:
-    - **If root `CLAUDE.md` exists and no line, after trimming leading/trailing whitespace, equals exactly `@MEMORY.md`**: plan to append a `@MEMORY.md` line at end of file (preceded by one blank line if the file does not already end with a blank line). An indented or space-padded existing `@MEMORY.md` line (e.g. `  @MEMORY.md`) counts as present and is NOT duplicated - the trim happens before comparison, not after. Append regardless of whether an `@AGENTS.md` line is present - a plain inline-prose `CLAUDE.md` with no imports is upgraded the same way.
-    - **If root `CLAUDE.md` exists and already contains an `@MEMORY.md` line**: no action (idempotent - a second run makes no change).
-    - **If root `CLAUDE.md` does not exist** (and item 0's pre-AGENTS.md migration did not just create it): plan to create it with two lines, `@AGENTS.md` then `@MEMORY.md`.
-    - **Dangling-import guard:** if root `MEMORY.md` does not exist, also plan to seed the Step 8 stub (identical content to Step 8) so the `@MEMORY.md` import resolves. Never overwrite an existing `MEMORY.md`.
-    List each planned CLAUDE.md/MEMORY.md change in the diff preview under a `Memory import:` heading.
+12. **Root `CLAUDE.md` memory main-only migration** - root `MEMORY.md` reaches only the main session (Claude Code: DinoStack's `session-start-memory` SessionStart hook), never subagents. Write these two lines byte-exact:
+    ```
+    <!-- dinostack:memory-main-only -->
+    MEMORY.md (durable facts, operator rulings) is not auto-loaded. Main session: a DinoStack SessionStart hook delivers it; if it is absent or truncated, Read all of it before your first decision. Subagents: grep on demand (`grep -n -i '<topic>' MEMORY.md`); if your worktree lacks it, use the primary checkout's copy.
+    ```
+    - **IMPORT** = a line equal, after trimming whitespace, to `@MEMORY.md` or `@./MEMORY.md`, in root `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md`. **MARKER present** = root `CLAUDE.md` has a line equal, after trimming, to the first line above.
+    - **Host guard (first):** if `CLAUDECODE=1` and `session-start-memory.py` does not appear in `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json`, plan no change and report "Memory main-only migration skipped: run the DinoStack installer or ds-update, then re-run /ds-init-project." If `CLAUDECODE` is unset, add the report line "Claude Code teammates without the DinoStack installer fall back to the pointer line."
+    - **(a) IMPORT present, MARKER absent:** replace the first root `CLAUDE.md` IMPORT line with the two lines (if root `CLAUDE.md` has no IMPORT, append a blank line plus the two lines, creating the file with `@AGENTS.md` first if absent); delete every other IMPORT line in all three files; then run the audience triage below.
+    - **(b) MARKER present, no IMPORT:** no action.
+    - **(c) MARKER and IMPORT present:** delete every IMPORT line in all three files; no triage.
+    - **(d) Neither, root `CLAUDE.md` exists:** append a blank line plus the two lines; no triage.
+    - **(e) Neither, no root `CLAUDE.md`:** create it with `@AGENTS.md`, then the two lines; no triage.
+    - Preserve every other byte of every file. **Dangling guard:** if root `MEMORY.md` is absent, seed the Step 8 stub; never overwrite an existing `MEMORY.md`.
+    - **Audience triage (state (a) only; one Worker drafts, one Skeptic reviews; proposals join this diff preview):** classify each MEMORY.md entry (two-tier projects, where `ds-memory-capture detect` reports `two-tier` or `two-tier-unresolved`: each index line names `.agentic/memory-shards/<id>.md` - classify from the shard body and promote the body's fact, never the index line). QA sandbox traps and QA seeding facts go to a `## Knowledge` entry in `.agentic/qa.md`; local-stack recipes and test-env gotchas go to root `AGENTS.md` or a track's `<dir>/AGENTS.md` (ensure `<dir>/CLAUDE.md` contains an `@AGENTS.md` line, creating it if absent); standing operator rulings and conductor-behavioral rules stay in MEMORY.md only. Skip any fact the target already states. Root `AGENTS.md` grows by at most 8,192 bytes. Never edit MEMORY.md or any shard.
+    List each planned change under a `Memory main-only:` heading.
 
 **Present the diff:**
 
@@ -22094,7 +22103,7 @@ After applying changes, skip to Step 12 (Summary) — do not re-run Steps 3 thro
 
 ### 3. Create or update root `AGENTS.md`
 
-**If `AGENTS.md` does not exist:** create from scratch using the template below. There is no existing content to preserve - proceed directly. Also create a `CLAUDE.md` at the project root containing two import lines, `@AGENTS.md` on the first line and `@MEMORY.md` on the second, so Claude Code automatically loads both the project instructions and the durable-facts store at session start. (Step 8 seeds the root `MEMORY.md` stub, so the `@MEMORY.md` import resolves for the first real session.)
+**If `AGENTS.md` does not exist:** create from scratch using the template below. There is no existing content to preserve - proceed directly. Also create a `CLAUDE.md` at the project root containing `@AGENTS.md` followed by the memory marker and pointer lines of Step 2a item 12, so Claude Code loads the project instructions while `MEMORY.md` reaches only the main session via DinoStack's SessionStart hook. (Step 8 seeds the root `MEMORY.md` stub.)
 
 **Risk-profile marker (from the 0a-profile dialogue).** Placement is governed entirely by the `## Activation` section's conditional-assembly rules (see the template below, profile sub-block). When INIT_PROFILE is `relaxed` or `strict`, the active `agentic-engineering-profile: <value>` line is emitted *inside* the `## Activation` section in place of the commented `<!-- agentic-engineering-profile: default -->` helper (never both - that would contradict). When INIT_PROFILE is null (operator pressed Enter) or `default`, the section emits the commented profile helper instead and no active profile line is pinned - identical to today's resolution behavior (the global profile applies). Do not write a bare profile line elsewhere in `AGENTS.md`; the `## Activation` section is the single source of placement truth.
 
@@ -22592,7 +22601,7 @@ Add any project-specific env vars here (e.g. database connection strings, API ke
 
 ### 8. Seed `MEMORY.md`
 
-The canonical MEMORY.md lives at `<cwd>/MEMORY.md` (repo root) and is loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (written by `/ds-init-project`). This is the conductor-managed, human-reviewed durable-facts store. It is distinct from `.agentic/memory.md`, which is `/ds-wrap`-internal rolling scratch (gitignored, not auto-injected).
+The canonical MEMORY.md lives at `<cwd>/MEMORY.md` (repo root) and is delivered to the main session only, by a SessionStart hook (never `@`-imported). This is the conductor-managed, human-reviewed durable-facts store. It is distinct from `.agentic/memory.md`, which is `/ds-wrap`-internal rolling scratch (gitignored, not auto-injected).
 
 If `<cwd>/MEMORY.md` does not already exist, create it:
 
@@ -22893,7 +22902,7 @@ When a project-affecting decision has been confirmed in conversation, the main a
 
 **Immediately** spawn a background `general-purpose` Worker via the `Agent` tool. Return to the conversation instantly. Do not report completion to the user unless there is an escalation.
 
-**Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`). Pass this path to the Worker as `$MEMORY_PATH`. `<cwd>/MEMORY.md` is committed by default for consumer projects scaffolded by `/ds-init-project`; in the DinoStack repo itself it is intentionally gitignored (DS-129), so this write is local-only here and never reaches a PR.
+**Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (delivered to the main session only, by a SessionStart hook (never `@`-imported)). Pass this path to the Worker as `$MEMORY_PATH`. `<cwd>/MEMORY.md` is committed by default for consumer projects scaffolded by `/ds-init-project`; in the DinoStack repo itself it is intentionally gitignored (DS-129), so this write is local-only here and never reaches a PR.
 
 **Auto-memory index:** `<cwd>/.agentic/memory/MEMORY.md` is the Claude Code auto-memory index, wired via `autoMemoryDirectory` in `.claude/settings.local.json` and auto-injected into session context by the harness. It is distinct from `<cwd>/MEMORY.md`, the curated project memory file this command manages. The two stores are separate - do not merge them.
 
@@ -22916,7 +22925,7 @@ You are a Memory Worker. Your job is to write an accurate, verified entry to MEM
 
 ### Part 1 - Relevance filter
 
-Only proceed if the decision would matter to a new engineer joining the project tomorrow - architectural choices, technology decisions, scope resolutions, deliberate tradeoffs, deferred decisions. Do NOT update MEMORY.md for conversational agreements, personal preferences, or anything that doesn't affect how the project is built or understood. If the decision does not pass this filter, return: "No-op: decision does not qualify for MEMORY.md."
+Only proceed if the decision would matter to a new engineer joining the project tomorrow - architectural choices, technology decisions, scope resolutions, deliberate tradeoffs, deferred decisions. Facts a subagent needs while doing a task (test env, QA sandbox, local stack, setup commands) go in AGENTS.md or .agentic/qa.md instead, because subagents do not auto-load MEMORY.md. Do NOT update MEMORY.md for conversational agreements, personal preferences, or anything that doesn't affect how the project is built or understood. If the decision does not pass this filter, return: "No-op: decision does not qualify for MEMORY.md."
 
 ### Part 2 - Verify your claims
 
@@ -25645,7 +25654,10 @@ Manual `/ds-wrap` is synchronous: there is no in-session auto-enrichment protoco
 
 1. **CLAUDE.md → AGENTS.md migration** (per-file, recursive through tracks). For each `CLAUDE.md` in the project (root + every track directory) where a sibling `AGENTS.md` does not already exist:
    - `cp <dir>/CLAUDE.md <dir>/AGENTS.md` to preserve content.
-   - **Root directory:** overwrite `<dir>/CLAUDE.md` with two import lines, `@AGENTS.md` then `@MEMORY.md`, so Claude Code transparently loads both the migrated file and the durable-facts store, per Atomic write discipline <!-- aw-site: claude-md-root --> (unconditional publish). Apply the dangling-import guard: if root `MEMORY.md` does not exist, seed it with the `/ds-init-project` Step 8 stub before writing the import (consistent with this preflight's existing silent-stub-creation pattern in item 4), per Atomic write discipline <!-- aw-site: memory-md-seed --> (conditional publish - never overwrite an existing `MEMORY.md`).
+   - **Root directory:** overwrite `<dir>/CLAUDE.md` with `@AGENTS.md` followed by these two lines byte-exact:
+     <!-- dinostack:memory-main-only -->
+     MEMORY.md (durable facts, operator rulings) is not auto-loaded. Main session: a DinoStack SessionStart hook delivers it; if it is absent or truncated, Read all of it before your first decision. Subagents: grep on demand (`grep -n -i '<topic>' MEMORY.md`); if your worktree lacks it, use the primary checkout's copy.
+     so Claude Code loads the migrated file while `MEMORY.md` reaches only the main session via DinoStack's SessionStart hook. Exception: when `CLAUDECODE=1` and `session-start-memory.py` is absent from `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json`, write `@AGENTS.md` then `@MEMORY.md` instead and add the Watch Out For line `Legacy @MEMORY.md import written: run the DinoStack installer, then /ds-init-project, to make MEMORY.md main-session-only.` Either way, per Atomic write discipline <!-- aw-site: claude-md-root --> (unconditional publish). Apply the dangling-import guard: if root `MEMORY.md` does not exist, seed it with the `/ds-init-project` Step 8 stub before writing the import (consistent with this preflight's existing silent-stub-creation pattern in item 4), per Atomic write discipline <!-- aw-site: memory-md-seed --> (conditional publish - never overwrite an existing `MEMORY.md`).
    - **Track directories:** overwrite `<dir>/CLAUDE.md` with the single line `@AGENTS.md` only - tracks do not have their own `MEMORY.md`, so no `@MEMORY.md` import is added, per Atomic write discipline <!-- aw-site: claude-md-track --> (unconditional publish).
    - Skip directories where `AGENTS.md` already exists (leave `CLAUDE.md` untouched).
 
@@ -25668,7 +25680,7 @@ Manual `/ds-wrap` is synchronous: there is no in-session auto-enrichment protoco
    - Create `.claude/settings.json` (`{}`) if missing, per Atomic write discipline <!-- aw-site: settings-json --> (conditional publish).
    - Create `.claude/settings.local.json` with `autoMemoryDirectory` set to `<cwd>/.agentic/memory` if missing or if the key is not yet present (merge rule: never overwrite an existing value). **Scope note:** `autoMemoryDirectory: <cwd>/.agentic/memory` is intentional - it routes Claude Code's native auto-memory writes to a local gitignored scratch area. The canonical conductor-managed, human-reviewed durable-facts store remains `<cwd>/MEMORY.md` (see the **Memory path (MEMORY.md)** note below).
    - Create `.gitignore` entries for `.claude/settings.local.json` and the `.agentic/` runtime-artifact block (per `/ds-init-project` Step 9) if missing, per Atomic write discipline <!-- aw-site: gitignore --> (unconditional publish - the file itself normally exists; only the entries are conditional, so read current content, add any missing entries, and always write the result back).
-   - **Pre-AGENTS.md layout detection (DO NOT auto-split inline).** If root `AGENTS.md` is absent AND root `CLAUDE.md` exists with more than the `@AGENTS.md` and/or `@MEMORY.md` import pointer lines, do NOT attempt the Worker+Skeptic three-way split inline — that migration requires user confirmation of the proposed split, and /ds-wrap's silent contract cannot provide one. Instead, add a "Watch Out For" entry in `_wrap.md`: `Pre-AGENTS.md layout detected (CLAUDE.md has real content, no root AGENTS.md). Run /ds-init-project to run the Worker+Skeptic split and migrate.`
+   - **Pre-AGENTS.md layout detection (DO NOT auto-split inline).** If root `AGENTS.md` is absent AND root `CLAUDE.md` exists with more than the `@AGENTS.md`/`@MEMORY.md` import lines and the memory marker and pointer lines, do NOT attempt the Worker+Skeptic three-way split inline - that migration requires user confirmation of the proposed split, and /ds-wrap's silent contract cannot provide one. Instead, add a "Watch Out For" entry in `_wrap.md`: `Pre-AGENTS.md layout detected (CLAUDE.md has real content, no root AGENTS.md). Run /ds-init-project to run the Worker+Skeptic split and migrate.`
 
 6. **Drift that cannot be auto-fixed.** If any drift requires user input (e.g. Linear workspace slug, Jira base URL, confirmation of release commands, selection among multiple detected web UIs), do NOT prompt during /ds-wrap. Instead, record a bullet under "Watch Out For" in the `_wrap.md` output noting which scaffolding items are still incomplete. The user can address these later by running `/ds-init-project` interactively. Specific drift kinds that always require user input and must be listed here:
    - **CLAUDE.md split** — the pre-AGENTS.md migration requires the user to review and accept the three-way split (AGENTS.md / residual CLAUDE.md / MEMORY.md). /ds-wrap cannot perform this silently; it points at `/ds-init-project`.
@@ -25800,7 +25812,7 @@ Survey the current conversation and note down:
 - Any errors, gotchas, or near-misses that surfaced
 - Specific remaining next steps (file paths, branch names, commands, open PRs — concrete enough to act on without re-reading the chat)
 - Tools used during the session
-- Stable project facts worth preserving: setup commands that don't change, persistent project-wide gotchas or quirks, architectural decisions made, recurring patterns or conventions established. Distinguish these from temporary state (current task, files touched this session) - stable facts will go into memory.md, temporary state into `_wrap.md` only.
+- Stable project facts worth preserving: setup commands that don't change, persistent project-wide gotchas or quirks, architectural decisions made, recurring patterns or conventions established. Distinguish these from temporary state (current task, files touched this session) - conductor-behavioral stable facts go into MEMORY.md, setup commands and task gotchas a subagent needs go into the AGENTS.md output, temporary state into `_wrap.md` only.
 - Identify the project root (absolute cwd).
 - Note which tracks (subdirectories) had files touched this session — these are candidates for AGENTS.md updates, and their AGENTS.md paths feed the batch below.
 
@@ -26073,7 +26085,7 @@ Background subagents cannot reliably get Write/Edit permissions. The main agent 
 
 Why: `context.md` had 13 writer sites and no mutual exclusion between them (the wrap lock was CHECKED by two of them and ACQUIRED by neither, and a third ignored it entirely). Making the shared file DERIVED means a lost update self-heals on the next turn instead of losing data, which is what lets the rollup write be lock-free - and therefore what lets a stuck-lock banner reach the operator through a lock that would previously have suppressed it. Create the `<cwd>/.agentic/` directory if it does not exist.
 
-**Memory path (MEMORY.md):** `<cwd>/MEMORY.md`. The canonical durable-facts store, loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`). Part B below writes directly to this file, capped at 3 entries per run <!-- drain_model.CAP --> (the normative cap is `bin/tests/drain_model.py`'s `CAP = 3`). `.agentic/memory.md` is now **deferred-wrap daemon staging**: written exclusively by the deferred-wrap daemon (`/ds-wrap-deferred` Step 3, which has no Skeptic and no Open-PR deferral pass), and drained into root `MEMORY.md` by this synchronous `/ds-wrap`'s Part B on a later run. It is gitignored and is never read at session start.
+**Memory path (MEMORY.md):** `<cwd>/MEMORY.md`. The canonical durable-facts store, delivered to the main session only, by a SessionStart hook (never `@`-imported). Part B below writes directly to this file, capped at 3 entries per run <!-- drain_model.CAP --> (the normative cap is `bin/tests/drain_model.py`'s `CAP = 3`). `.agentic/memory.md` is now **deferred-wrap daemon staging**: written exclusively by the deferred-wrap daemon (`/ds-wrap-deferred` Step 3, which has no Skeptic and no Open-PR deferral pass), and drained into root `MEMORY.md` by this synchronous `/ds-wrap`'s Part B on a later run. It is gitignored and is never read at session start.
 
 **Migration note:** Earlier versions of this skill wrote to `~/.claude/projects/[hash]/{context,memory}.md`. If those files exist for the current project but the project-local files do not, copy them once into `<cwd>/.agentic/` before merging. Symlinks at the old hashed location pointing at the new project paths are acceptable - they preserve any platform mechanism that auto-loads from the legacy path while keeping writes gate-free.
 
@@ -26234,7 +26246,7 @@ Part E does two things in one pass: token-density compression (unchanged from pr
 Skip Part E only if Parts B and C both reported no changes (no new memory entries, no AGENTS.md updates) **AND no target below is over its size gate** - citing `bin/tests/reach_model.py` invariant R2: a target that crossed its gate from prior-session drift, with no Part B/C change this session, must still be compressed. Part A always writes `_wrap.md` and is not a signal of session-meaningful change (and `_wrap.md` is not a Part E target - see below).
 
 **Targets:**
-- `[cwd]/MEMORY.md` (**primary** - `@`-imported into every session, so its size is per-session resident cost). Not a target in compiled mode (see Part B): editing compiled output wedges the project's `ingest`.
+- `[cwd]/MEMORY.md` (**primary** - delivered to each main session, so its size is per-session conductor cost). Not a target in compiled mode (see Part B): editing compiled output wedges the project's `ingest`.
 - `.agentic/memory.md` (the DS-90 staging area) if it exists.
 - `[cwd]/CLAUDE.md` if it exists at the project root.
 
