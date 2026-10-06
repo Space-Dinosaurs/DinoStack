@@ -1384,7 +1384,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
     all_slashes = re.compile(r"(?<![\w./:-])/([a-z][a-z0-9-]+)\b")
     display_slashes = {
         "attachments", "blob", "browse", "context", "dev", "docs", "empty", "issue", "issues", "jira", "null",
-        "operators", "proceed", "pull", "rest", "staleness", "tmp", "unavailable", "view",
+        "operators", "proceed", "pull", "rest", "settings", "staleness", "tmp", "unavailable", "view",
         "wrap-internal",
     }
     for match in all_slashes.finditer(doc.text):

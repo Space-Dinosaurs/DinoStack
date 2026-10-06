@@ -83,7 +83,7 @@ Upstream deps: $AE_REPO_DIR/content/references/planning-artifacts.md (Brief temp
                $AE_REPO_DIR/content/sections/02-delegation.md (surface-and-proceed protocol);
                $AE_REPO_DIR/content/rules/conventions.md (git worktree conventions, base-branch resolution);
                $AE_PROJECT_DIR/.agentic/brief-session.json (resume state, includes rubric array);
-               MEMORY.md (prior-decisions scan, already in context via the `@MEMORY.md` import in CLAUDE.md);
+               MEMORY.md (prior-decisions scan, delivered to the main session at start; Read it in full if not in context);
                docs/overview/_proposed/outcome-rubric.md (when product-discovery was run first).
 
 Downstream consumers: $AE_REPO_DIR/content/commands/ds-implement-ticket.md Phase 0b (brief_path check);
@@ -393,7 +393,7 @@ Full framing review is in scope.
 
 Runs after intent capture, before the gray-area menu.
 
-**MEMORY.md:** already in context (via the `@MEMORY.md` import in the project root `CLAUDE.md`). NO file read.
+**MEMORY.md:** in the main session's context (SessionStart hook); if absent or truncated, Read it in full first.
 Scan in-context content for keyword overlap with intent (substring match on
 space-separated keywords from the intent statement).
 

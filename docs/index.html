@@ -932,7 +932,7 @@
   <p class="byline">by Tyson Hummel</p>
   <p class="repo-link"><a href="https://github.com/Space-Dinosaurs/DinoStack" target="_blank" rel="noopener noreferrer">github.com/Space-Dinosaurs/DinoStack</a></p>
   <p class="epigraph">Operator attention is the scarce resource. Agents aren't. This architecture is an attempt to run as much of the process without you as possible - so the attention you do spend goes where judgment is load-bearing.</p>
-  <p class="compat-note">Built around Claude Code. <code>AGENTS.md</code> is the cross-tool standard - Codex and Claude Code both read it natively (Claude Code: not yet on Bedrock/Vertex/Foundry, toggle in <code>/config</code>, and only when no project-level <code>CLAUDE.md</code> is present); DinoStack's own project scaffold instead writes a <code>CLAUDE.md</code> with <code>@AGENTS.md</code> and <code>@MEMORY.md</code> import lines, since <code>MEMORY.md</code> is not loaded natively. The patterns translate to any agentic framework.</p>
+  <p class="compat-note">Built around Claude Code. <code>AGENTS.md</code> is the cross-tool standard - Codex and Claude Code both read it natively (Claude Code: not yet on Bedrock/Vertex/Foundry, toggle in <code>/config</code>, and only when no project-level <code>CLAUDE.md</code> is present); DinoStack's own project scaffold instead writes a <code>CLAUDE.md</code> with an <code>@AGENTS.md</code> import, and delivers <code>MEMORY.md</code> to the main session by a SessionStart hook. The patterns translate to any agentic framework.</p>
 </div>
 
 <!-- ═══ INSTALL: One command to get started ═══ -->
@@ -1225,7 +1225,7 @@
   </div>
   <div class="note" style="border-left-color: var(--green); margin-top: 12px;">
     <strong>AGENTS.md - the cross-tool standard:</strong> <code>AGENTS.md</code> is the single source of project instructions. It is the cross-tool convention supported natively by OpenAI Codex CLI (<a href="https://developers.openai.com/codex/guides/agents-md" target="_blank" rel="noopener noreferrer">OpenAI AGENTS.md guide</a>, <a href="https://agents.md" target="_blank" rel="noopener noreferrer">agents.md</a>) and natively by Claude Code too (not yet on Bedrock, Vertex, or Foundry; toggle under Project instructions in <code>/config</code>) when no project-level <code>CLAUDE.md</code> is present - or importable into a <code>CLAUDE.md</code> via its <code>@file</code> import syntax (<a href="https://code.claude.com/docs/en/memory.md#agents-md" target="_blank" rel="noopener noreferrer">Anthropic import-syntax docs</a>).<br>
-    <strong>Claude Code users:</strong> Claude Code reads it natively when no project-level <code>CLAUDE.md</code> exists; to also load <code>MEMORY.md</code>, create a <code>CLAUDE.md</code> with two import lines - <code>@AGENTS.md</code> and <code>@MEMORY.md</code>.<br>
+    <strong>Claude Code users:</strong> Claude Code reads it natively when no project-level <code>CLAUDE.md</code> exists; to keep loading it, create a <code>CLAUDE.md</code> containing <code>@AGENTS.md</code>; DinoStack's SessionStart hook delivers <code>MEMORY.md</code> to the main session only.<br>
     <strong>Codex CLI users:</strong> Codex reads <code>AGENTS.md</code> natively with no extra setup.<br>
     <strong>Result:</strong> one content source drives all adapters. No duplication.
   </div>
@@ -1919,7 +1919,7 @@
       <div class="rel-card">
         <h4>Persistence Hierarchy</h4>
         <ul>
-          <li><strong><code>&lt;cwd&gt;/MEMORY.md</code></strong> <span class="load-badge always">always loaded</span> - canonical durable facts about the project, committed to the repo and loaded at session start via the <code>@MEMORY.md</code> import in the project root <code>CLAUDE.md</code>. Stable architecture, key paths, and preferences with rationale.</li>
+          <li><strong><code>&lt;cwd&gt;/MEMORY.md</code></strong> <span class="load-badge always">main session</span> - canonical durable facts about the project, committed to the repo and delivered to the main session at start by a SessionStart hook (subagents grep it on demand). Stable architecture, key paths, and preferences with rationale.</li>
           <li><strong><code>.agentic/context.md</code></strong> <span class="load-badge on-demand">on demand</span> - primary session-continuity store, read at session start. <strong>Derived, not written directly:</strong> it is recomposed every turn from <code>.agentic/_wrap.md</code> (the curated region, written by <code>/ds-wrap</code> and supporting the rolling-window merge across 10 sessions) plus one per-session shard in <code>.agentic/context.d/</code> (the activity region, written by the Stop hook). Session-keyed shards mean concurrent sessions cannot clobber each other, and because the rollup is derivable a lost update self-heals on the next turn instead of losing data. Legacy fallback: <code>~/.claude/projects/[hash]/context.md</code>, used only when <code>.agentic/context.md</code> is absent.</li>
           <li><strong>memory/*.md</strong> <span class="load-badge on-demand">on demand</span> - individual memory files with frontmatter (name, description, type). Read on-demand when relevant to the current task.</li>
           <li><strong>Tasks</strong> - in-session progress tracking. Not persisted across sessions.</li>

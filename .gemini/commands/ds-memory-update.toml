@@ -14,7 +14,7 @@ When a project-affecting decision has been confirmed in conversation, the main a
 
 **Immediately** spawn a background `general-purpose` Worker via the `Agent` tool. Return to the conversation instantly. Do not report completion to the user unless there is an escalation.
 
-**Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`). Pass this path to the Worker as `$MEMORY_PATH`. `<cwd>/MEMORY.md` is committed by default for consumer projects scaffolded by `/ds-init-project`; in the DinoStack repo itself it is intentionally gitignored (DS-129), so this write is local-only here and never reaches a PR.
+**Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (delivered to the main session only, by a SessionStart hook (never `@`-imported)). Pass this path to the Worker as `$MEMORY_PATH`. `<cwd>/MEMORY.md` is committed by default for consumer projects scaffolded by `/ds-init-project`; in the DinoStack repo itself it is intentionally gitignored (DS-129), so this write is local-only here and never reaches a PR.
 
 **Auto-memory index:** `<cwd>/.agentic/memory/MEMORY.md` is the Claude Code auto-memory index, wired via `autoMemoryDirectory` in `.claude/settings.local.json` and auto-injected into session context by the harness. It is distinct from `<cwd>/MEMORY.md`, the curated project memory file this command manages. The two stores are separate - do not merge them.
 
@@ -37,7 +37,7 @@ You are a Memory Worker. Your job is to write an accurate, verified entry to MEM
 
 ### Part 1 - Relevance filter
 
-Only proceed if the decision would matter to a new engineer joining the project tomorrow - architectural choices, technology decisions, scope resolutions, deliberate tradeoffs, deferred decisions. Do NOT update MEMORY.md for conversational agreements, personal preferences, or anything that doesn't affect how the project is built or understood. If the decision does not pass this filter, return: "No-op: decision does not qualify for MEMORY.md."
+Only proceed if the decision would matter to a new engineer joining the project tomorrow - architectural choices, technology decisions, scope resolutions, deliberate tradeoffs, deferred decisions. Facts a subagent needs while doing a task (test env, QA sandbox, local stack, setup commands) go in AGENTS.md or .agentic/qa.md instead, because subagents do not auto-load MEMORY.md. Do NOT update MEMORY.md for conversational agreements, personal preferences, or anything that doesn't affect how the project is built or understood. If the decision does not pass this filter, return: "No-op: decision does not qualify for MEMORY.md."
 
 ### Part 2 - Verify your claims
 

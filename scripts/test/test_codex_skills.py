@@ -3193,9 +3193,8 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         )
         self.assertNotRegex(generated, r"manual workflow '[^']+'.*?``")
         self.assertIn(
-            "added by manual workflow 'ds-init-project' via "
-            "`$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`) "
-            "for architectural decisions",
+            "resolve manually via manual workflow 'ds-init-project' via "
+            "`$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`)",
             generated,
         )
 
