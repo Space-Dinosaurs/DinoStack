@@ -1316,12 +1316,11 @@ def _compute_negations_defeated(manifest: dict, project_root: Path) -> dict:
       commits `.agentic/session-log/<developer_id>.jsonl` on confirmed
       identity, so a real file typically exists within one ticket cycle of
       scaffolding, closing the gap on its own without any operator action.
-    - `memory-shards/` has NO such automatic populator as of DS-221 Unit
-      1 - `memory_shard_mode` ships `false` and nothing in `/ds-wrap`,
-      wrap-ticket, or `/ds-memory-update` writes into this directory yet
-      (writer wiring is later-unit scope). A freshly scaffolded project's
-      `.agentic/memory-shards/` can stay EMPTY indefinitely - until a human
-      runs `ds-memory-shard split` by hand or a later unit's writer ships -
+    - `memory-shards/` has NO such automatic populator in a fresh project
+      - capture writers write into it only once the project already has
+      indexed shards (two-tier mode, bin/ds-memory-capture). A freshly
+      scaffolded project's `.agentic/memory-shards/` can stay EMPTY
+      indefinitely - until a human runs `ds-memory-shard split` by hand -
       so this residual's unhealed window is open-ended here, not
       bounded-by-one-ticket-cycle the way session-log's is. Stating this
       plainly rather than silently inheriting session-log's "self-healing"

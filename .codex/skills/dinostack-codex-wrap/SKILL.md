@@ -863,7 +863,7 @@ Write-ordering among the five files is not a `$dinostack-codex-wrap`-internal qu
 
   No marker cleanup is needed. Once the ticket PR merges, the file matches `origin/<BASE_BRANCH>` and the preceding byte-identity bullet skips it first, so a stale marker is inert rather than harmful. Accepted residual: a file changed AGAIN after the Phase 11e commit correctly does not fire this gate, so that content lands on two branches; Part G has no merge algorithm by design, and the PR diff is where a human catches it.
 
-**Compiled-mode ride-along.** When `<cwd>/MEMORY.md` survives gating in compiled mode (see Part B), every path printed by `ds-memory-capture new-shards --ref origin/<BASE_BRANCH>` survives with it and is copied and staged in steps 2-3 below, so the committed `MEMORY.md` always ships with its shards.
+**Compiled-mode ride-along.** When `<cwd>/MEMORY.md` survives gating in compiled mode (see Part B), every path printed by `ds-memory-capture new-shards --ref origin/<BASE_BRANCH>` survives with it and is copied and staged in steps 2-3 below, so the committed `MEMORY.md` ships with the shards capture added (capture never changes or deletes a shard).
 
 If NO file survives gating, Part G is a no-op: emit the `[phase: wrap-part-g]` breadcrumb - no worktree, no branch, no commit - but it still emits one `ds-emit knowledge_commit` event per step 10 below, with `status: "no-changes"`, so the no-op outcome remains auditable in `events.jsonl` the same as every other outcome.
 

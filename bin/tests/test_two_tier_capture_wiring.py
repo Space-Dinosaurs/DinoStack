@@ -57,6 +57,7 @@ def test_phase_11b_flushes_before_releasing_the_lock_and_skips_part_e():
     release = phase.find('ds-wrap-release-lock "$REPO"')
     assert flush != -1, "Phase 11b never runs ds-memory-capture flush"
     assert release != -1 and flush < release, "flush must run before the lock is released"
+    assert "print its `captured:`/`flush:` lines" in phase, "flush's T1 record is never relayed"
     assert "- `memory_mode`:" in phase, "wrap-ticket is never told the memory mode"
     assert "**Skip entirely** in compiled mode" in phase, "Part E gate check is not skipped in compiled mode"
 

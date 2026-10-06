@@ -3222,7 +3222,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - `pr_url`: the PR URL captured at Phase 9.
 - `conversation_summary`: a brief recap of the conductor's session covering this ticket.
 - `learnings_extracted`: the `learning_ids[]` array from the `learning-extractor` return at Phase 6 clean exit (or `[]` if learning extraction was skipped/soft-failed).
-- `memory_mode`: `compiled` when `ds-memory-capture detect --dir "$REPO"` reports a two-tier mode (`memory-shard-convention.md` §Two-tier capture); else omit.
+- `memory_mode`: `compiled` if `ds-memory-capture detect --dir "$REPO"` reports a two-tier mode; else omit.
 
 **Failure semantics:**
 
@@ -3232,7 +3232,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock release for this outcome happens after the timeout fires, per the scoped release sentence below.
 - If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
 
-Compiled mode: after `wrap-ticket` returns, before release, run `ds-memory-capture flush --dir "$REPO"` (soft-fail).
+Compiled mode: after `wrap-ticket` returns, before release, run `ds-memory-capture flush --dir "$REPO"` (soft-fail) and print its `captured:`/`flush:` lines with `operator_summary`.
 
 Lock release: this applies ONLY within the "If the lock is acquired" branch above - the conductor runs `ds-wrap-release-lock "$REPO"` (PATH-wired helper) unconditionally on every `wrap-ticket` outcome in that branch (success, non-JSON return, timeout, soft-fail) before advancing to Phase 12. The release root MUST match the root passed to the acquire calls in step 1 and step 2 above - a bare `ds-wrap-release-lock` resolves against the conductor's cwd instead, and if cwd differs from `$REPO` the release is a silent no-op that leaks the lock for the rest of the session. The two skip-conditions paths and every lock-acquisition-failed path (the first attempt's non-0/non-5 exit code, and the bounded-wait attempt's 45s timeout or non-0/non-2 exit code) never acquired the lock in this session and must NOT call the release helper.
 

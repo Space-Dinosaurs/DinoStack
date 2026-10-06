@@ -367,18 +367,79 @@ def test_j_merge_collision_is_repaired_from_committed_state(tmp_path):
     _git(repo, "commit", "-q", "--no-edit")
     failed = compiler(repo, "regenerate", "--check")
     assert failed.returncode == 1 and "duplicate sequence" in failed.stderr
+    assert compiler(repo, "ingest").returncode == 0, "fixture must mirror a real ingest that misses the wedge"
 
+    snapshot = {n: sha(repo / SHARDS / n) for n in shard_files(repo)}
+    mem = sha(repo / "MEMORY.md")
+    empty = tool(repo, "flush")
+    assert empty.returncode == 1 and "ds-memory-capture repair --ref" in empty.stdout, empty.stdout
     write_inbox(repo, "- **%s:** queued after the merge" % DATE)
     hinted = tool(repo, "flush")
     assert hinted.returncode == 1 and "ds-memory-capture repair --ref" in hinted.stdout
+    assert "queued after the merge" in inbox_text(repo) and sha(repo / "MEMORY.md") == mem
+
+    at_merge = tool(repo, "repair", "--ref", "HEAD")
+    assert at_merge.returncode == 1 and "colliding shards exist at HEAD" in at_merge.stdout, at_merge.stdout
+    assert {n: sha(repo / SHARDS / n) for n in shard_files(repo)} == snapshot
 
     r = tool(repo, "repair", "--ref", "main")
 
     assert r.returncode == 0, r.stdout
+    assert "repair: commit these shard changes:" in r.stdout
     assert compiler(repo, "regenerate", "--check").returncode == 0
     seqs = [re.search(r"^sequence: (-?\d+)$", (repo / SHARDS / n).read_text(), re.M).group(1)
             for n in shard_files(repo)]
     assert len(seqs) == len(set(seqs)) == 5
+
+
+def test_j_repair_restores_a_shard_whose_line_is_missing(tmp_path):
+    """The only copy of a fact must survive a `repair` that cannot re-capture
+    it. Mutation: drop the re-capture check."""
+    repo = make_repo(tmp_path)
+    committed = (repo / "MEMORY.md").read_text()
+    write_inbox(repo, "- **%s:** sole-copy fact" % DATE)
+    assert tool(repo, "flush").returncode == 0
+    new = shard_files(repo) - {"2026-01-01-a.md", "2026-01-02-b.md", "2026-01-03-c.md"}
+    (name,) = new
+    before = (repo / SHARDS / name).read_bytes()
+    (repo / "MEMORY.md").write_text(committed)
+
+    r = tool(repo, "repair", "--ref", "HEAD")
+
+    assert r.returncode == 1, r.stdout
+    assert "not re-captured" in r.stdout
+    assert (repo / SHARDS / name).read_bytes() == before
+
+
+def test_j_repair_keeps_indexed_shards_absent_at_ref(tmp_path):
+    """Only no-`index` shards are re-ingestable. Mutation: drop the index:
+    filter, so the indexed shard is deleted too."""
+    repo = make_repo(tmp_path)
+    (repo / SHARDS / "2026-02-01-indexed.md").write_text(
+        _shard(5000, "- **2026-02-01:** long fact D\n", 'index:\n  - "Rule D"'))
+    (repo / "MEMORY.md").write_text(_compile(repo))
+
+    r = tool(repo, "repair", "--ref", "HEAD")
+
+    assert r.returncode == 0, r.stdout
+    assert (repo / SHARDS / "2026-02-01-indexed.md").exists()
+    assert compiler(repo, "regenerate", "--check").returncode == 0
+
+
+def test_e_pre_existing_dated_line_is_reported_as_captured(tmp_path):
+    """A dated line already in MEMORY.md is captured by the first ingest; it
+    must get its own `captured:` record. Mutation: snapshot the shard set
+    after the first ingest instead of before it."""
+    repo = make_repo(tmp_path)
+    mem = repo / "MEMORY.md"
+    mem.write_text(PREAMBLE_TEXT + "- **%s:** hand-added line\n" % DATE + mem.read_text()[len(PREAMBLE_TEXT):])
+    write_inbox(repo, "- **%s:** queued line" % DATE)
+
+    r = tool(repo, "flush")
+
+    assert r.returncode == 0, r.stdout
+    assert r.stdout.count("captured: %s-session-" % DATE) == 2, r.stdout
+    assert "flush: captured 2," in r.stdout
 
 
 # ---------------------------------------------------------------------------

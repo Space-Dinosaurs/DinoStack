@@ -19,7 +19,8 @@ Public API:
       reason}; mode is "standard" | "two-tier" | "two-tier-unresolved".
   ds-memory-capture [--dir D] flush
       0 inbox drained; 1 entries remain (refused or unresolved, reasons
-      printed); 2 standard mode, nothing touched; 3 usage error.
+      printed) or two shards share a sequence (nothing touched, `repair`
+      hint printed); 2 standard mode, nothing touched; 3 usage error.
       Prints `captured: <id> (deferred-verbatim; batch trigger: ...)` per
       new shard and a final `flush:` summary line carrying batch_due.
   ds-memory-capture [--dir D] new-shards --ref R
@@ -30,8 +31,10 @@ Public API:
   ds-memory-capture [--dir D] repair --ref R
       Deletes the new-shards files that carry no `index:`, then runs
       `ingest` so their MEMORY.md lines are re-captured with fresh,
-      unique sequences. 0 ok; 1 refused (deleted files restored);
-      2 standard mode.
+      unique sequences, then lists the shard changes to commit. 0 ok;
+      1 when ingest refuses, a deleted body is not re-captured, or a
+      duplicate sequence remains (shard directory restored); 2 standard
+      mode.
   --dir (before or after the subcommand) defaults to
   `git rev-parse --show-toplevel` (cwd if that fails).
 
@@ -76,6 +79,7 @@ BATCH_THRESHOLD_BYTES = 40000
 INTERPRETERS = {"node", "python3", "python", "bash", "sh"}
 ENTRY_RE = re.compile(r"^- \*\*\d{4}-\d{2}-\d{2}")
 INDEX_RE = re.compile(r"^index:", re.M)
+SEQUENCE_RE = re.compile(r"^sequence:\s*(-?\d+)\s*$", re.M)
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.S)
 SPAN_RE = re.compile(r"`([^`\n]+)`")
 LOCK_TIMEOUT_SECONDS = 30
@@ -258,6 +262,29 @@ def _repair_hint(d, output):
               "`ds-memory-capture repair --ref %s`" % _base_ref(d))
 
 
+def _duplicate_sequences(d):
+    """`duplicate sequence N (<ids>)` strings for every sequence two shards
+    share. Checked here because a project's own `ingest` may only notice at
+    compile time, after its "nothing to ingest" early return."""
+    by_seq = {}
+    for p in _shard_files(d):
+        fm, _ = _parse(p)
+        m = SEQUENCE_RE.search(fm or "")
+        if m:
+            by_seq.setdefault(int(m.group(1)), []).append(_shard_id(p))
+    return ["duplicate sequence %d (%s)" % (s, ", ".join(ids))
+            for s, ids in sorted(by_seq.items()) if len(ids) > 1]
+
+
+def _report_captured(d, before):
+    verbatim = detect(d)["verbatim_bytes"]
+    new = sorted(set(_shard_files(d)) - before)
+    for p in new:
+        print("captured: %s (deferred-verbatim; batch trigger: verbatim_bytes > %d, now %d)"
+              % (_shard_id(p), BATCH_THRESHOLD_BYTES, verbatim))
+    return len(new)
+
+
 def flush(d):
     info = detect(d)
     if info["mode"] == "standard":
@@ -274,6 +301,11 @@ def flush(d):
 
 
 def _flush_locked(d, info):
+    dups = _duplicate_sequences(d)
+    if dups:
+        print("flush: shard set needs repair (%s) - inbox and MEMORY.md untouched" % "; ".join(dups))
+        _repair_hint(d, "duplicate sequence")
+        return 1
     claimed = _claim_inbox(d)
     entries = _entries(claimed)
     bodies = {}
@@ -310,7 +342,10 @@ def _flush_locked(d, info):
 
 def _capture(d, compiler, keep):
     """Insert `keep` after the preamble and ingest. Returns (captured count,
-    [(entry, reason)] to re-queue)."""
+    [(entry, reason)] to re-queue). The first `ingest` captures any dated
+    line already sitting in MEMORY.md before ours is inserted; its shards
+    are reported as captured too."""
+    before = set(_shard_files(d))
     rc, out = _run_compiler(d, compiler, "ingest")
     if rc != 0:
         print("pre-ingest refused - MEMORY.md left untouched:\n" + out)
@@ -320,9 +355,8 @@ def _capture(d, compiler, keep):
     pre = _read(os.path.join(d, SHARD_REL, PREAMBLE))
     snapshot = _read(mem) if os.path.isfile(mem) else ""
     if not snapshot.startswith(pre):
-        return 0, [(e, "MEMORY.md does not start with _preamble.md") for e in keep]
+        return _report_captured(d, before), [(e, "MEMORY.md does not start with _preamble.md") for e in keep]
     ours = pre + "".join(e + "\n" for e in keep) + snapshot[len(pre):]
-    before = set(_shard_files(d))
     _write_atomic(mem, ours)
     rc, out = _run_compiler(d, compiler, "ingest")
     if rc != 0:
@@ -332,13 +366,8 @@ def _capture(d, compiler, keep):
         else:
             print("ingest refused and MEMORY.md changed underneath - NOT restored:\n" + out)
         _repair_hint(d, out)
-        return 0, [(e, "ingest refused") for e in keep]
-    verbatim = detect(d)["verbatim_bytes"]
-    new = sorted(set(_shard_files(d)) - before)
-    for p in new:
-        print("captured: %s (deferred-verbatim; batch trigger: verbatim_bytes > %d, now %d)"
-              % (_shard_id(p), BATCH_THRESHOLD_BYTES, verbatim))
-    return len(new), []
+        return _report_captured(d, before), [(e, "ingest refused") for e in keep]
+    return _report_captured(d, before), []
 
 
 def new_shards(d, ref):
@@ -377,14 +406,30 @@ def repair(d, ref):
                 saved[p] = _read(p)
         for p in saved:
             os.remove(p)
+        removed = set(_shard_files(d))
         rc, out = _run_compiler(d, info["compiler"], "ingest")
-        if rc != 0:
+        problem = "ingest refused" if rc != 0 else None
+        if problem is None:
+            bodies = {_parse(p)[1] for p in _shard_files(d)}
+            lost = [_shard_id(p) for p, text in saved.items()
+                    if FRONTMATTER_RE.match(text).group(2) not in bodies]
+            dups = _duplicate_sequences(d)
+            if lost:
+                problem = "not re-captured from MEMORY.md (its line is missing): " + ", ".join(lost)
+            elif dups:
+                problem = "; ".join(dups) + " - colliding shards exist at %s, pick an earlier --ref" % ref
+        if problem:
+            for p in set(_shard_files(d)) - removed:
+                os.remove(p)
             for p, text in saved.items():
                 _write_atomic(p, text)
-            print("repair: ingest refused - %d shard(s) restored:\n%s" % (len(saved), out))
+            print("repair: %s - shard directory restored (%d shard(s)):\n%s" % (problem, len(saved), out))
             return 1
         print("repair: re-ingested after removing %d shard(s) absent at %s\n%s"
               % (len(saved), ref, out))
+        changed = _git(d, "status", "--porcelain", "--untracked-files=all", "--", SHARD_REL)
+        if changed.stdout.strip():
+            print("repair: commit these shard changes:\n" + changed.stdout.rstrip())
         return 0
     finally:
         fh.close()

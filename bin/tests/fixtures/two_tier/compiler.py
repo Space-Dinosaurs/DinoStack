@@ -9,7 +9,9 @@ Purpose: Contract stand-in for a two-tier project's own memory compiler
          indexed shard compiles to `- <text> [<id>]` lines (nothing for
          `index: none`), `ingest` accepts only gap blocks of one dated line
          plus blank lines at the head or tail, head blocks take
-         min-1000 (tail max+1000), a duplicate `sequence` throws, a stray
+         min-1000 (tail max+1000), a duplicate `sequence` throws only when
+         compiling (so, as in authentic8, `ingest` with nothing to ingest
+         and `status` both exit 0 on a duplicate), a stray
          or edited line refuses, and the post-ingest compile must reproduce
          MEMORY.md byte-for-byte before any shard is written.
 
@@ -87,12 +89,6 @@ def records():
             raise Refuse("%s has no sequence" % name)
         out.append({"file": name, "sequence": int(seq.group(1)), "body": m.group(2),
                     "index": _index(m.group(1))})
-    seen = {}
-    for r in out:
-        if r["sequence"] in seen:
-            raise Refuse("duplicate sequence %d (files %s and %s)"
-                         % (r["sequence"], seen[r["sequence"]], r["file"]))
-        seen[r["sequence"]] = r["file"]
     return sorted(out, key=lambda r: r["sequence"])
 
 
@@ -105,6 +101,12 @@ def block(r):
 
 
 def compile_all(recs):
+    seen = {}
+    for r in recs:
+        if r["sequence"] in seen:
+            raise Refuse("duplicate sequence %d (files %s and %s)"
+                         % (r["sequence"], seen[r["sequence"]], r["file"]))
+        seen[r["sequence"]] = r["file"]
     return _read(os.path.join(SHARD_DIR, PREAMBLE)) + "".join(block(r) for r in recs)
 
 

@@ -376,12 +376,15 @@ against. To supersede a fact, cite the old shard's id in the new bullet.
 **`ds-memory-capture flush`** is the only compiled-mode writer of
 `MEMORY.md` and shards. Under `.agentic/memory-capture.lock` it claims the
 inbox by rename (a line written meanwhile lands in a fresh inbox), drops
-lines byte-identical to an existing shard body, runs `ingest` once to prove
-the file is not already wedged, inserts the lines right after the preamble,
-and runs `ingest` again. A refusal restores only its own bytes and re-queues
-the lines; nothing is dropped. Exit 0 drained, 1 entries remain, 2 standard
-mode (nothing touched). It prints `captured: <id> (deferred-verbatim; batch
-trigger: verbatim_bytes > 40000, now <B>)` per shard and a `flush:` summary
+lines byte-identical to an existing shard body, runs `ingest` once (which
+captures any dated line already in `MEMORY.md`; a project's `ingest` may
+return "nothing to ingest" without compiling, so this does not prove the
+file is unwedged), inserts the lines right after the preamble, and runs
+`ingest` again. A refusal restores only its own bytes and re-queues the
+lines; nothing is dropped. Exit 0 drained, 1 entries remain or two shards
+share a sequence (then nothing is touched), 2 standard mode (nothing
+touched). It prints `captured: <id> (deferred-verbatim; batch trigger:
+verbatim_bytes > 40000, now <B>)` per new shard and a `flush:` summary
 carrying `batch_due`. Callers: `/ds-wrap` Part B, `/ds-implement-ticket`
 Phase 11b, `/ds-memory-update`'s Worker. learnings-agent lines wait in the
 inbox for the next of those.
@@ -400,14 +403,17 @@ and Phase 11b skips its gate: Part E would hand-edit compiled output, which
 **Ride-along.** Two-tier CI asserts the compile equals `MEMORY.md`, so a
 committed `MEMORY.md` travels with its new shards: Phase 11e and Part G add
 `ds-memory-capture new-shards --ref <ref>` (files under the shard directory
-absent from `<ref>`'s tree) whenever they commit `MEMORY.md`.
+absent from `<ref>`'s tree) whenever they commit `MEMORY.md`. Capture only
+adds shards; a shard changed by `repair` is committed by hand.
 
 **Merge conflicts.** Two branches that each flush both insert after the
 preamble, so `MEMORY.md` conflicts. Resolve keeping both lines, commit, then
 run `ds-memory-capture repair --ref <base>`: it deletes the no-`index` shards
 absent at `<base>` and re-runs `ingest`, which re-captures the lines on
-unique sequences. `flush` prints this command when `ingest` reports a
-duplicate sequence.
+unique sequences. It restores every deleted shard and exits 1 if any body is
+not re-captured or a duplicate sequence remains, and on success lists the
+shard changes to commit. `flush` refuses, printing this command, whenever
+two shards share a sequence.
 
 | Piece | Catches | Retires when |
 |---|---|---|
