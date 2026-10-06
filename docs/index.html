@@ -1929,6 +1929,9 @@
       <div class="note" style="border-left-color: var(--cyan); margin-top: 12px;">
         <strong>Telemetry.</strong> The Stop hook and the spawn-telemetry hooks (<code>hooks/pre-tool-use-spawn-emit.js</code>, <code>hooks/subagent-stop-spawn-emit.js</code>) append telemetry events to <code>.agentic/events.jsonl</code> - including a deterministic <code>spawn_complete</code> on subagent completion via the SubagentStop hook and the per-developer session-log. <a href="events-log-telemetry.md" style="color: var(--cyan);">events-log-telemetry.md</a> is current on the details.
       </div>
+      <div class="note" style="border-left-color: var(--cyan); margin-top: 12px;">
+        <strong>Main-session MEMORY.md.</strong> On Claude Code the installer wires <code>hooks/session-start-memory.py</code> on SessionStart. In a repo whose root <code>CLAUDE.md</code> carries the line <code>&lt;!-- dinostack:memory-main-only --&gt;</code> in place of an import of <code>MEMORY.md</code>, it adds root <code>MEMORY.md</code> to the main session's context at startup, resume, compact and clear: the whole file when it fits, otherwise its head plus a directive to Read the rest before the first decision. A repo without the marker is untouched.
+      </div>
       <div class="rel-card" style="margin-top: 12px;">
         <h4>Memory Types</h4>
         <ul>

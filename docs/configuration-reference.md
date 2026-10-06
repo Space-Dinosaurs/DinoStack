@@ -221,6 +221,12 @@ Key points:
 - `settings.local.json` is gitignored; use it for secrets and local env values.
 - Hooks are wired by the installer into `~/.claude/settings.json`; do not move
   or rename them.
+- The installer wires `hooks/session-start-memory.py` on SessionStart. It acts
+  only in a repo whose root `CLAUDE.md` carries the line
+  `<!-- dinostack:memory-main-only -->` in place of an import of `MEMORY.md`,
+  and then adds root `MEMORY.md` (or its head plus a directive to Read the
+  rest) to the main session's context at startup, resume, compact and clear.
+  It has no config key or kill switch; a repo without the marker is untouched.
 - The installer also offers to set `env.AGENT_BROWSER_IDLE_TIMEOUT_MS` to
   `"1800000"` (30 minutes), so an `agent-browser` daemon a run leaves behind
   shuts itself and its browser down once no command has arrived for that long.

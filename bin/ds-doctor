@@ -474,6 +474,7 @@ MANAGED_HOOK_BASENAMES: frozenset[str] = frozenset([
     "post-tool-use-capture-nudge.js",
     "reap-agent-browsers.py",
     "session-end-wrap.js",
+    "session-start-memory.py",
     "session-start-version-check.sh",
     "session-start-wrap.sh",
     "skill-auto-load-check.sh",
