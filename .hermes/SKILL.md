@@ -654,73 +654,31 @@ Claude Code locks each isolation worktree (a double-force `git worktree remove -
 
 ## Documentation Lookups
 
-**When investigating, diagnosing, or reasoning about library, framework, or SDK behavior, look up current documentation using Context7 before forming conclusions.** Training data may be outdated - API signatures, configuration options, default behaviors, and error messages change across versions.
-
-Use Context7 (`resolve-library-id` -> `query-docs`) for:
-- Verifying API signatures, method parameters, or return types
-- Checking configuration options or default values
-- Understanding error messages or behavioral changes across versions
-- Any assumption about library behavior that influences a diagnosis or recommendation
-
-Do not rely on training knowledge for library-specific details when Context7 is available. This applies to all agents: investigators, debuggers, architects, and engineers.
+Verify consequential assumptions about library, framework, or SDK behavior against current authoritative documentation for the relevant version. Use Context7 when available; see `content/references/code-standards-detail.md` §Documentation Lookups when investigating or implementing such behavior.
 
 ## Tool Discipline
 
-**Prefer the dedicated tools for reads, listing, and search when they are available; use Bash as the sanctioned fallback when they are not.** `Read` is always present and is the primary tool for reading file contents - always prefer it over `cat`/`head`/`tail`/`sed`. For listing and searching, prefer `Glob` and `Grep` when the harness exposes them - they avoid permission prompts and give cleaner output:
-- Read files: `Read` tool (always available; never `cat`, `head`, `tail`, `sed`).
-- List/find files: `Glob` tool when available; otherwise Bash `find` (or `rg --files`).
-- Search content: `Grep` tool when available; otherwise Bash `rg` (preferred) or `grep`.
-
-Reserve `Bash` for: builds, installs, git operations, network calls, process management, listing/searching when `Glob`/`Grep` are unavailable, and anything no dedicated tool covers.
-
-`sg` (AST-grep) for structural symbol-level searches is always run via Bash - no dedicated harness tool wraps it. This is independent of the `Glob`/`Grep` availability question above: Bash-based search is sanctioned generally (via `rg`/`grep`/`find`), and `sg` is the specific tool for structural AST queries. Check availability with `which sg 2>/dev/null` before use.
-
-**Optional raw-speed tip:** the `Grep` tool already uses Claude Code's bundled ripgrep (`@vscode/ripgrep`, present since v1.0.84) - no install needed for correctness. For faster raw `rg` in Bash on large trees, install system ripgrep (`brew install ripgrep`) and set `USE_BUILTIN_RIPGREP=0` to swap the bundled binary for the system one. This is a performance-only setup choice; the methodology does not require it.
-
-**Agent-ergonomic tool selection**
-
-When choosing between tool options for the same job, prefer the option that minimizes token cost and latency for agent consumers:
-
-- **Prefer token-efficient output.** Text and tabular tool output is cheaper for models to consume than JSON dumps with identical semantic content. When a tool offers multiple output formats, pick the one that gives the model the signal it needs with the least surrounding structure.
-- **Prefer CLI over MCP server when the CLI is cheaper.** An MCP server adds a protocol layer that inflates token cost and latency with no functional gain when a CLI covers the same job. Concrete reference: the GitHub MCP server costs approximately 3x the tokens and 2x the latency of the `gh` CLI for the same GitHub operations. AE uses `gh` for all GitHub operations (see AGENTS.md) - this is the principle in action.
-- **Measure before adopting.** Do not assume a new tool or MCP server is cost-neutral. Before integrating either, benchmark its token/latency profile against the alternative.
-
-These rules complement the existing tool hierarchy above (Read/Glob/Grep over Bash). Together they form AE's tool-selection standard: reach for the tool whose output-to-signal ratio is best for the model reading it.
+Prefer suitable dedicated tools when available; use shell tools when they are unavailable or do not cover the task. Choose efficient output and measure cost before adopting new tools. Read `content/references/code-standards-detail.md` §Tool Discipline when choosing search tools or evaluating tool integrations.
 
 ## Module Manifests
 
-**Non-trivial modules should carry a manifest header.** Any source file that exports a public symbol consumed by another module, is over ~50 lines of non-trivial logic, or implements a side-effecting operation (network, disk, database, external service) is encouraged to include a manifest comment or docstring at the top of the file. See `content/rules/module-manifest.md` for required fields, examples, and exemptions. Skeptic reports manifest gaps as **Minor**.
+Non-trivial source files (exported symbols consumed elsewhere, over ~50 lines of logic, or side effects) are encouraged to carry a manifest header. Read `content/rules/module-manifest.md` for fields and exemptions when creating or substantially modifying one. Skeptic reports manifest gaps as **Minor**.
 
 ## DRY and Abstraction
 
-**Do not Repeat Yourself. Engineers must actively scan their own output for duplication before declaring work complete.**
-
-- **Repeated logic** — any block that appears more than once with identical or near-identical structure must be extracted into a helper, utility, or shared component.
-- **Copy-paste with tweaks** — copying code and changing only names or constants is a strong signal for abstraction, not a valid implementation strategy.
-- **Existing utilities first** — before writing new code, grep the codebase for functions that already solve the sub-problem. Prefer calling an existing utility over reimplementing it.
-- **Follow established patterns** — if the codebase has a convention for this class of problem (validation schemas, error wrappers, React hooks, data transformers), use it.
-- **Intentional exceptions** — if duplication is genuinely appropriate (the two paths are about to diverge significantly, or extraction would obscure meaning), state the reason explicitly in the output.
-- **Unnecessary abstraction** - the counterweight to the "Repeated logic" rule above: an abstraction serving only a single call site, or built only for a hypothetical future requirement, is itself a finding, not a virtue. Do not extract a helper, wrapper, or config layer until a second real caller exists or a stated requirement needs it.
-
-**Precedence: exactly one rule governs each state.** (1) One call site, no second call site anywhere (in this diff or the codebase), nothing extracted - no finding. (2) That same single call site with an abstraction extracted anyway - "Unnecessary abstraction" governs, never "Repeated logic" (which requires the block to actually appear more than once). (3) A second occurrence of the block arrives in the same diff, or the pattern already exists elsewhere in the codebase - the block now appears more than once either way, so "Repeated logic" governs and "Unnecessary abstraction" does not apply (a real second occurrence is not a hypothetical future requirement). No state satisfies both rules at once. Note "call site" and "occurrence of the block" are not synonyms: a correctly extracted helper called from two places is two call sites but one occurrence, so it is not state (3) and produces no finding.
-
-The Skeptic review layer enforces both directions: duplication and missed abstractions are **Major** findings that block sign-off unless justified; an unnecessary abstraction is **Minor** by default, **Major** when it adds a public surface (a new exported function, module, or API with only one caller).
+Reuse established helpers and patterns when suitable. Extract shared logic when it improves clarity or maintenance; avoid abstractions built for hypothetical requirements. Review consequential duplication and unnecessary abstraction, and explain consequential exceptions in the output. Mere occurrence count, a single caller, or export status does not establish a defect. Skeptic findings require concrete impact and follow the general severity classification.
 
 ## Code Quality Gates
 
-**After writing or modifying code, run the project's lint, typecheck, and test commands.** All must pass with zero errors before work is complete.
+After modifying code, run applicable project lint, typecheck, and test commands; all must pass with zero errors before completion. Greenfield projects start with zero warnings. In existing projects, introduce no new warnings and report pre-existing issues to the user.
 
-- **Greenfield projects:** zero warnings from the start
-- **Existing codebases:** do not introduce new warnings; flag pre-existing issues to the user
-- Never suppress or disable rules to pass gates - fix the code. Suppression comments (`@ts-ignore`, `noqa`, etc.) require explicit user approval
-- **New projects (via `/ds-init-project`):** set up pre-commit hooks (husky + lint-staged for JS/TS, pre-commit framework for Python)
-- **Existing projects without tooling:** run whatever checks are available and recommend setup to the user
+Do not suppress or disable checks to pass gates. Suppression comments (`@ts-ignore`, `noqa`, etc.) require explicit user approval. For new projects via `/ds-init-project`, set up pre-commit hooks (husky + lint-staged for JS/TS, pre-commit for Python). If an existing project lacks tooling, run available checks and recommend setup.
 
-Read `content/references/code-standards-detail.md` §Per-Language Strict Defaults, §Browser Verification, and §Discovery-Based Check Discipline when implementing or modifying code.
+When implementing or modifying code, read `content/references/code-standards-detail.md` §Per-Language Strict Defaults, §Browser Verification, and §Discovery-Based Check Discipline for language defaults, browser checks, and hard-failing empty discovery.
 
 ## Package Management
 
-**Dependency versioning rules** - when adding a new dependency, upgrading an existing one, or encountering a bug in an already-installed outdated dependency: read `content/references/code-standards-detail.md` §Package Management for the latest-stable-version default, the no-hardcoded-version rule, the no-monkey-patch rule, and the existing-constraint exception.
+When adding or upgrading dependencies, or diagnosing an outdated dependency bug, read `content/references/code-standards-detail.md` §Package Management for version resolution, existing constraints, and the upgrade-before-workaround policy.
 
 ---
 
@@ -1953,26 +1911,17 @@ A trigger event with no declaration is a protocol gap; the Stop-hook backstop
 ### code-standards-detail
 
 <!--
-Purpose: Detailed code-standards reference blocks extracted from
-         content/rules/code-standards.md. Contains: the verbose Per-language
-         strict defaults block (TypeScript/JS, Python, Go, Rust, Next.js
-         strict settings), the Browser Verification block (agent-browser
-         CLI usage for all browser verification tasks), the
-         Discovery-Based Check Discipline block (mandated hard-fail forms
-         for any check whose result depends on a discovered set of items),
-         and the Package Management block (dependency-versioning rules).
+Purpose: Trigger-loaded documentation lookup and tool-selection procedures,
+         plus Per-Language Strict Defaults, Browser Verification,
+         Discovery-Based Check Discipline, and Package Management rules.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/rules/code-standards.md (inline pointers replacing
             these verbose blocks).
 
-Upstream deps: content/rules/code-standards.md (parent rules file; read
-               that file first for Documentation Lookups, Tool Discipline,
-               Module Manifests, DRY, and Code Quality Gates preamble
-               rules);
+Upstream deps: content/rules/code-standards.md (parent engineering contract);
                content/references/worktree-lifecycle.md (§Agent-spawned
-               process lifetime ownership, cited by the Browser Verification
-               block above).
+               process lifetime ownership, cited by Browser Verification).
 
 Downstream consumers: engineer agents (run per-language quality gates
                       after every implementation; consult Package
@@ -1989,7 +1938,19 @@ Failure modes: Prose + code blocks; does not auto-execute. Per-language
 Performance: Standard.
 -->
 
-> Parent rules file: `content/rules/code-standards.md`. Read that file first for Documentation Lookups, Tool Discipline, Module Manifests, DRY, and Code Quality Gates rules.
+> Parent engineering contract: `content/rules/code-standards.md`.
+
+## Documentation Lookups
+
+Use current authoritative documentation for the relevant library version. When Context7 is available, resolve the library ID, then query its documentation (`resolve-library-id` -> `query-docs`) to verify API signatures, parameters, return types, configuration defaults, error messages, and version-specific behavior. This applies to investigators, debuggers, architects, and engineers before a consequential conclusion or implementation decision.
+
+## Tool Discipline
+
+Prefer suitable dedicated read, listing, and search tools when the harness exposes them. Otherwise use shell tools: `rg --files` for listing, `rg` (or `grep`) for content search, and an available file reader. Use shell commands for builds, installs, git, network calls, process management, and tasks no dedicated tool covers.
+
+For structural symbol searches, use AST-grep (`sg`) via the shell when available; check with `command -v sg` first.
+
+Choose the output format with the best signal for the agent consuming it. Prefer concise text or tables over verbose dumps when they convey the same information. Use a CLI over an MCP integration when it performs the task with lower token cost and latency; GitHub operations use `gh` per AGENTS.md. Benchmark cost and latency against the alternative before adopting a new tool or integration.
 
 ## Per-Language Strict Defaults
 
@@ -7454,7 +7415,7 @@ When reviewing, check spec compliance first - does the implementation do what wa
 
 **An unverified exclusion claim is a finding.** An OUT-OF-SCOPE entry, an "already shipped in X" claim, or a "handled by ticket Z" claim must be grepped and verified against the tree or tracker exactly like an in-scope claim - false exclusion claims are the cheapest way for wrong scope to survive review. See `content/agents/skeptic.md` Step 3.85 for the check and severity default (Major, Critical when it justifies deleting shipped behavior).
 
-**An abstraction serving only one call site or a hypothetical requirement is a finding.** This is the DRY review's counterweight sub-category: a helper, wrapper, or config layer with no second real caller and no stated requirement is premature, not a virtue. See `content/agents/skeptic.md` Step 2.5 "Unnecessary abstraction" for the check and severity default (Minor, Major when it adds a public surface), and `content/rules/code-standards.md` §DRY and Abstraction for the canonical rule and the three-state precedence rule separating it from Duplication.
+**Review abstraction choices for concrete impact.** Apply `content/rules/code-standards.md` §DRY and Abstraction and `content/agents/skeptic.md` Step 2.5 to consequential duplication, missed reuse, and needless complexity. Caller count and export status alone do not establish a defect; findings follow the general severity classification.
 
 ### Review depth
 
@@ -11987,12 +11948,7 @@ When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the executio
 2. **Retrieve prior learnings.** <!-- shared:learnings-retrieval -->Grep `.agentic/learnings.md` for entries matching this task's domain keywords (e.g. `grep -i -E '<kw1>|<kw2>' .agentic/learnings.md`). Cite an entry ID (`LRN-*` / `KNW-*`) only when that entry's own text actually matches the keywords - never cite a spurious or tangential ID to pad confidence. Two cases are both silent no-ops with zero confidence impact and no reported gap: the file is absent, or the file exists but no entry matches. Only a genuine match changes downstream output.<!-- /shared -->
 3. Read the relevant files. Understand the existing patterns: naming conventions, error handling style, test structure, module organization. Match them.
 4. Implement the change. Prefer modifying existing files over creating new ones. Keep the diff small and focused.
-5. **DRY and duplication self-check.** Before running quality gates, review your own diff for:
-   - **Repeated logic** — any block of code that appears more than once with identical or near-identical structure. Extract it into a helper, utility, or shared function.
-   - **Copy-paste with minor tweaks** — if you copied code and changed only variable names or constants, that's a strong signal for abstraction.
-   - **Existing helpers** — grep the codebase for functions that already do what you just wrote. Prefer calling an existing utility over reimplementing it.
-   - **Pattern violations** — if the codebase already has an established pattern for this class of problem (e.g., a shared validation schema, a common React hook, a standard error wrapper), use it.
-   This check is mandatory. If you find duplication and choose not to extract it, state the reason explicitly in your output (e.g., "Intentionally not extracted: the two paths diverge in the next ticket").
+5. **Reuse and abstraction self-check.** Before quality gates, review your diff for suitable existing helpers and patterns, consequential duplication, and abstractions that add complexity without improving clarity or maintenance. Apply `content/rules/code-standards.md` §DRY and Abstraction; explain consequential exceptions in your output. This check is mandatory.
 6. **Comment re-read.** List every comment or docstring line your diff adds or changes, plus any commit-message text you write beyond the conductor's template, and apply the Role rule above to each: cut restatement and review exhaust (round numbers, finding ids, text written to settle a reviewer), keeping any real constraint the line carries. Never cut a mandated manifest field, a comment a tool reads, or a non-obvious constraint. The reviewer runs the same test (skeptic.md step 10.5).
 7. Run the project's quality gates - lint, typecheck, tests - whatever applies. All must pass before you are done. If a gate fails, fix the code; do not suppress or disable the check.
 8. If you discover the task is significantly more complex than the prompt suggested, or if completing it would require making architecture decisions you were not given, stop and say so clearly in your output. Do not silently expand scope.
@@ -14880,12 +14836,7 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
 1. Read the adversarial brief. Internalize the specific attack surface or failure scenario it describes. Then read the architect plan from Global-context input field 1 in full - it is the spec the Worker implemented against. If field 1 carries a valid `n/a` value, skip this file read.
 2. Read the Worker output in full. If file paths are given, read those files now.
    Work through two stages: first, check spec compliance (does it do what was asked, does it match the task requirements?). Second, check code quality (logic errors, edge cases, missing error handling). Surface spec compliance issues first in your findings - they are the most actionable and a spec compliance failure can make code quality findings moot.
-2.5. **DRY and abstraction review.** Scan the diff for:
-   - **Duplication** - identical or near-identical logic repeated in multiple places, whether both occurrences are new in this diff or one already existed in the codebase. This is a **Major** finding unless the engineer explicitly justified why extraction is inappropriate. "Occurrence" here means a copy of the block itself, not a call site - two calls into one correctly extracted helper is one occurrence, not two.
-   - **Missed abstractions** - new code that reimplements logic already present in the codebase (existing helpers, utilities, shared components, standard patterns). This is a **Major** finding.
-   - **Copy-paste programming** - blocks copied with only superficial changes (renamed variables, different constants). This is a **Major** finding.
-   - **Unnecessary abstraction** - new code that introduces an abstraction (helper, wrapper, config layer) serving only a single call site, or built only for a hypothetical future requirement. This is a **Minor** finding by default, **Major** when it adds a public surface (a new exported function, module, or API with only one caller). Never fires alongside Duplication above - a real second occurrence of the block is not a hypothetical future requirement. See `content/rules/code-standards.md` §DRY and Abstraction for the canonical rule and the three-state precedence rule.
-   The Skeptic's job here is not to demand perfection - it is to catch duplication and missed abstractions that will compound maintenance cost, and equally to catch an abstraction extracted before a second real caller exists. A single instance of slightly verbose code is not a finding; a repeated pattern that should be shared is, and so is a helper built for a caller that does not yet exist.
+2.5. **Reuse and abstraction review.** Independently review the diff for missed reuse of suitable existing helpers or patterns, consequential duplication, and abstractions that add complexity without improving clarity or maintenance. Apply `content/rules/code-standards.md` §DRY and Abstraction. State the concrete clarity or maintenance impact of each finding and classify it under the general severity rules; occurrence count, a single caller, or export status alone is insufficient. Evaluate the engineer's exception rationale rather than treating it as automatic justification.
 3. **Architect plan API/interface compliance check** - if an architect plan is present (field 1 not `n/a`), verify the Worker's output matches the plan's "API / interface design" section exactly. Any deviation is a finding (Major by default per `content/references/skeptic-protocol.md` Section 6). Also verify the Worker's output complies with the `qa_criteria` block (field 3): if `qa_skip == null`, confirm the scenarios described are addressed; if `qa_skip` is set, confirm the rationale is consistent with the diff.
 3.5. **Outcome rubric check** - if the Brief or architect plan carries an `outcome_rubric` (or `Outcome rubric`) field, evaluate it as follows:
    - **Field presence check (Elevated only):** if the unit is Elevated and the field is absent or empty, raise a **Critical** finding: "Outcome rubric is absent - required for Elevated work." For Trivial or Low units, skip this step entirely.
@@ -15001,7 +14952,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 - Style preferences, non-critical naming choices, and minor documentation gaps belong in Minor.
 - The goal is to catch genuine problems, not to find something to flag. "Looks fine but could be improved" is a Minor, not a Major.
 - Do not block on hypothetical future scenarios that are not present in the actual requirements.
-- **Unnecessary abstraction:** this is the finding-shaped form of the instinct above, not an exception to it - "do not block on a hypothetical future scenario" and "raise a finding when the diff built for one anyway" are the same discipline applied at two different points (the first tells you not to demand speculative work, the second tells you to flag it when someone did it anyway). Apply the precedence rule at `content/rules/code-standards.md` §DRY and Abstraction before raising this: a second occurrence of the block already in the codebase or arriving in the same diff makes it a Duplication finding instead, not this one.
+- **Unnecessary abstraction:** flag concrete complexity or maintenance costs from speculative helpers, wrappers, or configuration layers under `content/rules/code-standards.md` §DRY and Abstraction. Do not demand work for hypothetical future scenarios or infer a defect from caller count or export status alone.
 - **Paperwork findings are Minor.** Module manifests (missing or stale), doc-sync drift, and a new test file with no matching CI invocation (Step 11.5) are all **Minor** - the checks still run and every gap is still listed, but none of them blocks sign-off by default. A paperwork gap that would mislead a caller on a correctness or security path stays Minor and is routed through the `Blocking-minor:` sign-off line. Report the manifest and CI-wiring results via the `Manifest check:` and `Test-CI-wiring check:` sign-off lines.
 - **Finding-description length:** cap each per-finding description (the `[CLASSIFICATION] - description (file:line or region)` text in the Findings list) at 300 chars. This is additive scope guidance only - it does not alter, retag, or restructure any of the seven conductor-validated Sign-off format lines in the section above (`content/references/subagent-return-contract.md` Shape 3).
 

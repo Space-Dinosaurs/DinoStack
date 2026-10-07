@@ -2482,26 +2482,6 @@
       "source_token": "content/sections/04-risk-classification.md"
     },
     {
-      "expected_target": "rg",
-      "generated_token": "Grep",
-      "kind": "semantic-reference",
-      "occurrence_hash": "4fa7c136a04c2ad750efe459fe723247bff1430a2cacc2ad70571ed2239be2b6",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/SKILL.md",
-      "source_token": "Grep"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "51e31c713ea57faff2a940054de9227541ff1f0df196d38175d9ac90e2668bb4",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/SKILL.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -2562,16 +2542,6 @@
       "source_token": ".claude/skills/dinostack"
     },
     {
-      "expected_target": "rg --files",
-      "generated_token": "Glob",
-      "kind": "semantic-reference",
-      "occurrence_hash": "9c72fc1080f1f6558a288ef42b265965de3688e65d70f2a0229c2f12d0c6c579",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/SKILL.md",
-      "source_token": "Glob"
-    },
-    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -2580,16 +2550,6 @@
       "scope": "canonical-source",
       "source": "content/SKILL.md",
       "source_token": "METHODOLOGY.md"
-    },
-    {
-      "expected_target": "shell",
-      "generated_token": "Bash",
-      "kind": "semantic-reference",
-      "occurrence_hash": "a4fd0746747aaf51b805ad734ea36f990f8364281575531ad74f32d1c91c5345",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/SKILL.md",
-      "source_token": "Bash"
     },
     {
       "expected_target": ".claude/build.sh",
