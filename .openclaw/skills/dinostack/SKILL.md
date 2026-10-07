@@ -22,9 +22,8 @@ files on every session and the reference docs on the triggers described in agent
 - **rules/agent-methodology.md** - delegation model, risk classification, task decomposition, and
   worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
 
-- **rules/code-standards.md** - documentation lookups via Context7, tool discipline (Read/Glob/Grep
-  over Bash for reads), code quality gates, package management conventions, and browser verification
-  with agent-browser.
+- **rules/code-standards.md** - the engineering contract for documentation evidence, tool
+  selection, manifests, reuse, quality gates, and dependencies; detailed procedures load on trigger.
 
 - **rules/conventions.md** - writing style, project structure, session context and memory handling,
   and git workflow including protected branches and worktree-per-feature conventions.

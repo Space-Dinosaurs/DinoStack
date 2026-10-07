@@ -1,24 +1,15 @@
 <!--
-Purpose: Detailed code-standards reference blocks extracted from
-         content/rules/code-standards.md. Contains: the verbose Per-language
-         strict defaults block (TypeScript/JS, Python, Go, Rust, Next.js
-         strict settings), the Browser Verification block (agent-browser
-         CLI usage for all browser verification tasks), the
-         Discovery-Based Check Discipline block (mandated hard-fail forms
-         for any check whose result depends on a discovered set of items),
-         and the Package Management block (dependency-versioning rules).
+Purpose: Trigger-loaded documentation lookup and tool-selection procedures,
+         plus Per-Language Strict Defaults, Browser Verification,
+         Discovery-Based Check Discipline, and Package Management rules.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/rules/code-standards.md (inline pointers replacing
             these verbose blocks).
 
-Upstream deps: content/rules/code-standards.md (parent rules file; read
-               that file first for Documentation Lookups, Tool Discipline,
-               Module Manifests, DRY, and Code Quality Gates preamble
-               rules);
+Upstream deps: content/rules/code-standards.md (parent engineering contract);
                content/references/worktree-lifecycle.md (§Agent-spawned
-               process lifetime ownership, cited by the Browser Verification
-               block above).
+               process lifetime ownership, cited by Browser Verification).
 
 Downstream consumers: engineer agents (run per-language quality gates
                       after every implementation; consult Package
@@ -35,7 +26,19 @@ Failure modes: Prose + code blocks; does not auto-execute. Per-language
 Performance: Standard.
 -->
 
-> Parent rules file: `content/rules/code-standards.md`. Read that file first for Documentation Lookups, Tool Discipline, Module Manifests, DRY, and Code Quality Gates rules.
+> Parent engineering contract: `content/rules/code-standards.md`.
+
+## Documentation Lookups
+
+Use current authoritative documentation for the relevant library version. When Context7 is available, resolve the library ID, then query its documentation (`resolve-library-id` -> `query-docs`) to verify API signatures, parameters, return types, configuration defaults, error messages, and version-specific behavior. This applies to investigators, debuggers, architects, and engineers before a consequential conclusion or implementation decision.
+
+## Tool Discipline
+
+Prefer suitable dedicated read, listing, and search tools when the harness exposes them. Otherwise use shell tools: `rg --files` for listing, `rg` (or `grep`) for content search, and an available file reader. Use shell commands for builds, installs, git, network calls, process management, and tasks no dedicated tool covers.
+
+For structural symbol searches, use AST-grep (`sg`) via the shell when available; check with `command -v sg` first.
+
+Choose the output format with the best signal for the agent consuming it. Prefer concise text or tables over verbose dumps when they convey the same information. Use a CLI over an MCP integration when it performs the task with lower token cost and latency; GitHub operations use `gh` per AGENTS.md. Benchmark cost and latency against the alternative before adopting a new tool or integration.
 
 ## Per-Language Strict Defaults
 

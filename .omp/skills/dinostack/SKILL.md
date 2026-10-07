@@ -46,10 +46,8 @@ in a blocker. Canonical candidate-branch and fail-closed details:
 - **METHODOLOGY.md** - the assembled kernel: delegation, risk classification, activation preflight, planning gate,
   task decomposition, and worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
 
-- **rules/code-standards.md** - documentation lookups via Context7, tool discipline (Read always
-  primary; prefer Glob/Grep when available, Bash `rg`/`grep`/`find` as the sanctioned fallback
-  otherwise), code quality gates, package management conventions, and browser verification with
-  agent-browser.
+- **rules/code-standards.md** - the engineering contract for documentation evidence, tool
+  selection, manifests, reuse, quality gates, and dependencies; detailed procedures load on trigger.
 
 - **rules/conventions.md** - writing style including length discipline (write for the permanent
   audience), project structure, session context and memory handling, and git workflow including
