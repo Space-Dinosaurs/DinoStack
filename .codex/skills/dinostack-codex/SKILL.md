@@ -60,6 +60,13 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 
 Codex spawns are asynchronous. The conductor remains responsive, uses the collaboration status and
 wait operations to collect completion, and applies the existing review gates to the returned diff.
+
+**Retire or hold each checkout at completion.** A carrier's work is complete when the review gates
+on its output have returned, or the work is abandoned, and its agent will be sent no further work.
+Then run `$AE_REPO_DIR/bin/ds-retire-carrier <absolute-path>`; it removes only the checkout, never
+the branch, or records a hold whose revisit event you act on. Never wait for ticket completion or PR
+merge.
+
 Claude hook payload fields and Claude Task behavior do not apply on Codex.
 
 

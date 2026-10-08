@@ -108,10 +108,12 @@ sketch under the ~40-line cap.
 
 ## Lifecycle and Ephemerality (Critical)
 
-**Evidence lives ONLY in the live worktree and DIES at cleanup.** The evidence
-store is written to the worktree's `.agentic/evidence/` directory, which is
-untracked scratch. When the worktree is removed at push or merge, the evidence
-is gone with it.
+**Evidence lives ONLY in the live worktree.** The evidence store is written
+to the worktree's `.agentic/evidence/` directory, which is untracked scratch.
+Retirement never deletes it silently: a carrier still holding
+`.agentic/evidence/` is held at retirement (`ds-retire-carrier`); delete or
+copy the evidence once its consumer has read it, then re-run, and it is gone
+with the checkout.
 
 Consequences:
 
@@ -121,10 +123,10 @@ Consequences:
 - **They are also useful for PRE-cleanup conductor access** via
   `bin/ds-resolve-worktree`, which locates the live worktree so the
   conductor can read evidence before it is torn down.
-- **There is NO post-merge evidence retrieval.** Once the branch is pushed or
-  merged and the worktree is removed, node IDs point at nothing. Do not cite
-  node IDs in a return expecting the conductor to retrieve evidence after
-  cleanup.
+- **There is NO post-retirement evidence retrieval.** Once the evidence is
+  deleted or copied out and the carrier retires, node IDs point at nothing.
+  Do not cite node IDs in a return expecting the conductor to retrieve
+  evidence after that.
 - **Raw tool output may contain absolute paths or secrets.** Evidence is NEVER
   committed. The `.agentic/` directory is gitignored by the shared scaffold
   (`content/commands/ds-init-project.md`), and `.agentic/evidence/` is added to

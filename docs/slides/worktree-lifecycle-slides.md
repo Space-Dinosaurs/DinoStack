@@ -182,7 +182,7 @@ The conductor never edits the shippable tree directly - not even for Trivial one
 
 <!-- _class: highlight -->
 
-## Two classes of worktree
+## Carriers retire by purpose
 
 <style scoped>
   .columns .card { font-size: 0.82em; line-height: 1.45; padding: 1em 1.1em; }
@@ -192,19 +192,19 @@ The conductor never edits the shippable tree directly - not even for Trivial one
 
 <div class="columns">
 <div class="card">
-<strong>Isolation worktrees</strong><br/>
-Path <code>.claude/worktrees/*</code>. Created automatically by the Agent tool when <code>isolation: "worktree"</code> is set on the spawn call. Each parallel subagent gets its own copy of the tree.<br/><br/>
-<strong>Cleanup trigger:</strong> once the agent returns and the conductor opens a PR (or confirms no PR is needed), the isolation worktree is redundant. The branch holds the commits. Remove immediately.
+<strong>Temporary carriers</strong><br/>
+Engineer, reviewer, QA, plan, scratch and verification checkouts - harness <code>.claude/worktrees/*</code> or conductor-created <code>.agentic/worktrees/*</code>. Owner: the conductor that spawned or created it.<br/><br/>
+<strong>Trigger:</strong> completion - the review gates on its output have returned, or the work is abandoned, and its agent gets no further work.
 </div>
 <div class="card">
-<strong>Feature worktrees</strong><br/>
-Path <code>.agentic/worktrees/&lt;branch-name&gt;</code>.<br/><br/>
-<strong>Cleanup trigger:</strong> removed after the PR is merged. The merge (not the PR open) is the trigger.
+<strong>Integration and runtime carriers</strong><br/>
+<code>.agentic/worktrees/${FEATURE_BRANCH}</code>, a QA dev-server checkout, evidence a later step reads. Owner: the conductor.<br/><br/>
+<strong>Trigger:</strong> the same completion event. Ticket close and PR merge are never the trigger.
 </div>
 </div>
 
 <div class="callout">
-Classified by <strong>path, never branch name</strong> (<code>bin/tests/worktree_model.py</code>'s <code>classify_entry</code> is normative - DS-118: a renamed branch can live inside either admin directory, so a name-based scheme collides). Two classes, two distinct cleanup triggers. Getting the trigger wrong leaves stale worktrees that accumulate between runs and confuse subsequent sessions.
+Purpose, not path, sets owner and trigger. Path classification (<code>bin/tests/worktree_model.py</code>'s <code>classify_entry</code>, never branch name) drives only the evidence-gated sweep of leftovers.
 </div>
 
 ---
@@ -244,26 +244,21 @@ The version floor matters: on Claude Code builds predating the isolated-worktree
   .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-Trigger: agent returned output AND conductor has opened a PR (or confirmed no PR needed).
+Trigger: the carrier's completion. Phase 8 runs it right after the engineer's push.
 
 ```bash
-# Verify no uncommitted changes before removing:
-git -C <worktree-path> status --porcelain
-# If clean (no output), remove the worktree and local branch:
-git worktree remove <worktree-path>
-git branch -D <branch-name> 2>/dev/null || true
-# Safe: the PR is backed by the branch on origin, not this local ref.
-# Only the redundant local branch is removed; pushed commits and PR are unaffected.
-# If modified tracked files exist, inspect first then force-remove:
-# git worktree remove --force <worktree-path>
+ds-retire-carrier <worktree-path>
+# exit 0: checkout removed, branch kept
+# exit 3: hold recorded (owner, reason, revisit event)
+ds-retire-carrier --list-holds        # open holds, at /ds-wrap Step 5 and session start
 ```
 
-- The local branch lingers after `worktree remove` without an explicit `branch -D`
-- Force-remove is only safe after confirming nothing important is uncommitted
-- Isolation worktrees with changes persist until the conductor explicitly removes them
+- Removes the checkout only when unlocked, clean, free of protected ignored content (`.agentic/`, `.env*`) and nested worktrees, and every commit it pins keeps a ref
+- Never forces, unlocks, prunes, pushes or deletes a branch
+- A checkout with changes is held, never force-removed
 
 <div class="callout">
-Isolation worktrees with no changes are auto-cleaned by the Agent tool. Those with changes are the conductor's responsibility.
+An unpinned commit is released by pushing or merging it, or by <code>--pin</code>, which keeps it on a local <code>carrier-pin/*</code> branch.
 </div>
 
 ---
@@ -277,22 +272,22 @@ Isolation worktrees with no changes are auto-cleaned by the Agent tool. Those wi
   .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-Trigger: the PR is merged (not when the PR is opened).
+Integration and feature checkouts retire at the same completion event, through the same command.
 
 ```bash
-gh pr merge <number> --squash --delete-branch
-git worktree remove --force <worktree-path>
-git branch -D <branch-name>   # if not auto-deleted by --delete-branch
-git worktree prune             # clean up any stale metadata
+ds-retire-carrier .agentic/worktrees/<branch-name>
+# explicit hold for what the tool cannot see (a live server, a pending consumer):
+ds-retire-carrier --hold --reason "<why>" --revisit "<event>" <path>
+ds-retire-carrier --release <path>   # only after the revisit event
 ```
 
-- `--delete-branch` on `gh pr merge` may not auto-delete in all gh CLI versions; the explicit `git branch -D` is the fallback
-- `git worktree prune` cleans up stale metadata left over from worktrees removed without the normal command
+- Branch deletion is a separate step with its own proof (ancestor of the live origin tip or of `$FEATURE_BRANCH`, or `bin/ds-branch-prune`)
+- `gh pr merge <number> --squash --delete-branch` is the merge protocol, not a cleanup step
 
-Do not leave stale worktrees between tasks. Between tasks there should be no active subagent worktrees.
+Between tasks, no completed carrier stays without a recorded hold.
 
 <div class="callout">
-Feature worktrees outlive the PR open state; isolation worktrees do not. That asymmetry is the main source of incorrect cleanup timing.
+One hold per path: a blanket "preserve every worktree" instruction is not a hold.
 </div>
 
 ---
@@ -422,7 +417,7 @@ A crashed continuation leaves ONE artifact - its own harness isolation worktree,
 - `head_reachable` (the fact that would let a pushed-already leftover auto-sweep) is dead code in `bin/ds-cleanup-worktrees` - hardcoded `"not_checked"` at every construction site - so **every** detached leftover, pushed or not, resolves `SKIP_UNREFERENCED_COMMIT` today, refused by design, same work-preserving discipline as `SKIP_UNPROVEN`
 - Triage manually: `git -C <path> branch -r --contains "$(git -C <path> rev-parse HEAD)"` - nonempty means the work already reached `origin` and is safe; empty means this worktree is the sole copy
 - Recovery: inspect the tip (`git -C <path> log -1`), then push it to its intended branch or cherry-pick it where it belongs
-- Discard via **plain `git worktree remove <path>` first** - a refusal naming uncommitted files means there's working-tree content `log -1` couldn't show; inspect `status --porcelain` and `diff` before deciding, only then `--force`
+- Retire via **`ds-retire-carrier <path>`** (`--pin` keeps an unpushed tip) or record a hold - never `--force`; a hold naming uncommitted changes means content `log -1` couldn't show - inspect `status --porcelain` and `diff` first
 
 <div class="callout">
 This IS the harness's own locked isolation worktree - a lock refusal is a DIFFERENT case from an uncommitted-content refusal; never unlock/force a still-locked one.

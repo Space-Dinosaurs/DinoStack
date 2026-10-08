@@ -3405,11 +3405,58 @@ runpy.run_path(sys.argv[0], run_name="__main__")
                 result = self.check(expected=1)
                 self.assertTrue(
                     "compatibility inventory drift" in result.stderr
-                    or "unsupported operational slash workflow" in result.stderr,
+                    or "unsupported operational slash workflow" in result.stderr
+                    or "unmapped isolation literal" in result.stderr,
                     result.stderr,
                 )
         source.write_text(original, encoding="utf-8")
         self.check()
+
+    def test_generated_worktree_lifecycle_names_codex_carriers(self) -> None:
+        methodology = (self.repo / ".codex/skills/dinostack-codex/METHODOLOGY.md").read_text(encoding="utf-8")
+        section = re.search(r"(?ms)^## Worktree Lifecycle\n.*?(?=^## )", methodology)
+        self.assertIsNotNone(section)
+        text = section.group(0)
+        self.assertNotIn("created by the Agent tool", text)
+        self.assertNotIn(".claude/worktrees", text)
+        self.assertIn("`$AE_PROJECT_DIR/.agentic/worktrees/*` on Codex", text)
+        self.assertEqual(1, text.count("`$AE_PROJECT_DIR/.agentic/worktrees/*`"))
+        self.assertIn("ds-retire-carrier", text)
+
+    def test_bare_isolation_literal_raises_skill_error(self) -> None:
+        module_name = f"codex_skills_fixture_{id(self)}"
+        spec = importlib.util.spec_from_file_location(module_name, self.repo / GENERATOR)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        self.addCleanup(sys.modules.pop, module_name, None)
+        spec.loader.exec_module(module)
+        fixture = module.Document("fixture.md", 'Spawn the reviewer with `isolation: "worktree"` set.\n')
+        with self.assertRaises(module.SkillError) as raised:
+            module.inventory_document(fixture, self.repo)
+        self.assertIn("unmapped isolation literal in fixture.md", str(raised.exception))
+
+    def test_dead_worktree_paragraph_pattern_fails_check(self) -> None:
+        generator = self.repo / GENERATOR
+        original = generator.read_text(encoding="utf-8")
+        anchor = "WORKTREE_PARAGRAPHS = (\n"
+        self.assertIn(anchor, original)
+        generator.write_text(
+            original.replace(anchor, anchor + '    r"\\*\\*No document carries this paragraph\\.\\*\\*.*?(?=\\n\\n)",\n', 1),
+            encoding="utf-8",
+        )
+        result = self.check(expected=1)
+        self.assertIn("WORKTREE_PARAGRAPHS pattern(s) matched no document", result.stderr)
+        generator.write_text(original, encoding="utf-8")
+
+    def test_generated_wrap_step5_has_no_silent_skip(self) -> None:
+        wrap = (self.repo / ".codex/skills/dinostack-codex-wrap/SKILL.md").read_text(encoding="utf-8")
+        step = re.search(r"(?ms)^\*\*Step 5 . Worktree cleanup\.\*\*\n.*?(?=^\*\*Step 6)", wrap)
+        self.assertIsNotNone(step)
+        self.assertNotIn("skip this step silently", step.group(0))
+        self.assertNotIn("skill available", step.group(0))
+        self.assertIn("ds-retire-carrier --list-holds", step.group(0))
 
 
 class CodexPromptWrapperTests(unittest.TestCase):

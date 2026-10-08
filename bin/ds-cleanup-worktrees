@@ -994,6 +994,10 @@ Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       supplies no flag of its own: Step 2 applies the 24h
                       floor whenever `<cwd>/.agentic/wrap/lock` is present,
                       which /ds-wrap holds across the whole of Step 5);
+                      bin/ds-retire-carrier (imports _git_status_and_ignored,
+                      _is_protected_ignored_path and _salvage_and_remove; any
+                      behavior change to them changes completion-time
+                      retirement);
                       CI: bin/tests/test_cleanup_worktrees.py (single-repo
                       surface, pytest, auto-collected by `python3 -m
                       pytest bin/tests/`) and

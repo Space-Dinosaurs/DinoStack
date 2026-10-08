@@ -60,6 +60,13 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 
 Codex spawns are asynchronous. The conductor remains responsive, uses the collaboration status and
 wait operations to collect completion, and applies the existing review gates to the returned diff.
+
+**Retire or hold each checkout at completion.** A carrier's work is complete when the review gates
+on its output have returned, or the work is abandoned, and its agent will be sent no further work.
+Then run `$AE_REPO_DIR/bin/ds-retire-carrier <absolute-path>`; it removes only the checkout, never
+the branch, or records a hold whose revisit event you act on. Never wait for ticket completion or PR
+merge.
+
 Claude hook payload fields and Claude Task behavior do not apply on Codex.
 
 
@@ -1752,7 +1759,7 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
 
   Rebase conflict -> `git -C <worktree> rebase --abort`, return BLOCKED with the conflict output. Retried push ALSO rejected -> return BLOCKED, do not loop.
 
-  **What BLOCKED means for cleanup.** When the retry is exhausted and the engineer returns BLOCKED, its isolation worktree holds an **unpushed commit** - the engineer's actual deliverable, not yet on any ref the PR flow can see. The conductor **must not** run its normal worktree cleanup in this specific BLOCKED state - that cleanup path assumes the branch has already been pushed to origin, and running it here is the exact mechanism by which the ticket's real deliverable would be lost. The worktree must be preserved until a human resolves the underlying rejection.
+  **What BLOCKED means for cleanup.** When the retry is exhausted and the engineer returns BLOCKED, its isolation worktree holds an **unpushed commit** - the engineer's actual deliverable, not yet on any ref the PR flow can see. The conductor **must not** run its normal worktree cleanup in this specific BLOCKED state - that cleanup path assumes the branch has already been pushed to origin, and running it here is the exact mechanism by which the ticket's real deliverable would be lost. The worktree must be preserved until a human resolves the underlying rejection. Record that hold: `"$REPO_DIR/bin/ds-retire-carrier" --hold --reason "BLOCKED: unpushed commit" --revisit "operator resolves the push rejection" <worktree>`.
 
 Extend `completion_conditions` to include: "quality_gates.command exits 0", "commit and push completed per git_finalization", and "quality_gate_results captured in return".
 
@@ -1781,9 +1788,11 @@ When this ticket has a Brief or Plan (Phase 4's "Commit and push the planning ar
 Use git worktrees to give each engineer an isolated copy. The orchestration-planner's JSONL block provides `unit_slug`, `merge_order`, and `skeptic_strategy` for each unit - read these fields to drive worktree naming, merge ordering, and Skeptic strategy. Before creating worktrees, prune stale state from any prior fan-out:
 
 ```bash
-# Prune stale worktree metadata and remove any leftover sub-branches from prior runs:
 git -C $REPO worktree prune
-# If any ${FEATURE_BRANCH}-${unit_slug} branches exist from a prior run, delete them before proceeding.
+# Leftover ${FEATURE_BRANCH}-${unit_slug} from a prior run: retire its checkout first
+# ("$REPO_DIR/bin/ds-retire-carrier" <path>; any nonzero exit stops that unit - escalate).
+# Then delete the branch (git branch -D) only if its tip is an ancestor of
+# $FEATURE_BRANCH or origin/$BASE_BRANCH (git merge-base --is-ancestor); else escalate.
 ```
 
 Create one worktree per unit, each rooted from `BASE_BRANCH` (loop over all N units from the planner's JSONL block in `merge_order` sequence):
@@ -1874,7 +1883,7 @@ git -C "$INTEGRATION_WORKTREE" merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 **N>2 conflict recovery.** On conflict at any step:
 1. `git -C "$INTEGRATION_WORKTREE" merge --abort`
 2. Stop; do not merge further.
-3. Collect conflict files, all units' diffs, and the planner output.
+3. Collect conflict files, all units' diffs, and the planner output. Then retire every unit checkout per **Worktree cleanup** below.
 4. Spawn a single engineer with a conflict-resolution brief: all units' complete changes, the conflict markers, and explicit instruction to implement all units sequentially in a single worktree targeting `FEATURE_BRANCH`.
 5. The sequential re-implementation engineer inherits a single-Skeptic review obligation (one Skeptic over combined diff, since units are now interdependent by fact of their conflict).
 6. The conflict re-route counts as iteration 1 of the Phase 6 loop (do not double-count).
@@ -1889,20 +1898,19 @@ git -C "$INTEGRATION_WORKTREE" merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 
 **Post-merge integration quality check.** After all N merges complete cleanly on `FEATURE_BRANCH`, run `$QUALITY_CMD` from `$INTEGRATION_WORKTREE` (never `$REPO`). If it fails, spawn one engineer pointed at `$INTEGRATION_WORKTREE` with the failure output. The fix goes through a single Skeptic on the incremental diff before Phase 5 is complete; does NOT replace Phase 6.
 
-**Worktree cleanup.** After all merges succeed (or after escalation, to prevent stale worktree accumulation):
+**Worktree cleanup.** Retire each unit checkout at completion - after its merge, after escalation, or at a conflict re-route once step 3 has collected every unit's diff (§Carrier lifecycle by purpose in `$AE_REPO_DIR/content/references/worktree-lifecycle.md`). Delete a sub-branch only once `$FEATURE_BRANCH` contains its tip; an unmerged one stays and pins its commits:
 
 ```bash
 # For each unit:
-if [ -z "$(git -C ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} status --porcelain 2>/dev/null)" ]; then
-  git -C $REPO worktree remove ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} --force
-  git -C $REPO branch -d ${FEATURE_BRANCH}-${unit_slug}
-else
-  echo "WARNING: worktree ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} has uncommitted changes; skipping cleanup"
+UNIT_WT="${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug}"
+if "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$UNIT_WT" \
+   && git -C $REPO merge-base --is-ancestor "${FEATURE_BRANCH}-${unit_slug}" "$FEATURE_BRANCH"; then
+  git -C $REPO branch -D "${FEATURE_BRANCH}-${unit_slug}"
 fi
 git -C $REPO worktree prune
 ```
 
-`$INTEGRATION_WORKTREE` is removed post-push by Phase 8's "Isolation worktree cleanup" block (resolved by `$BRANCH_NAME`, same clean-status guard).
+`$INTEGRATION_WORKTREE` is retired post-push by Phase 8's "Isolation worktree cleanup" block (resolved by `$BRANCH_NAME`).
 
 For full worktree cleanup rules (isolation worktrees, feature worktrees, stale branch pruning), see `$AE_CORE_SKILL_ROOT/METHODOLOGY.md §Worktree Lifecycle`.
 
@@ -2521,52 +2529,23 @@ fi
 git -C $REPO push -u origin [BRANCH_NAME]
 
 # --- Isolation worktree cleanup (post-push) ---
-# The branch now lives on origin; the engineer's isolated worktree is redundant.
-# Resolve the worktree from the branch name so renames do not break cleanup.
+# Retire the engineer's checkout (worktree-lifecycle.md §Carrier lifecycle by
+# purpose): ds-retire-carrier removes it only when clean, free of protected
+# ignored content, and pinning no commit that would lose its last ref; it never
+# forces, unlocks, or deletes a branch, and records a hold otherwise.
 git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
-if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
-  WORKTREE_PATH=$("$REPO_DIR/bin/ds-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
-  if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
-    if [ -z "$(git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null)" ]; then
-      # Single attempt, no force. A refusal (locked by the harness, or any
-      # other reason) is the CORRECT outcome here, never overridden - per
-      # $AE_REPO_DIR/content/references/worktree-lifecycle.md §Guardrail, `git worktree
-      # unlock` may be used ONLY on a worktree whose directory is already
-      # gone (this worktree's directory demonstrably still exists, since we
-      # got this far), and a double-force `remove -f -f` overrides the
-      # harness's own lock protection, which this methodology must never do.
-      # A round-2 Skeptic Critical caught an earlier version of this block
-      # doing exactly that on an "agent may have just finished" assumption
-      # with no check backing it - removed entirely.
-      REMOVE_STDERR=$(git -C "$REPO" worktree remove "$WORKTREE_PATH" 2>&1)
-      REMOVE_RC=$?
-      if [ "$REMOVE_RC" -eq 0 ]; then
-        git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
-        echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
-      else
-        # Never discard stderr on a refusal - surface it AND append a
-        # persisted skip record so the orphaned (or still-locked) worktree
-        # is visible in a later session (previously this failure was
-        # silently swallowed by `2>/dev/null || true`, which is exactly how
-        # isolation worktrees from failed cleanups accumulated invisibly).
-        # A locked-worktree refusal is expected and safe here.
-        echo "WARNING: git worktree remove failed for $WORKTREE_PATH (branch=$BRANCH_NAME): $REMOVE_STDERR" >&2
-        mkdir -p "$REPO/.agentic" 2>/dev/null || true
-        SKIP_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-        python3 -c "
-import json, sys
-rec = {'ts': sys.argv[1], 'branch': sys.argv[2], 'path': sys.argv[3], 'stderr': sys.argv[4]}
-with open(sys.argv[5], 'a') as f:
-    f.write(json.dumps(rec) + chr(10))
-" "$SKIP_TS" "$BRANCH_NAME" "$WORKTREE_PATH" "$REMOVE_STDERR" "$REPO/.agentic/worktree-cleanup-skips.jsonl" 2>/dev/null || true
-      fi
-    else
-      echo "WARNING: worktree $WORKTREE_PATH has uncommitted changes; skipping cleanup"
-    fi
+WORKTREE_PATH=$("$REPO_DIR/bin/ds-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
+if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ] \
+   && "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$WORKTREE_PATH"; then
+  # Separate step, own proof: delete the local ref only when origin holds its tip.
+  if git -C "$REPO" ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1 \
+     && git -C "$REPO" merge-base --is-ancestor "$BRANCH_NAME" "origin/$BRANCH_NAME"; then
+    git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
   fi
+  echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
 fi
 # Soft-fail: this entire block never blocks Phase 8 regardless of outcome -
-# a remove failure is reported (stderr + the ledger above), never fatal.
+# a remove failure is reported (stderr + its ledger record), never fatal.
 # --- End isolation worktree cleanup ---
 ```
 
@@ -2680,7 +2659,9 @@ for i in 1 2 3; do
   git -C "$WORKTREE_PATH" rebase origin/qa-evidence
 done
 
-git -C "$REPO" worktree remove "$WORKTREE_PATH" --force 2>/dev/null || true
+if [ -x "$REPO_DIR/bin/ds-retire-carrier" ]; then "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$WORKTREE_PATH" \
+  || echo "WARNING: QA evidence worktree $WORKTREE_PATH not retired (exit $?); see the HELD line above or $AE_REPO_DIR/bin/ds-retire-carrier --list-holds" >&2
+else echo "WARNING: $REPO_DIR/bin/ds-retire-carrier missing; QA evidence worktree $WORKTREE_PATH left in place" >&2; fi
 git -C "$REPO" worktree prune 2>/dev/null || true
 ```
 

@@ -76,6 +76,7 @@ bin/ds-memory::_LazyAgenticPath(".agentic", "memory", "MEMORY.md"),
 bin/ds-memory::_LazyAgenticPath(".agentic", "memory.md"),
 bin/ds-memory::a bare relative Path(".agentic/...") that silently resolves against
 bin/ds-memory::relative Path(".agentic/..."). These module-level names are
+bin/ds-retire-carrier::LEDGER_REL = os.path.join(".agentic", "worktree-cleanup-skips.jsonl")
 bin/ds-status::HEALTH_FILE_PATH = _agentic_root() / ".agentic" / ".telemetry-health.json"
 bin/ds-status::ROLE_MODELS_PROJECT_PATH = _agentic_root() / ".agentic" / "role-models.yml"
 bin/ds-status::SENTINEL_PATH = _agentic_root() / ".agentic" / ".activated"

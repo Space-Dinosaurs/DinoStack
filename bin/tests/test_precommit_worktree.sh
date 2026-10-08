@@ -163,9 +163,10 @@
 #     it left the full suite green).
 #   - Bounded upward search / depth-2 evidence (round 3, Major 2 - the
 #     round-2 "every candidate resolves at exactly ONE directory level
-#     below its container" premise was false:
-#     content/references/subagent-protocol.md:333-334's own documented
-#     worktree-add command uses a FEATURE_BRANCH value that, under this
+#     below its container" premise was false: the ".worktrees/" candidate
+#     covers legacy checkouts from content/references/subagent-protocol.md's
+#     fan-out example's former path (now ".agentic/worktrees/"), whose
+#     worktree-add command used a FEATURE_BRANCH value that, under this
 #     repo's branch-naming convention, contains a "/" - landing the
 #     worktree TWO levels below ".worktrees", not one; AGENTS.md:48's
 #     ".agentic/worktrees/<branch-name>" has the identical hazard for any
@@ -1320,9 +1321,10 @@ else
 fi
 
 # ============================================================
-# Test 20: orphan cleanup, the ".worktrees/" candidate added for Major 1
-#          (content/references/subagent-protocol.md:333's manually-managed
-#          fan-out path, "${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug}").
+# Test 20: orphan cleanup, the ".worktrees/" candidate added for Major 1.
+#          It covers legacy checkouts from the subagent-protocol fan-out
+#          example's former path, "${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug}"
+#          (now ".agentic/worktrees/").
 # ============================================================
 
 DOTWT_MAIN="$TMP_ROOT/dotwt-main-repo"
@@ -1595,8 +1597,9 @@ fi
 
 # ============================================================
 # Test 26: depth-2 evidence (round-3 Major 2) -
-#          content/references/subagent-protocol.md:333-334's own
-#          documented, copy-pasteable worktree-add command uses a
+#          content/references/subagent-protocol.md's documented,
+#          copy-pasteable worktree-add command (now under
+#          ".agentic/worktrees/"; legacy checkouts used ".worktrees/") uses a
 #          FEATURE_BRANCH value that, per this repo's branch-naming
 #          convention (content/rules/conventions.md), takes the form
 #          "feature/<name>" / "fix/<name>" / "chore/<name>" - so the
