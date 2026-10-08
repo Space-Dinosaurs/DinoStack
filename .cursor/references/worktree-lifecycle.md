@@ -302,15 +302,14 @@ FORM does not.
 git checkout worktree-agent-<id>
 ```
 
-**Why this exists - never simplify it away:** §Isolation worktree cleanup
-commands above resolves the worktree to remove via
-`resolve_branch_worktree "$REPO_DIR" "$BRANCH_NAME"`
-(`scripts/lib/worktree.sh`), whose own module docstring states verbatim
-"Intentionally does not match detached-HEAD worktrees or remote-tracking
-refs" (`:24`). Left detached, that resolver returns an empty path for
-THIS worktree on every subsequent lookup, and the cleanup block's
-`[ -n "$WORKTREE_PATH" ]` guards both the status check and the removal -
-so cleanup silently no-ops forever, not just once. Re-attaching to the
+**Why this exists - never simplify it away:** Phase 8's isolation
+worktree cleanup (§Isolation worktree cleanup commands above) finds the
+checkout to retire with `bin/ds-resolve-worktree` from the branch name,
+and that resolver "Does not match detached-HEAD worktrees" (its manifest;
+`scripts/lib/worktree.sh` behind it says the same). Left detached, it
+returns an empty path for THIS worktree on every subsequent lookup, and
+Phase 8 only calls `ds-retire-carrier` when that path is non-empty - so
+retirement silently never runs, not just once. Re-attaching to the
 engineer's own harness branch (`worktree-agent-<id>` - confirmed above to
 survive the detach) restores the resolver's visibility and makes the
 worktree an ordinary, cleanable branch-based entry again before the

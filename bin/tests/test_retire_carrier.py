@@ -1,9 +1,10 @@
-"""Behavioral matrix for bin/ds-retire-carrier: cases a-s, plus t-z and aa-jj
+"""Behavioral matrix for bin/ds-retire-carrier: cases a-s, plus t-z and aa-ll
 (nested worktrees and repositories, private gitdir names as pin candidates,
 private gitdir validation, --pin re-verification, reftable, detached .agentic
 filtering, hidden skip-worktree/assume-unchanged edits, submodules, user
 status config, index untouched by inspection, carrier-keyed explicit holds,
-git resolved through PATH), one or more per gate or ledger rule. Every case
+git resolved through PATH, relative worktree paths, changes during the
+phase-2 fetch), one or more per gate or ledger rule. Every case
 builds disposable repos with a bare origin under pytest's tmp_path and never
 touches a live checkout. Every subprocess run of the tool goes through a git
 argv shim that logs each git invocation; after every run the shim log must
@@ -774,3 +775,74 @@ def test_jj_git_resolved_through_path_only(fx: Fixture) -> None:
         assert "shutil.which" not in text and "GIT_EXEC_PATH" not in text
     assert re.findall(r'\["git"', TOOL.read_text()), "tool no longer spawns bare git"
     assert fx.run("--repo", str(fx.repo), "--list-holds").returncode == 0
+
+
+def _relative_paths_or_fail(fx: Fixture, wt: Path) -> None:
+    """Skip on a git without worktree.useRelativePaths; under CI that is a
+    hard failure, never a silent skip."""
+    if not (wt / ".git").read_text().strip()[len("gitdir:"):].strip().startswith("/"):
+        return
+    message = "git does not honor worktree.useRelativePaths (needs git >= 2.48)"
+    if os.environ.get("CI"):
+        pytest.fail(message)
+    pytest.skip(message)
+
+
+# kk. Relative gitdir and backlink paths resolve against the file that holds
+# them: a clean carrier retires, a mismatched backlink still holds.
+def test_kk_relative_worktree_paths(fx: Fixture) -> None:
+    git(fx.repo, "config", "worktree.useRelativePaths", "true")
+    wt = fx.add("br-kk", branch="feature/kk")
+    _relative_paths_or_fail(fx, wt)
+    admin = Path(git(wt, "rev-parse", "--absolute-git-dir").stdout.strip())
+    assert not (admin / "gitdir").read_text().strip().startswith("/")
+    other = fx.add("br-kk-other", branch="feature/kk-other")
+    mismatched = fx.add("br-kk-bad", branch="feature/kk-bad")
+    other_admin = Path(git(other, "rev-parse", "--absolute-git-dir").stdout.strip())
+    (mismatched / ".git").write_text(f"gitdir: {os.path.relpath(other_admin, mismatched)}\n")
+    proc = fx.run(str(mismatched))
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert "points at" in last(fx)["reason"]
+    proc = fx.run(str(wt))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert not wt.exists()
+
+
+def _race(fx: Fixture, name: str, during_fetch) -> tuple:
+    """A detached carrier whose only unpushed-looking commit is on a live
+    origin branch, so gate 7 reaches phase 2; `during_fetch` runs inside the
+    stubbed fetch window."""
+    wt = fx.add(name)
+    commit(wt, f"{name}.txt")
+    git(wt, "push", "-q", "origin", f"HEAD:refs/heads/{name}")
+    tool = _load(f"ds_retire_carrier_{name.replace('-', '_')}", TOOL)
+    real = tool._origin_pins
+
+    def racing(cwd, dry_run):
+        tips = real(cwd, dry_run)
+        during_fetch(wt)
+        return tips
+
+    _tool, rc = _in_process_patched(fx, {"_origin_pins": racing}, str(wt))
+    return wt, rc
+
+
+# ll. A commit made during the phase-2 fetch is re-read before removal.
+def test_ll_commit_during_fetch_held(fx: Fixture) -> None:
+    def make_private_commit(wt: Path) -> None:
+        tree = git(wt, "rev-parse", "HEAD^{tree}").stdout.strip()
+        sha = git(wt, "commit-tree", tree, "-p", "HEAD", "-m", "during fetch").stdout.strip()
+        git(wt, "update-ref", "refs/worktree/during", sha)
+
+    wt, rc = _race(fx, "det-ll", make_private_commit)
+    assert rc == 3
+    assert "appeared during inspection" in last(fx)["reason"]
+    assert wt.exists()
+
+
+# ll2. HEAD moving during the fetch holds even when it lands on a pinned commit.
+def test_ll2_head_moved_during_fetch_held(fx: Fixture) -> None:
+    wt, rc = _race(fx, "det-ll2", lambda w: git(w, "checkout", "-q", "--detach", "main"))
+    assert rc == 3
+    assert last(fx)["reason"].startswith("HEAD moved during inspection")
+    assert wt.exists()

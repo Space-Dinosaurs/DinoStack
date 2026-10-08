@@ -1597,8 +1597,9 @@ fi
 
 # ============================================================
 # Test 26: depth-2 evidence (round-3 Major 2) -
-#          content/references/subagent-protocol.md:333-334's own
-#          documented, copy-pasteable worktree-add command uses a
+#          content/references/subagent-protocol.md's documented,
+#          copy-pasteable worktree-add command (now under
+#          ".agentic/worktrees/"; legacy checkouts used ".worktrees/") uses a
 #          FEATURE_BRANCH value that, per this repo's branch-naming
 #          convention (content/rules/conventions.md), takes the form
 #          "feature/<name>" / "fix/<name>" / "chore/<name>" - so the

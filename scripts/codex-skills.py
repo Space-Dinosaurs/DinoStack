@@ -651,6 +651,10 @@ LITERAL_RULES: tuple[tuple[str, str, str, str, str, str, str], ...] = (
     (r"\.claude/agents", "claude-path", "$AE_REPO_DIR/content/agents", "mapped-resource", "repository-path", "content/agents", "dinostack-repository"),
     (r"\.claude/commands", "claude-path", "$AE_REPO_DIR/content/commands", "mapped-resource", "repository-path", "content/commands", "dinostack-repository"),
     (r"\$CLAUDE_CODE_SESSION_ID", "session-variable", "$AE_SESSION_ID", "runtime-helper", "session-id", "bin/ds-codex-session-id", "codex-harness"),
+    # Same invocation form as CODEX_SPAWN_CONTRACT: the bare name needs the
+    # adapter installer to have put the tool on PATH.
+    (r"ds-retire-carrier <path>", "repository-tool", "$AE_REPO_DIR/bin/ds-retire-carrier <path>", "repository-owned", "repository-path", "bin/ds-retire-carrier", "dinostack-repository"),
+    (r"ds-retire-carrier --list-holds", "repository-tool", "$AE_REPO_DIR/bin/ds-retire-carrier --list-holds", "repository-owned", "repository-path", "bin/ds-retire-carrier", "dinostack-repository"),
 )
 
 

@@ -39,7 +39,11 @@ Public API (CLI):
   `refs/heads/*` tip or a branch reflog SHA (phase 1, local), else from a
   live `ls-remote --heads origin` tip after `fetch origin` (phase 2);
   `--pin` creates `refs/heads/carrier-pin/<basename>-<sha8>` at each maximal
-  unpinned commit instead; 8 `_salvage_and_remove`.
+  unpinned commit instead; 8 re-read HEAD and the candidate set (phase
+  2's fetch is a window): a moved HEAD or any candidate gate 7 did not
+  prove pinned holds; then `_salvage_and_remove`. Relative gitdir and
+  backlink paths (`worktree.useRelativePaths`) resolve against the
+  directory of the file they are read from, as git does.
 
   Never: branch deletion, unlock, `--force`, prune, push. The only ref it
   writes is a `carrier-pin/*` branch under `--pin`.
@@ -428,8 +432,9 @@ def _maximal(cwd: str, commits: List[str]) -> List[str]:
 
 
 def _pin_gate(path: str, primary: str, common: str, gitdir: str, head: Optional[str],
-              pin: bool, dry_run: bool) -> List[str]:
-    """Gate 7. Returns the carrier-pin refs created (or that would be)."""
+              pin: bool, dry_run: bool) -> Tuple[List[str], List[str]]:
+    """Gate 7. Returns (carrier-pin refs created or that would be, the
+    candidate commits it proved pinned)."""
     storage = _git(["config", "--get", "extensions.refStorage"], primary)
     if storage.returncode == 0 and storage.stdout.strip() == "reftable":
         raise Hold("pin check unavailable: refStorage=reftable", REVISIT["unpinned"],
@@ -438,7 +443,7 @@ def _pin_gate(path: str, primary: str, common: str, gitdir: str, head: Optional[
     pins = _local_pins(primary, common)
     unpinned = _unpinned(primary, candidates, pins)
     if not unpinned:
-        return []
+        return [], candidates
     network_hold: Optional[Hold] = None
     origin_tips: List[str] = []
     try:
@@ -449,7 +454,7 @@ def _pin_gate(path: str, primary: str, common: str, gitdir: str, head: Optional[
         network_hold = hold
         remaining = unpinned
     if not remaining:
-        return []
+        return [], candidates
     if not pin:
         sample = ", ".join(sha[:8] for sha in remaining[:5])
         print(f"WARNING: worktree {path} privately pins {len(remaining)} commit(s) with no surviving ref "
@@ -474,13 +479,28 @@ def _pin_gate(path: str, primary: str, common: str, gitdir: str, head: Optional[
         if proc.returncode != 0:
             raise Hold(f"--pin could not create {ref}", REVISIT["remove"], proc.stderr.strip() or "update-ref failed")
     if dry_run:
-        return created
+        return created, candidates
     # Re-verify against what phase 2 accepted: local branches (now including
     # the new carrier-pin refs) plus the live origin tips already collected.
     if _unpinned(primary, candidates, _local_pins(primary, common) + origin_tips):
         raise Hold("--pin re-verification found commits still unpinned", REVISIT["unpinned"],
                    "carrier-pin refs created but rev-list still reports unpinned commits")
-    return created
+    return created, candidates
+
+
+def _recheck_candidates(path: str, primary: str, gitdir: str, head: Optional[str], proven: List[str]) -> None:
+    """Immediately before removal, re-read the candidate set: phase 2's fetch
+    leaves a window in which the carrier can move HEAD or gain a commit that
+    gate 7 never checked. Either holds."""
+    current = _git(["rev-parse", "--verify", "HEAD"], path)
+    now_head = current.stdout.strip() if current.returncode == 0 else None
+    if now_head != head:
+        raise Hold(f"HEAD moved during inspection ({(head or 'none')[:8]} -> {(now_head or 'unknown')[:8]})",
+                   "re-run once the carrier is idle")
+    fresh = sorted(set(_candidates(primary, gitdir, now_head)) - set(proven))
+    if fresh:
+        sample = ", ".join(sha[:8] for sha in fresh[:5])
+        raise Hold(f"{len(fresh)} commit(s) appeared during inspection ({sample})", "re-run once the carrier is idle")
 
 
 def _private_gitdir(path: str, common: str) -> str:
@@ -509,7 +529,10 @@ def _private_gitdir(path: str, common: str) -> str:
             backlink = handle.read().strip()
     except OSError as exc:
         raise Hold(f"private gitdir indeterminate: cannot read {backlink_file}", REVISIT["indeterminate"], str(exc))
-    if os.path.realpath(backlink) != os.path.realpath(dotgit):
+    # A relative backlink (worktree.useRelativePaths) is relative to the
+    # directory holding the `gitdir` file, as git resolves it.
+    backlink_abs = backlink if os.path.isabs(backlink) else os.path.join(gitdir, backlink)
+    if os.path.realpath(backlink_abs) != os.path.realpath(dotgit):
         raise Hold(f"private gitdir indeterminate: {backlink_file} points at {backlink}, not {dotgit}",
                    REVISIT["indeterminate"])
     for marker in IN_PROGRESS_MARKERS:
@@ -721,11 +744,13 @@ def _retire(args: argparse.Namespace) -> int:
             raise Hold(f"contains registered worktree(s): {listed}",
                        f"retire, move or hold {listed} first, then re-run")
 
-        pinned = _pin_gate(path, primary, common, gitdir, entry.get("head"), args.pin, args.dry_run)
+        pinned, proven = _pin_gate(path, primary, common, gitdir, entry.get("head"), args.pin, args.dry_run)
 
         if args.dry_run:
             print(f"WOULD RETIRE {path} (branch={label})")
             return 0
+
+        _recheck_candidates(path, primary, gitdir, entry.get("head"), proven)
 
         outcome = _salvage_and_remove(primary, path, branch)
         detail = outcome.get("detail") or ""

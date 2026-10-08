@@ -2012,6 +2012,16 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
+      "expected_target": "bin/ds-retire-carrier",
+      "generated_token": "$AE_REPO_DIR/bin/ds-retire-carrier <path>",
+      "kind": "operational",
+      "occurrence_hash": "dcab90a1314b96a6034a8d8f9ee67d6816108b8fc99d4b4f6e364413a1dba30f",
+      "resolution_mode": "repository-owned",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "ds-retire-carrier <path>"
+    },
+    {
       "expected_target": "one bounded direct question after default derivation",
       "generated_token": "AskUserQuestion",
       "kind": "semantic-reference",
@@ -8140,6 +8150,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "cp"
+    },
+    {
+      "expected_target": "bin/ds-retire-carrier",
+      "generated_token": "$AE_REPO_DIR/bin/ds-retire-carrier --list-holds",
+      "kind": "operational",
+      "occurrence_hash": "4c0b59b01c08e7812cc61f277ac4f3d25740511176388e9dec63070798d8d82e",
+      "resolution_mode": "repository-owned",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "ds-retire-carrier --list-holds"
     },
     {
       "expected_target": ".agentic/loop-state-",
@@ -23022,6 +23042,16 @@
       "source_token": "-C"
     },
     {
+      "expected_target": "bin/ds-retire-carrier",
+      "generated_token": "$AE_REPO_DIR/bin/ds-retire-carrier <path>",
+      "kind": "operational",
+      "occurrence_hash": "7de8913b06a53d06a383b5f9124d84d8d0130eb1a10c1c3d2dde31b259839743",
+      "resolution_mode": "repository-owned",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "ds-retire-carrier <path>"
+    },
+    {
       "expected_target": "dinostack-codex-implement-ticket",
       "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
@@ -24780,6 +24810,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".claude/settings.local.json"
+    },
+    {
+      "expected_target": "bin/ds-retire-carrier",
+      "generated_token": "$AE_REPO_DIR/bin/ds-retire-carrier --list-holds",
+      "kind": "operational",
+      "occurrence_hash": "e87f688070d1dfa4dce5fc5fe5c7bd497dac66a4658fc7104c5530cb28e33f29",
+      "resolution_mode": "repository-owned",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "ds-retire-carrier --list-holds"
     },
     {
       "expected_target": "bin/tests/reach_model.py",

@@ -239,9 +239,10 @@ This worktree is distinct from the harness-created isolation worktree (`.claude/
 
 ```bash
 # After QA knowledge capture, with its dev server stopped:
-ds-retire-carrier .agentic/worktrees/qa-<branch>
+if [ -x "$REPO_DIR/bin/ds-retire-carrier" ]; then "$REPO_DIR/bin/ds-retire-carrier" .agentic/worktrees/qa-<branch>
+else echo "WARNING: $REPO_DIR/bin/ds-retire-carrier missing; .agentic/worktrees/qa-<branch> left in place" >&2; fi
 # If a later step still needs its server or evidence, hold it instead:
-# ds-retire-carrier --hold --reason "<what still needs it>" --revisit "<that step returns>" .agentic/worktrees/qa-<branch>
+# "$REPO_DIR/bin/ds-retire-carrier" --hold --reason "<what still needs it>" --revisit "<that step returns>" .agentic/worktrees/qa-<branch>
 ```
 
 Serial multi-PR QA is reserved for cases where the parallel path is structurally blocked (e.g. only one preview environment available). Default is parallel.

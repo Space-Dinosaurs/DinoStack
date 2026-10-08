@@ -337,9 +337,10 @@ _precommit_canonical_repo_dir() {
 #       own isolation-worktree auto-lock directory)
 #     - "<repo_dir>/.agentic/worktrees" (AGENTS.md's documented
 #       isolation/feature worktree path)
-#     - "<repo_dir>/.worktrees"         (content/references/subagent-protocol.md:333's
-#       manually-managed fan-out path,
-#       "${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug}")
+#     - "<repo_dir>/.worktrees"         (legacy checkouts from the
+#       content/references/subagent-protocol.md fan-out example's former
+#       path; that example now creates
+#       "${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug}")
 #     - "<repo_dir>/evals/.worktrees"   (content/commands/ds-cleanup-worktrees.md:38's
 #       "evals/.worktrees/wt-*" instance)
 #   This list is a known INCOMPLETE enumeration, not a closed set derived
@@ -355,14 +356,15 @@ _precommit_canonical_repo_dir() {
 #   below its container. This was assumed in an earlier revision (a fixed
 #   two-strip: strip "/hooks/pre-commit", then strip one more trailing
 #   component) and found false by a round-3 Skeptic review:
-#   content/references/subagent-protocol.md:333-334's own documented,
+#   content/references/subagent-protocol.md's own documented,
 #   copy-pasteable command creates a worktree at
-#   "${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug}", and this repo's
-#   branch-naming convention (content/rules/conventions.md) makes
-#   FEATURE_BRANCH a "feature/<name>" / "fix/<name>" / "chore/<name>"
-#   value - so the resulting worktree lands at
-#   ".worktrees/feature/<name>-<unit_slug>", TWO components below
-#   ".worktrees", not one. AGENTS.md:48's ".agentic/worktrees/<branch-name>"
+#   "${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug}" (legacy
+#   checkouts used ".worktrees/"), and this repo's branch-naming
+#   convention (content/rules/conventions.md) makes FEATURE_BRANCH a
+#   "feature/<name>" / "fix/<name>" / "chore/<name>" value - so the
+#   resulting worktree lands at
+#   ".agentic/worktrees/feature/<name>-<unit_slug>", TWO components below
+#   its container, not one. AGENTS.md:48's ".agentic/worktrees/<branch-name>"
 #   phrasing has the identical hazard for any branch name containing a
 #   slash. A fixed strip count is therefore wrong by construction for any
 #   candidate whose worktree-naming convention can itself contain a "/".

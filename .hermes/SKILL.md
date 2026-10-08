@@ -6257,9 +6257,10 @@ This worktree is distinct from the harness-created isolation worktree (`.claude/
 
 ```bash
 # After QA knowledge capture, with its dev server stopped:
-ds-retire-carrier .agentic/worktrees/qa-<branch>
+if [ -x "$REPO_DIR/bin/ds-retire-carrier" ]; then "$REPO_DIR/bin/ds-retire-carrier" .agentic/worktrees/qa-<branch>
+else echo "WARNING: $REPO_DIR/bin/ds-retire-carrier missing; .agentic/worktrees/qa-<branch> left in place" >&2; fi
 # If a later step still needs its server or evidence, hold it instead:
-# ds-retire-carrier --hold --reason "<what still needs it>" --revisit "<that step returns>" .agentic/worktrees/qa-<branch>
+# "$REPO_DIR/bin/ds-retire-carrier" --hold --reason "<what still needs it>" --revisit "<that step returns>" .agentic/worktrees/qa-<branch>
 ```
 
 Serial multi-PR QA is reserved for cases where the parallel path is structurally blocked (e.g. only one preview environment available). Default is parallel.
@@ -9845,15 +9846,14 @@ FORM does not.
 git checkout worktree-agent-<id>
 ```
 
-**Why this exists - never simplify it away:** §Isolation worktree cleanup
-commands above resolves the worktree to remove via
-`resolve_branch_worktree "$REPO_DIR" "$BRANCH_NAME"`
-(`scripts/lib/worktree.sh`), whose own module docstring states verbatim
-"Intentionally does not match detached-HEAD worktrees or remote-tracking
-refs" (`:24`). Left detached, that resolver returns an empty path for
-THIS worktree on every subsequent lookup, and the cleanup block's
-`[ -n "$WORKTREE_PATH" ]` guards both the status check and the removal -
-so cleanup silently no-ops forever, not just once. Re-attaching to the
+**Why this exists - never simplify it away:** Phase 8's isolation
+worktree cleanup (§Isolation worktree cleanup commands above) finds the
+checkout to retire with `bin/ds-resolve-worktree` from the branch name,
+and that resolver "Does not match detached-HEAD worktrees" (its manifest;
+`scripts/lib/worktree.sh` behind it says the same). Left detached, it
+returns an empty path for THIS worktree on every subsequent lookup, and
+Phase 8 only calls `ds-retire-carrier` when that path is non-empty - so
+retirement silently never runs, not just once. Re-attaching to the
 engineer's own harness branch (`worktree-agent-<id>` - confirmed above to
 survive the detach) restores the resolver's visibility and makes the
 worktree an ordinary, cleanable branch-based entry again before the
