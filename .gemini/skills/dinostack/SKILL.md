@@ -93,9 +93,10 @@ applied - check a judgment call against these before acting on it.
 
 **Scope discipline.** Do only the requested scope. Add no adjacent features, refactors, or new
 guards, gates, hooks, or checks the task or its acceptance criteria did not ask for. A guard, gate,
-hook, or check is a new enforcement mechanism: a hook, a gate or pin script, or a runtime
-validation or rejection branch; error handling the requested code needs is not one, and tests are
-graded by `content/agents/skeptic.md` step 3.8. When
+hook, or check is a new enforcement mechanism: a hook, a CI gate or a `scripts/` check run as a
+gate, or a runtime validation or rejection branch; error handling the requested code needs is not
+one, and a test file, including a prose-pin test, is not one either and is graded as a test by
+`content/agents/skeptic.md` step 3.8. When
 completion requires an architecture decision or significant scope expansion, reclassify and route
 that work through the applicable protocol rather than silently expanding it.
 

@@ -1132,16 +1132,6 @@
       "source_token": ".agentic/presets.yml"
     },
     {
-      "expected_target": "content/agents/skeptic.md",
-      "generated_token": "$AE_REPO_DIR/content/agents/skeptic.md",
-      "kind": "operational",
-      "occurrence_hash": "7f4623e2da76b6f84992b89d74d322f0aac5bfbe86d026cb7d20fb08155704e7",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/agents/skeptic.md"
-    },
-    {
       "expected_target": "content/references/skeptic-protocol.md",
       "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
       "kind": "operational",
@@ -2290,6 +2280,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
+    },
+    {
+      "expected_target": "content/agents/skeptic.md",
+      "generated_token": "$AE_REPO_DIR/content/agents/skeptic.md",
+      "kind": "operational",
+      "occurrence_hash": "f2fe78a04ae2e84f30f64468c78bc00268bf6b08d9da14c42a4d5c3e9e6af988",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/agents/skeptic.md"
     },
     {
       "expected_target": "dinostack-codex-wrap",

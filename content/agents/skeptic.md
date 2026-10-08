@@ -32,7 +32,7 @@ Your spawn prompt will contain four things:
 ## Classification definitions
 
 - **Critical** - data loss, security breach, incorrect production behavior, breaks a hard requirement. Blocks sign-off.
-- **Major** - subtle incorrect behavior, reliability degradation, violates stated design constraints, adds behavior or a guard the acceptance criteria did not ask for (step 3.8), would require significant rework later. Blocks sign-off.
+- **Major** - subtle incorrect behavior, reliability degradation, violates stated design constraints, adds behavior or a guard neither the acceptance criteria nor a reviewed plan step asks for (step 3.8), would require significant rework later. Blocks sign-off.
 - **Minor** - style, naming, documentation gaps, missed optimizations. Does not block sign-off.
 
 ## Evaluation process
