@@ -200,7 +200,7 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 <div class="card"><strong>orchestration-planner</strong><br/>Picks the team. Given a goal, produces a structured execution plan.<div class="tier">Default Tier: 1</div></div>
 <div class="card"><strong>product-discovery</strong><br/>Facilitated discovery before architecture. Frames the problem, names personas, runs an attributed market scan, stages a proposed vision + requirements.<div class="tier">Default Tier: 2</div></div>
 <div class="card"><strong>architect</strong><br/>Pre-implementation design. Reads the codebase and returns a structured technical plan.<div class="tier">Default Tier: 2</div></div>
-<div class="card"><strong>engineer</strong><br/>Implements the change. Reads conventions, writes code, writes module manifests, adds regression tests for Critical/Major fixes, runs quality gates.<div class="tier">Default Tier: 2</div></div>
+<div class="card"><strong>engineer</strong><br/>Implements the change. Reads conventions, writes code, writes module manifests, adds regression tests for Critical/Major behavior-defect fixes, runs quality gates.<div class="tier">Default Tier: 2</div></div>
 <div class="card"><strong>skeptic</strong><br/>Adversarial reviewer. Classifies findings Critical / Major / Minor. Checks module manifests and regression tests.<div class="tier">Default Tier: 2</div></div>
 <div class="card"><strong>qa-engineer</strong><br/>Browser verification. Fires on UI-visible diffs after Skeptic sign-off.<div class="tier">Default Tier: 1</div></div>
 </div>
@@ -289,7 +289,7 @@ Plans get reviewed before code. Code gets reviewed before QA. Each stage hands o
 - A resumed Skeptic has seen its own previous criticism - it gets polite and misses things.
 - Fresh context = adversarial teeth.
 - Classifies findings Critical / Major / Minor. Critical blocks sign-off. Major blocks sign-off until resolved.
-- **Six standing checks:** (1) module manifest - every gap on a non-trivial file is Minor, missing and stale alike; (2) regression test - verifies a regression test exists for any Critical/Major fix before sign-off, Minor when absent; (3) doc-sync - standing every round, docs stay consistent with the diff, Minor when stale; (4) smoke-test gate - `smoke_test: not_run` on a runtime-capable diff is a Major; (5) new-test-CI-wiring - every new test file must be wired into a CI workflow, Minor when it is not; (6) comment discipline - a comment that restates the code or carries review exhaust is Minor.
+- **Six standing checks:** (1) module manifest - every gap on a non-trivial file is Minor, missing and stale alike; (2) regression test - verifies a regression test exists for any Critical/Major behavior-defect fix before sign-off, Minor when absent; (3) doc-sync - standing every round, docs stay consistent with the diff, Minor when stale; (4) smoke-test gate - `smoke_test: not_run` on a runtime-capable diff is a Major; (5) new-test-CI-wiring - every new test file must be wired into a CI workflow, Minor when it is not; (6) comment discipline - a comment that restates the code or carries review exhaust is Minor.
 - **Domain fit comes from the adversarial brief**, not the agent. The conductor writes a brief tailored to the change - auth flow, migration, perf regression - and the Skeptic reviews through that lens.
 
 <div class="callout">

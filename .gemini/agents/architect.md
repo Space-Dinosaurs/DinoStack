@@ -85,9 +85,9 @@ This plan is a contract over files, tests, and interfaces. Prose beyond what an 
 [Concrete interfaces (types, schemas, function signatures, API shapes, event payloads). **These are binding contracts for downstream Workers.** Workers must implement these signatures exactly as specified; any deviation is a Skeptic finding. If a signature cannot be fully specified at design time, state explicitly which parts are fixed and which are Worker discretion.]
 
 ### Implementation steps [MECHANICAL, cap: 15 steps]
-1. [Concrete step for the Worker]
+1. [Concrete step for the Worker] - serves: [the acceptance criterion or stated requirement it delivers]
 2. [...]
-(ordered by dependency - each step should be atomic enough for a Worker to execute; capped at 15 steps - split an oversized plan into units instead of a longer list. Kept MECHANICAL despite having no grep-matchable downstream consumer: this is the direct decision input for the engineer spawn - omitting it forces the engineer to re-derive the implementation order the Architect already worked out, a measurable autonomy loss.)
+(ordered by dependency - every step names what it serves; a step serving no acceptance criterion or stated requirement is cut or moved to "Out of scope" under Trade-offs; each step should be atomic enough for a Worker to execute; capped at 15 steps - split an oversized plan into units instead of a longer list. Kept MECHANICAL despite having no grep-matchable downstream consumer: this is the direct decision input for the engineer spawn - omitting it forces the engineer to re-derive the implementation order the Architect already worked out, a measurable autonomy loss.)
 
 **Per-consumer impact table (mandatory when the plan touches a shared utility, shared component, or shared type with 5+ importers, OR any file whose path lives under `packages/<shared>/`, `lib/shared/`, `src/shared/`, or an analogous shared-module location).** When this trigger fires, the plan MUST include a per-consumer impact table listing every importer the change reaches.
 
@@ -218,8 +218,8 @@ qa_criteria:
 - [Alternative B]: [one-line rationale for rejection]
 (If no meaningful alternatives existed for this design, state "No meaningful alternatives - the approach above was the only viable option given [constraint]." Do not fabricate alternatives to fill space.)
 
-**Known limitations and things to watch out for:**
-[What was decided against and why; known limitations; things to watch out for]
+**Out of scope and known limitations:**
+[What was decided against or left out (including any step serving no acceptance criterion) and why; known limitations; things to watch out for]
 
 ### Open questions [MECHANICAL, cap: 200 chars/item]
 [Genuine ambiguities that need human input before implementation - or "None" if the plan is complete. An item belongs here only if at least one of the following holds: (a) no default can be derived from codebase patterns, prior decisions, or established conventions; (b) the choice is irreversible; (c) the choice is a load-bearing fork whose resolution changes the implementation materially. Design-taste choices among reasonable approaches are NOT open questions: commit to one in Approach and record the alternative in Trade-offs. Questions answerable by reading the codebase are NOT open questions: do the reading. Capped 200 chars/item. A non-empty Open Questions section is a protocol-level blocker: the conductor must resolve every item before spawning any downstream worker.]

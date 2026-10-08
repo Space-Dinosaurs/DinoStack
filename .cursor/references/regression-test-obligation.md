@@ -2,7 +2,7 @@
 
 ## Overview
 
-Every Critical or Major Skeptic finding that gets fixed is a latent regression. Without a test, the same bug can silently reappear in a future change. When a finding is fixed, the Worker proposes a test that would have caught it; the Skeptic verifies the test exists before granting sign-off.
+Every fixed Critical or Major behavior-defect finding is a latent regression: without a test, the same bug can silently reappear in a future change. A behavior-defect finding is one where the shipped code or its runtime behaves incorrectly, including an unmet acceptance criterion; scope, wording, documentation, duplication, evidence-integrity, and other paperwork findings carry no regression-test obligation. When a behavior-defect finding is fixed, the Worker proposes a test that would have caught it; the Skeptic verifies the test exists before granting sign-off.
 
 This is a code-level mechanism: the regression test lives in the project's normal test suite, alongside existing tests for the affected module.
 
@@ -10,16 +10,16 @@ This is a code-level mechanism: the regression test lives in the project's norma
 
 ## Worker obligation
 
-When a Worker fixes a Critical or Major Skeptic finding, it must:
+When a Worker fixes a Critical or Major behavior-defect finding, it must:
 
 1. Implement the fix.
 2. Add a regression test — a test case (unit, integration, or eval) that would have **failed** without the fix and **passes** with it. The test lives in the project's normal test suite, alongside existing tests for the affected module.
 
-If adding a regression test is genuinely not possible (e.g., the project has no test infrastructure, or the failure mode is a documentation error with no executable path), the Worker must state this explicitly with a reason. A missing test without explanation is a Minor finding in the next Skeptic round.
+If adding a regression test is genuinely not possible (e.g., the project has no test infrastructure, or the failure mode has no executable path), the Worker must state this explicitly with a reason. A missing test without explanation is a Minor finding in the next Skeptic round.
 
 ## Skeptic verification
 
-Before granting sign-off on a round where a Critical or Major finding was fixed:
+Before granting sign-off on a round where a Critical or Major behavior-defect finding was fixed:
 
 - Verify a regression test was added (or a documented exception was given).
 - Spot-check that the test actually targets the failure mode described in the finding — not a superficial test that happens to pass.

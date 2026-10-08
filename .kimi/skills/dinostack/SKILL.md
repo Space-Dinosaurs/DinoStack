@@ -77,8 +77,9 @@ Run `/ds-help` for the full command inventory.
   read when evaluating whether a proposed change aligns with the system's intent.
 
 - **references/regression-test-obligation.md** - per-finding regression-test obligation: every
-  Skeptic finding fixed during a task must come with a regression test that would have caught it;
-  read when fixing a Skeptic finding to confirm what counts as a valid regression test.
+  Critical or Major behavior-defect finding fixed during a task must come with a regression test
+  that would have caught it; read when fixing a Skeptic finding to confirm what counts as a valid
+  regression test.
 
 - **references/doc-sync-obligation.md** - per-change doc-sync obligation: a reality-asserting
   change (alters a count/list/path/convention/behavior an intent-layer doc states) must update
@@ -207,7 +208,11 @@ applied - check a judgment call against these before acting on it.
 
 **Pre-spawn checklist - ticket-offer gate:** Before the FIRST subagent spawn of any kind (exemptions apply) on net-new work: if a tracker is connected and `ticket_driven` is active and the work did not arrive as an existing ticket, run the ticket-offer gate first (see full rule below, §Ticket-offer gate).
 
-**Scope discipline.** Do only the requested scope. Add no adjacent features or refactors. When
+**Scope discipline.** Do only the requested scope. Add no adjacent features, refactors, or new
+guards, gates, hooks, or checks the task or its acceptance criteria did not ask for. A guard, gate,
+hook, or check is a new enforcement mechanism: a hook, a gate or pin script, or a runtime
+validation or rejection branch; error handling the requested code needs is not one, and tests are
+graded by `content/agents/skeptic.md` step 3.8. When
 completion requires an architecture decision or significant scope expansion, reclassify and route
 that work through the applicable protocol rather than silently expanding it.
 

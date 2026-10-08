@@ -96,7 +96,11 @@ applied - check a judgment call against these before acting on it.
 
 **Pre-spawn checklist - ticket-offer gate:** Before the FIRST subagent spawn of any kind (exemptions apply) on net-new work: if a tracker is connected and `ticket_driven` is active and the work did not arrive as an existing ticket, run the ticket-offer gate first (see full rule below, §Ticket-offer gate).
 
-**Scope discipline.** Do only the requested scope. Add no adjacent features or refactors. When
+**Scope discipline.** Do only the requested scope. Add no adjacent features, refactors, or new
+guards, gates, hooks, or checks the task or its acceptance criteria did not ask for. A guard, gate,
+hook, or check is a new enforcement mechanism: a hook, a gate or pin script, or a runtime
+validation or rejection branch; error handling the requested code needs is not one, and tests are
+graded by `content/agents/skeptic.md` step 3.8. When
 completion requires an architecture decision or significant scope expansion, reclassify and route
 that work through the applicable protocol rather than silently expanding it.
 

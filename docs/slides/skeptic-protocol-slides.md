@@ -346,7 +346,7 @@ All gaps are <strong>Minor</strong>: missing and stale alike, non-blocking. A st
 </div>
 <div class="card">
 <strong>Regression test verification</strong><br/>
-Before granting sign-off on any round where a Critical or Major finding was fixed: verify a regression test was added - a test that would have failed without the fix.<br/><br/>
+Before granting sign-off on any round where a Critical or Major behavior-defect finding was fixed: verify a regression test was added - a test that would have failed without the fix.<br/><br/>
 Missing test without a documented exception = <strong>Minor</strong> finding.
 </div>
 </div>
