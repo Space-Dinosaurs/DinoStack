@@ -3412,17 +3412,6 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         source.write_text(original, encoding="utf-8")
         self.check()
 
-    def _load_generator(self) -> typing.Any:
-        module_name = f"codex_skills_fixture_{id(self)}"
-        spec = importlib.util.spec_from_file_location(module_name, self.repo / GENERATOR)
-        self.assertIsNotNone(spec)
-        self.assertIsNotNone(spec.loader)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        self.addCleanup(sys.modules.pop, module_name, None)
-        spec.loader.exec_module(module)
-        return module
-
     def test_generated_worktree_lifecycle_names_codex_carriers(self) -> None:
         methodology = (self.repo / ".codex/skills/dinostack-codex/METHODOLOGY.md").read_text(encoding="utf-8")
         section = re.search(r"(?ms)^## Worktree Lifecycle\n.*?(?=^## )", methodology)
@@ -3434,7 +3423,14 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         self.assertIn("ds-retire-carrier", text)
 
     def test_bare_isolation_literal_raises_skill_error(self) -> None:
-        module = self._load_generator()
+        module_name = f"codex_skills_fixture_{id(self)}"
+        spec = importlib.util.spec_from_file_location(module_name, self.repo / GENERATOR)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        self.addCleanup(sys.modules.pop, module_name, None)
+        spec.loader.exec_module(module)
         fixture = module.Document("fixture.md", 'Spawn the reviewer with `isolation: "worktree"` set.\n')
         with self.assertRaises(module.SkillError) as raised:
             module.inventory_document(fixture, self.repo)

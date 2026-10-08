@@ -1,5 +1,5 @@
-"""Behavioral matrix for bin/ds-retire-carrier (cases a-s of the carrier
-lifecycle plan). Every case builds disposable repos with a bare origin under
+"""Behavioral matrix for bin/ds-retire-carrier (cases a-s, one per gate or
+ledger rule). Every case builds disposable repos with a bare origin under
 pytest's tmp_path and never touches a live checkout. Every subprocess run of
 the tool goes through a git argv shim that logs each git invocation; the
 shim log is checked after every run for force, unlock, branch deletion,

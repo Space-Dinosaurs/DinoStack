@@ -65,10 +65,12 @@ END_ANCHOR = "## Phase 8.5: QA evidence (conditional)"
 # `git -C $REPO_DIR ...` (the trailing `\b`/lack of `_` in the REPO}?"? group
 # stops it matching `$REPO_DIR`) - those are the sanctioned mechanism this
 # test exists to protect, and an unrelated variable it must never flag.
+# `merge(?!-)` exempts the read-only `merge-base` ancestry proofs the
+# worktree cleanup blocks run against $REPO; `merge` itself still matches.
 _REPO_REF = r'"?\$\{?REPO\}?"?'
 FORBIDDEN_PATTERNS = [
     re.compile(rf"git\s+-C\s+{_REPO_REF}\s+checkout\b"),
-    re.compile(rf"git\s+-C\s+{_REPO_REF}\s+merge\b"),
+    re.compile(rf"git\s+-C\s+{_REPO_REF}\s+merge\b(?!-)"),
 ]
 
 
