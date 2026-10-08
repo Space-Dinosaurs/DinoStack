@@ -731,7 +731,7 @@ Otherwise skip that target silently.
 
 **Step 5 — Worktree cleanup.**
 
-If the project is a git repository with a `/ds-cleanup-worktrees` skill available, run it now. This removes stale isolation worktrees and merged feature branches so the repo is clean for the next session. If the skill is not available, skip this step silently.
+If the project is a git repository, run `/ds-cleanup-worktrees` now. This removes stale isolation worktrees and merged feature branches so the repo is clean for the next session. Then run `ds-retire-carrier --list-holds` and re-run `ds-retire-carrier <path>` for each listed path, adding `--release` to an explicit hold only when its revisit event occurred. If either cannot run, print one line naming it and the reason; never skip silently.
 
 A wrap runs unattended at session end, and DS-245 made `--min-age-hours` off-by-default, so this step needs the 24h floor an operator-invoked run does not. **It is applied automatically and this step sets nothing.** `/ds-cleanup-worktrees` Step 2 applies the floor whenever `<cwd>/.agentic/wrap/lock` is present, and the whole-flow lock acquired in this command's pre-flight is held until Step 6's `ds-wrap-release-lock`, which runs strictly after this step - so the lock is present for the whole of Step 5 by construction.
 

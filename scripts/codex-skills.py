@@ -111,8 +111,26 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 
 Codex spawns are asynchronous. The conductor remains responsive, uses the collaboration status and
 wait operations to collect completion, and applies the existing review gates to the returned diff.
+
+**Retire or hold each checkout at completion.** A carrier's work is complete when the review gates
+on its output have returned, or the work is abandoned, and its agent will be sent no further work.
+Then run `$AE_REPO_DIR/bin/ds-retire-carrier <absolute-path>`; it removes only the checkout, never
+the branch, or records a hold whose revisit event you act on. Never wait for ticket completion or PR
+merge.
+
 Claude hook payload fields and Claude Task behavior do not apply on Codex.
 """
+WORKTREE_PARAGRAPHS = (
+    r"\*\*Worktree isolation is MANDATORY\.\*\*.*?(?=\n\n)",
+    r"There is no in-place exception\..*?(?=\n\n)",
+    r"\*\*Isolation is mandatory for every shippable-edit spawn\.\*\*.*?(?=\n\n)",
+    r"\*\*Isolation worktrees\*\* \(`\.claude/worktrees/\*`\).*?(?=\n\n)",
+    r"\*\*Worktree isolation is mandatory on the Elevated path\.\*\*.*?(?=\n\n)",
+    r"\*\*Trivial-path solo engineer carve-out\.\*\*.*?(?=\n\n)",
+    r"\*\*Step 1\.\*\* Spawn `qa-engineer`.*?(?=\n\n)",
+    r"2\. Spawn one `engineer` fix pass scoped to the quality gate failure output.*?(?=\n\n)",
+    r"5\. Spawn one `engineer` fix pass with the Debugger's Fix brief appended.*?(?=\n\n)",
+)
 SIMPLIFY_CONTRACT = (
     "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` "
     "(load that section, dispatch the named cleanup role with "
@@ -1131,18 +1149,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
             "codex-spawn-contract", "spawn_agent", "codex-harness",
         )
 
-    worktree_paragraphs = (
-        r"\*\*Worktree isolation is MANDATORY\.\*\*.*?(?=\n\n)",
-        r"There is no in-place exception\..*?(?=\n\n)",
-        r"\*\*Isolation is mandatory for every shippable-edit spawn\.\*\*.*?(?=\n\n)",
-        r"\*\*Isolation worktrees \(`worktree-agent-\*`\)\*\*.*?(?=\n\n)",
-        r"\*\*Worktree isolation is mandatory on the Elevated path\.\*\*.*?(?=\n\n)",
-        r"\*\*Trivial-path solo engineer carve-out\.\*\*.*?(?=\n\n)",
-        r"\*\*Step 1\.\*\* Spawn `qa-engineer`.*?(?=\n\n)",
-        r"2\. Spawn one `engineer` fix pass scoped to the quality gate failure output.*?(?=\n\n)",
-        r"5\. Spawn one `engineer` fix pass with the Debugger's Fix brief appended.*?(?=\n\n)",
-    )
-    for pattern in worktree_paragraphs:
+    for pattern in WORKTREE_PARAGRAPHS:
         for match in re.finditer(pattern, doc.text, re.S):
             generated = match.group(0)
             generated = re.sub(
@@ -1182,10 +1189,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
                 "are created explicitly by the conductor with `git worktree add` before `spawn_agent`, "
                 "as required by the Codex spawn contract above",
             )
-            generated = generated.replace(
-                "**Isolation worktrees (`worktree-agent-*`)** are created explicitly",
-                "**Isolation worktrees** are created explicitly",
-            )
+            generated = generated.replace("(`.claude/worktrees/*`)", "(`.agentic/worktrees/*` on Codex)")
             generated = codexify_project_paths(
                 generated, include_claude=doc.source.startswith("content/commands/")
             )
@@ -1371,9 +1375,9 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
                        ".gitignore", "invoked-project")
 
     for match in re.finditer(r"isolation:\s*[\"']worktree[\"']", doc.text):
-        add_occurrence(found, occupied, doc, match.start(), match.end(), "unsupported-spawn-field",
-                       match.group(0), "the explicit Codex worktree bootstrap contract above",
-                       "operational", "codex-spawn-contract", "git worktree add", "codex-harness")
+        if any(match.start() < right and match.end() > left for left, right in occupied):
+            continue
+        raise SkillError(f"unmapped isolation literal in {doc.source}; map its paragraph in WORKTREE_PARAGRAPHS")
     for match in re.finditer(r"run_in_background(?:\s*:\s*(?:true|false))?", doc.text):
         add_occurrence(found, occupied, doc, match.start(), match.end(), "unsupported-spawn-field",
                        match.group(0), "the asynchronous Codex spawn contract above",
@@ -1489,8 +1493,14 @@ def current_inventory(repo: Path) -> tuple[list[dict[str, str]], dict[str, list[
     assert_paragraph_rules_reachable(repo)
     assert_literal_rules_reachable(repo)
     by_source: dict[str, list[Occurrence]] = {}
+    scanned: list[str] = []
     for doc in documents(repo):
         by_source[doc.source] = inventory_document(doc, repo)
+        scanned.append(doc.text)
+    dead = [pattern for pattern in WORKTREE_PARAGRAPHS
+            if not any(re.search(pattern, text, re.S) for text in scanned)]
+    if dead:
+        raise SkillError("WORKTREE_PARAGRAPHS pattern(s) matched no document: " + ", ".join(dead))
     records = [item.record() for items in by_source.values() for item in items]
     records.sort(key=lambda item: (item["source"], item["occurrence_hash"], item["source_token"]))
     _CURRENT_INVENTORY_MEMO[memo_key] = (records, by_source)

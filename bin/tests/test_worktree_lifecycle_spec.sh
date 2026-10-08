@@ -42,7 +42,12 @@
 #                content/agents/engineer.md and
 #                content/agents/qa-engineer.md (the four points of use, each
 #                asserted to still carry a §section pointer at the canonical
-#                rule).
+#                rule); the nine CARRIER_WIRING_FILES plus three
+#                content/commands/ds-implement-ticket.md blocks (grepped by
+#                check_carrier_wiring for `ds-retire-carrier`), and
+#                scripts/codex-skills.py `CODEX_SPAWN_CONTRACT` (imported by
+#                check_completion_sentence_parity, which also reads the
+#                canonical section and section 11 for sentence S).
 #
 # Downstream consumers: CI; qa_criteria scenario 8 (this ticket's QA gate) -
 #                       "demonstrates two distinct exit codes across three
@@ -983,6 +988,87 @@ check_step2_age_passthrough_argv
 r0g=$?
 echo "step2-argv exit=$r0g"
 
+# Carrier lifecycle wiring: every site that states the completion-time
+# disposition must name the tool that performs it, and the three
+# ds-implement-ticket blocks that execute it must call it. A site that loses
+# the name has gone back to describing a removal nothing performs.
+CARRIER_WIRING_FILES="content/sections/11-worktree-lifecycle.md
+content/references/worktree-lifecycle.md
+content/rules/conventions.md
+content/references/subagent-protocol.md
+content/commands/ds-implement-ticket.md
+content/references/qa-gate.md
+content/references/evidence-on-disk.md
+content/commands/ds-wrap.md
+scripts/codex-skills.py"
+IMPLEMENT_DOC="$REPO_ROOT/content/commands/ds-implement-ticket.md"
+
+check_carrier_wiring() {
+  local ok=0 rel block
+  while IFS= read -r rel; do
+    if ! grep -qF 'ds-retire-carrier' "$REPO_ROOT/$rel"; then
+      echo "CARRIER-WIRING VIOLATION: $rel does not name ds-retire-carrier" >&2
+      ok=1
+    fi
+  done <<< "$CARRIER_WIRING_FILES"
+
+  block=$(awk '/# --- Isolation worktree cleanup \(post-push\) ---/{c=1} c{print} /# --- End isolation worktree cleanup ---/{if(c)exit}' "$IMPLEMENT_DOC")
+  if [ -z "$block" ] || ! printf '%s\n' "$block" | grep -qF 'ds-retire-carrier'; then
+    echo "CARRIER-WIRING VIOLATION: the Phase 8 isolation worktree cleanup block does not call ds-retire-carrier" >&2
+    ok=1
+  fi
+  block=$(awk '/^\*\*Worktree cleanup\.\*\*/{c=1; next} c && /^```/{n++; if(n==2)exit; next} c && n==1{print}' "$IMPLEMENT_DOC")
+  if [ -z "$block" ] || ! printf '%s\n' "$block" | grep -qF 'ds-retire-carrier'; then
+    echo "CARRIER-WIRING VIOLATION: the fence after **Worktree cleanup.** does not call ds-retire-carrier" >&2
+    ok=1
+  fi
+  block=$(awk '/^## Phase 8\.5:/{c=1} c && /^## Phase 9:/{exit} c{print}' "$IMPLEMENT_DOC")
+  if [ -z "$block" ] || ! printf '%s\n' "$block" | grep -qF 'ds-retire-carrier'; then
+    echo "CARRIER-WIRING VIOLATION: the Phase 8.5 block does not call ds-retire-carrier" >&2
+    ok=1
+  fi
+  return "$ok"
+}
+
+# The completion sentence S is stated three times: the canonical section, the
+# methodology kernel, and the hand-authored Codex spawn contract. Any copy
+# drifting means Claude and Codex carriers retire on different triggers.
+COMPLETION_SENTENCE="A carrier's work is complete when the review gates on its output have returned, or the work is abandoned, and its agent will be sent no further work."
+
+check_completion_sentence_parity() {
+  local ok=0 rel collapsed
+  for rel in content/references/worktree-lifecycle.md content/sections/11-worktree-lifecycle.md; do
+    if ! tr -s '[:space:]' ' ' < "$REPO_ROOT/$rel" | grep -qF "$COMPLETION_SENTENCE"; then
+      echo "COMPLETION-PARITY VIOLATION: $rel does not carry the completion sentence verbatim" >&2
+      ok=1
+    fi
+  done
+  collapsed=$(python3 - "$REPO_ROOT/scripts/codex-skills.py" <<'PYEOF' | tr -s '[:space:]' ' '
+import importlib.machinery, importlib.util, sys
+loader = importlib.machinery.SourceFileLoader("codex_skills_parity", sys.argv[1])
+module = importlib.util.module_from_spec(importlib.util.spec_from_loader("codex_skills_parity", loader))
+sys.modules["codex_skills_parity"] = module
+loader.exec_module(module)
+print(module.CODEX_SPAWN_CONTRACT)
+PYEOF
+)
+  if [ -z "$collapsed" ] || ! printf '%s' "$collapsed" | grep -qF "$COMPLETION_SENTENCE"; then
+    echo "COMPLETION-PARITY VIOLATION: CODEX_SPAWN_CONTRACT does not carry the completion sentence verbatim" >&2
+    ok=1
+  fi
+  return "$ok"
+}
+
+echo "== Carrier wiring check: 9 files and 3 ds-implement-ticket blocks name ds-retire-carrier =="
+check_carrier_wiring
+r0i=$?
+echo "carrier-wiring exit=$r0i"
+
+echo "== Completion-sentence parity: worktree-lifecycle.md, section 11 and CODEX_SPAWN_CONTRACT carry S =="
+check_completion_sentence_parity
+r0j=$?
+echo "completion-parity exit=$r0j"
+
 echo "== Run 1: clean scratch repo (expect exit 0) =="
 setup_repo
 run_check "$REPO"
@@ -1003,11 +1089,11 @@ echo "run3 exit=$r3"
 
 git -C "$REPO" worktree remove --force "$REPO/.agentic/worktrees/spec-fixture" >/dev/null 2>&1 || true
 
-echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b process-lifetime-prose=$r0h manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g run1=$r1 run2=$r2 run3=$r3"
-if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0h" = "0" ] && [ "$r0c" = "0" ] && [ "$r0d" = "0" ] && [ "$r0e" = "0" ] && [ "$r0f" = "0" ] && [ "$r0g" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
-  echo "PASS: prose-wiring check clean, reap-wiring check clean, process-lifetime-prose check clean, manifest-reconciliation check clean, activity-window-prose check clean, lock-caveat-pointers check clean, unattended-callers check clean, step2-argv check clean, and two distinct exit codes across three runs (0, 1, 1)"
+echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b process-lifetime-prose=$r0h manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g carrier-wiring=$r0i completion-parity=$r0j run1=$r1 run2=$r2 run3=$r3"
+if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0h" = "0" ] && [ "$r0c" = "0" ] && [ "$r0d" = "0" ] && [ "$r0e" = "0" ] && [ "$r0f" = "0" ] && [ "$r0g" = "0" ] && [ "$r0i" = "0" ] && [ "$r0j" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
+  echo "PASS: prose-wiring check clean, reap-wiring check clean, process-lifetime-prose check clean, manifest-reconciliation check clean, activity-window-prose check clean, lock-caveat-pointers check clean, unattended-callers check clean, step2-argv check clean, carrier-wiring check clean, completion-parity check clean, and two distinct exit codes across three runs (0, 1, 1)"
   exit 0
 fi
 
-echo "FAIL: expected prose-wiring=0, reap-wiring=0, process-lifetime-prose=0, manifest-reconciliation=0, activity-window-prose=0, lock-caveat-pointers=0, unattended-callers=0, step2-argv=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b process-lifetime-prose=$r0h manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g $r1 $r2 $r3"
+echo "FAIL: expected prose-wiring=0, reap-wiring=0, process-lifetime-prose=0, manifest-reconciliation=0, activity-window-prose=0, lock-caveat-pointers=0, unattended-callers=0, step2-argv=0, carrier-wiring=0, completion-parity=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b process-lifetime-prose=$r0h manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g carrier-wiring=$r0i completion-parity=$r0j $r1 $r2 $r3"
 exit 1

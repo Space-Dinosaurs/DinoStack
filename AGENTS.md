@@ -55,7 +55,7 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 	4. Push branch to origin: `git push -u origin <branch-name>`.
 	5. Open PR against `main` via `gh pr create`.
 	6. Once CI/CD checks pass, auto-merge: `gh pr merge --squash --delete-branch`.
-	7. Clean up: isolation worktrees are removed after push; feature worktrees after merge. Session-start prune + branch-prune remain as backstops. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands and §Feature worktree cleanup commands.
+	7. Clean up: retire or hold each carrier at completion (`ds-retire-carrier`, `content/references/worktree-lifecycle.md` §Carrier lifecycle by purpose). Session-start prune + branch-prune remain as backstops.
 	8. Update local main: `bin/ds-base-sync <this-checkout-path> main` (run from this repo's own checkout, since it's both ticket repo and tool source) - fast-forwards local `main` without a checkout. Fall back to `git checkout main && git pull --ff-only origin main` only when `bin/ds-base-sync` is not present at that path.
 	- Steps 6-8 are automatic - never pause for merge approval when CI is green.
 	- `main` enforces strict required status checks: a PR whose base has moved must be rebased and re-run before merge - GitHub does not re-run workflows on base movement. Sync with `gh pr update-branch --rebase`; the default (merge) update produces an unsigned commit that fails the DCO check.

@@ -25,7 +25,7 @@
 - Risk config and tiers - config toggle catalog, tier declaration detail
 - Spawn presets - per-spawn capability bundles and resolution rules
 - Trigger catalog - manual/scheduled/action-triggered loops and the yolo-guard
-- Worktree lifecycle - isolation vs feature worktrees and cleanup command blocks
+- Worktree lifecycle - carrier lifecycle by purpose and cleanup commands
 - Wrap context format - canonical schema for the /ds-wrap session-context block
 - Digest-return pattern - conductor stays context-lean; workers return a structured digest, not the transcript
 - Activation detail - first-activation notice and scaffolding-sync check (Steps 5-6)

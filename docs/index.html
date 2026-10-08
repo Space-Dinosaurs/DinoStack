@@ -2259,8 +2259,8 @@
       <div class="rel-card">
         <h4>Worktree Types</h4>
         <ul>
-          <li><strong>Feature worktrees</strong> (path <code>.agentic/worktrees/&lt;branch-name&gt;</code>) - one per parallel subagent, branched from the conductor's current branch. The conductor merges and removes them after sign-off.</li>
-          <li><strong>Isolation worktrees</strong> (path <code>.claude/worktrees/*</code>) - created by the Agent tool when <code>isolation: "worktree"</code> is set. Removed after the conductor confirms no PR is needed. Classification is by path, never branch name (<code>bin/tests/worktree_model.py</code>'s <code>classify_entry</code> is normative).</li>
+          <li><strong>Feature worktrees</strong> (path <code>.agentic/worktrees/&lt;branch-name&gt;</code>) - one per parallel subagent, branched from the conductor's current branch. The conductor merges each one after sign-off and retires or holds its checkout at completion (<code>ds-retire-carrier</code>).</li>
+          <li><strong>Isolation worktrees</strong> (path <code>.claude/worktrees/*</code>) - created by the Agent tool when <code>isolation: "worktree"</code> is set. Retired at completion - when the review gates on its output have returned, or the work is abandoned - by <code>ds-retire-carrier</code>, which removes only the checkout, never the branch, or records a hold with an owner, reason, and revisit event; neither ticket close nor PR merge is the trigger. Path classification, never branch name (<code>bin/tests/worktree_model.py</code>'s <code>classify_entry</code> is normative), drives only the evidence-gated sweep of leftovers.</li>
           <li><strong>Shippable edits use isolation worktrees, not feature worktrees.</strong> The conductor delegates every shippable change to a worktree-isolated engineer (<code>isolation: "worktree"</code>, see Isolation worktrees above), branched from <code>origin/$BASE_BRANCH</code> - unlike feature worktrees, which branch from the conductor's current branch. The conductor edits only exempt artifacts directly.</li>
         </ul>
       </div>

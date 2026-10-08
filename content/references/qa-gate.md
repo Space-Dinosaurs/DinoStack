@@ -233,16 +233,15 @@ git worktree add .agentic/worktrees/qa-<branch> <branch>
 # Spawn qa-engineer with isolation: "worktree" and PORT=$((3000 + N)) injected into the brief.
 ```
 
-All qa-engineers run concurrently (background, single message). After each returns, run the QA knowledge capture procedure (see §"QA knowledge capture (canonical procedure)" above) against that PR's return, then evaluate the worktree for removal.
+All qa-engineers run concurrently (background, single message). After each returns, run the QA knowledge capture procedure (see §"QA knowledge capture (canonical procedure)" above) against that PR's return, then retire or hold the QA checkout (§Carrier lifecycle by purpose in `content/references/worktree-lifecycle.md`).
 
 This worktree is distinct from the harness-created isolation worktree (`.claude/worktrees/agent-<agentId>`) the qa-engineer's own tool calls execute inside; removing this worktree does not affect the isolation worktree's lifecycle.
 
 ```bash
-if [ -z "$(git -C .agentic/worktrees/qa-<branch> status --porcelain 2>/dev/null)" ]; then
-  git worktree remove .agentic/worktrees/qa-<branch>
-else
-  echo "WARNING: worktree .agentic/worktrees/qa-<branch> has uncommitted changes; skipping cleanup"
-fi
+# After QA knowledge capture, with its dev server stopped:
+ds-retire-carrier .agentic/worktrees/qa-<branch>
+# If a later step still needs its server or evidence, hold it instead:
+# ds-retire-carrier --hold --reason "<what still needs it>" --revisit "<that step returns>" .agentic/worktrees/qa-<branch>
 ```
 
 Serial multi-PR QA is reserved for cases where the parallel path is structurally blocked (e.g. only one preview environment available). Default is parallel.

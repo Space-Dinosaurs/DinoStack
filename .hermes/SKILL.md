@@ -606,17 +606,17 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 ## Worktree Lifecycle
 
-**Two classes of worktree, two cleanup triggers.**
+**Worktrees retire at their own completion, by purpose - not by path, ticket close, or PR merge.**
 
 **Isolation is mandatory for every shippable-edit spawn.** Every `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call (see §Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn is also `isolation: "worktree"` - the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn.
 
-**Isolation worktrees** (`.claude/worktrees/*`) are created by the Agent tool when `isolation: "worktree"` is set. Once the branch has been pushed to origin, the isolation worktree is redundant - the remote ref now holds the commits. The conductor must remove it immediately when it is the branch this session just pushed (the self-scoped inline pattern below needs no merge check). A later sweep of someone else's leftover isolation worktree (`/ds-cleanup-worktrees` Step 2, `bin/ds-cleanup-worktrees`) is not immediate removal - it additionally requires merge evidence and skips a pushed-but-unmerged branch. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
+**Isolation worktrees** (`.claude/worktrees/*`) are created by the Agent tool when `isolation: "worktree"` is set; conductor-created ones live under `.agentic/worktrees/*`. That path class (`bin/tests/worktree_model.py`, normative) drives only the evidence-gated sweep of leftovers (`/ds-cleanup-worktrees` Step 2), which also requires merge evidence.
 
-**Feature worktrees** (`.agentic/worktrees/*`) are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands. Classified by **path, not branch name** (`bin/tests/worktree_model.py`, normative).
+**Retire or hold every carrier at completion.** The conductor that spawned or created it owns it. A carrier's work is complete when the review gates on its output have returned, or the work is abandoned, and its agent will be sent no further work. Then run `ds-retire-carrier <path>`: it removes the checkout only, never the branch, when it is clean, holds no protected ignored content, and leaves no commit without a surviving ref; otherwise it records a hold with owner, reason, and revisit event, which the owner re-runs when that event fires. Contract: `content/references/worktree-lifecycle.md` §Carrier lifecycle by purpose.
 
 **Worktree prune, the automatic worktree reap, and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight - the auto-reap re-fires on this rule too, which is safe by construction since every gate re-evaluates fresh state on each run. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune (`bin/ds-branch-prune`) resolves its own base branch rather than assuming `origin/main`, and deletes a branch only when a subsumption predicate proves its tip on that base; absence of proof, or an unresolvable base, is a skip.
 
-Claude Code locks each isolation worktree (a double-force `git worktree remove -f -f` would override the lock, which is why no cleanup path here uses it). See the `Locked handling:` note in `bin/ds-cleanup-worktrees` for the canonical caveat on lock state. Isolation worktrees with changes persist until the conductor explicitly removes them.
+Claude Code locks each isolation worktree (a double-force `git worktree remove -f -f` would override the lock, which is why no cleanup path here uses it). See the `Locked handling:` note in `bin/ds-cleanup-worktrees` for the canonical caveat on lock state. A checkout with changes is held, never force-removed.
 
 **Lifecycle rules are methodology-owned, not project-overridable** - see `content/references/worktree-lifecycle.md` §Project-override policy. **Worktree reuse across rounds is out of scope here (DS-123)** - the DS-123 harness worktree-fallback quirk remains open and unresolved. The canonical round-N mechanic for landing a same-approach fix commit on an already-open PR's branch (mitigation, not a fix for DS-123 itself) is documented in `content/rules/conventions.md` §Git Workflow and `content/references/worktree-lifecycle.md` §Round-N rework mechanic.
 
@@ -642,7 +642,7 @@ Claude Code locks each isolation worktree (a double-force `git worktree remove -
 | **Capability preflight** | before every Agent spawn | `content/sections/06-capability-preflight.md` - when preflight runs, advisory vs blocking mode, absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, cache schema: `content/references/capability-preflight.md` |
 | **QA gate** | Skeptic sign-off is granted on a UI-visible change | `content/sections/05-qa-gate.md` - QA-fires invariant, skip enums, diff-read rule, re-route limits. Full step-by-step gate flows, per-ticket in-flow rules, conductor env preflight, INCONCLUSIVE classification, parallel-by-worktree fan-out, dev-server boot pattern: `content/references/qa-gate.md` |
 | **Events log schema** | full V1 telemetry event-type field shapes and operational notes | `content/references/events-log.md` - `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`, `tracker_writeback` event schemas with full `data` field definitions, append discipline, atomicity, retention, consumer notes. Writer scope and base schema: `content/sections/09-events-log.md`. (`conductor_direct` is retired; a one-line legacy note remains in `content/references/events-log.md` for parsers.) |
-| **Worktree lifecycle commands** | cleanup command blocks for isolation and feature worktrees, session-start prune script | `content/references/worktree-lifecycle.md` - full bash command blocks. Isolation mandate, two-class summary, session-start prune rule: `content/sections/11-worktree-lifecycle.md` |
+| **Worktree lifecycle commands** | cleanup command blocks for isolation and feature worktrees, session-start prune script | `content/references/worktree-lifecycle.md` - full bash command blocks. Isolation mandate, carrier lifecycle summary, session-start prune rule: `content/sections/11-worktree-lifecycle.md` |
 | **Cross-session loop resume** | `/ds-implement-ticket` loop state must be resumed | `content/references/cross-session-loop-resume.md` §Cross-session loop resume - disk-write discipline, resumable phases, Brief/Plan path recording, batch-state coexistence |
 | **Task-state file** | managing multi-unit plan orchestration state | `content/references/task-state-file.md` §Task-state file - schema, file-absent/present behavior, orphan detection, task-state fold, `author_model` field semantics |
 | **Code standards detail** | implementing or modifying code in a specific language, or writing a discovery-based check | `content/references/code-standards-detail.md` §Per-Language Strict Defaults - TypeScript/JS/Python/Go/Rust/Next.js linter and typecheck configs; §Browser Verification - `agent-browser` usage patterns; §Discovery-Based Check Discipline - empty-discovery-set hard-fail requirement |
@@ -825,17 +825,12 @@ Read `content/references/conventions-detail.md` §The Intent Layer for the artif
 4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
 5. Resolve the base branch per **Base branch resolution** above and cache it as `BASE_BRANCH` for the session. Resolution is lazy only in its interactive step: the declaration / `develop` / `development` checks (steps 1-3) are non-interactive and may run here at session start, but step 4's prompt is deferred until `BASE_BRANCH` is first needed for a shippable operation (spawning an engineer, creating a worktree, opening a PR, or starting fresh from the base branch per step 2). A purely read-only session therefore never triggers the prompt. The prompt is a sanctioned stop-and-ask (an explicit command directive per the delegation Exception clause) exempt from the default-and-proceed protocol; surface it with `main` as the recommended default per the AskUserQuestion precondition.
 6. **When step 5 resolved `BASE_BRANCH` non-interactively**, run `ds-base-sync "$REPO" "$BASE_BRANCH"` (PATH-guarded, non-blocking on any exit). Skip silently otherwise. See `content/references/base-branch-sync.md` §Call sites.
-7. Run worktree prune, the worktree reap, and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - all three run ONCE at session start.
+7. Run worktree prune, the worktree reap, and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - all three run ONCE at session start. Then run `ds-retire-carrier --list-holds` and re-run each listed path, adding `--release` to an explicit hold only when its revisit event has occurred.
 
-**Subagent worktrees:** Each parallel subagent gets its own worktree, branched from the conductor's current branch. Worktrees are created at `.agentic/worktrees/<branch-name>` under the project root (already gitignored via `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`)). The conductor merges each subagent branch back after sign-off and removes the worktree.
+**Subagent worktrees:** Each parallel subagent gets its own worktree at `.agentic/worktrees/<branch-name>` under the project root (gitignored via `/ds-init-project` Step 9's `.agentic/*` umbrella - see `content/project-scaffolding.yml`), branched from the conductor's current branch. The conductor merges each subagent branch back after sign-off.
 
 ```bash
-# Create a subagent worktree:
 git worktree add .agentic/worktrees/<branch-name> -b <branch-name> HEAD
-
-# Remove after merge:
-git worktree remove .agentic/worktrees/<branch-name>
-git branch -d <branch-name>
 ```
 
 **Branch naming:** `feature/<name>`, `fix/<name>`, `chore/<name>`.
@@ -846,7 +841,7 @@ git branch -d <branch-name>
 
 **Auto-merge follow-through.** Whenever an agent has opened a PR it owns against `$BASE_BRANCH` and `auto_merge_on_ci_green` is `true` in `.agentic/config.json`, IT un-drafts the PR if needed and queues `gh pr merge <N> --squash --delete-branch --auto`, re-drafting (`gh pr ready --undo`) ONLY IF IT performed that un-draft itself and the queue then fails - never touching a PR the operator had already marked ready, since "Allow auto-merge" may be off. This is the ad-hoc instruction, never gated on a particular command; Phase 10, Phase 12, and the sweep instantiate it unevenly - full breakdown: `content/references/conventions-detail.md` §Auto-merge follow-through. `--auto` exiting 0 means QUEUED, not merged. When the toggle is `false` (default), nothing fires and **a turn must state the PR's real state, never a future merge intention it has no mechanism to carry out**.
 
-**Cleanup:** Remove worktrees after the subagent branch is merged or the task is explicitly closed. Do not leave stale worktrees. Between tasks there should be no active subagent worktrees.
+**Cleanup:** retire or hold each carrier at completion (`ds-retire-carrier`; `content/references/worktree-lifecycle.md` §Carrier lifecycle by purpose). Between tasks, no completed carrier stays without a recorded hold.
 
 **Commit each fix immediately during testing.** Never accumulate uncommitted changes during live testing sessions. After each validated fix: commit, PR, merge, pull - then start the next fix. Do not batch multiple unrelated fixes. **Exception - Implicit Trivial batching:** a series of individually-Trivial-classified tweaks to the same surface may share one draft PR across multiple pushes instead of a fresh commit-PR-merge-pull cycle per tweak; the pre-spawn continuation judgment (see `content/references/worktree-lifecycle.md` §Implicit Trivial batching: open the PR at first push) is the discriminator that decides whether a given tweak continues an open batch or starts a new one - the file-overlap scope test that runs on return is rare-miss verification only, never the batching decision itself. Genuinely distinct fixes - unrelated files, unrelated intent, a topic switch - still follow the full commit-PR-merge-pull cycle per fix; "related" is defined by that same continuation judgment, not by file adjacency.
 
@@ -4574,8 +4569,9 @@ sketch under the ~40-line cap.
 
 **Evidence lives ONLY in the live worktree and DIES at cleanup.** The evidence
 store is written to the worktree's `.agentic/evidence/` directory, which is
-untracked scratch. When the worktree is removed at push or merge, the evidence
-is gone with it.
+untracked scratch. A carrier still holding `.agentic/evidence/` is held at
+retirement (`ds-retire-carrier`); delete or copy the evidence once its
+consumer has read it, then re-run.
 
 Consequences:
 
@@ -6254,16 +6250,15 @@ git worktree add .agentic/worktrees/qa-<branch> <branch>
 # Spawn qa-engineer with isolation: "worktree" and PORT=$((3000 + N)) injected into the brief.
 ```
 
-All qa-engineers run concurrently (background, single message). After each returns, run the QA knowledge capture procedure (see §"QA knowledge capture (canonical procedure)" above) against that PR's return, then evaluate the worktree for removal.
+All qa-engineers run concurrently (background, single message). After each returns, run the QA knowledge capture procedure (see §"QA knowledge capture (canonical procedure)" above) against that PR's return, then retire or hold the QA checkout (§Carrier lifecycle by purpose in `content/references/worktree-lifecycle.md`).
 
 This worktree is distinct from the harness-created isolation worktree (`.claude/worktrees/agent-<agentId>`) the qa-engineer's own tool calls execute inside; removing this worktree does not affect the isolation worktree's lifecycle.
 
 ```bash
-if [ -z "$(git -C .agentic/worktrees/qa-<branch> status --porcelain 2>/dev/null)" ]; then
-  git worktree remove .agentic/worktrees/qa-<branch>
-else
-  echo "WARNING: worktree .agentic/worktrees/qa-<branch> has uncommitted changes; skipping cleanup"
-fi
+# After QA knowledge capture, with its dev server stopped:
+ds-retire-carrier .agentic/worktrees/qa-<branch>
+# If a later step still needs its server or evidence, hold it instead:
+# ds-retire-carrier --hold --reason "<what still needs it>" --revisit "<that step returns>" .agentic/worktrees/qa-<branch>
 ```
 
 Serial multi-PR QA is reserved for cases where the parallel path is structurally blocked (e.g. only one preview environment available). Default is parallel.
@@ -8369,17 +8364,17 @@ The fan-out primitive in `/ds-implement-ticket` Phase 5 uses a different worktre
 
 | Mode | Branch naming | Cleanup | Use when |
 |---|---|---|---|
-| `isolation: "worktree"` (Agent tool) | Anonymous temporary branch, auto-named by the tool | Auto-cleaned by the tool if no changes; conductor removes after PR | Single-agent isolation; merge order does not matter |
-| Manually-managed (fan-out) | Explicit named sub-branches: `${FEATURE_BRANCH}-${unit_slug}` | Conductor removes explicitly after all merges or escalation | Multi-branch fan-out; merge order and branch naming matter for history attribution |
+| `isolation: "worktree"` (Agent tool) | Anonymous temporary branch, auto-named by the tool | Retired or held at completion (`ds-retire-carrier`) | Single-agent isolation; merge order does not matter |
+| Manually-managed (fan-out) | Explicit named sub-branches: `${FEATURE_BRANCH}-${unit_slug}` | Each unit checkout retired at completion; a merged sub-branch is deleted once the feature branch contains it | Multi-branch fan-out; merge order and branch naming matter for history attribution |
 
 Manually-managed worktrees are created with:
 
 ```bash
-git -C $REPO worktree add ${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug} \
+git -C $REPO worktree add ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} \
   -b ${FEATURE_BRANCH}-${unit_slug} origin/$BASE_BRANCH
 ```
 
-The `unit_slug` comes from the orchestration-planner's JSONL block. The conductor controls merge ordering (via `merge_order` from the planner) and removes worktrees and sub-branches explicitly after the merge phase. This model preserves attributable merge history in the git graph - each unit's sub-branch is visible in `git log --graph`, making conflict locality traceable.
+The `unit_slug` comes from the orchestration-planner's JSONL block. The conductor controls merge ordering (via `merge_order` from the planner) and retires each unit checkout at its own completion and deletes a sub-branch once `$FEATURE_BRANCH` contains its tip (merge `--no-ff` keeps it attributable in the graph); see `content/references/worktree-lifecycle.md` §Carrier lifecycle by purpose. This model preserves attributable merge history in the git graph - each unit's sub-branch is visible in `git log --graph`, making conflict locality traceable.
 
 ### When NOT needed
 
@@ -9548,7 +9543,9 @@ jobs:
 <!--
 Purpose: Full reference for worktree and branch lifecycle command blocks
          extracted from METHODOLOGY.md §Worktree Lifecycle. Contains the
-         isolation worktree cleanup commands, feature worktree cleanup commands,
+         Carrier lifecycle by purpose section (canonical owner/trigger/hold
+         contract), the isolation worktree cleanup commands, feature worktree
+         cleanup commands,
          the session-start prune script, the Standing authorizations section
          (the enumerated set of routine-hygiene operations pre-authorized for
          every session, satisfying a harness confirm-first carve-out), the
@@ -9613,7 +9610,7 @@ Public API: Read-only reference document. Cross-referenced from:
             to §Agent-spawned process lifetime ownership).
 
 Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
-               that section first for the two-class summary, isolation mandate,
+               that section first for the carrier lifecycle summary, isolation mandate,
                and session-start prune rule).
 
 Downstream consumers: conductor preflight (session-start prune script and
@@ -9639,12 +9636,14 @@ Downstream consumers: conductor preflight (session-start prune script and
                       content/references/code-standards-detail.md
                       (browser-verification pointer) - all four
                       cross-referencing the Agent-spawned process lifetime
-                      ownership section.
+                      ownership section; bin/ds-retire-carrier (implements the
+                      Carrier lifecycle by purpose disposition);
+                      scripts/codex-skills.py `CODEX_SPAWN_CONTRACT` (restates
+                      its completion event for Codex).
 
-Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
-               without the status check first risks losing uncommitted work.
-               The --delete-branch flag on gh pr merge may not auto-delete in
-               all gh CLI versions; the explicit git branch -D is the fallback.
+Failure modes: Prose + bash blocks; does not auto-execute. Carrier
+               retirement goes through bin/ds-retire-carrier, which never
+               force-removes; a refusal is a recorded hold.
                The branch prune step (bin/ds-branch-prune, DS-153) proves
                subsumption before deleting - absence of proof is always a
                skip, never a force-delete; see Safe boundary note in that
@@ -9670,52 +9669,46 @@ Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
 Performance: Standard.
 -->
 
-> Parent section: METHODOLOGY.md §Worktree Lifecycle. Read that section first for the two-class summary, isolation mandate, and session-start prune rule.
+> Parent section: METHODOLOGY.md §Worktree Lifecycle. Read that section first for the carrier lifecycle summary, isolation mandate, and session-start prune rule.
 
 # Worktree and Branch Lifecycle - Full Reference
 
+## Carrier lifecycle by purpose
+
+A carrier is any linked checkout created for one job. Its purpose, not its path, decides its owner and when it retires:
+
+| Purpose | Examples | Owner |
+|---|---|---|
+| Temporary | engineer, reviewer, QA, plan, scratch and verification checkouts (harness `.claude/worktrees/*` or conductor-created `.agentic/worktrees/*`) | the conductor that spawned or created it |
+| Integration | `.agentic/worktrees/${FEATURE_BRANCH}` | the conductor |
+| Runtime/evidence | a QA dev-server checkout, staged probes, `.agentic/evidence/` a later step reads | the conductor; processes it started belong to the spawning agent (§Agent-spawned process lifetime ownership) |
+
+**Completion event (every purpose).** A carrier's work is complete when the review gates on its output have returned, or the work is abandoned, and its agent will be sent no further work. An agent stopping is not completion - it can be resumed after it returns - and ticket close and PR merge are never the trigger.
+
+**Disposition.** At completion run `ds-retire-carrier <path>`. It removes the checkout only, never the branch, and only when it is unlocked, clean, has no git operation in progress, holds no protected ignored content (authored `.agentic/` files including `.agentic/evidence/`, `docs/planning/`, `.env*`, `*.local`; detached checkouts use the strict allowlist), and every commit it privately pins (HEAD, ORIG_HEAD, its HEAD reflog) stays pinned after removal by a local branch, a branch reflog, or a live origin branch tip. Otherwise it records a hold - path, owner, reason, revisit event - in the primary checkout's `.agentic/worktree-cleanup-skips.jsonl`. A harness-locked checkout is held; measurements disagree on whether the harness releases its lock when the agent returns or when the session ends, so re-run at `/ds-wrap` Step 5 or the next session start.
+
+**Releasing holds.** Holds belong to the repo's conductor role; the recorded owner is for audit. Any conductor in the repo may re-run a hold: an automatic hold is re-evaluated against live state on every run. An explicit hold (`--hold`, for what the tool cannot see: a live process, a pending consumer, a planned resume, unknown ownership, a path dependency) is honored until a re-run passes `--release`, which a conductor passes only after observing its revisit event. Unpinned commits are released by pushing or merging them, or by `--pin`, which keeps them on a local `carrier-pin/*` branch. Protected content, evidence included, is released by copying or deleting it after its consumer has read it. `/ds-wrap` Step 5 and the session-start preflight list open holds with `ds-retire-carrier --list-holds`. One hold per path: a blanket "preserve every worktree" instruction is not a hold - narrow it to per-path holds after checking what each path preserves.
+
+**Branch deletion is a separate step with its own proof** - Phase 8's ancestor-of-live-origin check, the fan-out's ancestor-of-`$FEATURE_BRANCH` check, or `bin/ds-branch-prune`. No cleanup step deletes a branch because a PR merged; the merge command's `--delete-branch` belongs to the merge protocol, not this contract. Never force-remove, unlock a live checkout, or bulk-prune.
+
+**Exempt:** scratch an agent creates and discards within one step, holding only copies (the Skeptic's scratch checkout, `/ds-wrap` Part G's knowledge-commit worktree), follows its own procedure.
+
+**Backstop and fallback:** the evidence-gated sweep (`bin/ds-cleanup-worktrees`) is unchanged and does not read holds. If `ds-retire-carrier` is not on PATH (the adapter installer has not re-run since this update), call `<dinostack checkout>/bin/ds-retire-carrier` or re-run the installer; never substitute a raw `git worktree remove`.
+
 ## Isolation worktree cleanup commands
 
-Isolation worktrees are removed inline after the branch has been pushed to
-origin. Once commits are on origin, the PR/branch is backed by the remote ref,
-so the local worktree is redundant. Cleaning up at push time avoids the
-branch-rename mapping problem that makes "after PR open" cleanup unreliable.
-
-```bash
-# Resolve worktree path from branch name (works even if the branch was renamed).
-# Requires scripts/lib/worktree.sh to be sourced.
-source "${REPO_DIR}/scripts/lib/worktree.sh"
-WORKTREE_PATH=$(resolve_branch_worktree "$REPO_DIR" "$BRANCH_NAME")
-
-# Verify no uncommitted changes in the isolated worktree:
-[ -n "$WORKTREE_PATH" ] && git -C "$WORKTREE_PATH" status --porcelain
-
-# If clean, remove the isolated worktree and its local branch:
-[ -n "$WORKTREE_PATH" ] && git -C "$REPO_DIR" worktree remove "$WORKTREE_PATH"
-git -C "$REPO_DIR" branch -D "$BRANCH_NAME" 2>/dev/null || true
-```
-
-This is the self-scoped inline pattern; it does not need the general disposition model in `bin/tests/worktree_model.py` (`disposition_for` / `disposition_for_orphan_branch`) because it only ever operates on the branch the current session just pushed in the same phase. `content/commands/ds-implement-ticket.md` Phase 8 carries the hardened, canonical form of this block: single attempt, no force, surfacing stderr and appending a persisted skip record (`.agentic/worktree-cleanup-skips.jsonl`) to a refusal rather than discarding it - the illustrative snippet above omits that hardening for brevity.
+Phase 8 of `content/commands/ds-implement-ticket.md` retires the engineer's checkout right after its push, through `ds-retire-carrier` (§Carrier lifecycle by purpose); outside that flow the conductor runs the same command at the carrier's completion.
 
 If the worktree is still locked, `git worktree remove` will refuse. That
 is expected and safe - it is the correct, permanent outcome for a
 refusal, NEVER a signal to unlock or force-remove (`git worktree unlock` may
 be used ONLY on a worktree whose directory is already gone - see §Guardrail
 below, unchanged by any cleanup block in this document). The refusal is
-recorded (Phase 8's ledger above) so it stays visible in a later session.
+recorded (the tool's ledger record) so it stays visible in a later session.
 
 ## Feature worktree cleanup commands
 
-Feature worktrees (`feature/*`, `fix/*`, `chore/*`) are removed after the PR is merged:
-
-```bash
-gh pr merge <number> --squash --delete-branch
-git worktree remove --force <worktree-path>
-git branch -D <branch-name>   # if not auto-deleted by --delete-branch
-git worktree prune             # clean up any stale metadata
-```
-
-This `git branch -D` is likewise exempt from the general disposition model (as the isolation-worktree pattern above is): it runs only as a fallback AFTER `gh pr merge --delete-branch` has already succeeded on this exact branch, so the merge itself - not a bare "a PR merged" signal - is the proof of subsumption.
+Integration and feature checkouts retire at completion per §Carrier lifecycle by purpose. Merging is `gh pr merge <number> --squash --delete-branch`; that is the merge protocol, not a cleanup step.
 
 Same-PR rework rounds (see §Round-N rework mechanic below) mean one persistent branch per ticket instead of `-rN` siblings that each needed their own worktree, so `-rN` proliferation should drop. This is unaffected by the squash-merge-defeats-prune hazard: the branch-gone-from-origin / four-layer subsumption predicate (§Branch prune below) remains the correct predicate for cleanup either way, and prune logic itself is untouched by this change.
 
@@ -10233,11 +10226,9 @@ file, so there is no vicious-loop risk to defend against.
 
 ## Ad-hoc (non-`/ds-implement-ticket`) worktree cleanup obligation
 
-`/ds-implement-ticket` Phase 8's own cleanup block (§Isolation worktree cleanup commands above) only fires on that command's own success path - after a push succeeds on the ticket flow. Any ad-hoc isolation-worktree spawn made OUTSIDE that flow (a Worker per `AGENTS.md` §Workflow, a scratch investigation spawn, a one-off fix not run through `/ds-implement-ticket`) has no equivalent automatic trigger and is the single largest confirmed source of orphaned worktrees in practice - measured against this repo's own history, branches like `worktree-agent-<id>` (default-named, never renamed) and abandoned rework rounds (`ds-round8`..`ds-round12`, `work-round7`, `fix-gigi-round5` - legacy remnants that predate the round-N rework mechanic below and would not recur under it) accounted for the majority of accumulated non-root worktrees.
+Outside `/ds-implement-ticket` there is no Phase 8. The conductor applies §Carrier lifecycle by purpose at each ad-hoc spawn's completion.
 
-**Obligation:** whenever the conductor spawns an ad-hoc isolation-worktree Worker outside `/ds-implement-ticket`, it is responsible for cleaning up that worktree itself once the branch is pushed, the work is abandoned, or the session concludes - by running the same self-scoped pattern in §Isolation worktree cleanup commands above, immediately, rather than assuming any later automatic pass will catch it. This is a standing authorization (§Standing authorizations above already covers the removal itself); the obligation here is the TRIGGER - do it at the natural completion point of the ad-hoc spawn, not "eventually."
-
-**Round-N rework coverage.** The Round-N rework mechanic above already establishes that rework rounds reuse the SAME branch and worktree rather than creating a fresh `-rN` sibling each round - this is what makes `-rN` proliferation a legacy failure mode rather than a live one. When a round is genuinely SUPERSEDED (a wholesale approach replacement per `content/rules/conventions.md` §Git Workflow's rework-vs-superseding test, not a same-approach fix), the superseded round's worktree is now abandoned and must be cleaned up at that moment - the close+rebase step that supersedes it is exactly the natural completion point this obligation attaches to, not a "later" pass.
+**Round-N rework coverage.** The Round-N rework mechanic above already establishes that rework rounds reuse the SAME branch and worktree rather than creating a fresh `-rN` sibling each round - this is what makes `-rN` proliferation a legacy failure mode rather than a live one. When a round is genuinely SUPERSEDED (a wholesale approach replacement per `content/rules/conventions.md` §Git Workflow's rework-vs-superseding test, not a same-approach fix), the superseded round's worktree is now abandoned and is complete at that moment: retire or hold it - the close+rebase step that supersedes it is exactly the natural completion point this obligation attaches to, not a "later" pass.
 
 **Backstop, not a substitute:** the session-start prune script, `bin/ds-branch-prune`, and `bin/ds-cleanup-worktrees` (invoked directly, via `/ds-cleanup-worktrees`, surfaced by the `ds-base-sync` advisory note and the SessionStart worktree-count nudge, or - as of DS-196 - invoked by the conductor's session-start preflight (backgrounded, per §Session-start prune script, so it never blocks), a fourth trigger path - see their own docs) all remain in place specifically because this obligation is process discipline, not a structural guarantee - a crashed session, an interrupted spawn, or a conductor that simply forgets still needs a backstop that eventually reclaims the worktree without relying on the obligation having been honored.
 
@@ -10246,14 +10237,14 @@ file, so there is no vicious-loop risk to defend against.
 Implicit Trivial batching (§Implicit Trivial batching: open the PR at
 first push above) needs no special case here: each continuation spawn is
 an ordinary Trivial engineer running in its own harness isolation
-worktree, so the standard "once the branch is pushed" trigger above
+worktree, so the completion event in §Carrier lifecycle by purpose
 already covers it - there is no second worktree to separately account
 for. A crash before push instead leaves the `SKIP_UNREFERENCED_COMMIT`
 residual documented below.
 
 ## The unproven class, and archiving it (`--archive-unproven`)
 
-Even with every prior gate passing (unlocked, not self, idle past the activity window, clean, not protected-content), `bin/ds-cleanup-worktrees` still refuses to remove a worktree whose branch carries real, unmerged commits that were never pushed anywhere and have no matching PR - `disposition_for` correctly reports `SKIP_UNPROVEN` rather than guessing. Measured against this repo's own live checkout, this is the dominant remaining blocker once the `.agentic/`-content correction landed: `skipped-protected-content` dropped to 0, but `removed` stayed 0, because most of the remaining worktrees carry exactly this class of branch (default-named `worktree-agent-<id>` branches and legacy `ds-round8`..`ds-round12` rework branches - see §Ad-hoc worktree cleanup obligation above for how they accumulated). Left alone by this predicate, `SKIP_UNPROVEN` worktrees do not resolve on their own. **This is now qualified, not absolute (DS-196):** a `SKIP_UNPROVEN` branch that has since been pushed to `origin` and reached a resolved (non-open) PR state can resolve via the separate `origin_reachable` evidence source (see the session-start reap above), which is LENIENT-only and evaluated after `pr_state` - `SKIP_UNPROVEN` itself, produced by the STRICT branch-deletion path, is untouched by this; only the worktree-removal path gains the new resolution route. A branch that is genuinely unpushed, with no PR, still never resolves.
+Even with every prior gate passing (unlocked, not self, idle past the activity window, clean, not protected-content), `bin/ds-cleanup-worktrees` still refuses to remove a worktree whose branch carries real, unmerged commits that were never pushed anywhere and have no matching PR - `disposition_for` correctly reports `SKIP_UNPROVEN` rather than guessing. Measured against this repo's own live checkout, this is the dominant remaining blocker once the `.agentic/`-content correction landed: `skipped-protected-content` dropped to 0, but `removed` stayed 0, because most of the remaining worktrees carry exactly this class of branch (default-named `worktree-agent-<id>` branches and legacy `ds-round8`..`ds-round12` rework branches). Left alone by this predicate, `SKIP_UNPROVEN` worktrees do not resolve on their own. **This is now qualified, not absolute (DS-196):** a `SKIP_UNPROVEN` branch that has since been pushed to `origin` and reached a resolved (non-open) PR state can resolve via the separate `origin_reachable` evidence source (see the session-start reap above), which is LENIENT-only and evaluated after `pr_state` - `SKIP_UNPROVEN` itself, produced by the STRICT branch-deletion path, is untouched by this; only the worktree-removal path gains the new resolution route. A branch that is genuinely unpushed, with no PR, still never resolves.
 
 **`SKIP_RECENT_ACTIVITY` masking note:** the file-activity liveness gate (`--activity-window-hours`, default 3.0) is checked after the lock, self and age gates and before the dirty check, so a worktree that is BOTH recently active AND dirty reports only `SKIP_RECENT_ACTIVITY` in a plain run - the dirty fact is still true but not the reported reason. A locked worktree now always reports `SKIP_LOCKED` (DS-245 moved the lock gate ahead of self, age and activity), so it can no longer be masked by this gate or by the age floor. This is the same masking class as the pre-existing `SKIP_TOO_YOUNG` age-floor gate; `--explain` surfaces the full evidence for a given entry regardless of which single-reason bucket it lands in.
 
@@ -19246,7 +19237,7 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
 
   Rebase conflict -> `git -C <worktree> rebase --abort`, return BLOCKED with the conflict output. Retried push ALSO rejected -> return BLOCKED, do not loop.
 
-  **What BLOCKED means for cleanup.** When the retry is exhausted and the engineer returns BLOCKED, its isolation worktree holds an **unpushed commit** - the engineer's actual deliverable, not yet on any ref the PR flow can see. The conductor **must not** run its normal worktree cleanup in this specific BLOCKED state - that cleanup path assumes the branch has already been pushed to origin, and running it here is the exact mechanism by which the ticket's real deliverable would be lost. The worktree must be preserved until a human resolves the underlying rejection.
+  **What BLOCKED means for cleanup.** When the retry is exhausted and the engineer returns BLOCKED, its isolation worktree holds an **unpushed commit** - the engineer's actual deliverable, not yet on any ref the PR flow can see. The conductor **must not** run its normal worktree cleanup in this specific BLOCKED state - that cleanup path assumes the branch has already been pushed to origin, and running it here is the exact mechanism by which the ticket's real deliverable would be lost. The worktree must be preserved until a human resolves the underlying rejection. Record that hold: `"$REPO_DIR/bin/ds-retire-carrier" --hold --reason "BLOCKED: unpushed commit" --revisit "operator resolves the push rejection" <worktree>`.
 
 Extend `completion_conditions` to include: "quality_gates.command exits 0", "commit and push completed per git_finalization", and "quality_gate_results captured in return".
 
@@ -19275,9 +19266,11 @@ When this ticket has a Brief or Plan (Phase 4's "Commit and push the planning ar
 Use git worktrees to give each engineer an isolated copy. The orchestration-planner's JSONL block provides `unit_slug`, `merge_order`, and `skeptic_strategy` for each unit - read these fields to drive worktree naming, merge ordering, and Skeptic strategy. Before creating worktrees, prune stale state from any prior fan-out:
 
 ```bash
-# Prune stale worktree metadata and remove any leftover sub-branches from prior runs:
 git -C $REPO worktree prune
-# If any ${FEATURE_BRANCH}-${unit_slug} branches exist from a prior run, delete them before proceeding.
+# Leftover ${FEATURE_BRANCH}-${unit_slug} from a prior run: retire its checkout first
+# ("$REPO_DIR/bin/ds-retire-carrier" <path>; any nonzero exit stops that unit - escalate).
+# Then delete the branch (git branch -D) only if its tip is an ancestor of
+# $FEATURE_BRANCH or origin/$BASE_BRANCH (git merge-base --is-ancestor); else escalate.
 ```
 
 Create one worktree per unit, each rooted from `BASE_BRANCH` (loop over all N units from the planner's JSONL block in `merge_order` sequence):
@@ -19368,7 +19361,7 @@ git -C "$INTEGRATION_WORKTREE" merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 **N>2 conflict recovery.** On conflict at any step:
 1. `git -C "$INTEGRATION_WORKTREE" merge --abort`
 2. Stop; do not merge further.
-3. Collect conflict files, all units' diffs, and the planner output.
+3. Collect conflict files, all units' diffs, and the planner output. Then retire every unit checkout per **Worktree cleanup** below.
 4. Spawn a single engineer with a conflict-resolution brief: all units' complete changes, the conflict markers, and explicit instruction to implement all units sequentially in a single worktree targeting `FEATURE_BRANCH`.
 5. The sequential re-implementation engineer inherits a single-Skeptic review obligation (one Skeptic over combined diff, since units are now interdependent by fact of their conflict).
 6. The conflict re-route counts as iteration 1 of the Phase 6 loop (do not double-count).
@@ -19383,20 +19376,19 @@ git -C "$INTEGRATION_WORKTREE" merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 
 **Post-merge integration quality check.** After all N merges complete cleanly on `FEATURE_BRANCH`, run `$QUALITY_CMD` from `$INTEGRATION_WORKTREE` (never `$REPO`). If it fails, spawn one engineer pointed at `$INTEGRATION_WORKTREE` with the failure output. The fix goes through a single Skeptic on the incremental diff before Phase 5 is complete; does NOT replace Phase 6.
 
-**Worktree cleanup.** After all merges succeed (or after escalation, to prevent stale worktree accumulation):
+**Worktree cleanup.** Retire each unit checkout at completion - after its merge, after escalation, or at a conflict re-route once step 3 has collected every unit's diff (§Carrier lifecycle by purpose in `content/references/worktree-lifecycle.md`). Delete a sub-branch only once `$FEATURE_BRANCH` contains its tip; an unmerged one stays and pins its commits:
 
 ```bash
 # For each unit:
-if [ -z "$(git -C ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} status --porcelain 2>/dev/null)" ]; then
-  git -C $REPO worktree remove ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} --force
-  git -C $REPO branch -d ${FEATURE_BRANCH}-${unit_slug}
-else
-  echo "WARNING: worktree ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} has uncommitted changes; skipping cleanup"
+UNIT_WT="${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug}"
+if "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$UNIT_WT" \
+   && git -C $REPO merge-base --is-ancestor "${FEATURE_BRANCH}-${unit_slug}" "$FEATURE_BRANCH"; then
+  git -C $REPO branch -D "${FEATURE_BRANCH}-${unit_slug}"
 fi
 git -C $REPO worktree prune
 ```
 
-`$INTEGRATION_WORKTREE` is removed post-push by Phase 8's "Isolation worktree cleanup" block (resolved by `$BRANCH_NAME`, same clean-status guard).
+`$INTEGRATION_WORKTREE` is retired post-push by Phase 8's "Isolation worktree cleanup" block (resolved by `$BRANCH_NAME`).
 
 For full worktree cleanup rules (isolation worktrees, feature worktrees, stale branch pruning), see `METHODOLOGY.md §Worktree Lifecycle`.
 
@@ -20015,52 +20007,23 @@ fi
 git -C $REPO push -u origin [BRANCH_NAME]
 
 # --- Isolation worktree cleanup (post-push) ---
-# The branch now lives on origin; the engineer's isolated worktree is redundant.
-# Resolve the worktree from the branch name so renames do not break cleanup.
+# Retire the engineer's checkout (worktree-lifecycle.md §Carrier lifecycle by
+# purpose): ds-retire-carrier removes it only when clean, free of protected
+# ignored content, and pinning no commit that would lose its last ref; it never
+# forces, unlocks, or deletes a branch, and records a hold otherwise.
 git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
-if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
-  WORKTREE_PATH=$("$REPO_DIR/bin/ds-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
-  if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
-    if [ -z "$(git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null)" ]; then
-      # Single attempt, no force. A refusal (locked by the harness, or any
-      # other reason) is the CORRECT outcome here, never overridden - per
-      # content/references/worktree-lifecycle.md §Guardrail, `git worktree
-      # unlock` may be used ONLY on a worktree whose directory is already
-      # gone (this worktree's directory demonstrably still exists, since we
-      # got this far), and a double-force `remove -f -f` overrides the
-      # harness's own lock protection, which this methodology must never do.
-      # A round-2 Skeptic Critical caught an earlier version of this block
-      # doing exactly that on an "agent may have just finished" assumption
-      # with no check backing it - removed entirely.
-      REMOVE_STDERR=$(git -C "$REPO" worktree remove "$WORKTREE_PATH" 2>&1)
-      REMOVE_RC=$?
-      if [ "$REMOVE_RC" -eq 0 ]; then
-        git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
-        echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
-      else
-        # Never discard stderr on a refusal - surface it AND append a
-        # persisted skip record so the orphaned (or still-locked) worktree
-        # is visible in a later session (previously this failure was
-        # silently swallowed by `2>/dev/null || true`, which is exactly how
-        # isolation worktrees from failed cleanups accumulated invisibly).
-        # A locked-worktree refusal is expected and safe here.
-        echo "WARNING: git worktree remove failed for $WORKTREE_PATH (branch=$BRANCH_NAME): $REMOVE_STDERR" >&2
-        mkdir -p "$REPO/.agentic" 2>/dev/null || true
-        SKIP_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-        python3 -c "
-import json, sys
-rec = {'ts': sys.argv[1], 'branch': sys.argv[2], 'path': sys.argv[3], 'stderr': sys.argv[4]}
-with open(sys.argv[5], 'a') as f:
-    f.write(json.dumps(rec) + chr(10))
-" "$SKIP_TS" "$BRANCH_NAME" "$WORKTREE_PATH" "$REMOVE_STDERR" "$REPO/.agentic/worktree-cleanup-skips.jsonl" 2>/dev/null || true
-      fi
-    else
-      echo "WARNING: worktree $WORKTREE_PATH has uncommitted changes; skipping cleanup"
-    fi
+WORKTREE_PATH=$("$REPO_DIR/bin/ds-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
+if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ] \
+   && "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$WORKTREE_PATH"; then
+  # Separate step, own proof: delete the local ref only when origin holds its tip.
+  if git -C "$REPO" ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1 \
+     && git -C "$REPO" merge-base --is-ancestor "$BRANCH_NAME" "origin/$BRANCH_NAME"; then
+    git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
   fi
+  echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
 fi
 # Soft-fail: this entire block never blocks Phase 8 regardless of outcome -
-# a remove failure is reported (stderr + the ledger above), never fatal.
+# a remove failure is reported (stderr + its ledger record), never fatal.
 # --- End isolation worktree cleanup ---
 ```
 
@@ -20174,7 +20137,8 @@ for i in 1 2 3; do
   git -C "$WORKTREE_PATH" rebase origin/qa-evidence
 done
 
-git -C "$REPO" worktree remove "$WORKTREE_PATH" --force 2>/dev/null || true
+if [ -x "$REPO_DIR/bin/ds-retire-carrier" ]; then "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$WORKTREE_PATH" || true
+else echo "WARNING: $REPO_DIR/bin/ds-retire-carrier missing; QA evidence worktree $WORKTREE_PATH left in place" >&2; fi
 git -C "$REPO" worktree prune 2>/dev/null || true
 ```
 
@@ -26310,7 +26274,7 @@ Otherwise skip that target silently.
 
 **Step 5 — Worktree cleanup.**
 
-If the project is a git repository with a `/ds-cleanup-worktrees` skill available, run it now. This removes stale isolation worktrees and merged feature branches so the repo is clean for the next session. If the skill is not available, skip this step silently.
+If the project is a git repository, run `/ds-cleanup-worktrees` now. This removes stale isolation worktrees and merged feature branches so the repo is clean for the next session. Then run `ds-retire-carrier --list-holds` and re-run `ds-retire-carrier <path>` for each listed path, adding `--release` to an explicit hold only when its revisit event occurred. If either cannot run, print one line naming it and the reason; never skip silently.
 
 A wrap runs unattended at session end, and DS-245 made `--min-age-hours` off-by-default, so this step needs the 24h floor an operator-invoked run does not. **It is applied automatically and this step sets nothing.** `/ds-cleanup-worktrees` Step 2 applies the floor whenever `<cwd>/.agentic/wrap/lock` is present, and the whole-flow lock acquired in this command's pre-flight is held until Step 6's `ds-wrap-release-lock`, which runs strictly after this step - so the lock is present for the whole of Step 5 by construction.
 

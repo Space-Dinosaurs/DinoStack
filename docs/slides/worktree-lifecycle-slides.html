@@ -471,21 +471,21 @@ hr {
 }
 " lang="C" class="highlight" data-marpit-pagination="3" style="--paginate:true;--class:highlight;--theme:default;--style:@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap')
 ;" data-marpit-pagination-total="12">
-<h2 id="two-classes-of-worktree">Two classes of worktree</h2>
+<h2 id="carriers-retire-by-purpose">Carriers retire by purpose</h2>
 <div class="columns">
 <div class="card">
-<strong>Isolation worktrees</strong><br />
-Path <code>.claude/worktrees/*</code>. Created automatically by the Agent tool when <code>isolation: "worktree"</code> is set on the spawn call. Each parallel subagent gets its own copy of the tree.<br /><br />
-<strong>Cleanup trigger:</strong> once the agent returns and the conductor opens a PR (or confirms no PR is needed), the isolation worktree is redundant. The branch holds the commits. Remove immediately.
+<strong>Temporary carriers</strong><br />
+Engineer, reviewer, QA, plan, scratch and verification checkouts - harness <code>.claude/worktrees/*</code> or conductor-created <code>.agentic/worktrees/*</code>. Owner: the conductor that spawned or created it.<br /><br />
+<strong>Trigger:</strong> completion - the review gates on its output have returned, or the work is abandoned, and its agent gets no further work.
 </div>
 <div class="card">
-<strong>Feature worktrees</strong><br />
-Path <code>.agentic/worktrees/&lt;branch-name&gt;</code>.<br /><br />
-<strong>Cleanup trigger:</strong> removed after the PR is merged. The merge (not the PR open) is the trigger.
+<strong>Integration and runtime carriers</strong><br />
+<code>.agentic/worktrees/${FEATURE_BRANCH}</code>, a QA dev-server checkout, evidence a later step reads. Owner: the conductor.<br /><br />
+<strong>Trigger:</strong> the same completion event. Ticket close and PR merge are never the trigger.
 </div>
 </div>
 <div class="callout">
-Classified by <strong>path, never branch name</strong> (<code>bin/tests/worktree_model.py</code>'s <code>classify_entry</code> is normative - DS-118: a renamed branch can live inside either admin directory, so a name-based scheme collides). Two classes, two distinct cleanup triggers. Getting the trigger wrong leaves stale worktrees that accumulate between runs and confuse subsequent sessions.
+Purpose, not path, sets owner and trigger. Path classification (<code>bin/tests/worktree_model.py</code>'s <code>classify_entry</code>, never branch name) drives only the evidence-gated sweep of leftovers.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="4" data-marpit-scope-s003="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -803,24 +803,19 @@ hr {
 ;" data-marpit-pagination-total="12">
 <h2 id="cleanup-isolation-worktrees">Cleanup: isolation worktrees</h2>
 
-<p>Trigger: agent returned output AND conductor has opened a PR (or confirmed no PR needed).</p>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash"><span class="hljs-comment"># Verify no uncommitted changes before removing:</span>
-git -C &lt;worktree-path&gt; status --porcelain
-<span class="hljs-comment"># If clean (no output), remove the worktree and local branch:</span>
-git worktree remove &lt;worktree-path&gt;
-git branch -D &lt;branch-name&gt; 2&gt;/dev/null || <span class="hljs-literal">true</span>
-<span class="hljs-comment"># Safe: the PR is backed by the branch on origin, not this local ref.</span>
-<span class="hljs-comment"># Only the redundant local branch is removed; pushed commits and PR are unaffected.</span>
-<span class="hljs-comment"># If modified tracked files exist, inspect first then force-remove:</span>
-<span class="hljs-comment"># git worktree remove --force &lt;worktree-path&gt;</span>
+<p>Trigger: the carrier's completion. Phase 8 runs it right after the engineer's push.</p>
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">ds-retire-carrier &lt;worktree-path&gt;
+<span class="hljs-comment"># exit 0: checkout removed, branch kept</span>
+<span class="hljs-comment"># exit 3: hold recorded (owner, reason, revisit event)</span>
+ds-retire-carrier --list-holds        <span class="hljs-comment"># open holds, at /ds-wrap Step 5 and session start</span>
 </code></pre>
 <ul>
-<li>The local branch lingers after <code>worktree remove</code> without an explicit <code>branch -D</code></li>
-<li>Force-remove is only safe after confirming nothing important is uncommitted</li>
-<li>Isolation worktrees with changes persist until the conductor explicitly removes them</li>
+<li>Removes the checkout only when unlocked, clean, free of protected ignored content (<code>.agentic/</code> files, evidence, <code>.env*</code>), and every commit it pins keeps a ref</li>
+<li>Never forces, unlocks, prunes, pushes or deletes a branch</li>
+<li>A checkout with changes is held, never force-removed</li>
 </ul>
 <div class="callout">
-Isolation worktrees with no changes are auto-cleaned by the Agent tool. Those with changes are the conductor's responsibility.
+An unpinned commit is released by pushing or merging it, or by <code>--pin</code>, which keeps it on a local <code>carrier-pin/*</code> branch.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="6" data-marpit-scope-s005="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -974,19 +969,19 @@ hr {
 ;" data-marpit-pagination-total="12">
 <h2 id="cleanup-feature-worktrees">Cleanup: feature worktrees</h2>
 
-<p>Trigger: the PR is merged (not when the PR is opened).</p>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">gh <span class="hljs-built_in">pr</span> merge &lt;number&gt; --squash --delete-branch
-git worktree remove --force &lt;worktree-path&gt;
-git branch -D &lt;branch-name&gt;   <span class="hljs-comment"># if not auto-deleted by --delete-branch</span>
-git worktree prune             <span class="hljs-comment"># clean up any stale metadata</span>
+<p>Integration and feature checkouts retire at the same completion event, through the same command.</p>
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">ds-retire-carrier .agentic/worktrees/&lt;branch-name&gt;
+<span class="hljs-comment"># explicit hold for what the tool cannot see (a live server, a pending consumer):</span>
+ds-retire-carrier --hold --reason <span class="hljs-string">&quot;&lt;why&gt;&quot;</span> --revisit <span class="hljs-string">&quot;&lt;event&gt;&quot;</span> &lt;path&gt;
+ds-retire-carrier --release &lt;path&gt;   <span class="hljs-comment"># only after the revisit event</span>
 </code></pre>
 <ul>
-<li><code>--delete-branch</code> on <code>gh pr merge</code> may not auto-delete in all gh CLI versions; the explicit <code>git branch -D</code> is the fallback</li>
-<li><code>git worktree prune</code> cleans up stale metadata left over from worktrees removed without the normal command</li>
+<li>Branch deletion is a separate step with its own proof (ancestor of the live origin tip or of <code>$FEATURE_BRANCH</code>, or <code>bin/ds-branch-prune</code>)</li>
+<li><code>gh pr merge &lt;number&gt; --squash --delete-branch</code> is the merge protocol, not a cleanup step</li>
 </ul>
-<p>Do not leave stale worktrees between tasks. Between tasks there should be no active subagent worktrees.</p>
+<p>Between tasks, no completed carrier stays without a recorded hold.</p>
 <div class="callout">
-Feature worktrees outlive the PR open state; isolation worktrees do not. That asymmetry is the main source of incorrect cleanup timing.
+One hold per path: a blanket "preserve every worktree" instruction is not a hold.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="7" data-marpit-scope-s006="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

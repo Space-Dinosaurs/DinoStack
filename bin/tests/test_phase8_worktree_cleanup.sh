@@ -15,7 +15,8 @@
 #             `bash bin/tests/test_phase8_worktree_cleanup.sh`).
 #
 # Upstream deps: content/commands/ds-implement-ticket.md (the block under
-#                test, extracted by marker); real `git` CLI.
+#                test, extracted by marker); bin/ds-retire-carrier (which the
+#                block calls); real `git` CLI.
 #
 # Downstream consumers: CI (bin-sh-tests, auto-collected per
 #                       .github/workflows/bin-tests.yml's shell-test glob).
@@ -92,7 +93,8 @@ build_repo() {
   git -C "$repo" config user.email spec@example.com
   git -C "$repo" config user.name spec
   echo init > "$repo/README.md"
-  git -C "$repo" add README.md
+  printf '/.agentic/*\nnode_modules/\n*.log\n' > "$repo/.gitignore"
+  git -C "$repo" add README.md .gitignore
   git -C "$repo" commit -q -m init
   git -C "$repo" push -q -u origin main
   echo "$repo"
@@ -138,8 +140,8 @@ git -C "$REPO2" worktree lock "$REPO2/.claude/worktrees/wt2"
 OUT2="$(run_block "$REPO2" "$BRANCH2" 2>&1)"
 BLOCK2_RC=$?
 assert $BLOCK2_RC "scenario 2: block exits 0 (soft-fail - a refusal never blocks Phase 8)"
-echo "$OUT2" | grep -q "WARNING: git worktree remove failed"
-assert $? "scenario 2: refusal is surfaced to stderr, not silently swallowed"
+echo "$OUT2" | grep -q "is locked; skipping cleanup"
+assert $? "scenario 2: lock refusal is surfaced to stderr, not silently swallowed"
 [ -d "$REPO2/.claude/worktrees/wt2" ]
 assert $? "scenario 2: locked worktree directory is STILL PRESENT (never unlocked or force-removed)"
 git -C "$REPO2" show-ref --verify --quiet "refs/heads/$BRANCH2"
@@ -220,6 +222,53 @@ assert $? "scenario 4: dirty-skip warning printed"
 assert $? "scenario 4: dirty worktree directory NEVER removed"
 git -C "$REPO4" show-ref --verify --quiet "refs/heads/$BRANCH4"
 assert $? "scenario 4: dirty worktree's branch NEVER deleted"
+
+# --------------------------------------------------------------------------
+# Scenario 5: ignored authored .agentic/plan.md -> held, file and branch kept,
+# hold record written (the pre-retire-carrier block deleted it with the
+# worktree, since `git status --porcelain` never reports ignored files).
+# --------------------------------------------------------------------------
+echo ""
+echo "== Scenario 5: ignored .agentic/plan.md -> held, file kept =="
+REPO5="$(build_repo scenario5)"
+BRANCH5="feature/scenario-5"
+git -C "$REPO5" worktree add -q "$REPO5/.claude/worktrees/wt5" -b "$BRANCH5"
+git -C "$REPO5" push -q -u origin "$BRANCH5"
+mkdir -p "$REPO5/.claude/worktrees/wt5/.agentic"
+echo plan > "$REPO5/.claude/worktrees/wt5/.agentic/plan.md"
+run_block "$REPO5" "$BRANCH5" >/dev/null 2>&1
+assert $? "scenario 5: block exits 0"
+[ -f "$REPO5/.claude/worktrees/wt5/.agentic/plan.md" ]
+assert $? "scenario 5: ignored plan file survives"
+git -C "$REPO5" show-ref --verify --quiet "refs/heads/$BRANCH5"
+assert $? "scenario 5: branch NOT deleted"
+python3 -c "
+import json, sys
+rec = json.loads(open(sys.argv[1]).read().splitlines()[-1])
+assert rec['kind'] == 'hold' and 'wt5' in rec['path'] and 'protected ignored content' in rec['reason'], rec
+" "$REPO5/.agentic/worktree-cleanup-skips.jsonl"
+assert $? "scenario 5: hold record names the protected content"
+
+# --------------------------------------------------------------------------
+# Scenario 6: local tip ahead of origin -> checkout retired (the branch pins
+# the commit), branch NOT deleted (origin does not hold its tip).
+# --------------------------------------------------------------------------
+echo ""
+echo "== Scenario 6: local tip ahead of origin -> retired, branch kept =="
+REPO6="$(build_repo scenario6)"
+BRANCH6="feature/scenario-6"
+git -C "$REPO6" worktree add -q "$REPO6/.claude/worktrees/wt6" -b "$BRANCH6"
+git -C "$REPO6" push -q -u origin "$BRANCH6"
+echo ahead > "$REPO6/.claude/worktrees/wt6/ahead.txt"
+git -C "$REPO6/.claude/worktrees/wt6" add ahead.txt
+git -C "$REPO6/.claude/worktrees/wt6" -c user.email=spec@example.com -c user.name=spec commit -q -m ahead
+AHEAD6="$(git -C "$REPO6/.claude/worktrees/wt6" rev-parse HEAD)"
+run_block "$REPO6" "$BRANCH6" >/dev/null 2>&1
+assert $? "scenario 6: block exits 0"
+[ ! -d "$REPO6/.claude/worktrees/wt6" ]
+assert $? "scenario 6: worktree directory removed"
+[ "$(git -C "$REPO6" rev-parse "refs/heads/$BRANCH6" 2>/dev/null)" = "$AHEAD6" ]
+assert $? "scenario 6: branch kept at the unpushed tip"
 
 # --------------------------------------------------------------------------
 # Summary

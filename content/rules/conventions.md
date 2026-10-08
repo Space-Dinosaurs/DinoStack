@@ -134,17 +134,12 @@ Read `content/references/conventions-detail.md` §The Intent Layer for the artif
 4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
 5. Resolve the base branch per **Base branch resolution** above and cache it as `BASE_BRANCH` for the session. Resolution is lazy only in its interactive step: the declaration / `develop` / `development` checks (steps 1-3) are non-interactive and may run here at session start, but step 4's prompt is deferred until `BASE_BRANCH` is first needed for a shippable operation (spawning an engineer, creating a worktree, opening a PR, or starting fresh from the base branch per step 2). A purely read-only session therefore never triggers the prompt. The prompt is a sanctioned stop-and-ask (an explicit command directive per the delegation Exception clause) exempt from the default-and-proceed protocol; surface it with `main` as the recommended default per the AskUserQuestion precondition.
 6. **When step 5 resolved `BASE_BRANCH` non-interactively**, run `ds-base-sync "$REPO" "$BASE_BRANCH"` (PATH-guarded, non-blocking on any exit). Skip silently otherwise. See `content/references/base-branch-sync.md` §Call sites.
-7. Run worktree prune, the worktree reap, and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - all three run ONCE at session start.
+7. Run worktree prune, the worktree reap, and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - all three run ONCE at session start. Then run `ds-retire-carrier --list-holds` and re-run each listed path, adding `--release` to an explicit hold only when its revisit event has occurred.
 
-**Subagent worktrees:** Each parallel subagent gets its own worktree, branched from the conductor's current branch. Worktrees are created at `.agentic/worktrees/<branch-name>` under the project root (already gitignored via `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`)). The conductor merges each subagent branch back after sign-off and removes the worktree.
+**Subagent worktrees:** Each parallel subagent gets its own worktree at `.agentic/worktrees/<branch-name>` under the project root (gitignored via `/ds-init-project` Step 9's `.agentic/*` umbrella - see `content/project-scaffolding.yml`), branched from the conductor's current branch. The conductor merges each subagent branch back after sign-off.
 
 ```bash
-# Create a subagent worktree:
 git worktree add .agentic/worktrees/<branch-name> -b <branch-name> HEAD
-
-# Remove after merge:
-git worktree remove .agentic/worktrees/<branch-name>
-git branch -d <branch-name>
 ```
 
 **Branch naming:** `feature/<name>`, `fix/<name>`, `chore/<name>`.
@@ -155,7 +150,7 @@ git branch -d <branch-name>
 
 **Auto-merge follow-through.** Whenever an agent has opened a PR it owns against `$BASE_BRANCH` and `auto_merge_on_ci_green` is `true` in `.agentic/config.json`, IT un-drafts the PR if needed and queues `gh pr merge <N> --squash --delete-branch --auto`, re-drafting (`gh pr ready --undo`) ONLY IF IT performed that un-draft itself and the queue then fails - never touching a PR the operator had already marked ready, since "Allow auto-merge" may be off. This is the ad-hoc instruction, never gated on a particular command; Phase 10, Phase 12, and the sweep instantiate it unevenly - full breakdown: `content/references/conventions-detail.md` §Auto-merge follow-through. `--auto` exiting 0 means QUEUED, not merged. When the toggle is `false` (default), nothing fires and **a turn must state the PR's real state, never a future merge intention it has no mechanism to carry out**.
 
-**Cleanup:** Remove worktrees after the subagent branch is merged or the task is explicitly closed. Do not leave stale worktrees. Between tasks there should be no active subagent worktrees.
+**Cleanup:** retire or hold each carrier at completion (`ds-retire-carrier`; `content/references/worktree-lifecycle.md` §Carrier lifecycle by purpose). Between tasks, no completed carrier stays without a recorded hold.
 
 **Commit each fix immediately during testing.** Never accumulate uncommitted changes during live testing sessions. After each validated fix: commit, PR, merge, pull - then start the next fix. Do not batch multiple unrelated fixes. **Exception - Implicit Trivial batching:** a series of individually-Trivial-classified tweaks to the same surface may share one draft PR across multiple pushes instead of a fresh commit-PR-merge-pull cycle per tweak; the pre-spawn continuation judgment (see `content/references/worktree-lifecycle.md` §Implicit Trivial batching: open the PR at first push) is the discriminator that decides whether a given tweak continues an open batch or starts a new one - the file-overlap scope test that runs on return is rare-miss verification only, never the batching decision itself. Genuinely distinct fixes - unrelated files, unrelated intent, a topic switch - still follow the full commit-PR-merge-pull cycle per fix; "related" is defined by that same continuation judgment, not by file adjacency.
 

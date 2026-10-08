@@ -399,17 +399,17 @@ The fan-out primitive in `/ds-implement-ticket` Phase 5 uses a different worktre
 
 | Mode | Branch naming | Cleanup | Use when |
 |---|---|---|---|
-| `isolation: "worktree"` (Agent tool) | Anonymous temporary branch, auto-named by the tool | Auto-cleaned by the tool if no changes; conductor removes after PR | Single-agent isolation; merge order does not matter |
-| Manually-managed (fan-out) | Explicit named sub-branches: `${FEATURE_BRANCH}-${unit_slug}` | Conductor removes explicitly after all merges or escalation | Multi-branch fan-out; merge order and branch naming matter for history attribution |
+| `isolation: "worktree"` (Agent tool) | Anonymous temporary branch, auto-named by the tool | Retired or held at completion (`ds-retire-carrier`) | Single-agent isolation; merge order does not matter |
+| Manually-managed (fan-out) | Explicit named sub-branches: `${FEATURE_BRANCH}-${unit_slug}` | Each unit checkout retired at completion; a merged sub-branch is deleted once the feature branch contains it | Multi-branch fan-out; merge order and branch naming matter for history attribution |
 
 Manually-managed worktrees are created with:
 
 ```bash
-git -C $REPO worktree add ${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug} \
+git -C $REPO worktree add ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} \
   -b ${FEATURE_BRANCH}-${unit_slug} origin/$BASE_BRANCH
 ```
 
-The `unit_slug` comes from the orchestration-planner's JSONL block. The conductor controls merge ordering (via `merge_order` from the planner) and removes worktrees and sub-branches explicitly after the merge phase. This model preserves attributable merge history in the git graph - each unit's sub-branch is visible in `git log --graph`, making conflict locality traceable.
+The `unit_slug` comes from the orchestration-planner's JSONL block. The conductor controls merge ordering (via `merge_order` from the planner) and retires each unit checkout at its own completion and deletes a sub-branch once `$FEATURE_BRANCH` contains its tip (merge `--no-ff` keeps it attributable in the graph); see `content/references/worktree-lifecycle.md` §Carrier lifecycle by purpose. This model preserves attributable merge history in the git graph - each unit's sub-branch is visible in `git log --graph`, making conflict locality traceable.
 
 ### When NOT needed
 

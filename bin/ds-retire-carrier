@@ -1,0 +1,650 @@
+#!/usr/bin/env python3
+"""
+Purpose: Completion-time retirement of ONE worktree carrier (the canonical
+         contract is `content/references/worktree-lifecycle.md` §Carrier
+         lifecycle by purpose). Removes the checkout - never its branch -
+         only when no commit it privately pins would lose its last ref and
+         it holds no protected ignored content; otherwise appends a hold
+         record (owner, reason, revisit event) to the primary checkout's
+         `.agentic/worktree-cleanup-skips.jsonl`.
+
+Public API (CLI):
+  ds-retire-carrier [--repo R] [--owner O] [--pin] [--release] [--dry-run] PATH
+  ds-retire-carrier [--repo R] --hold --reason T --revisit E [--owner O] PATH
+  ds-retire-carrier [--repo R] --list-holds [--json]
+  Exit codes: 0 retired (or would retire under --dry-run); 3 held (or would
+  hold); 2 usage error, PATH not a registered linked worktree, `--repo`
+  common dir differs from PATH's, or `--hold` missing `--reason`/`--revisit`
+  (no record written); 1 internal error.
+  In-process: `main(argv) -> int`. Gate 7 calls the module-global
+  `_salvage_and_remove`, so a test may replace that attribute.
+
+  Gates, first match wins: 0 latest record is an explicit hold and
+  `--release` is absent (no new record); 1 caller cwd inside PATH; 2 locked;
+  3 private gitdir not under `<common>/worktrees/` with a `gitdir` backlink
+  to `PATH/.git`, or a git in-progress marker in it (denylist); 4 dirty;
+  5 protected ignored content (detached carriers use the strict allowlist,
+  `.agentic/` offenders re-filtered through the protected denylist); 6 pins:
+  HEAD, ORIG_HEAD and every `logs/HEAD` SHA must stay reachable from a
+  `refs/heads/*` tip or a branch reflog SHA (phase 1, local), else from a
+  live `ls-remote --heads origin` tip after `fetch origin` (phase 2);
+  `--pin` creates `refs/heads/carrier-pin/<basename>-<sha8>` at each maximal
+  unpinned commit instead; 7 `_salvage_and_remove`.
+
+  Never: branch deletion, unlock, `--force`, prune, push. The only ref it
+  writes is a `carrier-pin/*` branch under `--pin`.
+
+  Ledger fold: a path's state is its latest record; `--list-holds` lists it
+  while it is a hold and the path is registered or its directory exists. A
+  legacy record with no `kind` folds as a non-explicit hold owned by
+  "unknown".
+
+Upstream deps: git (subprocess, via PATH); bin/ds-cleanup-worktrees
+               (`_git_status_and_ignored`, `_is_protected_ignored_path`,
+               `_salvage_and_remove`, loaded by resolved path so a
+               PATH-symlink invocation still finds it); bin/_lib.py `_run`;
+               env `AE_SESSION_ID` / `CLAUDE_CODE_SESSION_ID` (owner default).
+
+Downstream consumers: content/commands/ds-implement-ticket.md (Phase 8
+                      post-push cleanup, fan-out pre-run and worktree
+                      cleanup, BLOCKED explicit hold, Phase 8.5 QA evidence
+                      worktree); content/references/worktree-lifecycle.md,
+                      content/sections/11-worktree-lifecycle.md,
+                      content/rules/conventions.md,
+                      content/references/subagent-protocol.md,
+                      content/references/qa-gate.md,
+                      content/references/evidence-on-disk.md,
+                      content/commands/ds-wrap.md Step 5 (`--list-holds`);
+                      scripts/codex-skills.py `CODEX_SPAWN_CONTRACT`;
+                      CI: bin/tests/test_retire_carrier.py,
+                      bin/tests/test_phase8_worktree_cleanup.sh.
+
+Failure modes: every indeterminate read fails closed to a hold, never a
+               removal: a git error on status reads as dirty; a fetch or
+               ls-remote error, `extensions.refStorage=reftable`, or an
+               unreadable reflog holds at gate 6. A ledger write failure is
+               an internal error (exit 1) printed to stderr. `--dry-run`
+               writes nothing: no record, ref, fetch or removal. Re-running
+               is safe: automatic holds are re-evaluated against live state;
+               an explicit hold is honored until `--release`.
+
+Performance: a handful of local git calls; phase 2 adds one `fetch origin`
+             and one `ls-remote` (network) only when phase 1 finds an
+             unpinned commit. Loading bin/ds-cleanup-worktrees costs ~0.1 s.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.machinery as _ilm
+import importlib.util as _ilu
+import json
+import os
+import re
+import sys
+import time
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
+
+_BIN_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_BIN_DIR))
+
+from _lib import _run  # noqa: E402
+
+_cleanup_loader = _ilm.SourceFileLoader("_ds_cleanup_worktrees", str(_BIN_DIR / "ds-cleanup-worktrees"))
+_cleanup = _ilu.module_from_spec(_ilu.spec_from_loader("_ds_cleanup_worktrees", _cleanup_loader))
+_cleanup_loader.exec_module(_cleanup)
+
+_git_status_and_ignored = _cleanup._git_status_and_ignored
+_is_protected_ignored_path = _cleanup._is_protected_ignored_path
+_salvage_and_remove = _cleanup._salvage_and_remove
+
+LEDGER_REL = os.path.join(".agentic", "worktree-cleanup-skips.jsonl")
+NETWORK_TIMEOUT_SECONDS = 30
+ZERO_SHA = "0" * 40
+IN_PROGRESS_MARKERS = (
+    "rebase-merge",
+    "rebase-apply",
+    "MERGE_HEAD",
+    "CHERRY_PICK_HEAD",
+    "REVERT_HEAD",
+    "BISECT_LOG",
+    "BISECT_START",
+    "sequencer",
+)
+
+REVISIT = {
+    "self": "re-run from outside the carrier",
+    "locked": "harness lock released; re-run at /ds-wrap Step 5 or next session start",
+    "indeterminate": "operator inspects the private gitdir named in the reason",
+    "in_progress": "operation finished or aborted",
+    "content": "owner commits, copies out or deletes the listed paths (evidence only after its consumer has read it), then re-runs",
+    "unpinned": "push or merge the commit, or re-run with --pin",
+    "remove": "owner resolves the error in stderr, then re-runs",
+    "unregistered": "operator inspects and deletes the leftover directory",
+}
+
+
+class UsageError(Exception):
+    pass
+
+
+class Hold(Exception):
+    def __init__(self, reason: str, revisit: str, stderr: Optional[str] = None) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.revisit = revisit
+        self.stderr = stderr
+
+
+def _git(args: List[str], cwd: str, timeout: Optional[float] = None):
+    return _run(["git", "-C", cwd, *args], timeout=timeout)
+
+
+def _common_dir(path: str) -> str:
+    proc = _git(["rev-parse", "--path-format=absolute", "--git-common-dir"], path)
+    if proc.returncode != 0 or not proc.stdout.strip():
+        raise UsageError(f"not a git checkout: {path}")
+    return os.path.realpath(proc.stdout.strip())
+
+
+def _parse_worktrees(primary: str) -> List[Dict[str, Optional[str]]]:
+    proc = _git(["worktree", "list", "--porcelain"], primary)
+    if proc.returncode != 0:
+        raise RuntimeError(f"git worktree list failed: {proc.stderr.strip()}")
+    entries: List[Dict[str, Optional[str]]] = []
+    current: Dict[str, Optional[str]] = {}
+    for line in proc.stdout.splitlines() + [""]:
+        if not line:
+            if current:
+                entries.append(current)
+            current = {}
+            continue
+        key, _, value = line.partition(" ")
+        if key == "worktree":
+            current["path"] = value
+        elif key == "HEAD":
+            current["head"] = value
+        elif key == "branch":
+            current["branch"] = value[len("refs/heads/"):] if value.startswith("refs/heads/") else value
+        elif key == "detached":
+            current["detached"] = "yes"
+        elif key == "locked":
+            current["locked"] = value or ""
+        elif key == "prunable":
+            current["prunable"] = value or ""
+    return entries
+
+
+def _default_owner() -> str:
+    session = os.environ.get("AE_SESSION_ID") or os.environ.get("CLAUDE_CODE_SESSION_ID")
+    return f"conductor:{session}" if session else "conductor"
+
+
+def _now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _ledger_path(primary: str) -> str:
+    return os.path.join(primary, LEDGER_REL)
+
+
+def _append_record(primary: str, record: Dict) -> None:
+    path = _ledger_path(primary)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
+
+
+def _key(path: str) -> str:
+    return os.path.realpath(path)
+
+
+def _read_records(primary: str) -> List[Dict]:
+    path = _ledger_path(primary)
+    records: List[Dict] = []
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(rec, dict) and isinstance(rec.get("path"), str):
+                    records.append(rec)
+    except FileNotFoundError:
+        pass
+    return records
+
+
+def _normalize(rec: Dict) -> Dict:
+    if "kind" in rec:
+        return rec
+    return {
+        "kind": "hold",
+        "explicit": False,
+        "ts": rec.get("ts"),
+        "path": rec["path"],
+        "branch": rec.get("branch"),
+        "head": rec.get("head"),
+        "owner": "unknown",
+        "reason": f"legacy remove refusal: {rec.get('stderr', '')}",
+        "revisit": "re-run ds-retire-carrier",
+        "registered_before": rec.get("registered_before"),
+        "stderr": rec.get("stderr"),
+    }
+
+
+def _fold(records: List[Dict]) -> Dict[str, Dict]:
+    latest: Dict[str, Dict] = {}
+    for rec in records:
+        latest[_key(rec["path"])] = _normalize(rec)
+    return latest
+
+
+def _object_exists(cwd: str, sha: str) -> bool:
+    return _git(["cat-file", "-e", f"{sha}^{{commit}}"], cwd).returncode == 0
+
+
+def _reflog_shas(path: str) -> List[str]:
+    """Both SHA columns of a reflog file, zero SHAs dropped. Raises OSError
+    when the file exists but cannot be read."""
+    shas: List[str] = []
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            parts = line.split(" ", 2)
+            for sha in parts[:2]:
+                if re.fullmatch(r"[0-9a-f]{40}", sha) and sha != ZERO_SHA:
+                    shas.append(sha)
+    return shas
+
+
+def _unpinned(cwd: str, candidates: List[str], pins: List[str]) -> List[str]:
+    if not candidates:
+        return []
+    args = ["rev-list", *candidates]
+    if pins:
+        args += ["--not", *pins]
+    proc = _git(args, cwd)
+    if proc.returncode != 0:
+        raise Hold("pin check failed: rev-list error", REVISIT["unpinned"], proc.stderr.strip() or "rev-list failed")
+    return [line for line in proc.stdout.split() if line]
+
+
+def _local_pins(cwd: str, common: str) -> List[str]:
+    proc = _git(["for-each-ref", "--format=%(objectname)", "refs/heads/"], cwd)
+    if proc.returncode != 0:
+        raise Hold("pin check failed: cannot list local branches", REVISIT["unpinned"], proc.stderr.strip())
+    pins = [line for line in proc.stdout.split() if line]
+    logs_root = os.path.join(common, "logs", "refs", "heads")
+    for dirpath, _dirs, files in os.walk(logs_root):
+        for name in files:
+            try:
+                shas = _reflog_shas(os.path.join(dirpath, name))
+            except OSError as exc:
+                raise Hold("pin check failed: unreadable branch reflog", REVISIT["unpinned"], str(exc))
+            pins.extend(sha for sha in shas if _object_exists(cwd, sha))
+    return sorted(set(pins))
+
+
+def _candidates(cwd: str, gitdir: str, head: Optional[str]) -> List[str]:
+    cands: List[str] = []
+    if head:
+        cands.append(head)
+    orig = os.path.join(gitdir, "ORIG_HEAD")
+    if os.path.isfile(orig):
+        try:
+            with open(orig, encoding="utf-8") as handle:
+                sha = handle.read().strip()
+        except OSError as exc:
+            raise Hold("pin check failed: unreadable ORIG_HEAD", REVISIT["unpinned"], str(exc))
+        if re.fullmatch(r"[0-9a-f]{40}", sha):
+            cands.append(sha)
+    log_head = os.path.join(gitdir, "logs", "HEAD")
+    if os.path.exists(log_head):
+        try:
+            cands.extend(_reflog_shas(log_head))
+        except OSError as exc:
+            raise Hold("pin check failed: unreadable HEAD reflog", REVISIT["unpinned"], str(exc))
+    seen: Set[str] = set()
+    result: List[str] = []
+    for sha in cands:
+        if sha not in seen and sha != ZERO_SHA and _object_exists(cwd, sha):
+            seen.add(sha)
+            result.append(sha)
+    return result
+
+
+def _origin_pins(cwd: str, dry_run: bool) -> List[str]:
+    if not dry_run:
+        fetch = _git(["fetch", "origin"], cwd, timeout=NETWORK_TIMEOUT_SECONDS)
+        if fetch.returncode != 0:
+            raise Hold("pin check needs origin: git fetch origin failed", REVISIT["unpinned"],
+                       fetch.stderr.strip() or f"git fetch origin exited {fetch.returncode}")
+    remote = _git(["ls-remote", "--heads", "origin"], cwd, timeout=NETWORK_TIMEOUT_SECONDS)
+    if remote.returncode != 0:
+        raise Hold("pin check needs origin: git ls-remote origin failed", REVISIT["unpinned"],
+                   remote.stderr.strip() or f"git ls-remote exited {remote.returncode}")
+    tips = []
+    for line in remote.stdout.splitlines():
+        sha = line.split("\t", 1)[0].strip()
+        if re.fullmatch(r"[0-9a-f]{40}", sha) and _object_exists(cwd, sha):
+            tips.append(sha)
+    return tips
+
+
+def _maximal(cwd: str, commits: List[str]) -> List[str]:
+    if len(commits) <= 1:
+        return list(commits)
+    proc = _git(["merge-base", "--independent", *commits], cwd)
+    if proc.returncode != 0:
+        raise Hold("pin check failed: merge-base error", REVISIT["unpinned"], proc.stderr.strip())
+    return [line for line in proc.stdout.split() if line]
+
+
+def _pin_gate(path: str, primary: str, common: str, gitdir: str, head: Optional[str],
+              pin: bool, dry_run: bool) -> List[str]:
+    """Gate 6. Returns the carrier-pin refs created (or that would be)."""
+    storage = _git(["config", "--get", "extensions.refStorage"], primary)
+    if storage.returncode == 0 and storage.stdout.strip() == "reftable":
+        raise Hold("pin check unavailable: refStorage=reftable", REVISIT["unpinned"],
+                   "extensions.refStorage=reftable; branch reflogs are not readable as files")
+    candidates = _candidates(primary, gitdir, head)
+    pins = _local_pins(primary, common)
+    unpinned = _unpinned(primary, candidates, pins)
+    if not unpinned:
+        return []
+    network_hold: Optional[Hold] = None
+    try:
+        remaining = _unpinned(primary, candidates, pins + _origin_pins(primary, dry_run))
+    except Hold as hold:
+        network_hold = hold
+        remaining = unpinned
+    if not remaining:
+        return []
+    if not pin:
+        sample = ", ".join(sha[:8] for sha in remaining[:5])
+        print(f"WARNING: worktree {path} privately pins {len(remaining)} commit(s) with no surviving ref "
+              f"({sample}); holding", file=sys.stderr)
+        if network_hold is not None:
+            raise Hold(f"{len(remaining)} unpinned commit(s) ({sample}); {network_hold.reason}",
+                       REVISIT["unpinned"], network_hold.stderr)
+        raise Hold(f"{len(remaining)} unpinned commit(s) ({sample})", REVISIT["unpinned"])
+    remaining_set = set(remaining)
+    tops = _maximal(primary, [sha for sha in candidates if sha in remaining_set])
+    base = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(path.rstrip("/"))) or "carrier"
+    created: List[str] = []
+    for sha in tops:
+        ref = f"refs/heads/carrier-pin/{base}-{sha[:8]}"
+        created.append(ref)
+        if dry_run:
+            continue
+        existing = _git(["rev-parse", "--verify", "--quiet", ref], primary)
+        if existing.returncode == 0 and existing.stdout.strip() == sha:
+            continue
+        proc = _git(["update-ref", ref, sha, ""], primary)
+        if proc.returncode != 0:
+            raise Hold(f"--pin could not create {ref}", REVISIT["remove"], proc.stderr.strip() or "update-ref failed")
+    if dry_run:
+        return created
+    if _unpinned(primary, candidates, _local_pins(primary, common)):
+        raise Hold("--pin re-verification found commits still unpinned", REVISIT["unpinned"],
+                   "carrier-pin refs created but rev-list still reports unpinned commits")
+    return created
+
+
+def _private_gitdir(path: str, common: str) -> str:
+    """Gate 3: resolve and validate the private gitdir, then the denylist of
+    in-progress markers."""
+    dotgit = os.path.join(path, ".git")
+    if not os.path.isfile(dotgit):
+        raise Hold(f"private gitdir indeterminate: {dotgit} is not a gitdir file", REVISIT["indeterminate"])
+    try:
+        with open(dotgit, encoding="utf-8") as handle:
+            content = handle.read().strip()
+    except OSError as exc:
+        raise Hold(f"private gitdir indeterminate: cannot read {dotgit}", REVISIT["indeterminate"], str(exc))
+    if not content.startswith("gitdir:"):
+        raise Hold(f"private gitdir indeterminate: {dotgit} has no gitdir line", REVISIT["indeterminate"])
+    target = content[len("gitdir:"):].strip()
+    if not os.path.isabs(target):
+        target = os.path.join(path, target)
+    gitdir = os.path.realpath(target)
+    worktrees_root = os.path.join(common, "worktrees")
+    if os.path.dirname(gitdir) != worktrees_root or not os.path.isdir(gitdir):
+        raise Hold(f"private gitdir indeterminate: {gitdir} is not under {worktrees_root}", REVISIT["indeterminate"])
+    backlink_file = os.path.join(gitdir, "gitdir")
+    try:
+        with open(backlink_file, encoding="utf-8") as handle:
+            backlink = handle.read().strip()
+    except OSError as exc:
+        raise Hold(f"private gitdir indeterminate: cannot read {backlink_file}", REVISIT["indeterminate"], str(exc))
+    if os.path.realpath(backlink) != os.path.realpath(dotgit):
+        raise Hold(f"private gitdir indeterminate: {backlink_file} points at {backlink}, not {dotgit}",
+                   REVISIT["indeterminate"])
+    for marker in IN_PROGRESS_MARKERS:
+        if os.path.exists(os.path.join(gitdir, marker)):
+            raise Hold(f"git operation in progress: {marker}", REVISIT["in_progress"])
+    return gitdir
+
+
+def _branch_label(branch: Optional[str]) -> str:
+    return branch if branch else "detached"
+
+
+def _resolve_target(args: argparse.Namespace) -> Tuple[str, str, str, Dict, int]:
+    """Returns (primary, common, physical path, porcelain entry, registered count)."""
+    if not os.path.isdir(args.path):
+        raise UsageError(f"not a directory: {args.path}")
+    common = _common_dir(args.path)
+    if args.repo is not None:
+        if not os.path.isdir(args.repo) or _common_dir(args.repo) != common:
+            raise UsageError(f"--repo {args.repo} does not share {args.path}'s git common dir ({common})")
+    primary = os.path.dirname(common)
+    entries = _parse_worktrees(primary)
+    want = _key(args.path)
+    for index, entry in enumerate(entries):
+        if entry.get("path") and _key(entry["path"]) == want:
+            if index == 0:
+                raise UsageError(f"{args.path} is the main worktree, not a linked worktree")
+            return primary, common, entry["path"], entry, len(entries)
+    raise UsageError(f"{args.path} is not a registered linked worktree of {primary}")
+
+
+def _hold_record(path: str, entry: Dict, owner: str, hold: Hold, explicit: bool, registered: int) -> Dict:
+    rec = {
+        "kind": "hold",
+        "explicit": explicit,
+        "ts": _now(),
+        "path": path,
+        "branch": entry.get("branch"),
+        "head": entry.get("head"),
+        "owner": owner,
+        "reason": hold.reason,
+        "revisit": hold.revisit,
+        "registered_before": registered,
+    }
+    if hold.stderr is not None:
+        rec["stderr"] = hold.stderr
+    return rec
+
+
+def _retire(args: argparse.Namespace) -> int:
+    primary, common, path, entry, registered = _resolve_target(args)
+    owner = args.owner or _default_owner()
+    branch = entry.get("branch")
+    label = _branch_label(branch)
+
+    if args.hold:
+        hold = Hold(args.reason, args.revisit)
+        if not args.dry_run:
+            _append_record(primary, _hold_record(path, entry, owner, hold, True, registered))
+        print(f"HELD {path} reason={hold.reason} revisit={hold.revisit} explicit=yes")
+        return 3
+
+    latest = _fold(_read_records(primary)).get(_key(path))
+    if latest and latest.get("kind") == "hold" and latest.get("explicit") and not args.release:
+        print(f"HELD {path} reason={latest.get('reason')} revisit={latest.get('revisit')} explicit=yes")
+        return 3
+
+    pinned: List[str] = []
+    try:
+        cwd = Path.cwd().resolve()
+        target = Path(path).resolve()
+        if cwd == target or target in cwd.parents:
+            raise Hold("caller cwd is inside the carrier", REVISIT["self"])
+
+        if "locked" in entry:
+            lock_reason = entry["locked"] or "no reason"
+            print(f"WARNING: worktree {path} is locked; skipping cleanup (branch={label})", file=sys.stderr)
+            raise Hold("locked", REVISIT["locked"], f"worktree is locked: {lock_reason}")
+
+        try:
+            gitdir = _private_gitdir(path, common)
+        except Hold as hold:
+            if hold.reason.startswith("git operation in progress: "):
+                marker = hold.reason[len("git operation in progress: "):]
+                print(f"WARNING: worktree {path} has a git operation in progress ({marker}); holding", file=sys.stderr)
+            else:
+                detail = hold.reason[len("private gitdir indeterminate: "):]
+                print(f"WARNING: worktree {path} private gitdir indeterminate ({detail}); holding", file=sys.stderr)
+            raise
+
+        detached = branch is None
+        status, offenders = _git_status_and_ignored(path, detached)
+        if status != "clean":
+            print(f"WARNING: worktree {path} has uncommitted changes; skipping cleanup")
+            raise Hold("uncommitted changes", REVISIT["content"])
+        if detached:
+            offenders = [rel for rel in offenders
+                         if rel.strip("/").split("/")[0] != ".agentic" or _is_protected_ignored_path(rel, path)]
+        if offenders:
+            first = ", ".join(offenders[:5])
+            print(f"WARNING: worktree {path} holds protected ignored content ({len(offenders)} paths: {first}); holding",
+                  file=sys.stderr)
+            raise Hold(f"protected ignored content ({len(offenders)} paths: {first})", REVISIT["content"])
+
+        pinned = _pin_gate(path, primary, common, gitdir, entry.get("head"), args.pin, args.dry_run)
+
+        if args.dry_run:
+            print(f"WOULD RETIRE {path} (branch={label})")
+            return 0
+
+        outcome = _salvage_and_remove(primary, path, branch)
+        detail = outcome.get("detail") or ""
+        if outcome.get("salvage_failed"):
+            reason, revisit = "telemetry salvage failed", REVISIT["remove"]
+        elif outcome.get("removed"):
+            reason = None
+        elif outcome.get("already_unregistered"):
+            reason, revisit = "unregistered with content left on disk", REVISIT["unregistered"]
+        else:
+            reason, revisit = "git worktree remove refused", REVISIT["remove"]
+            detail = detail or "git worktree remove failed with no stderr"
+        if reason is not None:
+            print(f"WARNING: git worktree remove failed for {path} (branch={label}): {detail}", file=sys.stderr)
+            raise Hold(reason, revisit, detail)
+    except Hold as hold:
+        if args.dry_run:
+            print(f"WOULD HOLD {path} reason={hold.reason} revisit={hold.revisit}")
+            return 3
+        _append_record(primary, _hold_record(path, entry, owner, hold, False, registered))
+        print(f"HELD {path} reason={hold.reason} revisit={hold.revisit}")
+        return 3
+
+    after = len(_parse_worktrees(primary))
+    record = {
+        "kind": "retired",
+        "ts": _now(),
+        "path": path,
+        "branch": branch,
+        "head": entry.get("head"),
+        "owner": owner,
+        "registered_before": registered,
+        "registered_after": after,
+    }
+    if pinned:
+        record["pinned"] = pinned
+    _append_record(primary, record)
+    print(f"RETIRED {path} (branch={label}) registered {registered}->{after}")
+    return 0
+
+
+def _list_holds(args: argparse.Namespace) -> int:
+    base = args.repo if args.repo is not None else os.getcwd()
+    primary = os.path.dirname(_common_dir(base))
+    registered = {_key(entry["path"]) for entry in _parse_worktrees(primary) if entry.get("path")}
+    holds = []
+    for key, rec in _fold(_read_records(primary)).items():
+        if rec.get("kind") != "hold":
+            continue
+        if key in registered or os.path.isdir(rec["path"]):
+            holds.append(rec)
+    holds.sort(key=lambda rec: str(rec.get("ts") or ""))
+    if args.json:
+        print(json.dumps(holds, indent=2))
+        return 0
+    for rec in holds:
+        suffix = " explicit=yes" if rec.get("explicit") else ""
+        print(f"HELD {rec['path']} reason={rec.get('reason')} revisit={rec.get('revisit')} "
+              f"owner={rec.get('owner')}{suffix}")
+    print(f"{len(holds)} open hold(s) in {_ledger_path(primary)}")
+    return 0
+
+
+class _Parser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:  # type: ignore[override]
+        raise UsageError(message)
+
+
+def parse_args(argv: Optional[List[str]]) -> argparse.Namespace:
+    parser = _Parser(prog="ds-retire-carrier", description=__doc__.split("\n\n")[0].strip())
+    parser.add_argument("--repo")
+    parser.add_argument("--owner")
+    parser.add_argument("--pin", action="store_true")
+    parser.add_argument("--release", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--hold", action="store_true")
+    parser.add_argument("--reason")
+    parser.add_argument("--revisit")
+    parser.add_argument("--list-holds", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("path", nargs="?")
+    args = parser.parse_args(argv)
+    if args.list_holds:
+        if args.path or args.hold or args.pin or args.release or args.dry_run or args.owner:
+            raise UsageError("--list-holds takes only --repo and --json")
+        return args
+    if args.json:
+        raise UsageError("--json requires --list-holds")
+    if not args.path:
+        raise UsageError("PATH is required")
+    if args.hold:
+        if not args.reason or not args.revisit:
+            raise UsageError("--hold requires --reason and --revisit")
+        if args.pin or args.release:
+            raise UsageError("--hold cannot be combined with --pin or --release")
+    elif args.reason or args.revisit:
+        raise UsageError("--reason/--revisit require --hold")
+    return args
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    try:
+        args = parse_args(argv)
+        if args.list_holds:
+            return _list_holds(args)
+        return _retire(args)
+    except UsageError as exc:
+        print(f"ds-retire-carrier: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # noqa: BLE001 - every unexpected failure is exit 1, never a silent retire
+        print(f"ds-retire-carrier: internal error: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

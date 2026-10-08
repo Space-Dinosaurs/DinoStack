@@ -110,8 +110,9 @@ sketch under the ~40-line cap.
 
 **Evidence lives ONLY in the live worktree and DIES at cleanup.** The evidence
 store is written to the worktree's `.agentic/evidence/` directory, which is
-untracked scratch. When the worktree is removed at push or merge, the evidence
-is gone with it.
+untracked scratch. A carrier still holding `.agentic/evidence/` is held at
+retirement (`ds-retire-carrier`); delete or copy the evidence once its
+consumer has read it, then re-run.
 
 Consequences:
 
