@@ -1189,6 +1189,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
                 "are created explicitly by the conductor with `git worktree add` before `spawn_agent`, "
                 "as required by the Codex spawn contract above",
             )
+            generated = generated.replace("; conductor-created ones live under `.agentic/worktrees/*`.", ".")
             generated = generated.replace("(`.claude/worktrees/*`)", "(`.agentic/worktrees/*` on Codex)")
             generated = codexify_project_paths(
                 generated, include_claude=doc.source.startswith("content/commands/")

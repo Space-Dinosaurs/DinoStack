@@ -1522,7 +1522,7 @@ git -C <span class="hljs-variable">$REPO</span> diff --name-only --diff-filter=U
 <li>Conflict at any step: abort, stop remaining merges, spawn single engineer for sequential re-implementation</li>
 <li>After all N merges: run <code>QUALITY_CMD</code> on <code>FEATURE_BRANCH</code> (integration quality check)</li>
 <li>Integration check failure: spawn engineer on <code>FEATURE_BRANCH</code> for fix, then single Skeptic on incremental diff</li>
-<li>Cleanup after success: <code>git worktree remove --force</code> + <code>git branch -d</code> + <code>git worktree prune</code></li>
+<li>Cleanup: <code>ds-retire-carrier</code> per unit; <code>branch -D</code> only once <code>FEATURE_BRANCH</code> contains it</li>
 </ul>
 <div class="callout">
 The integration quality check catches failures invisible to individual worktrees - behavioral interactions between units that per-unit tests could not detect.

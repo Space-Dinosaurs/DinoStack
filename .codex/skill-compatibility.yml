@@ -552,6 +552,16 @@
       "source_token": "content/references/conductor-turn-format.md"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "3def7fc16b6a667f957b6fc2ac18c52672177d262ea0b3ffed2db253a0c73212",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "content/sections/04-risk-classification.md",
       "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
@@ -1963,7 +1973,7 @@
     },
     {
       "expected_target": "git worktree add + spawn_agent",
-      "generated_token": "**Isolation worktrees** (`$AE_PROJECT_DIR/.agentic/worktrees/*` on Codex) are created explicitly by the conductor with `git worktree add` before `spawn_agent`, as required by the Codex spawn contract above; conductor-created ones live under `$AE_PROJECT_DIR/.agentic/worktrees/*`. That path class (`bin/tests/worktree_model.py`, normative) drives only the evidence-gated sweep of leftovers (`/ds-cleanup-worktrees` Step 2), which also requires merge evidence.",
+      "generated_token": "**Isolation worktrees** (`$AE_PROJECT_DIR/.agentic/worktrees/*` on Codex) are created explicitly by the conductor with `git worktree add` before `spawn_agent`, as required by the Codex spawn contract above. That path class (`bin/tests/worktree_model.py`, normative) drives only the evidence-gated sweep of leftovers (`/ds-cleanup-worktrees` Step 2), which also requires merge evidence.",
       "kind": "operational",
       "occurrence_hash": "d97c5b390183108982d47b81619a510e3bec376f179c8287903c56acbffb5c3b",
       "resolution_mode": "codex-spawn-contract",
@@ -2130,16 +2140,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/risk-config-and-tiers.md"
-    },
-    {
-      "expected_target": "content/references/worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
-      "kind": "operational",
-      "occurrence_hash": "e8d5fed75962082da7986151da1dd28a43c85f7072ade78f6eb4eb0d41b2dbde",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": "spawn_agent",

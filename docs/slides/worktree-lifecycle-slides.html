@@ -810,7 +810,7 @@ hr {
 ds-retire-carrier --list-holds        <span class="hljs-comment"># open holds, at /ds-wrap Step 5 and session start</span>
 </code></pre>
 <ul>
-<li>Removes the checkout only when unlocked, clean, free of protected ignored content (<code>.agentic/</code> files, evidence, <code>.env*</code>), and every commit it pins keeps a ref</li>
+<li>Removes the checkout only when unlocked, clean, free of protected ignored content (<code>.agentic/</code>, <code>.env*</code>) and nested worktrees, and every commit it pins keeps a ref</li>
 <li>Never forces, unlocks, prunes, pushes or deletes a branch</li>
 <li>A checkout with changes is held, never force-removed</li>
 </ul>

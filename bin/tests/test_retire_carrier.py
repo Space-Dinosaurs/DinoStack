@@ -23,7 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 TOOL = REPO_ROOT / "bin" / "ds-retire-carrier"
 CODEX_SKILLS = REPO_ROOT / "scripts" / "codex-skills.py"
 REAL_GIT = shutil.which("git")
-GITIGNORE = "/.agentic/*\nnode_modules/\n*.log\n*.out\n"
+GITIGNORE = "/.agentic/*\n/.claude/worktrees/\nnode_modules/\n*.log\n*.out\n"
 
 
 def _load(name: str, path: Path):
@@ -428,8 +428,13 @@ def test_q_explicit_hold_until_release(fx: Fixture) -> None:
 
 
 def _in_process(fx: Fixture, stub, *argv: str):
+    return _in_process_patched(fx, {"_salvage_and_remove": stub}, *argv)
+
+
+def _in_process_patched(fx: Fixture, patches: dict, *argv: str):
     tool = _load("ds_retire_carrier_for_test", TOOL)
-    tool._salvage_and_remove = stub
+    for name, value in patches.items():
+        setattr(tool, name, value)
     cwd = os.getcwd()
     os.chdir(fx.tmp)
     try:
@@ -469,3 +474,139 @@ def test_s_already_unregistered_listed(fx: Fixture) -> None:
     assert str(wt) not in "\n".join(fx.registered())
     listing = fx.run("--repo", str(fx.repo), "--list-holds").stdout
     assert f"HELD {wt}" in listing
+
+
+def _nested(fx: Fixture, carrier: Path, name: str) -> Path:
+    path = carrier / ".claude" / "worktrees" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    git(fx.repo, "worktree", "add", "-q", "--detach", str(path), "main")
+    git(path, "config", "user.email", "spec@example.com")
+    git(path, "config", "user.name", "spec")
+    return path
+
+
+# t. A registered worktree nested inside the carrier (unlocked, detached, dirty,
+# with an unpushed commit) holds the carrier; removal would delete it.
+def test_t_nested_dirty_detached_worktree_held(fx: Fixture) -> None:
+    carrier = fx.add("br-t", branch="feature/t")
+    inner = _nested(fx, carrier, "inner-t")
+    sha = commit(inner, "inner.txt")
+    (inner / "dirty.txt").write_text("d\n")
+    proc = fx.run(str(carrier))
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    rec = last(fx)
+    assert str(inner) in rec["reason"] and str(inner) in rec["revisit"], rec
+    assert "contains 1 registered worktree(s)" in proc.stderr
+    assert (inner / "dirty.txt").exists() and carrier.exists()
+    assert str(inner) in fx.registered()
+    assert git(fx.repo, "cat-file", "-e", sha, check=False).returncode == 0
+
+
+# t2. A locked, dirty nested worktree holds the carrier and stays locked.
+def test_t2_nested_locked_worktree_held(fx: Fixture) -> None:
+    carrier = fx.add("br-t2", branch="feature/t2")
+    inner = _nested(fx, carrier, "inner-t2")
+    (inner / "dirty.txt").write_text("d\n")
+    git(fx.repo, "worktree", "lock", "--reason", "agent busy", str(inner))
+    proc = fx.run(str(carrier))
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert str(inner) in last(fx)["reason"]
+    assert (inner / "dirty.txt").exists()
+    assert "locked agent busy" in git(fx.repo, "worktree", "list", "--porcelain").stdout
+
+
+# u. A commit named only by ORIG_HEAD is a candidate.
+def test_u_orig_head_only_commit_held(fx: Fixture) -> None:
+    wt = fx.add("det-u")
+    sha = commit(wt, "u.txt")
+    git(wt, "checkout", "-q", "--detach", "main")
+    gitdir = Path(git(wt, "rev-parse", "--absolute-git-dir").stdout.strip())
+    (gitdir / "ORIG_HEAD").write_text(sha + "\n")
+    (gitdir / "logs" / "HEAD").unlink()
+    proc = fx.run(str(wt))
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert sha[:8] in last(fx)["reason"]
+    assert wt.exists()
+
+
+# v. Gate 3: a .git file naming another carrier's admin dir, or an admin dir
+# outside <common>/worktrees/, is indeterminate.
+def test_v_private_gitdir_validation(fx: Fixture) -> None:
+    wt = fx.add("br-v", branch="feature/v")
+    other = fx.add("br-v-other", branch="feature/v-other")
+    other_admin = git(other, "rev-parse", "--absolute-git-dir").stdout.strip()
+    (wt / ".git").write_text(f"gitdir: {other_admin}\n")
+    proc = fx.run(str(wt))
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert "private gitdir indeterminate" in proc.stderr and "points at" in last(fx)["reason"]
+    assert wt.exists()
+
+    wt2 = fx.add("br-v2", branch="feature/v2")
+    admin2 = Path(git(wt2, "rev-parse", "--absolute-git-dir").stdout.strip())
+    outside = fx.tmp / "outside-admin"
+    shutil.copytree(admin2, outside)
+    (outside / "commondir").write_text(str(admin2.parent.parent) + "\n")
+    (wt2 / ".git").write_text(f"gitdir: {outside}\n")
+    proc = fx.run(str(wt2))
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert "is not under" in last(fx)["reason"]
+    assert wt2.exists()
+
+
+# w. --pin re-verifies: pins that do not cover every unpinned commit still hold.
+def test_w_pin_reverification_holds(fx: Fixture) -> None:
+    wt = fx.add("det-w")
+    commit(wt, "w.txt")
+    _tool, rc = _in_process_patched(fx, {"_maximal": lambda cwd, commits: []}, "--pin", str(wt))
+    assert rc == 3
+    assert last(fx)["reason"] == "--pin re-verification found commits still unpinned"
+    assert wt.exists()
+
+
+# x. A reftable repository holds before any reflog file is trusted.
+def test_x_reftable_holds(fx: Fixture) -> None:
+    wt = fx.add("br-x", branch="feature/x")
+    tool = _load("ds_retire_carrier_reftable", TOOL)
+    real = tool._git
+
+    def fake(args, cwd, timeout=None):
+        if args == ["config", "--get", "extensions.refStorage"]:
+            return subprocess.CompletedProcess(args, 0, "reftable\n", "")
+        return real(args, cwd, timeout)
+
+    _tool, rc = _in_process_patched(fx, {"_git": fake}, str(wt))
+    assert rc == 3
+    assert "reftable" in last(fx)["reason"]
+    assert wt.exists()
+
+
+# y. Detached carriers re-filter .agentic/ offenders: disposable telemetry does not hold.
+def test_y_detached_agentic_refilter(fx: Fixture) -> None:
+    wt = fx.add("det-y")
+    (wt / ".agentic").mkdir()
+    (wt / ".agentic" / "events.jsonl").write_text('{"e":1}\n')
+    proc = fx.run(str(wt))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert list((fx.repo / ".agentic" / "reaped-telemetry").glob("*.jsonl"))
+
+
+# z. Inspection never rewrites the carrier's index (GIT_OPTIONAL_LOCKS=0).
+def test_z_dry_run_leaves_index_untouched(fx: Fixture) -> None:
+    wt = fx.add("br-z", branch="feature/z")
+    index = Path(git(wt, "rev-parse", "--absolute-git-dir").stdout.strip()) / "index"
+    os.utime(wt / ".gitignore", (1_000_000_000, 1_000_000_000))
+    before = index.read_bytes()
+    proc = fx.run("--dry-run", str(wt))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert index.read_bytes() == before
+
+
+# aa. An explicit hold is keyed to its carrier: a new carrier at the same path is not held by it.
+def test_aa_explicit_hold_not_inherited_by_new_carrier(fx: Fixture) -> None:
+    wt = fx.add("br-aa", branch="feature/aa")
+    assert fx.run("--hold", "--reason", "server", "--revisit", "QA returns", str(wt)).returncode == 3
+    git(fx.repo, "worktree", "remove", str(wt))
+    commit(fx.repo, "aa-main.txt")
+    fx.add("br-aa", branch="feature/aa2")
+    proc = fx.run(str(wt))
+    assert proc.returncode == 0, proc.stdout + proc.stderr

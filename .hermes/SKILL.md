@@ -612,7 +612,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Isolation worktrees** (`.claude/worktrees/*`) are created by the Agent tool when `isolation: "worktree"` is set; conductor-created ones live under `.agentic/worktrees/*`. That path class (`bin/tests/worktree_model.py`, normative) drives only the evidence-gated sweep of leftovers (`/ds-cleanup-worktrees` Step 2), which also requires merge evidence.
 
-**Retire or hold every carrier at completion.** The conductor that spawned or created it owns it. A carrier's work is complete when the review gates on its output have returned, or the work is abandoned, and its agent will be sent no further work. Then run `ds-retire-carrier <path>`: it removes the checkout only, never the branch, when it is clean, holds no protected ignored content, and leaves no commit without a surviving ref; otherwise it records a hold with owner, reason, and revisit event, which the owner re-runs when that event fires. Contract: `content/references/worktree-lifecycle.md` §Carrier lifecycle by purpose.
+**Retire or hold every carrier at completion.** The conductor that spawned or created it owns it. A carrier's work is complete when the review gates on its output have returned, or the work is abandoned, and its agent will be sent no further work. Then run `ds-retire-carrier <path>`: it removes the checkout only, never the branch, when it is clean, holds no protected ignored content or nested worktree, and leaves no commit without a surviving ref; otherwise it records a hold with owner, reason, and revisit event, which the owner re-runs when that event fires. Contract: `content/references/worktree-lifecycle.md` §Carrier lifecycle by purpose.
 
 **Worktree prune, the automatic worktree reap, and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight - the auto-reap re-fires on this rule too, which is safe by construction since every gate re-evaluates fresh state on each run. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune (`bin/ds-branch-prune`) resolves its own base branch rather than assuming `origin/main`, and deletes a branch only when a subsumption predicate proves its tip on that base; absence of proof, or an unresolvable base, is a skip.
 
@@ -9685,7 +9685,7 @@ A carrier is any linked checkout created for one job. Its purpose, not its path,
 
 **Completion event (every purpose).** A carrier's work is complete when the review gates on its output have returned, or the work is abandoned, and its agent will be sent no further work. An agent stopping is not completion - it can be resumed after it returns - and ticket close and PR merge are never the trigger.
 
-**Disposition.** At completion run `ds-retire-carrier <path>`. It removes the checkout only, never the branch, and only when it is unlocked, clean, has no git operation in progress, holds no protected ignored content (authored `.agentic/` files including `.agentic/evidence/`, `docs/planning/`, `.env*`, `*.local`; detached checkouts use the strict allowlist), and every commit it privately pins (HEAD, ORIG_HEAD, its HEAD reflog) stays pinned after removal by a local branch, a branch reflog, or a live origin branch tip. Otherwise it records a hold - path, owner, reason, revisit event - in the primary checkout's `.agentic/worktree-cleanup-skips.jsonl`. A harness-locked checkout is held; measurements disagree on whether the harness releases its lock when the agent returns or when the session ends, so re-run at `/ds-wrap` Step 5 or the next session start.
+**Disposition.** At completion run `ds-retire-carrier <path>`. It removes the checkout only, never the branch, and only when it is unlocked, clean, has no git operation in progress, holds no protected ignored content (authored `.agentic/` files including `.agentic/evidence/`, `docs/planning/`, `.env*`, `*.local`; detached checkouts use the strict allowlist), contains no other registered worktree, and every commit it privately pins (HEAD, ORIG_HEAD, its HEAD reflog) stays pinned after removal by a local branch, a branch reflog, or a live origin branch tip. Otherwise it records a hold - path, owner, reason, revisit event - in the primary checkout's `.agentic/worktree-cleanup-skips.jsonl`. A harness-locked checkout is held; measurements disagree on whether the harness releases its lock when the agent returns or when the session ends, so re-run at `/ds-wrap` Step 5 or the next session start.
 
 **Releasing holds.** Holds belong to the repo's conductor role; the recorded owner is for audit. Any conductor in the repo may re-run a hold: an automatic hold is re-evaluated against live state on every run. An explicit hold (`--hold`, for what the tool cannot see: a live process, a pending consumer, a planned resume, unknown ownership, a path dependency) is honored until a re-run passes `--release`, which a conductor passes only after observing its revisit event. Unpinned commits are released by pushing or merging them, or by `--pin`, which keeps them on a local `carrier-pin/*` branch. Protected content, evidence included, is released by copying or deleting it after its consumer has read it. `/ds-wrap` Step 5 and the session-start preflight list open holds with `ds-retire-carrier --list-holds`. One hold per path: a blanket "preserve every worktree" instruction is not a hold - narrow it to per-path holds after checking what each path preserves.
 
@@ -9860,9 +9860,9 @@ engineer returns.
 
 The engineer returns the already-landed SHA as confirmation once the
 re-attach completes - there is no separate removal step, since there was
-never a second worktree to remove; the harness's own isolation-worktree
-cleanup (§Isolation worktree cleanup commands above, "once the branch has
-been pushed") handles the engineer's worktree exactly as it would for any
+never a second worktree to remove; completion-time retirement
+(§Carrier lifecycle by purpose, `ds-retire-carrier`) handles the
+engineer's worktree exactly as it would for any
 other Trivial spawn, now that it is branch-resolvable again. **The
 conductor pushes nothing on this path** - its role is to open the draft
 PR (minting) or note the landed push (continuation); push-by-SHA from the
@@ -10045,14 +10045,14 @@ the PR leaving the discovery set). **Teardown:** `--delete-branch` deletes
 the branch the visibility worktree (if any - see below) has checked out,
 so ship re-points or removes it:
 `git -C <visibility-worktree> fetch origin && git -C <visibility-worktree> checkout $BASE_BRANCH && git -C <visibility-worktree> pull --ff-only`,
-or remove it per §Feature worktree cleanup commands above.
+or retire it with `ds-retire-carrier` per §Carrier lifecycle by purpose.
 
 ### Operator visibility (recommendation, not machinery)
 
 Optionally, `git worktree add` the `chore/tweak-<key>` branch under
 `.agentic/worktrees/` (a feature worktree - path-prefix-classified
-CONDUCTOR_CREATED, per `classify_entry` - cleaned up after its PR merges
-per §Feature worktree cleanup commands above), which a dev server can
+CONDUCTOR_CREATED, per `classify_entry` - retired at its completion
+per §Carrier lifecycle by purpose), which a dev server can
 point at,
 fast-forwarded after each push - or simpler, pull the branch into the
 main checkout between tweaks. **Created only after the PR is confirmed

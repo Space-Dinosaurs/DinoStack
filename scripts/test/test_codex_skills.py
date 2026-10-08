@@ -3420,6 +3420,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         self.assertNotIn("created by the Agent tool", text)
         self.assertNotIn(".claude/worktrees", text)
         self.assertIn("`$AE_PROJECT_DIR/.agentic/worktrees/*` on Codex", text)
+        self.assertEqual(1, text.count("`$AE_PROJECT_DIR/.agentic/worktrees/*`"))
         self.assertIn("ds-retire-carrier", text)
 
     def test_bare_isolation_literal_raises_skill_error(self) -> None:

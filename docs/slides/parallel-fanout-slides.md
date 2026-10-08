@@ -417,7 +417,7 @@ git -C $REPO diff --name-only --diff-filter=U
 - Conflict at any step: abort, stop remaining merges, spawn single engineer for sequential re-implementation
 - After all N merges: run `QUALITY_CMD` on `FEATURE_BRANCH` (integration quality check)
 - Integration check failure: spawn engineer on `FEATURE_BRANCH` for fix, then single Skeptic on incremental diff
-- Cleanup after success: `git worktree remove --force` + `git branch -d` + `git worktree prune`
+- Cleanup: `ds-retire-carrier` per unit; `branch -D` only once `FEATURE_BRANCH` contains it
 
 <div class="callout">
 The integration quality check catches failures invisible to individual worktrees - behavioral interactions between units that per-unit tests could not detect.

@@ -253,7 +253,7 @@ ds-retire-carrier <worktree-path>
 ds-retire-carrier --list-holds        # open holds, at /ds-wrap Step 5 and session start
 ```
 
-- Removes the checkout only when unlocked, clean, free of protected ignored content (`.agentic/` files, evidence, `.env*`), and every commit it pins keeps a ref
+- Removes the checkout only when unlocked, clean, free of protected ignored content (`.agentic/`, `.env*`) and nested worktrees, and every commit it pins keeps a ref
 - Never forces, unlocks, prunes, pushes or deletes a branch
 - A checkout with changes is held, never force-removed
 
