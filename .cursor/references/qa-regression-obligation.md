@@ -4,7 +4,7 @@
 
 Every qa-engineer FAIL on a runtime criterion that gets fixed is a latent regression. Without a regression test (or a curated index entry when a test is genuinely infeasible), the same bug can silently reappear in a future change. When a QA-fail is fixed, the Worker adds a regression test in the project's normal test suite that targets the failing scenario; the Skeptic on the QA-fix iteration verifies the test exists before granting sign-off.
 
-This is the QA-side mirror of the Skeptic-side regression rule in `content/references/regression-test-obligation.md`. The two obligations are symmetric: a Critical/Major Skeptic finding gets a regression test, and a qa-engineer FAIL gets a regression test. Both close the same failure-mode-can-silently-reappear gap.
+This is the QA-side mirror of the Skeptic-side regression rule in `content/references/regression-test-obligation.md`. The two obligations are symmetric: a Critical/Major behavior-defect Skeptic finding gets a regression test, and a qa-engineer FAIL gets a regression test. Both close the same failure-mode-can-silently-reappear gap.
 
 ---
 
@@ -68,4 +68,4 @@ Curated index of QA-found behavioral regressions. Architects read this when auth
 
 ## Cross-reference
 
-The Skeptic-side equivalent for fixed Critical/Major Skeptic findings lives in `content/references/regression-test-obligation.md`. The two obligations are symmetric: both require a regression test (or a documented exception with curated-index entry) before sign-off, both attempt execution before falling back to attestation, both verify target alignment, and both treat a missing test without explanation as a Minor finding in the next round.
+The Skeptic-side equivalent for fixed Critical/Major behavior-defect Skeptic findings lives in `content/references/regression-test-obligation.md`. The two obligations are symmetric: both require a regression test (or a documented exception with curated-index entry) before sign-off, both attempt execution before falling back to attestation, both verify target alignment, and both treat a missing test without explanation as a Minor finding in the next round.

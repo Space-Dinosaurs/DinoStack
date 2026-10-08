@@ -540,7 +540,7 @@ Task state tracked in <code>.agentic/tasks.jsonl</code>. Conductor appends all e
   .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-Every Critical or Major finding that gets fixed without a test is a latent regression. The fix loop closes the gap:
+Every Critical or Major behavior-defect finding that gets fixed without a test is a latent regression. The fix loop closes the gap:
 
 <div class="columns">
 <div class="card">

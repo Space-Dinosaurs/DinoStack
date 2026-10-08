@@ -73,8 +73,9 @@ Run `/ds-help` for the full command inventory.
   read when evaluating whether a proposed change aligns with the system's intent.
 
 - **references/regression-test-obligation.md** - per-finding regression-test obligation: every
-  Skeptic finding fixed during a task must come with a regression test that would have caught it;
-  read when fixing a Skeptic finding to confirm what counts as a valid regression test.
+  Critical or Major behavior-defect finding fixed during a task must come with a regression test
+  that would have caught it; read when fixing a Skeptic finding to confirm what counts as a valid
+  regression test.
 
 - **references/doc-sync-obligation.md** - per-change doc-sync obligation: a reality-asserting
   change (alters a count/list/path/convention/behavior an intent-layer doc states) must update
