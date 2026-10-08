@@ -1,12 +1,14 @@
-"""Behavioral matrix for bin/ds-retire-carrier: cases a-s, plus t-z and aa-dd
-(nested worktrees and repositories, ORIG_HEAD, private gitdir validation,
---pin re-verification, reftable, detached .agentic filtering, index
-untouched by inspection, carrier-keyed explicit holds), one or more per gate
-or ledger rule. Every case builds disposable repos with a bare origin under
-pytest's tmp_path and never touches a live checkout. Every subprocess run of
-the tool goes through a git argv shim that logs each git invocation; the
-shim log is checked after every run for force, unlock, branch deletion,
-prune and push (case m)."""
+"""Behavioral matrix for bin/ds-retire-carrier: cases a-s, plus t-z and aa-jj
+(nested worktrees and repositories, private gitdir names as pin candidates,
+private gitdir validation, --pin re-verification, reftable, detached .agentic
+filtering, hidden skip-worktree/assume-unchanged edits, submodules, user
+status config, index untouched by inspection, carrier-keyed explicit holds,
+git resolved through PATH), one or more per gate or ledger rule. Every case
+builds disposable repos with a bare origin under pytest's tmp_path and never
+touches a live checkout. Every subprocess run of the tool goes through a git
+argv shim that logs each git invocation; after every run the shim log must
+exist, be non-empty, and show no force, unlock, branch deletion, prune or
+push (case m)."""
 
 from __future__ import annotations
 
@@ -125,8 +127,7 @@ class Fixture:
 
 
 def assert_no_forbidden_git(log: Path) -> None:
-    if not log.exists():
-        return
+    assert log.exists() and log.read_text().strip(), f"git argv shim log {log} is missing or empty"
     for line in log.read_text().splitlines():
         argv = json.loads(line)
         assert "--force" not in argv and "-f" not in argv, argv
@@ -302,6 +303,7 @@ def test_g_bisect_held_claude_base_passes(fx: Fixture) -> None:
 # h. --hold requires --revisit and writes nothing without it.
 def test_h_hold_requires_revisit(fx: Fixture) -> None:
     wt = fx.add("br-h", branch="feature/h")
+    assert fx.run("--repo", str(fx.repo), "--list-holds").returncode == 0
     proc = fx.run("--hold", "--reason", "server running", str(wt))
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert not fx.ledger.exists()
@@ -658,3 +660,117 @@ def test_dd_detached_authored_agentic_held(fx: Fixture, rel: str) -> None:
     assert proc.returncode == 3, proc.stdout + proc.stderr
     assert last(fx)["reason"].startswith("protected ignored content")
     assert target.read_text() == "authored\n"
+
+
+def _private_only(fx: Fixture, name: str, make_ref) -> tuple:
+    """A detached carrier whose unique commit is named only by something in
+    its private gitdir that `make_ref` creates; HEAD moved back to main and
+    the HEAD reflog removed so nothing else names it."""
+    wt = fx.add(name)
+    sha = commit(wt, f"{name}.txt")
+    make_ref(wt, sha)
+    git(wt, "checkout", "-q", "--detach", "main")
+    (Path(git(wt, "rev-parse", "--absolute-git-dir").stdout.strip()) / "logs" / "HEAD").unlink()
+    return wt, sha
+
+
+PRIVATE_NAMERS = {
+    "worktree-ref": lambda wt, sha: git(wt, "update-ref", "refs/worktree/keep", sha),
+    "bisect-ref": lambda wt, sha: git(wt, "update-ref", "refs/bisect/bad", sha),
+    "worktree-reflog": lambda wt, sha: (
+        git(wt, "update-ref", "--create-reflog", "refs/worktree/moved", sha),
+        git(wt, "update-ref", "refs/worktree/moved", git(wt, "rev-parse", "main").stdout.strip()),
+    ),
+}
+
+
+# ee. Everything that dies with the private gitdir names a candidate: a
+# per-worktree ref, a bisect ref, or a per-worktree reflog entry holds the
+# carrier, and --pin pins exactly that commit.
+@pytest.mark.parametrize("kind", sorted(PRIVATE_NAMERS))
+def test_ee_private_gitdir_names_are_candidates(fx: Fixture, kind: str) -> None:
+    wt, sha = _private_only(fx, f"det-ee-{kind}", PRIVATE_NAMERS[kind])
+    proc = fx.run(str(wt))
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert sha[:8] in last(fx)["reason"]
+    proc = fx.run("--pin", str(wt))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    pin = f"refs/heads/carrier-pin/det-ee-{kind}-{sha[:8]}"
+    assert git(fx.repo, "rev-parse", "--verify", "--quiet", pin).stdout.strip() == sha
+
+
+# ff. A ref file in the private gitdir that does not parse holds (deny-unknown).
+def test_ff_unparseable_private_ref_holds(fx: Fixture) -> None:
+    wt = fx.add("br-ff", branch="feature/ff")
+    admin = Path(git(wt, "rev-parse", "--absolute-git-dir").stdout.strip())
+    (admin / "refs" / "worktree").mkdir(parents=True, exist_ok=True)
+    (admin / "refs" / "worktree" / "junk").write_text("not a ref\n")
+    proc = fx.run(str(wt))
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert "cannot parse refs/worktree/junk" in last(fx)["reason"]
+    assert wt.exists()
+
+
+# gg. Edits hidden by skip-worktree or assume-unchanged hold the carrier.
+@pytest.mark.parametrize("flag", ["--skip-worktree", "--assume-unchanged"])
+def test_gg_hidden_edits_held(fx: Fixture, flag: str) -> None:
+    wt = fx.add("br-gg", branch="feature/gg")
+    git(wt, "update-index", flag, ".gitignore")
+    (wt / ".gitignore").write_text(GITIGNORE + "local-only\n")
+    proc = fx.run(str(wt))
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert "skip-worktree or assume-unchanged" in last(fx)["reason"]
+    assert (wt / ".gitignore").read_text().endswith("local-only\n")
+
+
+# hh. A checkout containing an initialized submodule is held: git refuses to
+# remove it, and the refusal is a recorded hold.
+def test_hh_submodule_checkout_held(fx: Fixture) -> None:
+    sub_origin = fx.tmp / "sub-origin.git"
+    subprocess.run([REAL_GIT, "init", "-q", "--bare", "-b", "main", str(sub_origin)], check=True)
+    seed = fx.tmp / "sub-seed"
+    subprocess.run([REAL_GIT, "clone", "-q", str(sub_origin), str(seed)], check=True, capture_output=True)
+    git(seed, "config", "user.email", "spec@example.com")
+    git(seed, "config", "user.name", "spec")
+    commit(seed, "lib.txt")
+    git(seed, "push", "-q", "origin", "HEAD:main")
+    wt = fx.add("br-hh", branch="feature/hh")
+    git(wt, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(sub_origin), "sub")
+    git(wt, "commit", "-q", "-m", "add submodule")
+    proc = fx.run(str(wt))
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert last(fx)["reason"] == "git worktree remove refused"
+    assert "submodule" in last(fx)["stderr"]
+    assert (wt / "sub" / "lib.txt").exists()
+
+
+# ii. status.showUntrackedFiles=no in the user's config cannot break inspection.
+def test_ii_show_untracked_no_config(fx: Fixture) -> None:
+    git(fx.repo, "config", "status.showUntrackedFiles", "no")
+    plan = fx.add("br-ii-plan", branch="feature/ii-plan")
+    (plan / ".agentic").mkdir()
+    (plan / ".agentic" / "plan.md").write_text("plan\n")
+    proc = fx.run(str(plan))
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert last(fx)["reason"].startswith("protected ignored content"), last(fx)
+    clean = fx.add("br-ii", branch="feature/ii")
+    proc = fx.run(str(clean))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+# jj. The tool and the helpers it imports reach git only through PATH, so the
+# argv shim sees every git invocation.
+def test_jj_git_resolved_through_path_only(fx: Fixture) -> None:
+    import inspect
+
+    tool = _load("ds_retire_carrier_path_check", TOOL)
+    sources = [TOOL.read_text()]
+    cleanup = tool._cleanup
+    for name in ("_git_status_and_ignored", "_salvage_and_remove", "_salvage_telemetry"):
+        sources.append(inspect.getsource(getattr(cleanup, name)))
+    sources.append(inspect.getsource(tool._run))
+    for text in sources:
+        assert not re.search(r"""["'](?:/[^"'\s]*)?/git["']""", text), "absolute git path"
+        assert "shutil.which" not in text and "GIT_EXEC_PATH" not in text
+    assert re.findall(r'\["git"', TOOL.read_text()), "tool no longer spawns bare git"
+    assert fx.run("--repo", str(fx.repo), "--list-holds").returncode == 0

@@ -4567,11 +4567,12 @@ sketch under the ~40-line cap.
 
 ## Lifecycle and Ephemerality (Critical)
 
-**Evidence lives ONLY in the live worktree and DIES at cleanup.** The evidence
-store is written to the worktree's `.agentic/evidence/` directory, which is
-untracked scratch. A carrier still holding `.agentic/evidence/` is held at
-retirement (`ds-retire-carrier`); delete or copy the evidence once its
-consumer has read it, then re-run.
+**Evidence lives ONLY in the live worktree.** The evidence store is written
+to the worktree's `.agentic/evidence/` directory, which is untracked scratch.
+Retirement never deletes it silently: a carrier still holding
+`.agentic/evidence/` is held at retirement (`ds-retire-carrier`); delete or
+copy the evidence once its consumer has read it, then re-run, and it is gone
+with the checkout.
 
 Consequences:
 
@@ -4581,10 +4582,10 @@ Consequences:
 - **They are also useful for PRE-cleanup conductor access** via
   `bin/ds-resolve-worktree`, which locates the live worktree so the
   conductor can read evidence before it is torn down.
-- **There is NO post-merge evidence retrieval.** Once the branch is pushed or
-  merged and the worktree is removed, node IDs point at nothing. Do not cite
-  node IDs in a return expecting the conductor to retrieve evidence after
-  cleanup.
+- **There is NO post-retirement evidence retrieval.** Once the evidence is
+  deleted or copied out and the carrier retires, node IDs point at nothing.
+  Do not cite node IDs in a return expecting the conductor to retrieve
+  evidence after that.
 - **Raw tool output may contain absolute paths or secrets.** Evidence is NEVER
   committed. The `.agentic/` directory is gitignored by the shared scaffold
   (`content/commands/ds-init-project.md`), and `.agentic/evidence/` is added to
@@ -9685,7 +9686,7 @@ A carrier is any linked checkout created for one job. Its purpose, not its path,
 
 **Completion event (every purpose).** A carrier's work is complete when the review gates on its output have returned, or the work is abandoned, and its agent will be sent no further work. An agent stopping is not completion - it can be resumed after it returns - and ticket close and PR merge are never the trigger.
 
-**Disposition.** At completion run `ds-retire-carrier <path>`. It removes the checkout only, never the branch, and only when it is unlocked, clean, has no git operation in progress, holds no protected ignored content (authored `.agentic/` files including `.agentic/evidence/`, `docs/planning/`, `.env*`, `*.local`; detached checkouts use the strict allowlist), contains no other registered worktree or nested repository, and every commit it privately pins (HEAD, ORIG_HEAD, its HEAD reflog) stays pinned after removal by a local branch, a branch reflog, or a live origin branch tip. Otherwise it records a hold - path, owner, reason, revisit event - in the primary checkout's `.agentic/worktree-cleanup-skips.jsonl`. A harness-locked checkout is held; measurements disagree on whether the harness releases its lock when the agent returns or when the session ends, so re-run at `/ds-wrap` Step 5 or the next session start.
+**Disposition.** At completion run `ds-retire-carrier <path>`. It removes the checkout only, never the branch, and only when it is unlocked, clean (no skip-worktree or assume-unchanged path hiding edits), has no git operation in progress, holds no protected ignored content (authored `.agentic/` files including `.agentic/evidence/`, `docs/planning/`, `.env*`, `*.local`; detached checkouts use the strict allowlist), contains no other registered worktree or nested repository, and every commit named by anything that dies with its private gitdir (its HEAD and other `*_HEAD` files, its per-worktree refs, its reflogs; one that cannot be parsed holds) stays pinned after removal by a local branch, a branch reflog, or a live origin branch tip. Otherwise it records a hold - path, owner, reason, revisit event - in the primary checkout's `.agentic/worktree-cleanup-skips.jsonl`. A harness-locked checkout is held; measurements disagree on whether the harness releases its lock when the agent returns or when the session ends, so re-run at `/ds-wrap` Step 5 or the next session start.
 
 **Releasing holds.** Holds belong to the repo's conductor role; the recorded owner is for audit. Any conductor in the repo may re-run a hold: an automatic hold is re-evaluated against live state on every run. An explicit hold (`--hold`, for what the tool cannot see: a live process, a pending consumer, a planned resume, unknown ownership, a path dependency) is honored until a re-run passes `--release`, which a conductor passes only after observing its revisit event. Unpinned commits are released by pushing or merging them, or by `--pin`, which keeps them on a local `carrier-pin/*` branch. Protected content, evidence included, is released by copying or deleting it after its consumer has read it. `/ds-wrap` Step 5 and the session-start preflight list open holds with `ds-retire-carrier --list-holds`. One hold per path: a blanket "preserve every worktree" instruction is not a hold - narrow it to per-path holds after checking what each path preserves.
 

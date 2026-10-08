@@ -25,12 +25,17 @@ Public API (CLI):
   entry at PATH belongs to an earlier carrier and is not honored); 1 caller
   cwd inside PATH; 2 locked; 3 private gitdir not under
   `<common>/worktrees/` with a `gitdir` backlink to `PATH/.git`, or a git
-  in-progress marker in it (denylist); 4 dirty; 5 protected ignored content
+  in-progress marker in it (denylist); 4 dirty, or a tracked path flagged
+  skip-worktree or assume-unchanged present on disk (its edits are
+  invisible to status); 5 protected ignored content
   (detached carriers use the strict allowlist, `.agentic/` offenders
   re-filtered through the protected denylist; any ignored path that is, or
   contains, a `.git` entry - a separate repository - also holds); 6 another registered
-  worktree lies under PATH (removal would delete it); 7 pins: HEAD,
-  ORIG_HEAD and every `logs/HEAD` SHA must stay reachable from a
+  worktree lies under PATH (removal would delete it); 7 pins: every commit
+  named by anything that dies with the private gitdir (HEAD and every
+  `*_HEAD` file, every ref under its `refs/`, a private `packed-refs`, every
+  reflog under its `logs/`; a file there that does not parse holds) must
+  stay reachable from a
   `refs/heads/*` tip or a branch reflog SHA (phase 1, local), else from a
   live `ls-remote --heads origin` tip after `fetch origin` (phase 2);
   `--pin` creates `refs/heads/carrier-pin/<basename>-<sha8>` at each maximal
@@ -71,14 +76,19 @@ Failure modes: every indeterminate read fails closed to a hold, never a
                holds at gate 7. A ledger write failure is an internal error
                (exit 1) printed to stderr. Every git call runs with
                `GIT_OPTIONAL_LOCKS=0`, so inspection never rewrites a
-               carrier's index. `--dry-run` writes nothing: no record, ref,
+               carrier's index, and with `status.showUntrackedFiles=normal`
+               injected through `GIT_CONFIG_COUNT`, so a user config of `no`
+               cannot break the ignored-content listing. `--dry-run` writes nothing: no record, ref,
                fetch or removal. Re-running is safe: automatic holds are
                re-evaluated against live state; an explicit hold is honored
                until `--release`. Nested repositories: a registered one
                holds at gate 6; an unregistered one holds at gate 4 when
                untracked or at gate 5 when ignored (any `.git` entry
-               under an ignored path). A tracked submodule is not held:
-               its objects live in the primary's `.git/modules`.
+               under an ignored path). A checkout containing an
+               initialized submodule is held at gate 8: its gitdir lives
+               at `<common>/worktrees/<id>/modules/<name>`, and `git
+               worktree remove` refuses working trees that contain
+               submodules, so the refusal is recorded as a hold.
 
 Performance: about a dozen local git calls; object-existence checks are
              batched into one `cat-file --batch-check` per SHA set
@@ -324,25 +334,66 @@ def _local_pins(cwd: str, common: str) -> List[str]:
     return sorted(set(pins) | _existing_commits(cwd, reflogged))
 
 
+_OBJECT_ID = r"[0-9a-f]{40}(?:[0-9a-f]{24})?"
+
+
+def _unparseable(rel: str, detail: str) -> Hold:
+    return Hold(f"pin check failed: cannot parse {rel} in the private gitdir", REVISIT["indeterminate"], detail)
+
+
+def _read_lines(path: str, rel: str) -> List[str]:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return handle.read().splitlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise _unparseable(rel, str(exc))
+
+
+def _private_names(gitdir: str) -> List[str]:
+    """Every object id named by something that dies with the carrier's
+    private gitdir: HEAD and every top-level `*_HEAD` file, every loose ref
+    under `refs/`, a private `packed-refs`, and every reflog under `logs/`.
+    Deny-unknown: any such file that does not parse holds."""
+    names: List[str] = []
+    for entry in sorted(os.listdir(gitdir)):
+        path = os.path.join(gitdir, entry)
+        if not os.path.isfile(path) or not (entry == "HEAD" or entry.endswith("_HEAD")):
+            continue
+        for line in _read_lines(path, entry):
+            if not line.strip() or line.startswith("ref: "):
+                continue
+            match = re.match(rf"({_OBJECT_ID})(?:\s|$)", line)
+            if not match:
+                raise _unparseable(entry, f"unexpected line: {line[:80]!r}")
+            names.append(match.group(1))
+    packed = os.path.join(gitdir, "packed-refs")
+    if os.path.exists(packed):
+        for line in _read_lines(packed, "packed-refs"):
+            if not line.strip() or line.startswith("#"):
+                continue
+            match = re.fullmatch(rf"\^?({_OBJECT_ID})(?: \S+)?", line)
+            if not match:
+                raise _unparseable("packed-refs", f"unexpected line: {line[:80]!r}")
+            names.append(match.group(1))
+    for top, pattern in (("refs", rf"(?:ref: \S+|({_OBJECT_ID}))"),
+                         ("logs", rf"({_OBJECT_ID}) ({_OBJECT_ID}) .*")):
+        for dirpath, _dirs, files in os.walk(os.path.join(gitdir, top)):
+            for name in files:
+                path = os.path.join(dirpath, name)
+                rel = os.path.relpath(path, gitdir)
+                for line in _read_lines(path, rel):
+                    if not line.strip():
+                        continue
+                    match = re.fullmatch(pattern, line)
+                    if not match:
+                        raise _unparseable(rel, f"unexpected line: {line[:80]!r}")
+                    names.extend(sha for sha in match.groups() if sha)
+    return [sha for sha in names if set(sha) != {"0"}]
+
+
 def _candidates(cwd: str, gitdir: str, head: Optional[str]) -> List[str]:
-    cands: List[str] = []
-    if head:
-        cands.append(head)
-    orig = os.path.join(gitdir, "ORIG_HEAD")
-    if os.path.isfile(orig):
-        try:
-            with open(orig, encoding="utf-8") as handle:
-                sha = handle.read().strip()
-        except OSError as exc:
-            raise Hold("pin check failed: unreadable ORIG_HEAD", REVISIT["unpinned"], str(exc))
-        if re.fullmatch(r"[0-9a-f]{40}", sha):
-            cands.append(sha)
-    log_head = os.path.join(gitdir, "logs", "HEAD")
-    if os.path.exists(log_head):
-        try:
-            cands.extend(_reflog_shas(log_head))
-        except OSError as exc:
-            raise Hold("pin check failed: unreadable HEAD reflog", REVISIT["unpinned"], str(exc))
+    cands: List[str] = [head] if head else []
+    cands.extend(_private_names(gitdir))
     present = _existing_commits(cwd, cands)
     seen: Set[str] = set()
     result: List[str] = []
@@ -480,6 +531,25 @@ def _nested_worktrees(path: str, entries: List[Dict]) -> List[str]:
     return [entry["path"] for entry in entries
             if entry.get("path") and os.path.realpath(entry["path"]) != own
             and os.path.realpath(entry["path"]).startswith(root)]
+
+
+def _hidden_edit_paths(path: str) -> List[str]:
+    """Tracked paths whose local edits `git status` cannot see: flagged
+    skip-worktree (`S`) or assume-unchanged (lowercase tag) and present on
+    disk. An absent skip-worktree path is a sparse checkout with nothing
+    local to lose. A failed listing holds."""
+    proc = _git(["ls-files", "-v", "-z"], path)
+    if proc.returncode != 0:
+        raise Hold("uncommitted changes indeterminate: git ls-files failed", REVISIT["content"],
+                   proc.stderr.strip() or f"git ls-files exited {proc.returncode}")
+    hidden: List[str] = []
+    for item in proc.stdout.split("\0"):
+        if len(item) < 3 or item[1] != " ":
+            continue
+        tag, rel = item[0], item[2:]
+        if (tag == "S" or tag.islower()) and os.path.lexists(os.path.join(path, rel)):
+            hidden.append(rel)
+    return hidden
 
 
 def _ignored_git_repos(path: str, registered_nested: List[str]) -> List[str]:
@@ -626,6 +696,13 @@ def _retire(args: argparse.Namespace) -> int:
         if status != "clean":
             print(f"WARNING: worktree {path} has uncommitted changes; skipping cleanup")
             raise Hold("uncommitted changes", REVISIT["content"])
+        hidden = _hidden_edit_paths(path)
+        if hidden:
+            first = ", ".join(hidden[:5])
+            print(f"WARNING: worktree {path} has {len(hidden)} skip-worktree/assume-unchanged path(s) ({first}); holding",
+                  file=sys.stderr)
+            raise Hold(f"skip-worktree or assume-unchanged paths hide edits ({len(hidden)} paths: {first})",
+                       REVISIT["content"])
         if detached:
             offenders = [rel for rel in offenders
                          if rel.strip("/").split("/")[0] != ".agentic" or _is_protected_ignored_path(rel, path)]
@@ -749,11 +826,24 @@ def parse_args(argv: Optional[List[str]]) -> argparse.Namespace:
     return args
 
 
+def _inspection_env() -> Dict[str, str]:
+    """Environment every git call inherits, the imported status and removal
+    helpers included: inspection never refreshes and rewrites a carrier's
+    index, and `status.showUntrackedFiles` is forced back to its default so
+    `--ignored=matching` cannot be disabled by a user's config."""
+    count = int(os.environ.get("GIT_CONFIG_COUNT", "0") or "0")
+    return {
+        "GIT_OPTIONAL_LOCKS": "0",
+        "GIT_CONFIG_COUNT": str(count + 1),
+        f"GIT_CONFIG_KEY_{count}": "status.showUntrackedFiles",
+        f"GIT_CONFIG_VALUE_{count}": "normal",
+    }
+
+
 def main(argv: Optional[List[str]] = None) -> int:
-    # Every git call here, the imported status and removal helpers included,
-    # inherits this: inspection never refreshes and rewrites a carrier's index.
-    previous = os.environ.get("GIT_OPTIONAL_LOCKS")
-    os.environ["GIT_OPTIONAL_LOCKS"] = "0"
+    overrides = _inspection_env()
+    previous = {key: os.environ.get(key) for key in overrides}
+    os.environ.update(overrides)
     try:
         args = parse_args(argv)
         if args.list_holds:
@@ -766,10 +856,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"ds-retire-carrier: internal error: {exc}", file=sys.stderr)
         return 1
     finally:
-        if previous is None:
-            os.environ.pop("GIT_OPTIONAL_LOCKS", None)
-        else:
-            os.environ["GIT_OPTIONAL_LOCKS"] = previous
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 if __name__ == "__main__":
