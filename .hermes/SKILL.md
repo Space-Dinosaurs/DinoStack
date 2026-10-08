@@ -9685,7 +9685,7 @@ A carrier is any linked checkout created for one job. Its purpose, not its path,
 
 **Completion event (every purpose).** A carrier's work is complete when the review gates on its output have returned, or the work is abandoned, and its agent will be sent no further work. An agent stopping is not completion - it can be resumed after it returns - and ticket close and PR merge are never the trigger.
 
-**Disposition.** At completion run `ds-retire-carrier <path>`. It removes the checkout only, never the branch, and only when it is unlocked, clean, has no git operation in progress, holds no protected ignored content (authored `.agentic/` files including `.agentic/evidence/`, `docs/planning/`, `.env*`, `*.local`; detached checkouts use the strict allowlist), contains no other registered worktree, and every commit it privately pins (HEAD, ORIG_HEAD, its HEAD reflog) stays pinned after removal by a local branch, a branch reflog, or a live origin branch tip. Otherwise it records a hold - path, owner, reason, revisit event - in the primary checkout's `.agentic/worktree-cleanup-skips.jsonl`. A harness-locked checkout is held; measurements disagree on whether the harness releases its lock when the agent returns or when the session ends, so re-run at `/ds-wrap` Step 5 or the next session start.
+**Disposition.** At completion run `ds-retire-carrier <path>`. It removes the checkout only, never the branch, and only when it is unlocked, clean, has no git operation in progress, holds no protected ignored content (authored `.agentic/` files including `.agentic/evidence/`, `docs/planning/`, `.env*`, `*.local`; detached checkouts use the strict allowlist), contains no other registered worktree or nested repository, and every commit it privately pins (HEAD, ORIG_HEAD, its HEAD reflog) stays pinned after removal by a local branch, a branch reflog, or a live origin branch tip. Otherwise it records a hold - path, owner, reason, revisit event - in the primary checkout's `.agentic/worktree-cleanup-skips.jsonl`. A harness-locked checkout is held; measurements disagree on whether the harness releases its lock when the agent returns or when the session ends, so re-run at `/ds-wrap` Step 5 or the next session start.
 
 **Releasing holds.** Holds belong to the repo's conductor role; the recorded owner is for audit. Any conductor in the repo may re-run a hold: an automatic hold is re-evaluated against live state on every run. An explicit hold (`--hold`, for what the tool cannot see: a live process, a pending consumer, a planned resume, unknown ownership, a path dependency) is honored until a re-run passes `--release`, which a conductor passes only after observing its revisit event. Unpinned commits are released by pushing or merging them, or by `--pin`, which keeps them on a local `carrier-pin/*` branch. Protected content, evidence included, is released by copying or deleting it after its consumer has read it. `/ds-wrap` Step 5 and the session-start preflight list open holds with `ds-retire-carrier --list-holds`. One hold per path: a blanket "preserve every worktree" instruction is not a hold - narrow it to per-path holds after checking what each path preserves.
 
@@ -10285,7 +10285,7 @@ it is.
 0. **Triage first - check whether the work is already safe:**
    `git -C <path> branch -r --contains "$(git -C <path> rev-parse HEAD)"`.
    Nonempty output means the commit already reached `origin` on some ref -
-   nothing is at risk, and step 3 (plain `worktree remove`) alone is
+   nothing is at risk, and step 3 (`ds-retire-carrier`) alone is
    sufficient; skip step 2. Empty output means this worktree is the sole
    copy - continue through steps 1-3 in full.
 1. Inspect the committed tip: `git -C <path> log -1`.
@@ -10294,24 +10294,23 @@ it is.
    (braced variables, explicit refspec - the same binding constraint as
    the routine push in §Implicit Trivial batching above) - or by
    cherry-picking the commit onto wherever it belongs.
-3. **Discard via plain `git worktree remove <path>` FIRST** - never reach
-   for `--force` as the first move. A refusal naming "modified or
-   untracked files" means there is uncommitted work that step 1's
-   `log -1` inspection structurally cannot show (a detached HEAD's
-   committed tip says nothing about the working tree on top of it). On
-   that refusal, inspect `git -C <path> status --porcelain` and
-   `git -C <path> diff` before deciding what to do with the uncommitted
-   content, and only then run `git worktree remove --force <path>`.
+3. **Retire via `ds-retire-carrier <path>`** (after inspection,
+   `ds-retire-carrier --pin <path>` keeps a still-unpushed tip on a
+   `carrier-pin/*` branch), or record a hold - never `--force`. A hold
+   naming uncommitted changes means there is work that step 1's `log -1`
+   inspection structurally cannot show (a detached HEAD's committed tip
+   says nothing about the working tree on top of it); inspect
+   `git -C <path> status --porcelain` and `git -C <path> diff`, then
+   commit, copy out or delete that content and re-run.
 
 **Note - this is the harness's own isolation worktree, unlike the
 now-deleted nested-worktree design, so the §Guardrail: never
 force-override the harness lock rule above applies directly here, not as
-an unrelated aside.** If `git worktree remove` instead refuses citing the
-lock, that is a DIFFERENT refusal from the uncommitted-content one in step
+an unrelated aside.** If `ds-retire-carrier` instead holds citing the
+lock, that is a DIFFERENT hold from the uncommitted-content one in step
 3 - do not unlock or force-remove it; follow §Isolation worktree cleanup
 commands above ("that is expected and safe... NEVER a signal to unlock or
-force-remove"). Only a refusal naming uncommitted content (not a lock) is
-what step 3's `--force` addresses.
+force-remove") and re-run once the lock is released.
 
 ### Advisory: sharing node_modules across worktrees (pnpm)
 
@@ -20137,7 +20136,8 @@ for i in 1 2 3; do
   git -C "$WORKTREE_PATH" rebase origin/qa-evidence
 done
 
-if [ -x "$REPO_DIR/bin/ds-retire-carrier" ]; then "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$WORKTREE_PATH" || true
+if [ -x "$REPO_DIR/bin/ds-retire-carrier" ]; then "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$WORKTREE_PATH" \
+  || echo "WARNING: QA evidence worktree $WORKTREE_PATH not retired (exit $?); see the HELD line above or ds-retire-carrier --list-holds" >&2
 else echo "WARNING: $REPO_DIR/bin/ds-retire-carrier missing; QA evidence worktree $WORKTREE_PATH left in place" >&2; fi
 git -C "$REPO" worktree prune 2>/dev/null || true
 ```

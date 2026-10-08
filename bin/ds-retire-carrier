@@ -27,7 +27,8 @@ Public API (CLI):
   `<common>/worktrees/` with a `gitdir` backlink to `PATH/.git`, or a git
   in-progress marker in it (denylist); 4 dirty; 5 protected ignored content
   (detached carriers use the strict allowlist, `.agentic/` offenders
-  re-filtered through the protected denylist); 6 another registered
+  re-filtered through the protected denylist; any ignored path that is, or
+  contains, a `.git` entry - a separate repository - also holds); 6 another registered
   worktree lies under PATH (removal would delete it); 7 pins: HEAD,
   ORIG_HEAD and every `logs/HEAD` SHA must stay reachable from a
   `refs/heads/*` tip or a branch reflog SHA (phase 1, local), else from a
@@ -73,16 +74,20 @@ Failure modes: every indeterminate read fails closed to a hold, never a
                carrier's index. `--dry-run` writes nothing: no record, ref,
                fetch or removal. Re-running is safe: automatic holds are
                re-evaluated against live state; an explicit hold is honored
-               until `--release`. Known gap: gate 6 sees only registered
-               worktrees; an unregistered nested repository under PATH is
-               protected only if gate 4 or 5 sees it.
+               until `--release`. Nested repositories: a registered one
+               holds at gate 6; an unregistered one holds at gate 4 when
+               untracked or at gate 5 when ignored (any `.git` entry
+               under an ignored path). A tracked submodule is not held:
+               its objects live in the primary's `.git/modules`.
 
 Performance: about a dozen local git calls; object-existence checks are
              batched into one `cat-file --batch-check` per SHA set
              (candidates, branch reflogs, origin tips). Phase 2 adds one
              `fetch origin` and one `ls-remote` (network) only when phase 1
-             finds an unpinned commit. Loading bin/ds-cleanup-worktrees
-             costs ~0.1 s.
+             finds an unpinned commit. Gate 5's nested-repository check
+             walks each ignored directory until it meets a `.git` entry,
+             so a large ignored tree (node_modules) costs a full walk.
+             Loading bin/ds-cleanup-worktrees costs ~0.1 s.
 """
 
 from __future__ import annotations
@@ -384,9 +389,12 @@ def _pin_gate(path: str, primary: str, common: str, gitdir: str, head: Optional[
     if not unpinned:
         return []
     network_hold: Optional[Hold] = None
+    origin_tips: List[str] = []
     try:
-        remaining = _unpinned(primary, candidates, pins + _origin_pins(primary, dry_run))
+        origin_tips = _origin_pins(primary, dry_run)
+        remaining = _unpinned(primary, candidates, pins + origin_tips)
     except Hold as hold:
+        origin_tips = []
         network_hold = hold
         remaining = unpinned
     if not remaining:
@@ -416,7 +424,9 @@ def _pin_gate(path: str, primary: str, common: str, gitdir: str, head: Optional[
             raise Hold(f"--pin could not create {ref}", REVISIT["remove"], proc.stderr.strip() or "update-ref failed")
     if dry_run:
         return created
-    if _unpinned(primary, candidates, _local_pins(primary, common)):
+    # Re-verify against what phase 2 accepted: local branches (now including
+    # the new carrier-pin refs) plus the live origin tips already collected.
+    if _unpinned(primary, candidates, _local_pins(primary, common) + origin_tips):
         raise Hold("--pin re-verification found commits still unpinned", REVISIT["unpinned"],
                    "carrier-pin refs created but rev-list still reports unpinned commits")
     return created
@@ -470,6 +480,38 @@ def _nested_worktrees(path: str, entries: List[Dict]) -> List[str]:
     return [entry["path"] for entry in entries
             if entry.get("path") and os.path.realpath(entry["path"]) != own
             and os.path.realpath(entry["path"]).startswith(root)]
+
+
+def _ignored_git_repos(path: str, registered_nested: List[str]) -> List[str]:
+    """Ignored paths under PATH that are, or contain, a `.git` entry (a
+    separate repository `git worktree remove` would delete with the
+    carrier). Registered nested worktrees are left to gate 6. A failed
+    listing holds."""
+    proc = _git(["status", "--porcelain=v1", "-z", "--ignored=matching"], path)
+    if proc.returncode != 0:
+        raise Hold("protected ignored content indeterminate: git status failed", REVISIT["content"],
+                   proc.stderr.strip() or f"git status exited {proc.returncode}")
+    skip = {os.path.realpath(p) for p in registered_nested}
+    hits: List[str] = []
+    for item in proc.stdout.split("\0"):
+        if not item.startswith("!! "):
+            continue
+        rel = item[3:]
+        full = os.path.join(path, rel)
+        if os.path.basename(rel.rstrip("/")) == ".git":
+            if os.path.realpath(os.path.dirname(full.rstrip("/"))) not in skip:
+                hits.append(rel)
+            continue
+        if not os.path.isdir(full) or os.path.islink(full):
+            continue
+        for dirpath, dirnames, filenames in os.walk(full):
+            if ".git" in dirnames or ".git" in filenames:
+                if os.path.realpath(dirpath) not in skip:
+                    hits.append(os.path.relpath(os.path.join(dirpath, ".git"), path))
+                    break
+                dirnames[:] = []
+                continue
+    return hits
 
 
 def _carrier_id(path: str) -> Optional[str]:
@@ -587,13 +629,14 @@ def _retire(args: argparse.Namespace) -> int:
         if detached:
             offenders = [rel for rel in offenders
                          if rel.strip("/").split("/")[0] != ".agentic" or _is_protected_ignored_path(rel, path)]
+        nested = _nested_worktrees(path, entries)
+        offenders += [rel for rel in _ignored_git_repos(path, nested) if rel not in offenders]
         if offenders:
             first = ", ".join(offenders[:5])
             print(f"WARNING: worktree {path} holds protected ignored content ({len(offenders)} paths: {first}); holding",
                   file=sys.stderr)
             raise Hold(f"protected ignored content ({len(offenders)} paths: {first})", REVISIT["content"])
 
-        nested = _nested_worktrees(path, entries)
         if nested:
             listed = ", ".join(nested)
             print(f"WARNING: worktree {path} contains {len(nested)} registered worktree(s) ({listed}); holding",

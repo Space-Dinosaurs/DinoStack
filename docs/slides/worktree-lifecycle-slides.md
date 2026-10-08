@@ -417,7 +417,7 @@ A crashed continuation leaves ONE artifact - its own harness isolation worktree,
 - `head_reachable` (the fact that would let a pushed-already leftover auto-sweep) is dead code in `bin/ds-cleanup-worktrees` - hardcoded `"not_checked"` at every construction site - so **every** detached leftover, pushed or not, resolves `SKIP_UNREFERENCED_COMMIT` today, refused by design, same work-preserving discipline as `SKIP_UNPROVEN`
 - Triage manually: `git -C <path> branch -r --contains "$(git -C <path> rev-parse HEAD)"` - nonempty means the work already reached `origin` and is safe; empty means this worktree is the sole copy
 - Recovery: inspect the tip (`git -C <path> log -1`), then push it to its intended branch or cherry-pick it where it belongs
-- Discard via **plain `git worktree remove <path>` first** - a refusal naming uncommitted files means there's working-tree content `log -1` couldn't show; inspect `status --porcelain` and `diff` before deciding, only then `--force`
+- Retire via **`ds-retire-carrier <path>`** (`--pin` keeps an unpushed tip) or record a hold - never `--force`; a hold naming uncommitted changes means content `log -1` couldn't show - inspect `status --porcelain` and `diff` first
 
 <div class="callout">
 This IS the harness's own locked isolation worktree - a lock refusal is a DIFFERENT case from an uncommitted-content refusal; never unlock/force a still-locked one.

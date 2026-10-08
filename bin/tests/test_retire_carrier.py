@@ -1,5 +1,8 @@
-"""Behavioral matrix for bin/ds-retire-carrier (cases a-s, one per gate or
-ledger rule). Every case builds disposable repos with a bare origin under
+"""Behavioral matrix for bin/ds-retire-carrier: cases a-s, plus t-z and aa-dd
+(nested worktrees and repositories, ORIG_HEAD, private gitdir validation,
+--pin re-verification, reftable, detached .agentic filtering, index
+untouched by inspection, carrier-keyed explicit holds), one or more per gate
+or ledger rule. Every case builds disposable repos with a bare origin under
 pytest's tmp_path and never touches a live checkout. Every subprocess run of
 the tool goes through a git argv shim that logs each git invocation; the
 shim log is checked after every run for force, unlock, branch deletion,
@@ -610,3 +613,48 @@ def test_aa_explicit_hold_not_inherited_by_new_carrier(fx: Fixture) -> None:
     fx.add("br-aa", branch="feature/aa2")
     proc = fx.run(str(wt))
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+# bb. --pin re-verification counts the live origin tips phase 2 accepted: a
+# detached carrier now sitting on an origin-only commit, with an earlier
+# unpushed commit in its reflog (the QA-evidence rebase-retry shape).
+def test_bb_pin_reverify_accepts_live_origin_tip(fx: Fixture) -> None:
+    wt = fx.add("det-bb")
+    unpushed = commit(wt, "bb-local.txt")
+    git(wt, "checkout", "-q", "--detach", "main")
+    origin_only = commit(wt, "bb-origin.txt")
+    git(wt, "push", "-q", "origin", "HEAD:refs/heads/qa-evidence")
+    assert git(fx.repo, "for-each-ref", "--contains", origin_only, "refs/heads/").stdout == ""
+    proc = fx.run("--pin", str(wt))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    pin = f"refs/heads/carrier-pin/det-bb-{unpushed[:8]}"
+    assert git(fx.repo, "rev-parse", "--verify", "--quiet", pin).stdout.strip() == unpushed
+    assert not wt.exists()
+
+
+# cc. A separate repository inside an ignored directory holds the carrier.
+def test_cc_ignored_nested_repository_held(fx: Fixture) -> None:
+    wt = fx.add("br-cc", branch="feature/cc")
+    lib = wt / "node_modules" / "lib"
+    lib.mkdir(parents=True)
+    subprocess.run([REAL_GIT, "init", "-q", str(lib)], check=True)
+    git(lib, "config", "user.email", "spec@example.com")
+    git(lib, "config", "user.name", "spec")
+    sha = commit(lib, "unique.txt")
+    proc = fx.run(str(wt))
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert "node_modules/lib/.git" in last(fx)["reason"]
+    assert git(lib, "cat-file", "-e", sha, check=False).returncode == 0
+
+
+# dd. Detached carriers keep authored .agentic/ content protected (R2).
+@pytest.mark.parametrize("rel", [".agentic/plan.md", ".agentic/evidence/n1.md"])
+def test_dd_detached_authored_agentic_held(fx: Fixture, rel: str) -> None:
+    wt = fx.add("det-dd")
+    target = wt / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("authored\n")
+    proc = fx.run(str(wt))
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert last(fx)["reason"].startswith("protected ignored content")
+    assert target.read_text() == "authored\n"
