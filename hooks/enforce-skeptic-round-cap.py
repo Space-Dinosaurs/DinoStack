@@ -4,8 +4,10 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          round-budget policy (content/sections/05-qa-gate.md §Re-route
          limits, content/references/skeptic-protocol.md §Round budget and
          value-per-round gate): a max of `_ROUND_CAP` Skeptic rounds per
-         unit before the conductor must record an explicit `ship` or
-         `escalate` decision.
+         unit. Past the cap, exactly one more round is allowed per operator
+         grant: a genuine operator turn in the session transcript containing
+         the `skeptic-grant-<8 hex>` token the deny prints for that unit and
+         round. Nothing the conductor writes to the state file reopens it.
          Before this hook, the cap was enforced only by "the conductor tracks
          re-route count in-context" - unenforced prose. A single session ran
          12 Skeptic rounds / 13 spawns on one unit with no mechanism firing.
@@ -155,43 +157,34 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
              cross-process locking; a true simultaneous race can still
              double-charge a round - see Failure modes below.
            - next_round <= _ROUND_CAP: ALLOW. Persist round_count =
-             next_round and clear any stale `decision` (a new round
-             supersedes a prior ship/escalate record - each cap hit needs
-             its own decision).
-           - next_round >= _ROUND_CAP + 1 (cap reached):
-               - decision == "escalate": ALLOW (human explicitly authorized
-                 another round). Consumed on use - persist round_count =
-                 next_round, decision reset to null, so a later cap hit
-                 needs a fresh escalate record.
-               - decision == "ship" AND NOT unresolved_critical: ALLOW,
-                 and CONSUMED on use exactly like escalate - persist
-                 round_count = next_round, decision reset to null. A stale
-                 `ship` decision must never be a permanent global bypass:
-                 before this fix, `ship` left round_count and decision
-                 unchanged, so every subsequent spawn for that unit (or,
-                 combined with the branch-keying bug above, every
-                 subsequent spawn for ANY unit) was allowed forever with no
-                 further check.
-               - decision == "ship" AND unresolved_critical: DENY. This is
-                 the literal enforcement of "an unresolved Critical always
-                 blocks - the cap never ships a Critical" - a recorded ship
-                 decision is invalid while a Critical is still open,
-                 regardless of round count. NOT consumed (state unchanged) -
-                 the conductor must still resolve the Critical or record
-                 escalate.
-               - decision is null/absent: DENY, naming the round count and
-                 the exact two permitted actions (never a paraphrase the
-                 conductor could satisfy by rewording).
-         `unresolved_critical` and `decision` are written to the state file
-         by the conductor directly (a plain Edit under `.agentic/`, which is
-         exempt from `enforce-shippable-edit.py`'s shippable-file gate) -
-         this hook only reads and advances `round_count`. Consequently
-         `unresolved_critical` is conductor-attested, not independently
-         derived from any actual Skeptic finding: the hook enforces that a
-         recorded `ship` decision cannot silently bypass a Critical the
-         conductor has already flagged, not that no Critical exists. Do not
-         cite this hook as proof no Critical was missed - only that a
-         flagged one cannot be shipped past.
+             next_round.
+           - next_round >= _ROUND_CAP + 1 (cap reached): ALLOW only when
+             `_operator_granted()` finds `_grant_token(unit_key,
+             next_round)` in a genuine operator turn of the main-session
+             transcript; persist round_count = next_round. The token is
+             sha1(`<unit_key>#<next_round>`)[:8], so it authorizes one round
+             of one unit: advancing round_count retires it, and another
+             unit's token never matches. A grant-allowed round whose state
+             write fails is DENIED (with an unpersisted suffix), or the same
+             grant would re-allow on every retry. Otherwise DENY with
+             `_DENY_CAP_TEMPLATE`, which names the unit, the round count,
+             the two permitted actions (ship with accepted debt, or stop and
+             report to the operator) and the token.
+         Legacy `decision` and unresolved-Critical keys a state file may
+         still carry are ignored (preserved verbatim via the `_extra`
+         passthrough, never read): a conductor could write them with a plain
+         Edit, so they let a conductor reopen its own cap (KNW-20261009-002).
+         The hook does not enforce Critical-never-ships; that rule stays
+         with the conductor (content/references/skeptic-protocol.md §Round
+         budget item 1).
+
+         Pillar 8 (docs/overview/vision.md): (a) catches the AUT-1245 key-A
+         rounds 3 and 4, each reopened by a self-written escalate while the
+         session's only genuine operator turns carried no grant, and the
+         KNW-20261009-002 class generally; (b) retirement: a permanent floor
+         while the round cap exists, or replaced by a hook
+         `permissionDecision: "ask"` once that is measured to hold under
+         bypassPermissions and `claude -p`.
 
          Scope: fires ONLY on `subagent_type == "skeptic"` Task/Agent spawns.
          Never denies conductor Read/Grep/Glob (those tools are never
@@ -206,12 +199,11 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          hook's decision - registering this hook first cannot prevent a
          sibling hook further down the matcher array from independently
          denying the same spawn. Before this fix, this hook's own ALLOW
-         branch always persisted (advanced round_count, consumed a
-         recorded ship/escalate decision) even when a sibling hook such as
-         enforce-skeptic-neutrality.py or enforce-tier.py was about to deny
-         the identical spawn - so a spawn that never ran as a review still
-         spent a round, and in the escalate case, spent the operator's
-         one-time authorization on nothing. On the ALLOW branch, `main()`
+         branch always persisted (advanced round_count) even when a sibling
+         hook such as enforce-skeptic-neutrality.py or enforce-tier.py was
+         about to deny the identical spawn - so a spawn that never ran as a
+         review still spent a round, and past the cap, spent the operator's
+         one-round grant on nothing. On the ALLOW branch, `main()`
          now calls `_sibling_would_deny(data, cwd)`, which for each
          `_SIBLING_MODULES` entry first calls `_sibling_registered()` -
          positively confirming that entry's basename is registered on the
@@ -252,7 +244,11 @@ Upstream deps: Python 3 stdlib only (hashlib, json, os, re, sys, time,
                repo root instead of the raw payload cwd; on load failure
                _state_path returns None and the caller skips the round-cap
                check entirely (fail-open) rather than falling back to a raw
-               cwd. No external deps, no subprocess (the fix that dropped
+               cwd. hooks/lib/loop_guard.py (genuine_user_text), loaded
+               the same way and only past the cap, classifies transcript
+               lines for the operator grant; on load failure no grant is
+               found and the cap deny stands. No external deps, no
+               subprocess (the fix that dropped
                `_current_branch()`'s `git rev-parse` call also dropped the
                only subprocess dependency this hook had). Also a
                best-effort dynamic import (importlib by path, same
@@ -417,13 +413,32 @@ Failure modes:
       round counter. This is a real, accepted collision, not a
       hypothetical - see `_normalize_diff_identity()`'s docstring
       strategy 3 for why the base is chosen over refusing to key at all.
-    - State file present but unparsable JSON: treated as absent (round 0,
-      no decision, no unresolved_critical) - a corrupt state file must
-      never turn into a permanent block.
-    - State file write failure (permissions, disk full): the ALLOW/DENY
-      decision for THIS call still fires correctly; only the persisted
-      round_count advance may be lost, so a retried call may see a stale
-      (lower) round_count and be permitted again - fail-open, not fail-shut.
+    - State file present but unparsable JSON: treated as absent (round 0)
+      - a corrupt state file must never turn into a permanent block.
+    - State file write failure (permissions, disk full) within the cap:
+      the ALLOW for THIS call still fires; only the persisted round_count
+      advance may be lost, so a retried call may see a stale (lower)
+      round_count and be permitted again - fail-open, not fail-shut.
+    - State file write failure on a grant-allowed round past the cap:
+      DENY, the one fail-closed path in this hook (hooks/AGENTS.md
+      §Failure-mode discipline). Allowing it would let one grant re-allow
+      every retry for as long as the write keeps failing.
+    - Past the cap with no `transcript_path`, an unreadable transcript, or
+      a failed loop_guard load: no grant is found and the cap deny stands.
+      Recovery is option (a) ship, or the operator deleting the unit's
+      state file.
+    - Two truly concurrent spawns at the cap can both read the same
+      pre-advance state and share one grant.
+    - An SDK driver's prompt (`claude -p`) is recorded as a genuine user
+      turn and counts as operator input. So does a conductor resuming its
+      own session headlessly (`claude -p --resume <session> "<token>"`),
+      and a hand-forged transcript line: the transcript is
+      non-forgeable only against the conductor's ordinary tools, not
+      against a deliberate self-resume or file edit.
+    - Fingerprint coalescing runs before the cap check: a spawn whose
+      "What to review" body is byte-identical to the last allowed round's
+      reuses that round's cached ALLOW without a grant, the same way a
+      fan-out companion does. The two are indistinguishable here.
     - Concurrent invocations (near-simultaneous parallel fan-out spawns
       landing close enough that one process's write has not yet landed
       before another process's read): fingerprint coalescing handles the
@@ -892,6 +907,72 @@ def _load_repo_root():
 _REPO_ROOT = _load_repo_root()
 
 
+def _load_loop_guard():
+    """Best-effort dynamic import of hooks/lib/loop_guard.py (same pattern as
+    _load_repo_root). Returns None on any load failure, which
+    `_operator_granted` treats as "no grant found"."""
+    try:
+        import importlib.util as _ilu
+
+        here = Path(__file__).resolve().parent
+        mod_path = here / "lib" / "loop_guard.py"
+        spec = _ilu.spec_from_file_location("loop_guard", str(mod_path))
+        mod = _ilu.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+def _grant_token(unit_key: str, next_round: int) -> str:
+    """The token an operator types to authorize round `next_round` of
+    `unit_key`. Binding both means a grant cannot be reused on another unit
+    or, once round_count advances, on a later round of this one."""
+    digest = hashlib.sha1(f"{unit_key}#{next_round}".encode("utf-8", "replace")).hexdigest()[:8]
+    return f"skeptic-grant-{digest}"
+
+
+def _operator_granted(transcript_path: object, token: str) -> bool:
+    """True when a genuine operator turn in the MAIN-SESSION transcript
+    contains `token` (case-insensitive). Never raises; any error is False.
+
+    Reads only the payload's `transcript_path`, never `agent_transcript_path`
+    or a `subagents/` transcript: conductor-authored spawn briefs land as
+    user-shaped lines there, which would make the grant self-issuable (same
+    hazard as enforce-ticket-batching.py's non-forgeability note). Compaction
+    summaries and sidechain lines pass loop_guard's classifier but are not
+    operator input, so they are skipped here."""
+    try:
+        if not isinstance(transcript_path, str) or not transcript_path:
+            return False
+        if "/subagents/" in transcript_path.replace(os.sep, "/"):
+            return False
+        loop_guard = _load_loop_guard()
+        if loop_guard is None:
+            return False
+        needle = token.lower()
+        with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if needle not in line.lower():
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(obj, dict):
+                    continue
+                if obj.get("isCompactSummary") is True:
+                    continue
+                if obj.get("isSidechain") is True:
+                    continue
+                text = loop_guard.genuine_user_text(obj)
+                if isinstance(text, str) and needle in text.lower():
+                    return True
+        return False
+    except Exception:
+        return False
+
+
 # Sibling PreToolUse hooks (registered on the SAME "Task"/"Agent" spawn
 # matcher, .claude/install.sh ~:1249-1283) that can independently DENY a
 # `subagent_type == "skeptic"` spawn this hook would otherwise ALLOW. Each
@@ -903,9 +984,8 @@ _REPO_ROOT = _load_repo_root()
 # call (`_write_state` / `_append_tool_use_id` / `_update_tuid_index`),
 # and only when `_sibling_registered()` positively confirms that entry's
 # registration: a spawn a CONSULTED sibling would deny must never advance
-# round_count or consume a recorded ship/escalate decision, or the
-# operator's round budget/escalate authorization is spent on a review that
-# never ran (content/references/skeptic-protocol.md §Round budget and
+# round_count (which also spends an operator grant), or the operator's
+# round budget or grant is spent on a review that never ran (content/references/skeptic-protocol.md §Round budget and
 # value-per-round gate, item 1). See `bin/tests/test_enforce_skeptic_round
 # _cap_sibling_deny.py`'s drift-guard test for the enumeration of
 # registered spawn-matcher hooks this list is checked against.
@@ -1128,7 +1208,7 @@ def _state_path(cwd: str, key: str) -> Path | None:
 # passthrough bucket below (round-2 fix, m4) - see both functions'
 # docstrings for what this closes.
 _KNOWN_STATE_KEYS = frozenset({
-    "round_count", "decision", "unresolved_critical", "last_round_fingerprint",
+    "round_count", "last_round_fingerprint",
     "last_decision_allow", "last_decision_reason", "tool_use_ids",
     "unit_key", "last_updated",
 })
@@ -1156,8 +1236,6 @@ def _load_state(path: Path) -> dict:
     know about today."""
     default = {
         "round_count": 0,
-        "decision": None,
-        "unresolved_critical": False,
         "last_round_fingerprint": None,
         "last_decision_allow": None,
         "last_decision_reason": "",
@@ -1180,8 +1258,6 @@ def _load_state(path: Path) -> dict:
         extra = {k: v for k, v in raw.items() if k not in _KNOWN_STATE_KEYS}
         return {
             "round_count": raw.get("round_count", 0) if isinstance(raw.get("round_count"), int) else 0,
-            "decision": raw.get("decision") if raw.get("decision") in ("ship", "escalate") else None,
-            "unresolved_critical": bool(raw.get("unresolved_critical", False)),
             "last_round_fingerprint": fingerprint if isinstance(fingerprint, str) else None,
             "last_decision_allow": raw.get("last_decision_allow") if isinstance(raw.get("last_decision_allow"), bool) else None,
             "last_decision_reason": raw.get("last_decision_reason") if isinstance(raw.get("last_decision_reason"), str) else "",
@@ -1192,8 +1268,9 @@ def _load_state(path: Path) -> dict:
         return default
 
 
-def _write_state(path: Path, unit_key: str, state: dict) -> None:
+def _write_state(path: Path, unit_key: str, state: dict) -> bool:
     """Best-effort atomic write - tmp file + os.replace, pid-suffixed.
+    Returns True only when os.replace succeeded.
 
     Round-2 fix (m4): unpacks the `_extra` passthrough bucket `_load_state`
     populated (any key that was present on disk but outside this file's
@@ -1216,10 +1293,12 @@ def _write_state(path: Path, unit_key: str, state: dict) -> None:
         tmp_path = path.with_suffix(f".tmp.{os.getpid()}")
         tmp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         os.replace(tmp_path, path)
+        return True
     except Exception:
-        # Fail-open: a lost persist means a retried call may see a stale
-        # (lower) round_count and be permitted again - never a false deny.
-        pass
+        # Within the cap a lost persist fails open (a retry may see a stale
+        # round_count). main() denies a grant-allowed round that this
+        # returns False for, or one grant would re-allow on every retry.
+        return False
 
 
 def _append_tool_use_id(state: dict, tool_use_id: str | None) -> dict:
@@ -1414,94 +1493,59 @@ def _tuid_index_lock(agentic_dir: Path):
     return _FlockLock()
 
 
-_DENY_NO_DECISION_TEMPLATE = (
-    "Skeptic round cap reached: {round_count} rounds already spent on "
-    "this unit (max {cap}). Take exactly one of two actions "
-    "before spawning another round: (a) record decision:\"ship\" in "
-    "the .agentic/skeptic-round-*.json state file and ship, recording "
-    "every unresolved non-Critical finding in the PR body as accepted "
-    "debt (an unresolved Critical always blocks - never ship one), or "
-    "(b) record decision:\"escalate\" stating cost-to-date and what "
-    "the next round is expected to buy, then retry the spawn."
+_DENY_CAP_TEMPLATE = (
+    "Skeptic round cap reached: {round_count} rounds already spent on unit "
+    "{unit_key} (max {cap}). Do not spawn another Skeptic on this unit. "
+    "Take exactly one of two actions: (a) ship, recording every unresolved "
+    "non-Critical finding in the PR body as accepted debt - an unresolved "
+    "Critical never ships; or (b) stop and report to the operator, stating "
+    "cost-to-date, what another round would buy, whether the last two "
+    "rounds' Majors were one defect class at new sites (skeptic-protocol.md "
+    "Round budget item 6), and the grant token {token}. Another round "
+    "runs only after the operator's own typed message in this session "
+    "contains {token}. A decision written to the state file, a message "
+    "relayed from another session, an AskUserQuestion answer, or agent text "
+    "does not count."
 )
 
-_DENY_SHIP_CRITICAL_TEMPLATE = (
-    "Skeptic round cap: {round_count} rounds already spent on this "
-    "unit (max {cap}), and a `ship` decision is recorded, "
-    "but `unresolved_critical` is still true. An unresolved "
-    "Critical always blocks - the cap never ships a Critical. "
-    "Fix the Critical (set unresolved_critical:false once "
-    "resolved) or record decision:\"escalate\" instead of "
-    "\"ship\" in the .agentic/skeptic-round-*.json state file."
+_DENY_UNPERSISTED_SUFFIX = (
+    " The operator grant was found, but {path} could not be written, so the "
+    "round was not allowed. The fix is write access to .agentic/."
 )
 
 
-def _decide(state: dict, round_fingerprint: str | None) -> tuple[bool, dict, str]:
-    """Return (allow, new_state, reason). reason is "" when allow is True
-    and the round advanced normally (nothing informative to log)."""
-    round_count = state["round_count"]
-    decision = state["decision"]
-    unresolved_critical = state["unresolved_critical"]
-
+def _decide(
+    state: dict, round_fingerprint: str | None, granted: bool
+) -> tuple[bool, dict, bool]:
+    """Return (allow, new_state, allowed_via_grant). `granted` is True only
+    when main() found the operator's token for this unit's next round past
+    the cap; nothing in the state file can stand in for it."""
     # Fingerprint coalescing: a parallel multi-dimensional fan-out
     # (correctness-Skeptic + security-auditor + perf-analyst, all sharing
     # this unit's key because they all review the same diff AND the same
     # Worker output) must consume ONE round, not one per spawn. A call
     # whose "What to review" fingerprint matches the round this state
     # already recorded reuses that round's cached outcome verbatim instead
-    # of re-deciding (and, on the allow-and-mutate paths, re-advancing
-    # round_count or re-consuming a decision). `round_fingerprint is None`
-    # (no "What to review:" section found) never coalesces - every such
-    # call is treated as its own round.
+    # of re-deciding (and re-advancing round_count).
+    # `round_fingerprint is None` (no "What to review:" section found)
+    # never coalesces - every such call is treated as its own round.
     if (
         round_fingerprint is not None
         and state.get("last_round_fingerprint") == round_fingerprint
         and state.get("last_decision_allow") is not None
     ):
-        return bool(state["last_decision_allow"]), state, state.get("last_decision_reason", "")
+        return bool(state["last_decision_allow"]), state, False
 
-    next_round = round_count + 1
+    next_round = state["round_count"] + 1
+    if next_round > _ROUND_CAP and not granted:
+        return False, state, False
 
-    if next_round <= _ROUND_CAP:
-        new_state = dict(state)
-        new_state["round_count"] = next_round
-        new_state["decision"] = None
-        new_state["last_round_fingerprint"] = round_fingerprint
-        new_state["last_decision_allow"] = True
-        new_state["last_decision_reason"] = ""
-        return True, new_state, ""
-
-    # Cap reached (next_round >= _ROUND_CAP + 1).
-    if decision == "ship":
-        if unresolved_critical:
-            reason = _DENY_SHIP_CRITICAL_TEMPLATE.format(round_count=round_count, cap=_ROUND_CAP)
-            # Not consumed: the conductor must still resolve the Critical
-            # or record escalate before another spawn is possible.
-            return False, state, reason
-        # Ship, like escalate, is single-use: consume it so a *subsequent*
-        # spawn for this unit does not fall through to an unconditional
-        # bypass. Before this fix, `ship` left round_count/decision
-        # unchanged, making every later spawn for this unit ALLOW forever
-        # with no further check.
-        new_state = dict(state)
-        new_state["round_count"] = next_round
-        new_state["decision"] = None
-        new_state["last_round_fingerprint"] = round_fingerprint
-        new_state["last_decision_allow"] = True
-        new_state["last_decision_reason"] = ""
-        return True, new_state, ""
-
-    if decision == "escalate":
-        new_state = dict(state)
-        new_state["round_count"] = next_round
-        new_state["decision"] = None
-        new_state["last_round_fingerprint"] = round_fingerprint
-        new_state["last_decision_allow"] = True
-        new_state["last_decision_reason"] = ""
-        return True, new_state, ""
-
-    reason = _DENY_NO_DECISION_TEMPLATE.format(round_count=round_count, cap=_ROUND_CAP)
-    return False, state, reason
+    new_state = dict(state)
+    new_state["round_count"] = next_round
+    new_state["last_round_fingerprint"] = round_fingerprint
+    new_state["last_decision_allow"] = True
+    new_state["last_decision_reason"] = ""
+    return True, new_state, next_round > _ROUND_CAP
 
 
 def _deny(data: dict, reason: str) -> None:
@@ -1568,20 +1612,26 @@ def main() -> None:
             sys.exit(0)
         state = _load_state(path)
 
-        allow, new_state, reason = _decide(state, _round_fingerprint(tinput))
+        next_round = state["round_count"] + 1
+        token = _grant_token(unit_key, next_round)
+        granted = next_round > _ROUND_CAP and _operator_granted(data.get("transcript_path"), token)
+        cap_reason = _DENY_CAP_TEMPLATE.format(
+            round_count=state["round_count"], unit_key=unit_key, cap=_ROUND_CAP, token=token
+        )
+
+        allow, new_state, allowed_via_grant = _decide(state, _round_fingerprint(tinput), granted)
 
         if not allow:
-            _deny(data, reason)
+            _deny(data, cap_reason)
             return
 
         # A REGISTERED sibling PreToolUse hook on this same spawn matcher
         # (see `_SIBLING_MODULES`) will independently deny this exact
         # spawn - Claude Code runs every matcher hook regardless of
         # another hook's decision, so the sibling's own deny still blocks
-        # the spawn. Skip ALL persistence in that case: neither
-        # round_count nor a recorded ship/escalate decision may
-        # advance/consume for a spawn that never actually ran as a
-        # review. `_sibling_would_deny` only consults a sibling whose
+        # the spawn. Skip ALL persistence in that case: round_count
+        # (and with it any operator grant) must not advance for a spawn
+        # that never actually ran as a review. `_sibling_would_deny` only consults a sibling whose
         # registration `_sibling_registered` positively confirms - an
         # unconfirmed sibling (unregistered, or registration undetermined)
         # is never consulted, so this call persists exactly as today.
@@ -1589,7 +1639,10 @@ def main() -> None:
             sys.exit(0)
 
         new_state = _append_tool_use_id(new_state, tool_use_id)
-        _write_state(path, unit_key, new_state)
+        persisted = _write_state(path, unit_key, new_state)
+        if allowed_via_grant and not persisted:
+            _deny(data, cap_reason + _DENY_UNPERSISTED_SUFFIX.format(path=path))
+            return
         # Index maintenance happens strictly AFTER the allow decision and
         # the round-state write, and is fully fail-open - it must never
         # influence the allow/deny path above. `new_state["round_count"]`

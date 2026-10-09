@@ -389,11 +389,9 @@ fi
 # ties the pin to that bullet instead of to the file at large, so splitting
 # them apart also reddens.
 #
-# The pin deliberately does NOT mention the hook's state file. Writing
-# `decision: "ship"` into `.agentic/skeptic-round-<unit-key>.json` leaves an
-# unconsumed bypass token there that ALLOWs a later third Skeptic spawn
-# (verified by runtime probe), so the decision is recorded by the deferred
-# findings_log entries and the PR body instead.
+# The pin deliberately does NOT mention the hook's state file: the hook
+# ignores any decision written there, so the decision is recorded by the
+# deferred findings_log entries and the PR body instead.
 #
 # Reddening mutations: delete either phrase; reword either one; or move them
 # onto separate bullets. Any of the three drops the same-line match to 0.
