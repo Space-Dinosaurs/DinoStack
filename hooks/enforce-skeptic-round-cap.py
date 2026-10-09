@@ -936,8 +936,9 @@ def _operator_granted(transcript_path: object, token: str) -> bool:
     """True when a genuine operator turn in the MAIN-SESSION transcript
     contains `token` (case-insensitive). Never raises; any error is False.
 
-    Reads only the payload's `transcript_path`, never `agent_transcript_path`
-    or a `subagents/` transcript: conductor-authored spawn briefs land as
+    Reads only the payload's `transcript_path`, never the SubagentStop-only
+    agent transcript or a `subagents/` transcript: conductor-authored spawn
+    briefs land as
     user-shaped lines there, which would make the grant self-issuable (same
     hazard as enforce-ticket-batching.py's non-forgeability note). Compaction
     summaries and sidechain lines pass loop_guard's classifier but are not
@@ -985,8 +986,9 @@ def _operator_granted(transcript_path: object, token: str) -> bool:
 # and only when `_sibling_registered()` positively confirms that entry's
 # registration: a spawn a CONSULTED sibling would deny must never advance
 # round_count (which also spends an operator grant), or the operator's
-# round budget or grant is spent on a review that never ran (content/references/skeptic-protocol.md §Round budget and
-# value-per-round gate, item 1). See `bin/tests/test_enforce_skeptic_round
+# round budget or grant is spent on a review that never ran
+# (content/references/skeptic-protocol.md §Round budget and value-per-round
+# gate, item 1). See `bin/tests/test_enforce_skeptic_round
 # _cap_sibling_deny.py`'s drift-guard test for the enumeration of
 # registered spawn-matcher hooks this list is checked against.
 _SIBLING_MODULES = (
