@@ -245,9 +245,9 @@ Upstream deps: Python 3 stdlib only (hashlib, json, os, re, sys, time,
                _state_path returns None and the caller skips the round-cap
                check entirely (fail-open) rather than falling back to a raw
                cwd. hooks/lib/loop_guard.py (genuine_user_text), loaded
-               the same way and only past the cap, classifies transcript
-               lines for the operator grant; on load failure no grant is
-               found and the cap deny stands. No external deps, no
+               the same way and only past the cap, classifies origin-less
+               transcript lines for the operator grant; on load failure no
+               grant is found and the cap deny stands. No external deps, no
                subprocess (the fix that dropped
                `_current_branch()`'s `git rev-parse` call also dropped the
                only subprocess dependency this hook had). Also a
@@ -932,17 +932,64 @@ def _grant_token(unit_key: str, next_round: int) -> str:
     return f"skeptic-grant-{digest}"
 
 
+def _origin_kind(record: dict) -> object:
+    origin = record.get("origin")
+    return origin.get("kind") if isinstance(origin, dict) else None
+
+
+def _content_texts(content: object) -> list[str]:
+    if isinstance(content, str):
+        return [content]
+    if not isinstance(content, list):
+        return []
+    return [
+        b["text"]
+        for b in content
+        if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str)
+    ]
+
+
+def _operator_texts(obj: dict, loop_guard) -> list[str]:
+    """Texts of one transcript line that record a genuine operator message.
+    Three line shapes do (census of every main-session transcript on the
+    authoring host):
+      - a `user` line with `origin.kind` "human": a typed turn, image plus
+        text, or a slash command with its arguments;
+      - a `queued_command` attachment with `origin.kind` "human": a message
+        typed while the conductor was mid-turn, which Claude Code records
+        only in this shape;
+      - an origin-less `user` line loop_guard classifies as genuine: `claude
+        -p` prompts, Claude Desktop, and CLI builds that predate `origin`.
+    A queued attachment without a human origin is a cross-session relay, and
+    a `queue-operation` line carries no origin at all; neither counts."""
+    kind = obj.get("type")
+    if kind == "attachment":
+        att = obj.get("attachment")
+        if (
+            isinstance(att, dict)
+            and att.get("type") == "queued_command"
+            and _origin_kind(att) == "human"
+        ):
+            return _content_texts(att.get("prompt"))
+        return []
+    if kind == "user" and _origin_kind(obj) == "human":
+        msg = obj.get("message")
+        return _content_texts(msg.get("content") if isinstance(msg, dict) else None)
+    text = loop_guard.genuine_user_text(obj)
+    return [text] if isinstance(text, str) else []
+
+
 def _operator_granted(transcript_path: object, token: str) -> bool:
     """True when a genuine operator turn in the MAIN-SESSION transcript
     contains `token` (case-insensitive). Never raises; any error is False.
 
     Reads only the payload's `transcript_path`, never the SubagentStop-only
     agent transcript or a `subagents/` transcript: conductor-authored spawn
-    briefs land as
-    user-shaped lines there, which would make the grant self-issuable (same
-    hazard as enforce-ticket-batching.py's non-forgeability note). Compaction
-    summaries and sidechain lines pass loop_guard's classifier but are not
-    operator input, so they are skipped here."""
+    briefs land as user-shaped lines there, which would make the grant
+    self-issuable (same hazard as enforce-ticket-batching.py's
+    non-forgeability note). Compaction summaries and sidechain lines pass
+    loop_guard's classifier but are not operator input, so they are skipped
+    here. See `_operator_texts` for the line shapes that count."""
     try:
         if not isinstance(transcript_path, str) or not transcript_path:
             return False
@@ -966,8 +1013,7 @@ def _operator_granted(transcript_path: object, token: str) -> bool:
                     continue
                 if obj.get("isSidechain") is True:
                     continue
-                text = loop_guard.genuine_user_text(obj)
-                if isinstance(text, str) and needle in text.lower():
+                if any(needle in text.lower() for text in _operator_texts(obj, loop_guard)):
                     return True
         return False
     except Exception:
@@ -1505,9 +1551,10 @@ _DENY_CAP_TEMPLATE = (
     "rounds' Majors were one defect class at new sites (skeptic-protocol.md "
     "Round budget item 6), and the grant token {token}. Another round "
     "runs only after the operator's own typed message in this session "
-    "contains {token}. A decision written to the state file, a message "
-    "relayed from another session, an AskUserQuestion answer, or agent text "
-    "does not count."
+    "contains {token}. A decision written to the state file, a cross-session "
+    "message, an AskUserQuestion answer, or agent text does not count; a "
+    "prompt sent with claude -p --resume does, so only the operator may send "
+    "one carrying the token."
 )
 
 _DENY_UNPERSISTED_SUFFIX = (

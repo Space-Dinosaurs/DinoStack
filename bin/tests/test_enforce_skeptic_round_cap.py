@@ -10,20 +10,26 @@ Test groups:
                                                          review" content, matching the real
                                                          sequential-rounds shape - a fresh Worker
                                                          output every round).
-  2. test_round_3_denied_without_grant               - T6: 3rd round with no operator grant -> DENY; the
+  2. test_round_3_denied_without_grant               - 3rd round with no operator grant -> DENY; the
                                                          reason names the unit, the grant token, both
                                                          permitted actions and item 6, never `decision:"`.
-  3. test_hand_written_decision_never_reopens_cap     - T1: a hand-written escalate/ship (with or without an
+  3. test_hand_written_decision_never_reopens_cap     - a hand-written escalate/ship (with or without an
                                                          operator_quote) in the state file never reopens the cap.
-  4. test_operator_grant_allows_exactly_one_round     - T2: the deny's token in a typed operator turn allows
+  4. test_operator_grant_allows_exactly_one_round     - the deny's token in a typed operator turn allows
                                                          round 3 only; round 4 needs a new token.
-     test_grant_is_bound_to_its_unit                  - T3: unit A's token never opens unit B's cap.
-     test_non_operator_lines_never_grant              - T4: the token in a peer relay, compaction summary,
-                                                         sidechain line, tool_result, assistant text or
-                                                         task-notification never grants.
-  5. test_unreadable_transcript_keeps_deny            - T5: absent, directory or nonexistent transcript_path
+     test_grant_is_bound_to_its_unit                  - unit A's token never opens unit B's cap.
+     test_non_operator_lines_never_grant              - the token in a peer relay, compaction summary,
+                                                         sidechain line, tool_result, assistant text,
+                                                         task-notification, queued relay or peer attachment,
+                                                         or queue-operation line never grants.
+     test_every_operator_line_shape_grants            - every real line shape of a genuine operator message
+                                                         (typed, image+text, slash-command args, the three
+                                                         mid-turn queued attachments, SDK, Desktop, pre-origin
+                                                         CLI) grants.
+     test_subagent_transcript_never_grants            - a token in a `subagents/` transcript never grants.
+  5. test_unreadable_transcript_keeps_deny            - absent, directory or nonexistent transcript_path
                                                          keeps the deny.
-  6. test_grant_requires_successful_persist           - T7: a grant whose round cannot be written to the
+  6. test_grant_requires_successful_persist           - a grant whose round cannot be written to the
                                                          state file denies, on every retry.
   7. test_parallel_fanout_consumes_one_round          - MAJOR 3 regression: a 3-spawn
                                                          `skeptic_strategy: multi-dimensional` fan-out
@@ -464,7 +470,7 @@ def _token_from_deny(parsed: dict | None) -> str:
 
 
 def test_round_3_denied_without_grant():
-    """T6. Mutation that reddens it: revert `_DENY_CAP_TEMPLATE` to the
+    """Mutation that reddens it: revert `_DENY_CAP_TEMPLATE` to the
     pre-grant ship/escalate text."""
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/round-cap-test"
@@ -494,7 +500,7 @@ def test_round_3_denied_without_grant():
     ids=["escalate", "ship-no-critical", "escalate-with-quote"],
 )
 def test_hand_written_decision_never_reopens_cap(hand_written):
-    """T1. Mutation that reddens it: load `decision` in `_load_state` again
+    """Mutation that reddens it: load `decision` in `_load_state` again
     and allow on `decision == "escalate"` in the cap branch of `_decide`."""
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/round-cap-test"
@@ -511,7 +517,7 @@ def test_hand_written_decision_never_reopens_cap(hand_written):
 
 
 def test_operator_grant_allows_exactly_one_round():
-    """T2. Mutation that reddens it: drop `next_round` from `_grant_token`,
+    """Mutation that reddens it: drop `next_round` from `_grant_token`,
     so round 4 reuses round 3's token and is allowed."""
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/round-cap-test"
@@ -539,7 +545,7 @@ def test_operator_grant_allows_exactly_one_round():
 
 
 def test_grant_is_bound_to_its_unit():
-    """T3. Mutation that reddens it: drop `unit_key` from `_grant_token`."""
+    """Mutation that reddens it: drop `unit_key` from `_grant_token`."""
     with tempfile.TemporaryDirectory() as tmp:
         unit_a = "feature/unit-a"
         unit_b = "feature/unit-b"
@@ -595,17 +601,52 @@ def _non_operator_line(shape: str, token: str) -> dict:
                 "content": f"<task-notification>agent returned: {token}</task-notification>",
             },
         }
+    if shape == "queued_relay":
+        return _real_line(
+            type="attachment",
+            attachment={
+                "type": "queued_command", "prompt": f"Conductor relay from lane a: {token}",
+                "source_uuid": "53335980-d152-4c2c-8139-138b6340ccaf",
+                "delivery_id": "ec7f2daf-c1f2-49c9-892f-1f44db40a8e2", "commandMode": "prompt",
+                "timestamp": "2026-10-09T07:09:57.277Z",
+            },
+            renderedRole="system", entrypoint="sdk-cli",
+        )
+    if shape == "queued_peer":
+        return _real_line(
+            type="attachment",
+            attachment={
+                "type": "queued_command",
+                "prompt": f'<cross-session-message from="uds:/tmp/cc-socks/1.sock" from-name="e1">{token}',
+                "source_uuid": "2d855063-885a-4bb5-8327-37cab7df0efd",
+                "delivery_id": "0770ca91-cada-4056-85cd-55187c7bfd11", "commandMode": "prompt",
+                "origin": {"kind": "peer", "from": "uds:/tmp/cc-socks/1.sock", "name": "e1", "body": token},
+                "timestamp": "2026-10-03T18:01:24.143Z", "isMeta": True,
+            },
+            entrypoint="cli",
+        )
+    if shape == "queue_operation":
+        return {
+            "type": "queue-operation", "operation": "enqueue", "timestamp": "2026-10-05T20:28:10.904Z",
+            "sessionId": "489b65f7-badb-4727-b526-dc4384536a85", "content": f"approved: {token}",
+        }
     raise AssertionError(shape)
 
 
 @pytest.mark.parametrize(
-    "shape", ["peer", "compaction", "sidechain", "tool_result", "assistant", "task_notification"]
+    "shape",
+    [
+        "peer", "compaction", "sidechain", "tool_result", "assistant", "task_notification",
+        "queued_relay", "queued_peer", "queue_operation",
+    ],
 )
 def test_non_operator_lines_never_grant(shape):
-    """T4. Mutations that redden it: delete the `isCompactSummary` skip
+    """Mutations that redden it: delete the `isCompactSummary` skip
     (compaction); delete the `isSidechain` skip (sidechain); replace
     `genuine_user_text` with a `type == "user"` check (tool_result,
-    task_notification); accept any line containing the token (all)."""
+    task_notification); accept any line containing the token (all); accept
+    a queued attachment whatever its origin (queued_relay, queued_peer);
+    read a `queue-operation` line's content (queue_operation)."""
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/round-cap-test"
         _spend_two_rounds(tmp, unit)
@@ -622,9 +663,160 @@ def test_non_operator_lines_never_grant(shape):
         assert _read_state(tmp, unit)["round_count"] == 2
 
 
+_REAL_LINE_ENVELOPE = {
+    "parentUuid": "8d6857ee-f88c-4c65-9b5e-74023579af82",
+    "isSidechain": False,
+    "uuid": "da82772d-3071-42cc-b746-7c6230200117",
+    "timestamp": "2026-10-09T04:24:25.112Z",
+    "userType": "external",
+    "cwd": "/repo",
+    "sessionId": "02b24d2a-785d-45a9-a50f-4dd2260bc890",
+    "version": "2.1.287",
+    "gitBranch": "develop",
+}
+
+
+def _real_line(**fields) -> dict:
+    line = dict(_REAL_LINE_ENVELOPE)
+    line.update(fields)
+    return line
+
+
+def _image_block() -> dict:
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
+
+
+def _operator_line(shape: str, token: str) -> dict:
+    """One genuine operator message per line shape found in real transcripts."""
+    text = f"one more round on this unit: {token}"
+    if shape == "typed":
+        return _real_line(
+            type="user", promptId="p-1", message={"role": "user", "content": text},
+            permissionMode="bypassPermissions", origin={"kind": "human"}, promptSource="typed",
+            entrypoint="cli",
+        )
+    if shape == "typed_image_text":
+        return _real_line(
+            type="user", promptId="p-1",
+            message={"role": "user", "content": [{"type": "text", "text": f"[Image #1] {text}"}, _image_block()]},
+            imagePasteIds=[1], origin={"kind": "human"}, promptSource="typed", entrypoint="cli",
+        )
+    if shape == "slash_command_args":
+        return _real_line(
+            type="user", promptId="p-1",
+            message={
+                "role": "user",
+                "content": (
+                    "<command-message>ds-implement-ticket</command-message>\n"
+                    "<command-name>/ds-implement-ticket</command-name>\n"
+                    f"<command-args>DS-1 {token}</command-args>"
+                ),
+            },
+            origin={"kind": "human"}, entrypoint="cli",
+        )
+    if shape == "queued_mid_turn":
+        return _real_line(
+            type="attachment",
+            attachment={
+                "type": "queued_command", "prompt": text, "source_uuid": "a2810fb1-1698-477c-b20e-24ea7862ff52",
+                "commandMode": "prompt", "origin": {"kind": "human"},
+                "timestamp": "2026-10-09T04:24:25.112Z", "humanTurn": True,
+            },
+            rendered=[{"content": "<system-reminder>\nThe user sent a new message while you were working"}],
+            session_id="02b24d2a-785d-45a9-a50f-4dd2260bc890", entrypoint="cli",
+        )
+    if shape == "queued_mid_turn_legacy":
+        return _real_line(
+            type="attachment",
+            attachment={
+                "type": "queued_command", "prompt": text, "commandMode": "prompt",
+                "origin": {"kind": "human"}, "timestamp": "2026-10-09T04:24:25.112Z",
+            },
+            session_id="02b24d2a-785d-45a9-a50f-4dd2260bc890", entrypoint="cli",
+        )
+    if shape == "queued_mid_turn_image_text":
+        return _real_line(
+            type="attachment",
+            attachment={
+                "type": "queued_command",
+                "prompt": [{"type": "text", "text": f"[Image #14] {text}"}, _image_block()],
+                "imagePasteIds": [14], "commandMode": "prompt", "origin": {"kind": "human"},
+                "timestamp": "2026-10-09T04:24:25.112Z",
+            },
+            session_id="02b24d2a-785d-45a9-a50f-4dd2260bc890", entrypoint="cli",
+        )
+    if shape == "sdk_prompt":
+        return _real_line(
+            type="user", promptId="p-1", message={"role": "user", "content": text},
+            permissionMode="bypassPermissions", promptSource="sdk", turnOrigin="sdk",
+            turnPosition={"promptIndex": 0, "turnIndex": 1}, entrypoint="sdk-cli",
+        )
+    if shape == "desktop":
+        return _real_line(
+            type="user", promptId="p-1", message={"role": "user", "content": text},
+            permissionMode="bypassPermissions", entrypoint="claude-desktop",
+        )
+    if shape == "cli_pre_origin_text_block":
+        return _real_line(
+            type="user", promptId="p-1", message={"role": "user", "content": [{"type": "text", "text": text}]},
+            session_id="02b24d2a-785d-45a9-a50f-4dd2260bc890", entrypoint="cli",
+        )
+    raise AssertionError(shape)
+
+
+_OPERATOR_SHAPES = [
+    "typed", "typed_image_text", "slash_command_args", "queued_mid_turn", "queued_mid_turn_legacy",
+    "queued_mid_turn_image_text", "sdk_prompt", "desktop", "cli_pre_origin_text_block",
+]
+
+
+@pytest.mark.parametrize("shape", _OPERATOR_SHAPES)
+def test_every_operator_line_shape_grants(shape):
+    """Every line shape real transcripts use for a genuine operator message
+    carries a grant. Mutations that redden it: make `_operator_texts` return
+    [] for attachments (the three queued shapes); delete its human-origin
+    `user` branch (slash_command_args); make `_content_texts` return [] for
+    lists (typed_image_text, queued_mid_turn_image_text)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        unit = "feature/round-cap-test"
+        _spend_two_rounds(tmp, unit)
+        _, denied = _run_hook(_skeptic_payload(tmp, unit, what_to_review="worker output round 3"))
+        transcript = _write_transcript(tmp, [_operator_line(shape, _token_from_deny(denied))])
+
+        _, parsed = _run_hook(
+            _skeptic_payload(
+                tmp, unit, what_to_review="worker output round 3", extra={"transcript_path": transcript}
+            )
+        )
+        assert not _is_denied(parsed), f"a {shape} operator line did not grant: {parsed}"
+        assert _read_state(tmp, unit)["round_count"] == 3
+
+
+def test_subagent_transcript_never_grants():
+    """A grant is read only from the main-session transcript. Mutation that
+    reddens it: replace the `/subagents/` path check in `_operator_granted`
+    with `if False:`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        unit = "feature/round-cap-test"
+        _spend_two_rounds(tmp, unit)
+        _, denied = _run_hook(_skeptic_payload(tmp, unit, what_to_review="worker output round 3"))
+        token = _token_from_deny(denied)
+        sub_dir = Path(tmp) / "session" / "subagents"
+        sub_dir.mkdir(parents=True)
+        transcript = _write_transcript(str(sub_dir), [_operator_line("typed", token)])
+
+        _, parsed = _run_hook(
+            _skeptic_payload(
+                tmp, unit, what_to_review="worker output round 3", extra={"transcript_path": transcript}
+            )
+        )
+        assert _is_denied(parsed), "a token in a subagent transcript granted a round"
+        assert _read_state(tmp, unit)["round_count"] == 2
+
+
 @pytest.mark.parametrize("variant", ["absent", "directory", "nonexistent"])
 def test_unreadable_transcript_keeps_deny(variant):
-    """T5. Mutation that reddens it: remove the try/except in
+    """Mutation that reddens it: remove the try/except in
     `_operator_granted` - the directory case then raises into main()'s
     catch-all, which exits 0 and allows."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -646,7 +838,7 @@ def test_unreadable_transcript_keeps_deny(variant):
 
 
 def test_grant_requires_successful_persist():
-    """T7. Mutation that reddens it: ignore `_write_state`'s return value in
+    """Mutation that reddens it: ignore `_write_state`'s return value in
     main(), so a grant whose round cannot be recorded allows every retry."""
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/round-cap-test"
