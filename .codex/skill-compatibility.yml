@@ -772,6 +772,16 @@
       "source_token": "hooks/enforce-worktree-read.py"
     },
     {
+      "expected_target": "hooks/enforce-skeptic-round-cap.py",
+      "generated_token": "$AE_REPO_DIR/hooks/enforce-skeptic-round-cap.py",
+      "kind": "operational",
+      "occurrence_hash": "56b4db7b980d9ccca3ab076fb12661ed5a293df84657e777265557a8845a50d3",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "hooks/enforce-skeptic-round-cap.py"
+    },
+    {
       "expected_target": "one bounded direct question after default derivation",
       "generated_token": "AskUserQuestion",
       "kind": "semantic-reference",
@@ -1202,16 +1212,6 @@
       "source_token": ".agentic/config.json"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "8a3eb7161167a8943494339cbb33cc5b3cdda6a44d70e6f2b9064a5d92638840",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": ".agentic/config.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
       "kind": "operational",
@@ -1252,14 +1252,14 @@
       "source_token": "Bash"
     },
     {
-      "expected_target": "hooks/enforce-skeptic-round-cap.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-skeptic-round-cap.py",
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
       "kind": "operational",
-      "occurrence_hash": "8d3fd89b65d822564dcda4fb3ae89d0919c65ad6afc1cc54ace820eb1cd6aea8",
+      "occurrence_hash": "8da5de7a29c1a47672e68571fc6046b9b86e5e16371749a815249c8bca65512c",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/enforce-skeptic-round-cap.py"
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "content/sections/04-risk-classification.md",
@@ -1520,6 +1520,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/conductor-operating-rules.md"
+    },
+    {
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "aea81a162a26b18b5b841755dc0c6e9b9a6e1f1b9ccde119992fc19565bae603",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": ".agentic/loop-state-<LOOP_KEY>.json",
@@ -2342,16 +2352,6 @@
       "source_token": "AskUserQuestion"
     },
     {
-      "expected_target": "dinostack-codex-implement-ticket",
-      "generated_token": "$dinostack-codex-implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "fd1effd8117713664ddb2f2f775f82b951aad732dd92e6da4fc3dc8dd0395ff0",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "/ds-implement-ticket"
-    },
-    {
       "expected_target": "bin/ds-migrate",
       "generated_token": "$AE_REPO_DIR/bin/ds-migrate",
       "kind": "operational",
@@ -2662,6 +2662,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "1661ac057edaa7c580c2d74890ac4736d768f4364d36aefb29c41f382efa2474",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-brief.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "dinostack-codex-brief",
       "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
@@ -2920,16 +2930,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-brief.md",
       "source_token": "git"
-    },
-    {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "a45dca21d2c4aeb41a77d82b78b7689f5192311f3c9331e1d7416d78fb837ebe",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-brief.md",
-      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "filesystem read",
@@ -3930,16 +3930,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "KC_RESET_FAILED"
-    },
-    {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "0ec83c88a6779ab4c6fd0b8034949bb05770c0f96d971d6144beca301c375c99",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -5260,16 +5250,6 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/tmp"
-    },
-    {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "22cf4abb0dc4c4a4628b7b871974623042ab698217bd0e18365506e5f8f2e6c4",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -6600,6 +6580,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "SCREENSHOTS_RAW"
+    },
+    {
+      "expected_target": "dinostack-codex",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "363d101923b44c2c086c1df7ca7f3145fd5e7e0430e00552975d29724f2e40c2",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "~/DinoStack/.claude/skills/dinostack"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -10602,6 +10592,16 @@
       "source_token": "$CLAUDE_CODE_SESSION_ID"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "7179527cd450dd467f1dbcf1035dae1c94db75ceae165267a133dd6ed05e8682",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "bin/ds-resolve-worktree",
       "generated_token": "$AE_REPO_DIR/bin/ds-resolve-worktree",
       "kind": "operational",
@@ -10620,6 +10620,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "UNPUSHED_RC"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "724fedf6bffea91c86658c12d7984c87d2b4248720586113003eec4208858fba",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "content/commands/ds-ticket-status-sync.md",
@@ -10690,6 +10700,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/loop-state-"
+    },
+    {
+      "expected_target": "METHODOLOGY.md",
+      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
+      "kind": "operational",
+      "occurrence_hash": "7429656beada308d8fa54a3727d9b606bca892817ef7bc76e5f0af83e8a714d1",
+      "resolution_mode": "mapped-resource",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "METHODOLOGY.md"
     },
     {
       "expected_target": "bin/ds-codex-session-id",
@@ -16012,16 +16032,6 @@
       "source_token": ".agentic/tracker-states.json"
     },
     {
-      "expected_target": "dinostack-codex",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
-      "kind": "operational",
-      "occurrence_hash": "be4942922fdbdba5429b06b883c5ce1d0096c6c26d811b6fa84b14795d92d3b5",
-      "resolution_mode": "mapped-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "~/DinoStack/.claude/skills/dinostack"
-    },
-    {
       "expected_target": "content/references/qa-gate.md",
       "generated_token": "$AE_REPO_DIR/content/references/qa-gate.md",
       "kind": "operational",
@@ -17200,16 +17210,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "select"
-    },
-    {
-      "expected_target": "METHODOLOGY.md",
-      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
-      "kind": "operational",
-      "occurrence_hash": "ce22bac5642e3791684a9d137a6fa2a44d313f3f9aa6312371d3093e2d987394",
-      "resolution_mode": "mapped-resource",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "METHODOLOGY.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
