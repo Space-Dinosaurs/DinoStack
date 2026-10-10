@@ -1301,12 +1301,12 @@ for spawn_matcher in ("Task", "Agent"):
     )
 
     # Mechanically enforces the ad-hoc Skeptic round-budget policy
-    # (content/sections/05-qa-gate.md §Re-route limits): denies a 4th
-    # Skeptic round for the same unit unless the conductor has recorded an
-    # explicit ship or escalate decision in the per-unit
-    # .agentic/skeptic-round-*.json state file. Fires only on
-    # subagent_type == "skeptic"; fail-open on any error (missing git repo,
-    # unparsable state, write failure).
+    # (content/sections/05-qa-gate.md §Re-route limits): denies a 3rd
+    # Skeptic round for the same unit unless the operator's own typed
+    # message in the session transcript carries the grant token the deny
+    # prints. Fires only on subagent_type == "skeptic"; fail-open on any
+    # error (missing git repo, unparsable state, write failure) except a
+    # granted round whose state write fails, which is denied.
     upsert_hook(
         ptu_block["hooks"],
         "enforce-skeptic-round-cap.py",

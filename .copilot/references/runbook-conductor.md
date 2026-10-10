@@ -121,7 +121,7 @@ Every non-empty message has this envelope:
 
 ## Rulings
 
-Store each operator ruling verbatim in `rulings[]` with its date and target sessions, then send `ruling` to the sessions it names, or to all conducted sessions when it names none.
+Store each operator ruling verbatim in `rulings[]` with its date and target sessions, then send `ruling` to the sessions it names, or to all conducted sessions when it names none. A ruling cannot lift the Skeptic round cap: when a session reports a `skeptic-grant-` token, tell the operator to type it in that session (`skeptic-protocol.md` §Round budget item 1).
 
 ## Usage-limit resume
 

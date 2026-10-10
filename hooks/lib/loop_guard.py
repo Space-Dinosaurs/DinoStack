@@ -63,6 +63,11 @@ Public API (module-level functions, no class):
         tool_result / meta / harness-injected exclusions as
         is_genuine_user_turn via the private _extract_genuine_user_text
         helper - never duplicate that parsing logic at a call site.
+    genuine_user_text(obj) -> str | None
+        Public wrapper over _extract_genuine_user_text: the genuine human-turn
+        text of one parsed transcript line, or None. For callers that scan a
+        transcript themselves (enforce-skeptic-round-cap.py's operator-grant
+        check) without re-implementing the exclusions.
     is_harness_injected_text(text) -> bool
         True iff the text carries one of the harness-injected markers that
         arrive as `type:"user"` lines without isMeta (background task-
@@ -93,6 +98,10 @@ Downstream consumers: hooks/enforce-no-abdication.py (counter filename
                        precedent) and exit 0 silently if it cannot be loaded
                        - never emitting a block/advisory without the loop
                        bound this module provides.
+                       hooks/enforce-skeptic-round-cap.py calls only
+                       genuine_user_text, loaded the same lazy way; a load
+                       failure there means no operator grant is found, so
+                       its cap deny stands.
 
 Failure modes: Fully fail-open and silent, matching every enforce-*.py
                hook's own contract.
@@ -348,6 +357,11 @@ def is_genuine_user_turn(obj: dict) -> bool:
     injected exclusion rationale this delegates to.
     """
     return _extract_genuine_user_text(obj) is not None
+
+
+def genuine_user_text(obj: dict):
+    """Public form of _extract_genuine_user_text (same exclusions)."""
+    return _extract_genuine_user_text(obj)
 
 
 def count_user_messages(transcript_path: str) -> int:
