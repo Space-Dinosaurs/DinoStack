@@ -967,21 +967,15 @@ const _DIFF_UNDER_REVIEW_JS_RE = /^[ \t]*(?:[-*][ \t]*)?(?:\d+\.[ \t]*)?\*{0,2}D
 // the option-shape and injection probes in the m1 regression test after
 // this change.
 //
-// DELIBERATELY DOES NOT mirror the round-cap hook's `_DIFF_RANGE_RE`
-// (round-6 correction - round-5 M3 claimed the two "mirror" each other
-// and widened the Python regex to match; that claim was false and the
-// widening was reverted). This regex's only consumer is
-// `resolveDiffLines()` below - a pure `diff --shortstat` line-count
-// measurement with no round-cap consequence, so admitting `~`/`^` here
-// is safe. The round-cap hook's `_DIFF_RANGE_RE` feeds
-// `_normalize_diff_identity()`, which derives the round-cap UNIT KEY;
-// admitting `~`/`^` there collapsed every `<x>~n..HEAD` / `<x>^..HEAD`
-// value onto the single literal token "HEAD" regardless of `<x>`,
-// colliding distinct units onto one shared round counter (measured:
-// `skeptic-round-HEAD-7138a51661.json`). The two regexes have different
-// jobs and must be evaluated independently against their own consumer's
-// failure mode - a regex-vs-regex parity claim proves nothing about
-// either consumer's decision-level behavior.
+// This regex's only consumer is `resolveDiffLines()` below - a pure
+// `diff --shortstat` line-count measurement with no round-cap
+// consequence, so admitting `~`/`^` here is safe. The round-cap hook no
+// longer parses diff ranges at all: its unit key is the stable key
+// before the `|` in the same field. A range regex once used there to
+// derive the key collapsed every `<x>~n..HEAD` / `<x>^..HEAD` value onto
+// the literal token "HEAD" when it was widened to match this one
+// (measured: `skeptic-round-HEAD-7138a51661.json`), so never couple a
+// unit-identity decision to this measurement regex.
 const _DIFF_RANGE_JS_RE = /^(?:git diff[ \t]+)?([A-Za-z0-9._/^~-]+)[ \t]*(\.{2,3})[ \t]*([A-Za-z0-9._/^~-]+)/i;
 const _SHORTSTAT_INSERTIONS_RE = /(\d+) insertion/;
 const _SHORTSTAT_DELETIONS_RE = /(\d+) deletion/;

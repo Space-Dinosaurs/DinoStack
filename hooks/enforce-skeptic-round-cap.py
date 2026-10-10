@@ -19,21 +19,21 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          isolation worktrees, so every Skeptic spawn - across every unit,
          across the whole session - would share one `skeptic-round-main.json`
          counter if keyed off `cwd`'s branch: unit A's rounds would exhaust
-         unit B's budget. Instead the key is derived from the "Diff under
-         review" line that `content/references/skeptic-protocol.md` Section
-         4.5 mandates in EVERY Skeptic spawn prompt (the `## Global-context
-         inputs` block, item 6) - the one field that identifies the actual
-         artifact under review and stays stable across re-review rounds of
-         the SAME unit, even though the rest of the prompt (the pasted
-         Worker output) changes every round. See `_extract_unit_identity()`.
-         DS-180 added a conductor-supplied stable-key fast path within that same line (`<key> | <diff detail>`, see `_extract_stable_unit_key()` and the DS-180 paragraph below) - the diff-identity normalization described in the rest of this docstring is now the fallback path, exercised only when no such key is present.
-         When that line cannot be found, the hook fails open (allows, writes
-         no state) rather than falling back to a weaker key that could
+         unit B's budget. Instead the key is the stable unit KEY that
+         leads the "Diff under review" line `content/references/skeptic-
+         protocol.md` Section 4.5 mandates in EVERY Skeptic spawn prompt
+         (the `## Global-context inputs` block, item 6, in the form
+         `<KEY> | <diff detail>`): the conductor writes the same KEY on
+         every round of one unit, even though the rest of the prompt (the
+         pasted Worker output) changes every round. See `_unit_key()`. A
+         field 6 that is present but carries no valid KEY is DENIED
+         (`_DENY_KEYLESS_TEMPLATE`, no round state written); when the line
+         is absent or ambiguous the hook fails open (allows, writes no
+         state) rather than falling back to a weaker key that could
          collide across unrelated units - see Failure modes below.
 
-         **Two follow-up fixes to that same "Diff under review" line,
-         found when this hook failed to fire on its own verification
-         round:**
+         **A follow-up fix to that same "Diff under review" line, found
+         when this hook failed to fire on its own verification round:**
          (a) `_DIFF_UNDER_REVIEW_RE` originally only matched a numbered
          list-item form ("6. Diff under review: ..."). Real spawn
          prompts also use a hyphen bullet, an asterisk bullet, and bold
@@ -47,20 +47,7 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          output under "What to review") as the identity instead of
          failing open. The whitespace around the capture is now
          `[ \t]*`, which cannot cross a newline.
-         (b) The extracted line's raw text was used as the identity
-         verbatim, which is stable for the common branch-relative form
-         (`git diff origin/main...<branch>`) but NOT for a literal
-         `<base-sha>..<head-sha>` range - every rework round mints a new
-         head SHA, so every round produced its own key and the cap never
-         engaged (measured: 4 sequential rounds on one unit, 4 separate
-         state files, ALLOW every time). `_normalize_diff_identity()` now
-         extracts a stable token from the range (the branch/PR-like ref
-         when one is present, else the base SHA) instead of hashing the
-         full raw text - see that function's docstring for the exact
-         precedence and the one documented residual collision case (also
-         restated at the end of this paragraph group).
-
-         **Three further fixes, found by re-measuring rather than
+         **Two further fixes, found by re-measuring rather than
          re-reading the round-3 fix, after round 3's own Minor-2 fix
          (bounding `_WHAT_TO_REVIEW_RE`) turned out to have disabled the
          cap entirely:**
@@ -80,15 +67,6 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          see the regex's own comment for why the bound is not coming
          back without a reproduction of the hypothetical it defended
          against.
-         (d) `_DIFF_RANGE_RE` is `^`-anchored and its ref charclass
-         excludes backticks, so a realistic backtick-wrapped diff-range
-         value (a spawn brief rendering the command as inline code, e.g.
-         "`git diff 1232779c..b7a596d9`") fell through to "return raw
-         text unchanged," leaving the SHA-range instability fix (b)
-         unfixed on this common form (measured: 4 rounds with a changing
-         head SHA inside backticks produced 4 separate state files and
-         ALLOWed round 4). `_normalize_diff_identity()` now strips
-         surrounding backticks before matching.
          (e) On an empty bolded field with nothing after the closing bold
          marker (e.g. "- **Diff under review:**" with no trailing text),
          the closing-bold-markers portion of `_DIFF_UNDER_REVIEW_RE`
@@ -105,30 +83,25 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          (correctly falls through to fail-open) instead of a collidable
          one-character key.
 
-         **DS-180 fix: explicit stable per-unit key, closing the two failure
-         shapes the heuristics above cannot cover.** `_normalize_diff_identity()`
-         stabilizes a `base..head` range only when one ref is a non-SHA
-         branch/PR token, or, in its documented residual case, by falling back to
-         the base SHA. Neither covers a ROLLING range, where round N's base
-         equals round N-1's head - the literal shape a sequential rework loop
-         produces - because the "base" itself changes every round. Nor does
-         either heuristic apply at all once free-form prose sits in front of the
-         range (`_DIFF_RANGE_RE` is anchored at the start of the value), which
-         falls through to "return raw text unchanged" and makes the conductor's
-         own round-numbering text part of the "stable" key. Measured on PR #760:
-         seven sequential rework rounds on one unit, each citing
-         `<prior-round-head>..<new-head>` with a `"DS-177 rework N - "` prefix,
-         produced seven distinct state files and the cap never engaged - recorded
-         as KNW-20260814-022. Per `content/references/skeptic-protocol.md`
-         Section 4.5 "Stable unit key contract," field 6 now MAY lead with an
-         explicit `<key> | <diff detail>` form; `_extract_stable_unit_key()`
-         below reads `key` directly when present, bypassing the range heuristics
-         entirely. A first version of that function partitioned on the first `|`
-         unconditionally and reintroduced the same instability on a plausible
-         input (a diff command piped through `head`) - `_STABLE_KEY_SHAPE_RE`
-         closes that regression; see the function's own docstring. Absent from
-         the value (no `|`), extraction falls through to the pre-existing
-         `_normalize_diff_identity()` path unchanged.
+         **Mandatory stable unit key (DS-180, then round-cap Part B).**
+         Fixes (b) and (d), now deleted with the code they described,
+         derived the key by normalizing the diff range in field 6 (the
+         branch token, else the base SHA). No such heuristic survives a
+         ROLLING range, where round N's base equals round N-1's head, or a
+         round-numbered prose prefix in front of the range: on PR #760
+         seven rework rounds on one unit produced seven state files and the
+         cap never engaged (KNW-20260814-022). DS-180 added the optional
+         `<key> | <diff detail>` form, read by `_extract_stable_unit_key()`,
+         with the normalization kept as a fallback for keyless values; the
+         fallback kept splitting units across counters (AUT-1245 rounds 5-7,
+         AUT-1178's five keys) and merging unrelated ones (two units on one
+         base SHA, `<x>~N..HEAD` values on one `HEAD` key). The key is now
+         the only identity: a present, unambiguous field 6 whose value has
+         no valid key is denied with `_DENY_KEYLESS_TEMPLATE`, which names
+         the form, the derivation rule and the value received. The deny
+         writes no round state and no tuid-index entry, only the fire-log
+         line `_deny()` always writes, so the retry with a key starts at
+         the true round count.
 
          Decision algorithm (see `_decide()`):
            - round_count is the number of Skeptic rounds already recorded
@@ -178,7 +151,15 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          with the conductor (content/references/skeptic-protocol.md §Round
          budget item 1).
 
-         Pillar 8 (docs/overview/vision.md): (a) catches the AUT-1245 key-A
+         Pillar 8 (docs/overview/vision.md), keyless deny: (a) catches
+         AUT-1245 rounds 5-7 (one unit, four keys), AUT-1178's five keys,
+         AUT-1245's "architect plan only" vs "the revised architect plan
+         only" split, PR #760 (KNW-20260814-022), DS-45's "as given above"
+         (KNW-20260818-015) and KNW-20260905-004; (b) retirement: a
+         permanent floor while the round cap exists, replaced if the harness
+         supplies a native unit identity in the PreToolUse payload.
+
+         Pillar 8 (docs/overview/vision.md), operator grant: (a) catches the AUT-1245 key-A
          rounds 3 and 4, each reopened by a self-written escalate while the
          session's only genuine operator turns carried no grant, and the
          KNW-20261009-002 class generally; (b) retirement: a permanent floor
@@ -371,48 +352,16 @@ Failure modes:
       (e.g. the conductor's own branch) that could collide across
       unrelated units - see the CRITICAL fix note at the top of this
       docstring.
-    - A field-6 value in the `<key> | <diff detail>` form (DS-180) whose
-      `key` portion is empty, whitespace-only, contains `..`, fails the
-      key-shape check (`_STABLE_KEY_SHAPE_RE`), or looks like a file path
-      (`_LOOKS_LIKE_FILE_PATH_RE`, DS-180 round-2 rework): treated as if
-      no `|` were supplied at all - falls through to
-      `_normalize_diff_identity()` on the value's full raw text, not a
-      distinct fail-open case.
-    - A key-shaped left side that is actually a diff command containing
-      an incidental pipe (e.g. `git diff <sha>..<sha> | head -200`): the
-      shape gate rejects it (whitespace, and a literal `..`, both fail)
-      and it normalizes via the pre-existing SHA-range heuristic exactly
-      as it did before this fix - not a stable key, and not a new
-      fail-open case.
-    - A key-shaped left side that is actually the first of two or more
-      pipe-separated file paths (a plausible misreading of the
-      pre-implementation-review field-6 contract, `$UNIT_KEY | <paths>`,
-      when `$UNIT_KEY` is omitted): `_LOOKS_LIKE_FILE_PATH_RE` rejects it
-      (file-extension-shaped suffix) and it falls through to
-      `_normalize_diff_identity()` on the full raw text, which keys off
-      the whole (differing) string rather than the shared first path - not
-      a stable key, and not a new collision. See
-      `_extract_stable_unit_key()`'s docstring for the measured collision
-      this closes.
-    - Known residual, not a fail-open case: `_LOOKS_LIKE_FILE_PATH_RE`
-      only rejects an extension-shaped suffix (`\\.[A-Za-z0-9]{1,5}$`), so a
-      first path with no such suffix - a bare filename, a dotfile, or a
-      directory path (e.g. `LICENSE | a.py`, `.gitignore | a.sh`,
-      `content/references/ | a.py`) - still passes the shape gate and
-      becomes a wrong-but-stable key shared with any other unit whose
-      first path is identical. This IS a new collision relative to
-      pre-DS-180 behaviour, not a degradation to it - `LICENSE | a.py`
-      and `LICENSE | b.md` share this key while the pre-DS-180 fallback
-      keys off the whole (differing) string and would not collide them.
-      It is judged acceptable for the same reason as the SHA-range
-      residual above.
-    - Known residual, not a fail-open case: two DIFFERENT units both
-      expressed as `git diff <same-base-sha>..<hex-head-sha>` - a bare
-      SHA range with no branch or PR token anywhere in the value - key
-      off the SAME base-SHA token (fix (b) above) and therefore share one
-      round counter. This is a real, accepted collision, not a
-      hypothetical - see `_normalize_diff_identity()`'s docstring
-      strategy 3 for why the base is chosen over refusing to key at all.
+    - A present, unambiguous field 6 with no valid key: no `|`, or a left
+      side that is empty, contains `..`, fails `_STABLE_KEY_SHAPE_RE`
+      (e.g. a diff command piped through `head`), or looks like a file
+      path (`_LOOKS_LIKE_FILE_PATH_RE`, e.g. two pipe-separated paths):
+      DENIED with `_DENY_KEYLESS_TEMPLATE`. No round state and no tuid
+      index entry is written; `_deny()` appends one fire-log line.
+    - Known residual: `_LOOKS_LIKE_FILE_PATH_RE` only rejects an
+      extension-shaped suffix, so a first path without one (e.g.
+      `LICENSE | a.py`, `.gitignore | a.sh`) is accepted as a key and
+      shared with any other unit whose first path is identical.
     - State file present but unparsable JSON: treated as absent (round 0)
       - a corrupt state file must never turn into a permanent block.
     - State file write failure (permissions, disk full) within the cap:
@@ -547,65 +496,6 @@ _DIFF_UNDER_REVIEW_RE = re.compile(
 # round cap - is measured and severe. Do not re-add a bound here without a
 # reproduction of the hypothetical it defends against.
 _WHAT_TO_REVIEW_RE = re.compile(r"(?is)what to review:?\**\s*(.*)")
-# Matches a git diff-range expression ANCHORED at the start of the
-# (already stripped) "Diff under review" value - e.g.
-# "git diff origin/main...feature/foo" or a bare "abc1234..def5678" - used
-# by `_normalize_diff_identity()` below (MAJOR 2). Anchoring at `^`
-# prevents false positives on ordinary prose containing an ellipsis
-# ("...") that happens to sit between two word-like tokens.
-#
-# Deliberately DOES NOT include `~` or `^` (round-6 fix, reverting a
-# round-5 change). `hooks/subagent-stop-spawn-emit.js`'s
-# `_DIFF_RANGE_JS_RE` (round-4 Minor fix) widened its OWN charclass to
-# admit ordinary git revision-suffix syntax like `<sha>~1..<sha>` so that
-# regex could resolve a `diff_lines` measurement. Round-5 M3 widened this
-# regex to match on the strength of a comment claiming the two "mirror"
-# each other - they do not, and never should: that regex feeds
-# `resolveDiffLines()`, a pure line-count measurement with no round-cap
-# consequence, while THIS regex feeds `_normalize_diff_identity()`, which
-# derives the round-cap UNIT KEY. Widening this charclass makes
-# `<x>~n..HEAD` and `<x>^..HEAD` values normalize to the literal token
-# `HEAD` (strategy 1 below: `ref2` is "HEAD", which is not SHA-like, so it
-# is returned verbatim) for ANY `<x>`, collapsing every unit whose
-# "Diff under review" value happens to use `~`/`^`-suffixed HEAD-relative
-# syntax onto ONE shared counter - reproduced (round-6 review): two
-# distinct units both citing `<base>~N..HEAD` collided onto
-# `skeptic-round-HEAD-7138a51661.json`, and unit B's very FIRST spawn was
-# denied because unit A had already spent the shared budget. This is
-# exactly the collision class DS-180's stable-unit-key contract exists to
-# eliminate (see `_extract_stable_unit_key()` above), reintroduced by a
-# regex-vs-regex "mirrors" comparison that never checked decision-level
-# behavior. If a future change needs this regex to admit `~`/`^`, it must
-# be justified with decision-level evidence (two distinct units, several
-# rounds each, proving no collision) - not a claim that another regex
-# with a different consumer was widened for a different reason.
-#
-# `_SHA_LIKE_RE` residual (round-6 Minor): the round-5 widening also
-# desynchronized this regex from `_SHA_LIKE_RE` (unchanged at
-# `^[0-9a-fA-F]{7,40}$`), because a `~`/`^`-suffixed SHA (e.g.
-# "1232779c~1") matched the widened ref charclass but was never
-# recognized by `_SHA_LIKE_RE` as SHA-like - strategy 1's stated
-# rationale ("ref2 is NOT a bare hex SHA, i.e. it looks like a branch
-# name") was then FALSE for that value, and the wrong side of the range
-# could be selected. Reverting the charclass resolves this too, and
-# resolves it completely, not partially: `_DIFF_RANGE_RE` is `^`-anchored
-# and requires `\.{2,3}` immediately after `ref1` with no `~`/`^`
-# permitted inside either ref group, so a `~`/`^`-suffixed range now
-# fails to match `_DIFF_RANGE_RE` AT ALL (no partial match on a bare-SHA
-# prefix) and falls straight through to strategy 4 ("return raw text
-# unchanged") - it never reaches the `ref1_sha`/`ref2_sha` classification
-# in the first place, so `_SHA_LIKE_RE` is never consulted on a
-# `~`/`^`-suffixed value and the desync cannot recur. No residual
-# misclassification remains; the only remaining cost is the pre-existing
-# one strategy 4 already accepted (see its docstring below): a
-# `~`/`^`-suffixed range gets no round-stability benefit at all (a
-# changing head SHA each round mints a fresh key each round), which is
-# unchanged from this hook's behavior before the round-4 JS-side fix ever
-# motivated the (mistaken) round-5 attempt to mirror it here.
-_DIFF_RANGE_RE = re.compile(
-    r"(?i)^(?:git diff[ \t]+)?([A-Za-z0-9._/-]+)[ \t]*\.{2,3}[ \t]*([A-Za-z0-9._/-]+)"
-)
-_SHA_LIKE_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 
 def _load_log_fire():
@@ -634,69 +524,6 @@ def _sanitize_key(raw: str) -> str:
     return safe or "unknown"
 
 
-def _normalize_diff_identity(raw: str) -> str:
-    """Reduce a "Diff under review" value to a token that stays stable
-    across rework rounds of the SAME unit (MAJOR 2).
-
-    The literal diff-command text is NOT a stable identity by
-    construction: every rework round produces a new head commit, so a
-    "Diff under review: git diff <base-sha>..<head-sha>" value mints a
-    brand-new key on every single round (measured: 4 sequential rounds on
-    one unit produced 4 separate state files and ALLOWed round 4). Only
-    the branch-relative form (`git diff origin/main...<branch>`) happened
-    to be round-stable by accident, and that is the only form the
-    original tests exercised - which is why they passed.
-
-    Strategy, in order:
-      1. If the value is a `<ref1>..<ref2>` / `<ref1>...<ref2>` range
-         (with an optional leading "git diff "), and `ref2` is NOT a
-         bare hex SHA (i.e. it looks like a branch name, e.g.
-         "feature/foo", or a ref like "origin/main"), use `ref2` - the
-         common case per `skeptic-protocol.md` Section 4.5, and the one
-         part of the range that actually names the unit rather than a
-         shared merge-base.
-      2. Else if `ref1` is not SHA-like (unusual, e.g. a bare "origin/
-         main..<sha>" form with no branch name at all), use `ref1`.
-      3. Else (both refs are bare hex SHAs - a "base-sha..head-sha" range
-         with no branch or PR name anywhere in the value): use `ref1`
-         (the base). The base is the one anchor that stays constant
-         across rework rounds of the same unit (the head SHA changes on
-         every fix commit) - this is the literal case measured in the
-         round-stability regression. Known residual risk, deliberately
-         accepted rather than fixing by never keying at all: two SIBLING
-         units that both branch from the identical origin/main commit and
-         are reviewed via a bare SHA-range (no branch/PR name) would
-         coalesce onto one counter. Branch-name and PR-number forms -
-         the common case - never reach this branch.
-      4. If the value is not a recognizable diff-range at all (free text,
-         file paths, a PR reference), return it unchanged - already
-         stable across rounds as long as the conductor writes the same
-         value each round, matching the pre-existing (working) behavior
-         for those forms.
-    """
-    text = raw.strip()
-    # Strip surrounding backticks (a realistic spawn-brief line renders the
-    # command as inline code, e.g. "`git diff 1232779c..b7a596d9`") before
-    # anchoring `_DIFF_RANGE_RE` - the regex is `^`-anchored and its ref
-    # charclass excludes backticks, so a backticked value fell through to
-    # "return raw text unchanged" (strategy 4) and the SHA-range
-    # instability this function exists to fix was unfixed on this common
-    # form. Measured: 4 rounds with a changing head SHA inside backticks
-    # produced 4 separate state files and ALLOWed round 4.
-    text = text.strip("`").strip()
-    match = _DIFF_RANGE_RE.match(text)
-    if not match:
-        return text
-    ref1, ref2 = match.group(1), match.group(2)
-    ref1_sha = bool(_SHA_LIKE_RE.match(ref1))
-    ref2_sha = bool(_SHA_LIKE_RE.match(ref2))
-    if not ref2_sha:
-        return ref2
-    if not ref1_sha:
-        return ref1
-    return ref1
-
-
 # Gates the text before the first "|" in a stable-key-form "Diff under
 # review" value (DS-180) so a diff command containing an incidental pipe
 # (e.g. a conductor pasting `git diff <sha>..<sha> | head -200`) is never
@@ -709,83 +536,30 @@ _STABLE_KEY_SHAPE_RE = re.compile(r"^[A-Za-z0-9._/#-]+$")
 # ".py", ".md", ".ts") - see _extract_stable_unit_key()'s docstring for the
 # measured collision this closes (DS-180 round-2 rework). A real stable key
 # (ticket id, branch name, `$UNIT_KEY`) never ends this way; a bare file
-# path does, by construction. Known residual: a key literal like "v1.2"
-# would false-positive here (documented, not a case any current field-6
-# template produces).
+# path does, by construction. A key that genuinely ends like "v1.2" is
+# rejected too, which is why skeptic-protocol.md Section 4.5 has the
+# conductor append `-review` to such a key.
 _LOOKS_LIKE_FILE_PATH_RE = re.compile(r"\.[A-Za-z0-9]{1,5}$")
 
 
 def _extract_stable_unit_key(raw: str) -> str | None:
-    """Extract the operator-supplied stable unit key from a "Diff under
-    review" value in the `<key> | <diff detail>` form mandated by
-    skeptic-protocol.md Section 4.5 "Stable unit key contract" (DS-180).
+    """Extract the stable unit key from a "Diff under review" value in the
+    `<key> | <diff detail>` form mandated by skeptic-protocol.md Section 4.5
+    "Stable unit key contract", or None when the value carries no valid key.
 
-    Root cause this closes: `_normalize_diff_identity()` above stabilizes
-    a `base..head` range only when one ref is a non-SHA branch/PR token,
-    or, in its documented residual case, by falling back to the base SHA.
-    Neither covers a ROLLING range, where round N's base equals round
-    N-1's head - the literal shape a sequential rework loop produces -
-    because the "base" itself changes every round. Nor does either
-    heuristic apply once free-form prose sits in front of the range
-    (`_DIFF_RANGE_RE` is anchored at the start of the value), which falls
-    through to "return raw text unchanged" and makes the conductor's own
-    round-numbering text part of the "stable" key. Measured on PR #760:
-    seven sequential rework rounds on one unit, each citing
-    `<prior-round-head>..<new-head>` with a narrative prefix, produced
-    seven distinct state files and the cap never engaged (KNW-20260814-022).
+    The key is the only round-cap identity: no heuristic over the diff
+    detail is tried, because none survives a rolling `<prior-head>..<new-head>`
+    range or a round-numbered prose prefix (PR #760, KNW-20260814-022).
 
-    A first version of this function partitioned on the first "|" and
-    returned the left side unconditionally - this REINTRODUCED the exact
-    defect it was meant to close on a plausible input: a conductor
-    pasting `git diff <sha>..<sha> | head -200` (a realistic value if
-    output is piped through a line limiter) returned the whole
-    `git diff <sha>..<sha>` span as the "key", which changes every round
-    exactly like the un-fixed case. `_STABLE_KEY_SHAPE_RE` below closes
-    this: a left side containing whitespace, a `..`/`...` range, or any
-    character outside the key charclass is rejected and falls through to
-    `_normalize_diff_identity()` on the FULL raw text - unchanged from
-    today's behavior for that value (the anchored `_DIFF_RANGE_RE` inside
-    `_normalize_diff_identity()` still matches only the leading ref
-    pattern and ignores trailing pipe garbage, so `git diff <sha>..<sha>
-    | head -200` still normalizes to the base SHA exactly as before this
-    function existed).
-
-    Leading/trailing backticks are stripped before the pipe check (a
-    conductor may render the WHOLE `<key> | <diff>` value as inline code)
-    - this mirrors the backtick tolerance `_normalize_diff_identity()`
-    already has.
-
-    A second regression (DS-180 round-2 rework, this docstring paragraph):
-    on a pre-implementation review, field 6's contract is `$UNIT_KEY | `
-    followed by the FILE PATHS the plan proposes to modify - if the
-    conductor forgets `$UNIT_KEY` and instead pipe-separates two or more
-    file paths (a plausible misreading of "leads with the key, then the
-    paths"), the FIRST path passes every check above (non-empty, no `..`,
-    matches the key charclass - a path like `hooks/foo.py` is valid under
-    all of them) and is silently accepted as the key. Two different units
-    each listing a shared first file with a different second file then
-    collide onto the same counter - measured: `"hooks/enforce-skeptic-
-    round-cap.py | bin/tests/test_enforce_skeptic_round_cap.py"` and
-    `"hooks/enforce-skeptic-round-cap.py | content/references/skeptic-
-    protocol.md"` both normalized to key `hooks-enforce-skeptic-round-
-    cap.py` under the pre-fix logic, while the pre-DS-180 fallback path
-    (`_normalize_diff_identity()` on the full raw text) does NOT collide,
-    because the two full strings differ. `_LOOKS_LIKE_FILE_PATH_RE` closes
-    this: a left side ending in a file-extension-shaped suffix (`.py`,
-    `.md`, `.ts`, ...) is rejected and falls through to
-    `_normalize_diff_identity()` on the full raw value - unchanged
-    pre-DS-180 behavior, and NOT a new collision, since the fallback keys
-    off the whole (differing) string rather than a shared prefix. A real
-    stable key (a ticket id, a branch name, `$UNIT_KEY`) is never
-    file-extension-shaped by construction; see the regex's own comment for
-    the one documented residual false-positive.
-
-    Returns None (never a collidable placeholder) when: no `|` is
-    present; the text before it is empty/whitespace-only; it contains
-    `..`; it fails the shape check; or it looks like a file path (ends in
-    a file-extension-shaped suffix). In every case the caller falls back
-    to `_normalize_diff_identity()` on the whole value - the unchanged
-    pre-DS-180 behavior.
+    Leading/trailing backticks are stripped first (a conductor may render
+    the whole value as inline code). The left side of the first `|` is
+    rejected when it is empty, contains `..`, fails `_STABLE_KEY_SHAPE_RE`
+    (whitespace or a character outside the key charclass, e.g. a diff
+    command piped through `head`: `git diff <sha>..<sha> | head -200`), or
+    ends in a file-extension-shaped suffix (`_LOOKS_LIKE_FILE_PATH_RE`: two
+    pipe-separated file paths would otherwise make the shared first path a
+    key that collides across units). A None here for a present field 6 is
+    denied by main(); it is never a collidable placeholder.
     """
     text = raw.strip().strip("`").strip()
     if "|" not in text:
@@ -802,30 +576,16 @@ def _extract_stable_unit_key(raw: str) -> str | None:
     return left
 
 
-def _extract_unit_identity(tinput: dict) -> str | None:
-    """Extract a stable per-unit identity string from the Skeptic spawn's
-    prompt text.
+def _extract_field6_value(tinput: dict) -> str | None:
+    """Return the single "Diff under review:" value of the Skeptic spawn,
+    or None when it is absent or ambiguous.
 
-    Uses the "Diff under review:" line that `content/references/
-    skeptic-protocol.md` Section 4.5 mandates in every Skeptic spawn's
-    `## Global-context inputs` block (item 6) - the field that identifies
-    the actual reviewed artifact (a branch, a PR, a SHA range, file
-    paths, or, per DS-180, an explicit `<key> | <detail>` pair). DS-180
-    precedence: `_extract_stable_unit_key()` is tried FIRST - a
-    conductor-supplied key is authoritative and never needs range
-    heuristics. Only when it returns None (no `|`, or a left side that
-    fails the shape gate) does extraction fall through to
-    `_normalize_diff_identity()` (MAJOR 2, pre-DS-180): the raw line text
-    is NOT itself stable across re-review rounds of the SAME unit when it
-    is a literal SHA range (a new head SHA every round mints a new raw
-    string), so identity is derived from a stable token WITHIN the value
-    rather than the value's full text. Falls back to `description` (also
-    often unit-scoped) only when no such line exists in `prompt`. Returns
-    None when neither yields anything, OR when a single field carries two
-    or more "Diff under review" lines with DIFFERING values - an
-    ambiguous prompt is never guessed at by picking the first match; the
-    caller must fail open, never falling back to a weaker key such as the
-    conductor's own branch.
+    Reads the `## Global-context inputs` item 6 line that
+    skeptic-protocol.md Section 4.5 mandates, from `prompt`, falling back
+    to `description` only when `prompt` has no such line. Two or more lines
+    with DIFFERING values in one field are ambiguous and return None: the
+    caller fails open rather than guess, and never falls back to a weaker
+    key such as the conductor's own branch.
     """
     for field in ("prompt", "description"):
         value = tinput.get(field)
@@ -841,23 +601,32 @@ def _extract_unit_identity(tinput: dict) -> str | None:
             continue
         if len(set(raw_values)) > 1:
             return None
-        value = raw_values[0]
-        stable_key = _extract_stable_unit_key(value)
-        if stable_key:
-            return stable_key
-        return _normalize_diff_identity(value)
+        return raw_values[0]
     return None
 
 
 def _unit_key(tinput: dict) -> str | None:
     """Return a safe, bounded, collision-resistant .agentic/ key for the
-    unit under review, or None when it cannot be determined."""
-    identity = _extract_unit_identity(tinput)
+    unit under review, or None when field 6 is absent, ambiguous, or
+    keyless."""
+    value = _extract_field6_value(tinput)
+    if not value:
+        return None
+    identity = _extract_stable_unit_key(value)
     if not identity:
         return None
     sanitized = _sanitize_key(identity)[:_MAX_KEY_LEN]
     digest = hashlib.sha1(identity.encode("utf-8", "replace")).hexdigest()[:10]
     return f"{sanitized}-{digest}"
+
+
+def _keyless_field6_value(tinput: dict) -> str | None:
+    """Return field 6's value when it is present and unambiguous but
+    carries no valid key, else None."""
+    value = _extract_field6_value(tinput)
+    if value and _extract_stable_unit_key(value) is None:
+        return value
+    return None
 
 
 def _round_fingerprint(tinput: dict) -> str | None:
@@ -1557,6 +1326,22 @@ _DENY_CAP_TEMPLATE = (
     "one carrying the token."
 )
 
+_DENY_KEYLESS_TEMPLATE = (
+    "Skeptic spawn denied: field 6 has no stable unit key, so the round cap "
+    "cannot tell which unit this review belongs to. Write it as "
+    "`6. Diff under review: <KEY> | <diff command or file paths>`. KEY is "
+    "the ticket id ($LOOP_KEY inside /ds-implement-ticket; with no ticket, "
+    "the unit's own feature branch name, never the base branch it merges "
+    "into), plus the review kind's suffix: none for a whole-change diff, "
+    "-u-<unit_slug> for one unit of a multi-unit ticket, -plan, -brief, "
+    "-assembled-plan, or -meta. KEY may contain only letters, digits and "
+    ". _ / # -, with no spaces and no `..`; if it ends in `.` plus 1-5 "
+    "letters or digits, append -review. Use the same KEY every fix round of "
+    "this unit. This deny wrote no round state, so the retry is not charged "
+    "for it. Full rule: content/references/skeptic-protocol.md Section 4.5 "
+    "\"Stable unit key contract\". Value received: {value}"
+)
+
 _DENY_UNPERSISTED_SUFFIX = (
     " The operator grant was found, but {path} could not be written, so the "
     "round was not allowed. The fix is write access to .agentic/."
@@ -1649,9 +1434,13 @@ def main() -> None:
 
         unit_key = _unit_key(tinput)
         if unit_key is None:
-            # Cannot determine which unit is under review - fail open.
-            # Never fall back to a weaker key (e.g. the conductor's own
-            # branch) that could collide across unrelated units.
+            keyless = _keyless_field6_value(tinput)
+            if keyless is not None:
+                _deny(data, _DENY_KEYLESS_TEMPLATE.format(value=keyless[:120]))
+                return
+            # Field 6 absent or ambiguous - fail open. Never fall back to a
+            # weaker key (e.g. the conductor's own branch) that could
+            # collide across unrelated units.
             sys.exit(0)
 
         path = _state_path(cwd, unit_key)

@@ -85,13 +85,6 @@ Test groups:
                                                          asterisk-bullet, bold-with-bullet, and bold-no-bullet
                                                          "Diff under review" forms all produce state - not just
                                                          the numbered form the original tests happened to use.
- 22. test_round_stability_across_sha_range_rounds     - MAJOR 2 regression, extended (round-4 FIX 5) to the
-                                                         bold-no-bullet and backticked-bold-bullet forms: a
-                                                         `git diff <base>..<head>` identity resolves to ONE key
-                                                         across 4 sequential rework rounds (changing head SHA,
-                                                         same base) and actually DENIES at round 4, in every
-                                                         real spawn-line shape - not just the numbered non-bold
-                                                         form the round-3 version covered.
  23. test_diff_under_review_edge_cases_failopen       - MAJOR 1 + MAJOR 3 combined: absent field, malformed
                                                          (missing colon), field present twice with differing
                                                          values, empty value + blank line + prose (the literal
@@ -120,14 +113,10 @@ Test groups:
                                                          counter and round 4 denies.
  27. test_stable_key_two_distinct_units_no_collision   - DS-180: two distinct units, even sharing an identical
                                                          rolling SHA range shape, get INDEPENDENT round budgets.
- 28. test_stable_key_empty_before_pipe_falls_back      - DS-180: a `| <diff>` value with nothing before the
-                                                         pipe is not a valid key - falls through to
-                                                         `_normalize_diff_identity()` on the full raw value.
- 29. test_diff_command_with_pipe_normalizes_to_legacy_base - Major 2 (round 3) regression: a value that looks
-                                                         like it has a pipe-prefixed key but is actually a diff
-                                                         command piped through `head` must be REJECTED by the
-                                                         shape gate and normalize to the base SHA exactly as
-                                                         before `_extract_stable_unit_key` existed.
+ 28. test_stable_key_empty_before_pipe_is_denied       - a `| <diff>` value with nothing before the pipe has no
+                                                         key and is denied with no round state written.
+ 29. test_diff_command_with_pipe_is_denied             - a diff command piped through `head` is rejected by the
+                                                         shape gate and denied, never accepted as a key.
  30. test_stable_key_two_units_of_one_ticket_get_independent_budgets - Major 3 (round 2): a multi-unit ticket
                                                          using per-unit keys (`<TICKET>-u<N>`, never a bare
                                                          ticket id) gives each unit its own independent round
@@ -137,19 +126,16 @@ Test groups:
                                                          with a ROLLING base..head SHA range that changes every
                                                          round, must accumulate on one counter and deny at
                                                          round 4; also asserts the state FILENAME directly.
- 32. test_pipe_separated_file_paths_no_key_no_collision - Major 1 (round 2) regression: field 6's
-                                                         pre-implementation-review shape (`$UNIT_KEY | <paths>`)
-                                                         with `$UNIT_KEY` omitted and TWO pipe-separated file
-                                                         paths supplied instead - a plausible misreading of the
-                                                         contract - must NOT let the shared first path become a
-                                                         collidable stable key for two otherwise-distinct units;
-                                                         each falls back to its own (differing) legacy identity.
+ 32. test_pipe_separated_file_paths_are_denied       - field 6 with `$UNIT_KEY` omitted and two pipe-separated
+                                                         file paths is denied, so a shared first path never
+                                                         becomes a key two units collide on.
  33. test_pipe_no_range_caught_only_by_shape_gate       - Major 2 (round 2) regression: a piped diff command with
                                                          NO `..`/`...` range in the left side (so the `".." in
                                                          left` guard cannot catch it) is rejected solely by
                                                          `_STABLE_KEY_SHAPE_RE` (the whitespace in the piped
                                                          command) - confirms the shape gate is independently
-                                                         load-bearing, not merely redundant with the `..` check.
+                                                         load-bearing, not merely redundant with the `..` check;
+                                                         the spawn is denied.
  34. test_tool_use_ids_round_trip_through_load_state    - DS-178 unit A: a `tool_use_id` supplied on the
                                                          PreToolUse payload survives into the round-state
                                                          file's `tool_use_ids` list across two rounds (deduped,
@@ -171,15 +157,17 @@ Test groups:
                                                          object) survives a load-then-write round trip via
                                                          `_load_state`/`_write_state`'s `_extra` passthrough
                                                          bucket, while the active schema still advances normally.
- 38. test_tilde_suffixed_ranges_do_not_collide_across_units - round-6 (M1/M3) regression: two distinct units each
-                                                         citing a `<base>~N..HEAD` range must not collide onto a
-                                                         shared round-cap counter, even though both forms
-                                                         previously normalized to the bare literal token "HEAD".
- 39. test_caret_suffixed_range_does_not_reach_round_3_cap_via_shared_head_key - round-6 (M1/M3) regression: a
-                                                         unit using the caret form (`<base>^..HEAD`) run to its
-                                                         round-2 cap must never share a state file with an
-                                                         unrelated unit using the tilde form - both forms
-                                                         previously collided onto the same literal "HEAD" key.
+ T1. test_keyless_field6_is_denied_without_state   - 15 verbatim keyless field-6 values (AUT-1245, AUT-1178,
+                                                         DS-45, piped, file-path, `.x`-suffixed, `~`/`^` ranges)
+                                                         are denied; no round state, no tuid index, exactly one
+                                                         fire-log `deny` line; the reason carries every element
+                                                         a conductor needs to form a key.
+ T2. test_keyed_detail_variants_share_one_counter  - AUT-1245's four detail wordings behind one key: allow,
+                                                         allow, deny, deny; one state file at round_count 2.
+ T3. test_review_kind_suffixes_get_own_counters    - `-plan`, `-assembled-plan`, diff and `-meta` reviews of
+                                                         one ticket each keep their own counter.
+ T4. test_unit_key_literal                         - `AUT-1245 | x` maps to the literal state file
+                                                         `skeptic-round-AUT-1245-decefac675.json`.
 
 Run with: python3 -m pytest bin/tests/test_enforce_skeptic_round_cap.py -x
        or: python3 bin/tests/test_enforce_skeptic_round_cap.py
@@ -237,8 +225,8 @@ def _init_repo(tmp_path: Path, branch: str = "main") -> str:
 
 def _diff_identity(unit: str) -> str:
     """The literal "Diff under review" value a conductor would write for
-    *unit* (a branch name, PR reference, or SHA range)."""
-    return f"git diff origin/main...{unit}"
+    *unit*: the unit's stable key, then the diff command."""
+    return f"{unit} | git diff origin/main...{unit}"
 
 
 def _prompt(unit: str, what_to_review: str | None = None) -> str:
@@ -366,13 +354,8 @@ def _deny_reason(parsed: dict | None) -> str:
 
 
 def _unit_key(unit: str) -> str:
-    """Mirrors `_unit_key()` in the hook, INCLUDING the MAJOR 2
-    normalization step: for the branch-relative form used by
-    `_diff_identity()` (`git diff origin/main...<unit>`), the hook's
-    `_normalize_diff_identity()` extracts the branch token (`unit`
-    itself) rather than hashing the full "git diff origin/main..." text -
-    see `test_round_stability_across_sha_range_rounds` for the bare
-    SHA-range form, which normalizes differently (to the base SHA)."""
+    """Mirrors `_unit_key()` in the hook for `_diff_identity(unit)`, whose
+    stable key is `unit` itself."""
     identity = unit
     sanitized = _KEY_SAFE_RE.sub("-", identity.strip())[:_MAX_KEY_LEN]
     digest = hashlib.sha1(identity.encode("utf-8", "replace")).hexdigest()[:10]
@@ -380,10 +363,8 @@ def _unit_key(unit: str) -> str:
 
 
 def _unit_key_for_raw_identity(identity: str) -> str:
-    """Same sanitize+digest as `_unit_key()`, but takes an ALREADY
-    NORMALIZED identity string directly (used by tests that construct a
-    "Diff under review" value the hook's normalizer reduces to something
-    other than the plain unit/branch name, e.g. a bare SHA range)."""
+    """Same sanitize+digest as `_unit_key()`, for a test that writes its
+    own "Diff under review" line with *identity* as the stable key."""
     sanitized = _KEY_SAFE_RE.sub("-", identity.strip())[:_MAX_KEY_LEN]
     digest = hashlib.sha1(identity.encode("utf-8", "replace")).hexdigest()[:10]
     return f"{sanitized}-{digest}"
@@ -1299,72 +1280,6 @@ def test_diff_under_review_format_matrix():
             assert state["round_count"] == 1, f"{label} form: unexpected state {state}"
 
 
-# SHA-range "Diff under review" line templates the round-stability test
-# below is parametrized over. `numbered` is the original (already-working)
-# form; `bold_no_bullet` and `backticked_bold_bullet` are the forms
-# introduced by the round-3 fix (FIX 2) - `backticked_bold_bullet` is
-# copied verbatim from a realistic spawn-brief line (this ticket's own
-# "## Base" section used the identical
-# "- **Diff under review:** `git diff 1232779c..b7a596d9`" shape), the
-# exact form that fell through `_DIFF_RANGE_RE`'s `^`-anchor before the
-# backtick-strip fix because the ref charclass excludes backticks.
-_SHA_RANGE_LINE_FORMS = {
-    "numbered": "6. Diff under review: git diff {base}..{head}",
-    "bold_no_bullet": "**Diff under review:** git diff {base}..{head}",
-    "backticked_bold_bullet": "- **Diff under review:** `git diff {base}..{head}`",
-}
-
-
-def test_round_stability_across_sha_range_rounds():
-    """MAJOR 2 regression, extended to the bold and backticked forms
-    (FIX 5): a `git diff <base-sha>..<changing-head-sha>` identity (the
-    form the Skeptic sign-off contract's own `Reviewed: <base-sha>..
-    <head-sha>` shape mirrors) must resolve to ONE key across sequential
-    rework rounds and actually DENY at round 3, in EVERY real spawn-line
-    shape - not just the numbered non-bold form the round-3 regression
-    test happened to cover, which never exercised the backticked form
-    FIX 2 fixes."""
-    for label, template in _SHA_RANGE_LINE_FORMS.items():
-        with tempfile.TemporaryDirectory() as tmp:
-            base_sha = "a" * 40
-            heads = ["b" * 40, "c" * 40, "d" * 40]
-            expected_path = (
-                Path(tmp)
-                / ".agentic"
-                / f"skeptic-round-{_unit_key_for_raw_identity(base_sha)}.json"
-            )
-
-            for i, head in enumerate(heads[:2], start=1):
-                diff_line = template.format(base=base_sha, head=head)
-                rc, parsed = _run_hook(
-                    _raw_payload(tmp, diff_line, what_to_review=f"worker output round {i}")
-                )
-                assert not _is_denied(parsed), f"{label} round {i} unexpectedly denied: {parsed}"
-                assert expected_path.exists(), (
-                    f"{label}: all rounds of the SAME unit must resolve to the "
-                    f"base-SHA-keyed state file"
-                )
-                state = json.loads(expected_path.read_text())
-                assert state["round_count"] == i, (
-                    f"{label}: base..head SHA range must resolve to ONE stable "
-                    f"key across rounds - got round_count={state['round_count']} at round {i}"
-                )
-
-            # 3rd round (yet another new head SHA) must DENY - proves the cap
-            # actually engages instead of minting a fresh key every round.
-            diff_line = template.format(base=base_sha, head=heads[2])
-            rc, parsed = _run_hook(
-                _raw_payload(tmp, diff_line, what_to_review="worker output round 3")
-            )
-            assert _is_denied(parsed), f"{label}: round 3 of a SHA-range-keyed unit must be denied at the cap"
-
-            state_files = list((Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
-            assert len(state_files) == 1, (
-                f"{label}: expected exactly ONE state file across all 3 rounds, "
-                f"got {[p.name for p in state_files]}"
-            )
-
-
 def test_empty_bolded_diff_field_failopen():
     """FIX 3 regression: an empty bolded "Diff under review" field (a
     real, literal spawn-brief line - e.g. a conductor pastes the item-6
@@ -1433,7 +1348,7 @@ def test_realistic_worker_output_with_internal_bold_headers_not_coalesced():
     captured body reduced to the same short prefix, coalescing every
     round onto round 1's cached ALLOW forever (measured: round_count
     frozen at 1 across 5 real sequential spawns, never denying)."""
-    diff_line = "6. Diff under review: git diff origin/main...feature/round-cap-test"
+    diff_line = "6. Diff under review: " + _diff_identity("feature/round-cap-test")
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
         for i in range(1, 3):
@@ -1596,72 +1511,23 @@ def test_stable_key_two_distinct_units_no_collision():
         assert len(state_files) == 2, f"expected 2 independent state files, got {state_files}"
 
 
-def test_stable_key_empty_before_pipe_falls_back():
-    """DS-180: a `| <diff>` value with nothing before the pipe is not a
-    valid key - falls through to `_normalize_diff_identity()` on the
-    full raw value, matching pre-DS-180 behavior for a malformed value.
-
-    Round-2 rework (Minor 1): the original version of this test asserted
-    only rc==0, not-denied, and that SOME `.agentic/` tree exists - none
-    of which distinguishes the required "falls back to the legacy raw-text
-    identity" behavior from a bug that captures a collidable placeholder
-    key (e.g. a constant "EMPTY-KEY" string) on an empty left side; both
-    shapes satisfy those three assertions and both write *a* state file.
-    Asserting the exact expected state FILENAME (derived from the raw,
-    un-keyed "Diff under review" value, matching every other stable-key
-    test in this file) closes that gap - confirmed failing pre-fix (see
-    the module docstring's regression-test obligation): mutating
-    `_extract_stable_unit_key()` to `return "EMPTY-KEY"` on an empty left
-    side reddens this assertion, because the written filename then derives
-    from the placeholder instead of the raw value."""
+def test_stable_key_empty_before_pipe_is_denied():
+    """A `| <diff>` value with nothing before the pipe carries no key and
+    is denied, writing no round state - never a collidable placeholder key
+    such as a constant "EMPTY-KEY"."""
     with tempfile.TemporaryDirectory() as tmp:
-        diff_line = "6. Diff under review:  | git diff origin/main...feature/x"
-        # The regex captures from the first non-whitespace, non-"*" char -
-        # here that is the "|" itself, so the raw identity text handed to
-        # `_normalize_diff_identity()` (and therefore hashed into the
-        # filename) is this exact string, unchanged (not a diff-range
-        # shape, so strategy 4 - "return raw text unchanged" - applies).
-        raw_identity = "| git diff origin/main...feature/x"
-        expected_path = (
-            Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(raw_identity)}.json"
-        )
-        rc, parsed = _run_hook(
-            _raw_payload(tmp, diff_line, what_to_review="worker output round 1")
-        )
-        assert rc == 0
-        assert not _is_denied(parsed)
-        assert expected_path.exists(), (
-            "an empty key before the pipe must fall back to the legacy "
-            "raw-text-derived state filename, not a collidable placeholder "
-            f"key - expected {expected_path.name!r}, found "
-            f"{[p.name for p in (Path(tmp) / '.agentic').glob('skeptic-round-*.json')]}"
-        )
+        _assert_keyless_denied(tmp, "6. Diff under review:  | git diff origin/main...feature/x")
 
 
-def test_diff_command_with_pipe_normalizes_to_legacy_base():
-    """Major 2 (round 3) regression: a value that LOOKS like it has a
-    pipe-prefixed key but is actually a diff command piped through `head`
-    (e.g. `git diff <sha>..<sha> | head -200`) must be REJECTED by the
-    shape gate and normalize to the base SHA exactly as it did before
-    _extract_stable_unit_key existed - proving the naive
-    partition-on-first-pipe regression is closed."""
-    base = "1" * 40
-    head = "2" * 40
+def test_diff_command_with_pipe_is_denied():
+    """A value that looks pipe-keyed but is a diff command piped through
+    `head` (`git diff <sha>..<sha> | head -200`) is rejected by the shape
+    gate and denied, never accepted as the key `git diff <sha>..<sha>`,
+    which would change every round."""
     with tempfile.TemporaryDirectory() as tmp:
-        diff_line = f"6. Diff under review: git diff {base}..{head} | head -200"
-        rc, parsed = _run_hook(
-            _raw_payload(tmp, diff_line, what_to_review="worker output round 1")
+        _assert_keyless_denied(
+            tmp, f"6. Diff under review: git diff {'1' * 40}..{'2' * 40} | head -200"
         )
-        assert not _is_denied(parsed)
-        expected_path = (
-            Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(base)}.json"
-        )
-        assert expected_path.exists(), (
-            "expected the value to normalize to the base SHA (legacy "
-            "behavior), not to be treated as a stable key"
-        )
-        state = json.loads(expected_path.read_text())
-        assert state["round_count"] == 1
 
 
 def test_stable_key_two_units_of_one_ticket_get_independent_budgets():
@@ -1690,13 +1556,10 @@ def test_stable_key_two_units_of_one_ticket_get_independent_budgets():
 def test_stable_key_backticked_whole_value_accepts():
     """Minor 4 (round 3) / Minor 2 (round 4) regression: a whole-value-
     backticked field 6 carrying a VALID key, with a ROLLING base..head
-    SHA range that changes every round - a constant backticked value
-    would pass even without backtick-stripping (the pre-fix fallback
-    path also accumulates on a constant raw string), which was the
-    original test's vacuous-satisfiability defect. The rolling range
-    genuinely distinguishes fixed vs unfixed behavior. Also asserts the
-    state FILENAME directly (not just round_count), so a silent
-    fall-through to the legacy path cannot pass by accident."""
+    SHA range that changes every round, accumulates on the key's counter.
+    Without backtick-stripping the left side starts with a backtick, fails
+    the shape gate, and the spawn is denied as keyless. Asserts the state
+    FILENAME directly, not just round_count."""
     key = "DS-180"
     shas = ["a" * 40, "b" * 40, "c" * 40, "d" * 40]
     with tempfile.TemporaryDirectory() as tmp:
@@ -1711,8 +1574,7 @@ def test_stable_key_backticked_whole_value_accepts():
             )
             assert not _is_denied(parsed), f"round {i} unexpectedly denied: {parsed}"
             assert expected_path.exists(), (
-                f"round {i}: expected the backtick-stripped stable-key state "
-                f"file, not a legacy-normalized one"
+                f"round {i}: expected the backtick-stripped stable-key state file"
             )
             state = json.loads(expected_path.read_text())
             assert state["round_count"] == i
@@ -1727,101 +1589,166 @@ def test_stable_key_backticked_whole_value_accepts():
         assert len(state_files) == 1, f"expected ONE state file, got {[p.name for p in state_files]}"
 
 
-def test_pipe_separated_file_paths_no_key_no_collision():
-    """Major 1 (round 2) regression: field 6's pre-implementation-review
-    contract is `$UNIT_KEY | <file paths>` (content/commands/
-    ds-implement-ticket.md's Architect-plan-review substitution). A
-    conductor who omits `$UNIT_KEY` and instead pipe-separates two file
-    paths (a plausible misreading - "leads with the key, then the paths")
-    must NOT have the shared first path silently accepted as a stable
-    key: two otherwise-distinct units sharing that first path (but
-    differing in their second path) would then collide onto ONE round
-    counter, denying the second unit's first review at a cap it never
-    reached. Executed proof this closes: pre-fix, both values below
-    normalized to the SAME key (`hooks-enforce-skeptic-round-cap.py-<hash
-    of that literal string>`); the pre-DS-180 fallback path
-    (`_normalize_diff_identity()` on the FULL raw text) does not collide,
-    because the two full strings differ - confirmed by this test failing
-    (both units landing on one state file, unit B denied at round 1) when
-    run against the pre-fix `_extract_stable_unit_key()` with
-    `_LOOKS_LIKE_FILE_PATH_RE`'s check removed."""
-    value_a = "hooks/enforce-skeptic-round-cap.py | bin/tests/test_enforce_skeptic_round_cap.py"
-    value_b = "hooks/enforce-skeptic-round-cap.py | content/references/skeptic-protocol.md"
-    with tempfile.TemporaryDirectory() as tmp:
-        path_a = (
-            Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(value_a)}.json"
-        )
-        path_b = (
-            Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(value_b)}.json"
-        )
-        assert path_a != path_b, "test setup bug: the two fallback identities must differ"
-
-        # Unit A burns its whole budget.
-        for i in range(1, 3):
-            diff_line = f"- **Diff under review:** {value_a}"
-            rc, parsed = _run_hook(
-                _raw_payload(tmp, diff_line, what_to_review=f"unit-a fix {i}")
-            )
-            assert not _is_denied(parsed), f"unit A round {i} unexpectedly denied: {parsed}"
-        diff_line = f"- **Diff under review:** {value_a}"
-        rc, parsed = _run_hook(
-            _raw_payload(tmp, diff_line, what_to_review="unit-a fix 3")
-        )
-        assert _is_denied(parsed), "unit A must be denied its 3rd round"
-
-        # Unit B's first round, from the SAME cwd, sharing unit A's first
-        # pipe-segment, must still be allowed - the exact collision this
-        # fix closes.
-        diff_line = f"- **Diff under review:** {value_b}"
-        rc, parsed = _run_hook(
-            _raw_payload(tmp, diff_line, what_to_review="unit-b fix 1")
-        )
-        assert not _is_denied(parsed), (
-            "unit B's first round must not inherit unit A's exhausted "
-            "budget merely because both values share a leading file path"
-        )
-        assert path_a.exists() and path_b.exists()
-        state_a = json.loads(path_a.read_text())
-        state_b = json.loads(path_b.read_text())
-        assert state_a["round_count"] == 2
-        assert state_b["round_count"] == 1
-
-        state_files = sorted(p.name for p in (Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
-        assert len(state_files) == 2, f"expected 2 independent state files, got {state_files}"
+def test_pipe_separated_file_paths_are_denied():
+    """Field 6 on a pre-implementation review is `$UNIT_KEY | <paths>`. With
+    `$UNIT_KEY` omitted, the first of two pipe-separated paths must not be
+    accepted as a key: two units sharing that first path would collide on
+    one counter. `_LOOKS_LIKE_FILE_PATH_RE` rejects it, so each is denied."""
+    for value in (
+        "hooks/enforce-skeptic-round-cap.py | bin/tests/test_enforce_skeptic_round_cap.py",
+        "hooks/enforce-skeptic-round-cap.py | content/references/skeptic-protocol.md",
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            _assert_keyless_denied(tmp, f"- **Diff under review:** {value}")
 
 
 def test_pipe_no_range_caught_only_by_shape_gate():
-    """Major 2 (round 2) regression: `_STABLE_KEY_SHAPE_RE` is the SOLE
-    guard for a piped command containing no `..`/`...` range anywhere in
-    the left side - the `".." in left` check cannot fire on this shape.
-    Confirmed load-bearing by direct mutation: widening
-    `_STABLE_KEY_SHAPE_RE` to admit whitespace (`^[A-Za-z0-9._/# -]+$`,
-    the round-1 review's exact executed mutation) reddens this test,
-    because the left side `git diff HEAD` then passes every remaining
-    check and is accepted as the stable key `git-diff-HEAD` instead of
-    falling back to `_normalize_diff_identity()`'s legacy path."""
+    """`_STABLE_KEY_SHAPE_RE` is the SOLE guard for a piped command with no
+    `..` in its left side, so the `".." in left` check cannot fire. Widening
+    `_STABLE_KEY_SHAPE_RE` to admit whitespace (`^[A-Za-z0-9._/# -]+$`)
+    reddens this test: `git diff HEAD` would then be accepted as the key."""
     with tempfile.TemporaryDirectory() as tmp:
-        diff_line = "6. Diff under review: git diff HEAD | head -200"
-        # No ".." anywhere in "git diff HEAD | head -200" - only the shape
-        # gate's whitespace rejection can catch this. The fallback
-        # (_normalize_diff_identity on the full raw text) does not match
-        # _DIFF_RANGE_RE (no ".." range at all), so it returns the raw
-        # text unchanged (strategy 4).
-        raw_identity = "git diff HEAD | head -200"
-        expected_path = (
-            Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(raw_identity)}.json"
-        )
+        _assert_keyless_denied(tmp, "6. Diff under review: git diff HEAD | head -200")
+
+
+# --------------------------------------------------------------------------- #
+# T1-T4. Part B: the stable unit key is mandatory
+# --------------------------------------------------------------------------- #
+_AUT_1245_DETAILS = [
+    "origin/develop...fix/AUT-1245-light-palette-without-template-tag",
+    "origin/fix/AUT-1245-light-palette-without-template-tag at 8aeb25be33a50e3fe0eefb506d4b4e0c0092ad99 vs origin/develop.",
+    "origin/fix/AUT-1245-light-palette-without-template-tag at 8294fa11593479b87ee582173bb2d79f8f8bb0e1 vs origin/develop.",
+    "origin/fix/AUT-1245-light-palette-without-template-tag at dd53fc46d3c89d6acc8b7ac30794ebe3012c4d88 vs origin/develop.",
+]
+
+_AUT_1178_DETAILS = [
+    "n/a - plan stage, AUT-1178 plan review (no diff yet)",
+    "n/a - plan stage, AUT-1178 plan review round 2 (no diff yet)",
+    "origin/develop...origin/feature/AUT-1178-history-tiles (PR #2191, head 3439b09bc)",
+    "origin/feature/AUT-1178-history-tiles 3439b09bc..fb38e01d9 (PR #2191 round 2)",
+    "origin/feature/AUT-1178-history-tiles fb38e01d9..b371adafd (PR #2191 QA fix)",
+]
+
+# Verbatim field-6 values from real sessions that split or merged units
+# under the removed diff-normalization fallback, plus the shapes that
+# fallback special-cased. Every one carries no valid key.
+_KEYLESS_VALUES = _AUT_1245_DETAILS + _AUT_1178_DETAILS + [
+    "as given above",
+    "hooks/x.py | a.md",
+    "git diff a1b2c3d..e4f5a6b | head -200",
+    "fix/node-20.x | git diff",
+    "1232779c~1..HEAD",
+    "b7a596d9^..HEAD",
+]
+
+
+def _fire_log_lines(tmp: str) -> list[dict]:
+    log = Path(tmp) / ".agentic" / ".enforcement-fires.jsonl"
+    if not log.exists():
+        return []
+    return [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+
+
+def _assert_keyless_denied(tmp: str, diff_line: str) -> None:
+    value = diff_line.split(":", 1)[1].lstrip("* \t")
+    rc, parsed = _run_hook(_raw_payload(tmp, diff_line, what_to_review="worker output round 1"))
+    assert rc == 0
+    assert _is_denied(parsed), f"keyless field 6 {value!r} was not denied: {parsed}"
+    reason = _deny_reason(parsed)
+    for element in (
+        "6. Diff under review: <KEY> | <diff command or file paths>",
+        "same KEY every fix round of this unit",
+        "Stable unit key contract",
+        "-review",
+        "no spaces",
+        value.strip()[:120],
+    ):
+        assert element in reason, f"deny reason lacks {element!r}: {reason}"
+    agentic = Path(tmp) / ".agentic"
+    assert list(agentic.glob("skeptic-round-*.json")) == [], "keyless deny wrote round state"
+    assert not (agentic / "skeptic-tuid-index.json").exists(), "keyless deny wrote a tuid index"
+    fires = _fire_log_lines(tmp)
+    assert len(fires) == 1 and fires[0].get("decision") == "deny", fires
+
+
+@pytest.mark.parametrize("value", _KEYLESS_VALUES)
+def test_keyless_field6_is_denied_without_state(value):
+    """T1: a present, unambiguous field 6 without a valid key is denied. The
+    deny names the form, the derivation and shape rules, and the value; it
+    writes no round state and no tuid index, only one fire-log line."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _assert_keyless_denied(tmp, f"6. Diff under review: {value}")
+
+
+def test_keyed_detail_variants_share_one_counter():
+    """T2: AUT-1245's four detail wordings behind one key share one
+    counter. Rounds 1-2 are allowed; the 3rd and 4th spawns are both
+    denied at the cap; exactly one state file ends at round_count 2."""
+    with tempfile.TemporaryDirectory() as tmp:
+        outcomes = []
+        for i, detail in enumerate(_AUT_1245_DETAILS, start=1):
+            rc, parsed = _run_hook(
+                _raw_payload(
+                    tmp,
+                    f"6. Diff under review: AUT-1245 | {detail}",
+                    what_to_review=f"worker output round {i}",
+                )
+            )
+            outcomes.append("deny" if _is_denied(parsed) else "allow")
+        assert outcomes == ["allow", "allow", "deny", "deny"], outcomes
+        files = list((Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
+        assert [p.name for p in files] == [f"skeptic-round-{_unit_key_for_raw_identity('AUT-1245')}.json"]
+        assert json.loads(files[0].read_text())["round_count"] == 2
+
+
+def test_review_kind_suffixes_get_own_counters():
+    """T3: plan, assembled-Plan, diff and meta reviews of one ticket each
+    get their own counter, and the diff rounds share one counter whatever
+    the detail says."""
+    spawns = [
+        ("AUT-1178-plan", _AUT_1178_DETAILS[0], True),
+        ("AUT-1178-plan", _AUT_1178_DETAILS[1], True),
+        ("AUT-1178-assembled-plan", _AUT_1178_DETAILS[1], True),
+        ("AUT-1178", _AUT_1178_DETAILS[2], True),
+        ("AUT-1178", _AUT_1178_DETAILS[3], True),
+        ("AUT-1178", _AUT_1178_DETAILS[4], False),
+        ("AUT-1178-meta", _AUT_1178_DETAILS[2], True),
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        for i, (key, detail, allowed) in enumerate(spawns, start=1):
+            rc, parsed = _run_hook(
+                _raw_payload(
+                    tmp,
+                    f"6. Diff under review: {key} | {detail}",
+                    what_to_review=f"worker output spawn {i}",
+                )
+            )
+            assert _is_denied(parsed) is not allowed, f"spawn {i} ({key}): {parsed}"
+        counts = {
+            key: json.loads(
+                (Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(key)}.json").read_text()
+            )["round_count"]
+            for key in ("AUT-1178-plan", "AUT-1178-assembled-plan", "AUT-1178", "AUT-1178-meta")
+        }
+        assert counts == {
+            "AUT-1178-plan": 2,
+            "AUT-1178-assembled-plan": 1,
+            "AUT-1178": 2,
+            "AUT-1178-meta": 1,
+        }, counts
+
+
+def test_unit_key_literal():
+    """T4: the state filename for `AUT-1245 | x` is pinned literally, so a
+    change to the digest or the sanitizer cannot pass by moving the test's
+    own mirror of them along with it."""
+    with tempfile.TemporaryDirectory() as tmp:
         rc, parsed = _run_hook(
-            _raw_payload(tmp, diff_line, what_to_review="worker output round 1")
+            _raw_payload(tmp, "6. Diff under review: AUT-1245 | x", what_to_review="r1")
         )
         assert not _is_denied(parsed)
-        assert expected_path.exists(), (
-            "expected the value to fall back to the full-raw-text legacy "
-            f"identity, not be accepted as a stable key - found "
-            f"{[p.name for p in (Path(tmp) / '.agentic').glob('skeptic-round-*.json')]}"
-        )
-        state = json.loads(expected_path.read_text())
-        assert state["round_count"] == 1
+        names = [p.name for p in (Path(tmp) / ".agentic").glob("skeptic-round-*.json")]
+        assert names == ["skeptic-round-AUT-1245-decefac675.json"], names
 
 
 # --------------------------------------------------------------------------- #
@@ -2125,81 +2052,6 @@ def test_state_file_preserves_unknown_keys_round_trip():
         # The active schema still advanced normally alongside the
         # preserved unknown keys.
         assert state_after.get("round_count") == 2, state_after
-
-
-# --------------------------------------------------------------------------- #
-# Round-6 (M1/M3) regression: the round-5 widening of `_DIFF_RANGE_RE` to
-# admit `~`/`^` collapsed every `<x>~n..HEAD` / `<x>^..HEAD` "Diff under
-# review" value onto the single literal token "HEAD" (strategy 1 in
-# `_normalize_diff_identity()`: `ref2` is "HEAD", which is not SHA-like,
-# so it is returned verbatim regardless of `<x>`) - two DISTINCT units
-# both using this shape collided onto ONE shared round-cap counter. These
-# tests are DECISION-level (assert on `_is_denied`/state-file identity,
-# not on the regex in isolation) per the round-6 finding: a prior round's
-# "0 divergences" report compared the Python and JS regexes to EACH
-# OTHER, never to actual hook decisions, and missed this collision
-# entirely. Confirmed failing pre-fix (round-6 review): two such units
-# both keyed to `skeptic-round-HEAD-7138a51661.json`, and unit B's first
-# spawn was denied on the strength of unit A's already-spent budget.
-# --------------------------------------------------------------------------- #
-def test_tilde_suffixed_ranges_do_not_collide_across_units():
-    """Two distinct units, each citing a `<unit-specific-base>~N..HEAD`
-    range (no stable-key pipe form - the bare legacy shape), must NOT
-    collide onto a shared round-cap counter. Pre-fix, both normalized to
-    the literal token "HEAD" and shared one counter; post-fix, `~` is
-    outside `_DIFF_RANGE_RE`'s charclass so the value falls through to
-    strategy 4 ("return raw text unchanged") and each round's own
-    (round-varying) text becomes its own key - unstable per round for
-    this unrecognized shape, but never collidable across units, which is
-    the property this test asserts."""
-    with tempfile.TemporaryDirectory() as tmp:
-        for i in range(1, 3):
-            line = f"6. Diff under review: git diff 1232779c~{i}..HEAD"
-            rc, parsed = _run_hook(
-                _raw_payload(tmp, line, what_to_review=f"unit A worker output round {i}")
-            )
-            assert not _is_denied(parsed), f"unit A round {i} unexpectedly denied: {parsed}"
-
-        # Unit B's FIRST spawn, using a completely different base SHA but
-        # the same `~N..HEAD` shape, must be a genuine round 1 - not a
-        # round 4 denial inherited from unit A's exhausted budget.
-        line_b = "6. Diff under review: git diff b7a596d9^..HEAD"
-        rc, parsed = _run_hook(
-            _raw_payload(tmp, line_b, what_to_review="unit B worker output round 1")
-        )
-        assert not _is_denied(parsed), (
-            f"unit B's first spawn was denied - it collided with unit A's counter: {parsed}"
-        )
-
-        state_files = sorted(p.name for p in (Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
-        assert "skeptic-round-HEAD-7138a51661.json" not in state_files, (
-            f"unit A and unit B collided onto the shared 'HEAD' literal key: {state_files}"
-        )
-
-
-def test_caret_suffixed_range_does_not_reach_round_3_cap_via_shared_head_key():
-    """A single unit using the caret form (`<base>^..HEAD`) across several
-    rounds must never be silently coalesced onto the SAME state file as an
-    unrelated unit using the tilde form (`<other-base>~1..HEAD`) - both
-    forms previously normalized to the bare "HEAD" token regardless of
-    which base SHA was cited. Runs unit A (caret) to its round-2 cap, then
-    proves unit B (tilde) still gets an independent, un-denied first
-    round rather than inheriting unit A's spent budget."""
-    with tempfile.TemporaryDirectory() as tmp:
-        for i in range(1, 3):
-            line = f"6. Diff under review: git diff aaaaaaa^{i}..HEAD"
-            rc, parsed = _run_hook(
-                _raw_payload(tmp, line, what_to_review=f"unit A (caret) worker output round {i}")
-            )
-            assert not _is_denied(parsed), f"unit A round {i} unexpectedly denied: {parsed}"
-
-        line_b = "6. Diff under review: git diff bbbbbbb~1..HEAD"
-        rc, parsed = _run_hook(
-            _raw_payload(tmp, line_b, what_to_review="unit B (tilde) worker output round 1")
-        )
-        assert not _is_denied(parsed), (
-            f"unit B's first spawn was denied - it inherited unit A's exhausted budget: {parsed}"
-        )
 
 
 if __name__ == "__main__":
