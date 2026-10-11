@@ -31,6 +31,9 @@ Public API (module-level function, no class):
               any object - non-dict is tolerated and treated as {}). cwd
               is read from data["cwd"] when data is a dict and that key is
               a non-empty string; falls back to os.getcwd() otherwise.
+              session_id, agent_id, and tool_use_id are copied into the
+              row from data when each is a non-empty string, and omitted
+              otherwise (never written as null).
         hook_name: short hook identifier, e.g. "enforce-tier". Any type is
               accepted and coerced with str() - callers pass a literal.
         decision: the action taken, e.g. "deny" or "allow_advisory". Free-
@@ -55,7 +58,7 @@ Public API (module-level function, no class):
               capture arbitrary text (an email address, a dollar amount) -
               this file has no PII boundary of its own beyond what callers
               choose to put in it. If `detail` cannot be JSON-serialized the
-              line degrades to the canonical 4 fields rather than being lost.
+              line is written without it rather than being lost.
 
 Upstream deps: Python 3 stdlib only (json, os, datetime). Imports the
                sibling hooks/lib/repo_root.py module via an isolated
@@ -249,6 +252,10 @@ _LOG_BASENAME = ".enforcement-fires.jsonl"
 # path. Doubled for headroom rather than tuned to the single longest known
 # caller.
 _REASON_MAX_LEN = 800
+# Payload keys copied verbatim into the row so a deny can be joined to the
+# session/subagent/tool call that hit it. Each is omitted unless it is a
+# non-empty string, so a payload without them writes the canonical 4 fields.
+_JOIN_KEYS = ("session_id", "agent_id", "tool_use_id")
 
 
 def _now_iso() -> str:
@@ -289,10 +296,15 @@ def log_fire(data, hook_name, decision, reason, *, detail=None) -> None:
             "decision": str(decision),
             "reason": str(reason)[:_REASON_MAX_LEN],
         }
+        if isinstance(data, dict):
+            for key in _JOIN_KEYS:
+                value = data.get(key)
+                if isinstance(value, str) and value:
+                    entry[key] = value
 
         # `detail` is strictly additive and strictly optional. An absent,
         # empty, non-dict, or non-serializable `detail` degrades to the
-        # canonical 4-field line rather than losing the row entirely - a
+        # line without `detail` rather than losing the row entirely - a
         # caller's structured-telemetry bug must not cost the enforcement
         # record itself. Serializing into a COPY (not `entry`) is what
         # makes the fallback below reachable with a clean dict.

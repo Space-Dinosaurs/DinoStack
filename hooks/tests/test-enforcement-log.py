@@ -13,6 +13,9 @@ Covers:
   5. cwd resolution: an explicit data["cwd"] is honored; a missing/blank
      cwd falls back to os.getcwd().
   6. Non-dict data is tolerated (treated as {} for cwd purposes).
+  7-8. Repo-root anchoring and worktree aggregation.
+  9. session_id/agent_id/tool_use_id join keys: present, absent,
+     non-string, byte-identity, and fail-open.
 """
 
 from __future__ import annotations
@@ -252,6 +255,96 @@ with open(os.path.join(sub8b, ".git"), "w", encoding="utf-8") as f:
     f.write(f"gitdir: {os.path.join(host8b, '.git', 'modules', 'sub')}\n")
 enforcement_log.log_fire({"cwd": sub8b}, "enforce-tier", "deny", "submodule probe")
 check("submodule root keeps its own fire row (not redirected)", len(read_lines(sub8b)) == 1)
+
+# ---------------------------------------------------------------------------
+# 9. Session join keys: session_id/agent_id/tool_use_id copied from the
+#    payload only when each is a non-empty string; absent keys leave the
+#    line byte-identical to the canonical 4-field (or 4-field + detail) form.
+# ---------------------------------------------------------------------------
+print("\nTest 9: session join keys")
+
+
+def raw_lines(cwd: str) -> list:
+    path = os.path.join(cwd, ".agentic", ".enforcement-fires.jsonl")
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read().splitlines(keepends=True)
+
+
+def canonical(ts: str, reason: str, **extra) -> str:
+    entry = {"ts": ts, "hook": "enforce-tier", "decision": "deny", "reason": reason}
+    entry.update(extra)
+    return json.dumps(entry) + "\n"
+
+
+tmp9 = os.path.realpath(tempfile.mkdtemp(prefix="test-enforcement-log-9-"))
+ids = {"session_id": "sess-1", "agent_id": "agent-2", "tool_use_id": "toolu_3"}
+enforcement_log.log_fire(dict(ids, cwd=tmp9), "enforce-tier", "deny", "present")
+enforcement_log.log_fire({"cwd": tmp9}, "enforce-tier", "deny", "absent")
+enforcement_log.log_fire(
+    {"cwd": tmp9}, "enforce-tier", "deny", "absent+detail", detail={"k": 1}
+)
+enforcement_log.log_fire(
+    {"cwd": tmp9, "session_id": None, "agent_id": 7, "tool_use_id": ""},
+    "enforce-tier", "deny", "non-string",
+)
+enforcement_log.log_fire(
+    {"cwd": tmp9, "session_id": ["x"], "agent_id": {"a": 1}, "tool_use_id": True},
+    "enforce-tier", "deny", "non-string-2",
+)
+enforcement_log.log_fire(
+    {"cwd": tmp9, "session_id": "sess-only"}, "enforce-tier", "deny", "partial"
+)
+raw9 = raw_lines(tmp9)
+rows9 = [json.loads(line) for line in raw9]
+check("six lines written", len(raw9) == 6)
+if len(raw9) == 6:
+    check(
+        "present: all three keys written with their values",
+        all(rows9[0].get(k) == v for k, v in ids.items()),
+    )
+    check(
+        "present: keys follow the canonical 4 fields",
+        raw9[0] == canonical(rows9[0]["ts"], "present", **ids),
+    )
+    check(
+        "absent: line byte-identical to the canonical 4-field form",
+        raw9[1] == canonical(rows9[1]["ts"], "absent"),
+    )
+    check(
+        "absent + detail: line byte-identical to the 4-field + detail form",
+        raw9[2] == canonical(rows9[2]["ts"], "absent+detail", detail={"k": 1}),
+    )
+    check(
+        "None/int/empty-string values omitted, never written",
+        raw9[3] == canonical(rows9[3]["ts"], "non-string"),
+    )
+    check(
+        "list/dict/bool values omitted, never written",
+        raw9[4] == canonical(rows9[4]["ts"], "non-string-2"),
+    )
+    check(
+        "partial: only the present key is written",
+        raw9[5] == canonical(rows9[5]["ts"], "partial", session_id="sess-only"),
+    )
+    check("no row anywhere carries a null value", "null" not in "".join(raw9))
+
+
+class _RaisingGet(dict):
+    def get(self, key, default=None):
+        if key in ids:
+            raise RuntimeError("boom")
+        return super().get(key, default)
+
+
+out9, err9 = io.StringIO(), io.StringIO()
+raised9 = False
+try:
+    with contextlib.redirect_stdout(out9), contextlib.redirect_stderr(err9):
+        enforcement_log.log_fire(_RaisingGet(cwd=tmp9), "enforce-tier", "deny", "raise")
+except Exception:
+    raised9 = True
+check("a raising payload lookup never propagates", raised9 is False)
+check("a raising payload lookup prints nothing", out9.getvalue() == "" and err9.getvalue() == "")
 
 print(f"\n{total - failed}/{total} tests passed.")
 if failed:
