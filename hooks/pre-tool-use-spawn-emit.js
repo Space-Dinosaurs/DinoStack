@@ -72,7 +72,8 @@
  *                        hooks/stop-context.js scanSessionAggregate() reads
  *                        spawn_start events with data.source==="hook" to count
  *                        spawns in ad-hoc sessions (double-count guard: skipped
- *                        when spawn_complete events exist in the same session).
+ *                        when a conductor spawn_complete exists in the same
+ *                        session, unless the session has a v2 hook spawn row).
  *                        hooks/lib/capture-gap.js detectCaptureGap() recognizes
  *                        hook spawn_start for debugger/investigator as
  *                        learning-worthy events (revives capture-gap trigger in

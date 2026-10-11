@@ -569,7 +569,8 @@ function skillCandidateDetectionEnabled(cwd) {
  *   - conductor_direct events are NO LONGER counted (deprecated; hook-emitted
  *     spawn_start events replace them for ad-hoc session tracking).
  *   - DS-160 double-count guard: when the session has at least one
- *     conductor-emitted spawn_complete (a ticketed session), ALL hook-emitted
+ *     conductor-emitted spawn_complete (a ticketed session) and no v2 hook
+ *     spawn row (see Telemetry v2 precedence above), ALL hook-emitted
  *     telemetry (both spawn_start AND spawn_complete, data.source === 'hook')
  *     is excluded entirely - the conductor's own richer spawn_complete is
  *     authoritative and the hook variant would otherwise double-count the
@@ -586,7 +587,8 @@ function skillCandidateDetectionEnabled(cwd) {
  *     reconciliation across the conductor/hook boundary is not attempted;
  *     per plan deferred default, since a harness-provided cross-source
  *     correlation id does not exist).
- *   - In a pure ad-hoc session (zero conductor-emitted spawn_complete), hook
+ *   - In a pure ad-hoc session (zero conductor-emitted spawn_complete), or
+ *     any session with a v2 hook spawn row, hook
  *     spawn_start events are the authoritative "this spawn happened" signal
  *     and are DEDUPED by data.spawn_id so each real spawn counts exactly
  *     once: a spawn_start with no matching spawn_complete yet (SubagentStop
@@ -677,8 +679,7 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
 
   // Parse once, filtering to the current session. When sessionId is known,
   // a row without data.session_uuid is dropped: it cannot be attributed to
-  // this session, and admitting it put one stray uuid-less conductor
-  // spawn_complete into every session's aggregate.
+  // this session.
   const parsed = [];
   for (const line of lines) {
     const trimmed = line.trim();
