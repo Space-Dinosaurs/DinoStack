@@ -22,6 +22,8 @@ Public API: python3 hooks/session-start-memory.py
             MARKER - the single source of the opt-in marker literal.
             CAP    - the additionalContext budget, measured as
                      len(json.dumps(ctx, ensure_ascii=True)).
+            READ_BUDGET - the largest unshown remainder, in bytes, still
+                     directed to be Read in full.
 
 Behavior:
     Phase A: root = `git -C <cwd> rev-parse --show-toplevel`, else cwd.
@@ -33,10 +35,18 @@ Behavior:
         delivers it, to subagents too), or when root/MEMORY.md is absent.
         Otherwise emits hookSpecificOutput.additionalContext: a header plus
         the whole file when it fits CAP, else a header, the longest
-        whole-line prefix (lines 1-L) that fits, and a directive to Read
-        lines L+1 to EOF before the first decision. Any exception in Phase B
-        emits a fallback directive naming the path instead of silence.
-        The output does not depend on the payload's `source`.
+        whole-line prefix (lines 1-L) that fits, and a directive for the
+        unshown remainder. A remainder of at most READ_BUDGET bytes gets a
+        directive to Read lines L+1 to EOF in full before the first
+        decision. A larger one gets a grep-on-demand directive instead: do
+        not Read the remainder whole, grep MEMORY.md before any decision
+        that may depend on a recorded fact or operator ruling, and Read only
+        windows around hits with a limit computed from the file's own
+        average bytes per line. A first line too long to show (L = 0)
+        follows the same split on the whole file. Any exception in Phase B
+        emits a fallback directive naming the path that never mandates a
+        whole-file Read above READ_BUDGET. The output does not depend on
+        the payload's `source`.
 
 Upstream deps: Python 3.9+ stdlib only; `git` on PATH (optional - a failure
     falls back to cwd).
@@ -50,6 +60,14 @@ Downstream consumers: Claude Code hook runner (SessionStart, matcher "*",
 Failure modes: always exits 0 and never writes anything. CAP is 8500 because
     9 KB was measured to arrive inline; the escaped length bounds every
     character or byte unit the harness might count.
+    READ_BUDGET is 30000 bytes: the Read tool caps one call at 25,000
+    tokens, and a dense MEMORY.md (authentic8, ~275 B/line) was measured at
+    ~2 B/token, so one Read holds ~50 KB of it; 30 KB leaves ~40% margin
+    for the Read tool's line-number prefixes and denser text. WINDOW_BYTES
+    (15000, half of READ_BUDGET) sizes the windowed-Read limit as
+    WINDOW_BYTES // avg_bytes_per_line clamped to WINDOW_MIN..WINDOW_MAX
+    lines; only a file averaging over 3000 B/line can push a WINDOW_MIN
+    window past READ_BUDGET.
 
 Performance: one `git rev-parse` (2 s timeout) and reads of at most four
     files; well under the 5 s registration timeout.
@@ -64,6 +82,10 @@ import sys
 
 MARKER = "<!-- dinostack:memory-main-only -->"
 CAP = 8500
+READ_BUDGET = 30000
+WINDOW_BYTES = 15000
+WINDOW_MIN = 5
+WINDOW_MAX = 200
 IMPORT_LINES = ("@MEMORY.md", "@./MEMORY.md")
 IMPORT_FILES = ("CLAUDE.md", os.path.join(".claude", "CLAUDE.md"), "CLAUDE.local.md")
 
@@ -129,6 +151,36 @@ def _tail_directive(n_bytes, n_lines, last, path):
     )
 
 
+def _window_limit(n_bytes, n_lines):
+    avg = n_bytes / max(1, n_lines)
+    return max(WINDOW_MIN, min(WINDOW_MAX, int(WINDOW_BYTES // max(1.0, avg))))
+
+
+def _grep_directive(n_bytes, n_lines, last, rest_bytes, path):
+    shown = ("only lines 1-%d are shown" % last if last
+             else "its first line exceeds the cap, so none is shown")
+    return (
+        "MEMORY.md is %d bytes, %d lines; %s. Do not Read lines %d-%d whole: "
+        "those %d bytes are more than one Read returns (the Read tool caps a "
+        "call at 25,000 tokens, and dense Markdown runs near 2 bytes per "
+        "token). Instead, before any decision that may depend on a recorded "
+        "fact or operator ruling, grep for it with `grep -n -i '<topic>' %s` "
+        "and Read only a window around each hit: offset a few lines above the "
+        "hit, limit at most %d (this file averages %d bytes per line). This "
+        "holds for the whole session, including after a compact or clear."
+        % (n_bytes, n_lines, shown, last + 1, n_lines, rest_bytes, path,
+           _window_limit(n_bytes, n_lines), round(n_bytes / max(1, n_lines)))
+    )
+
+
+def _rest_directive(n_bytes, n_lines, last, rest_bytes, path):
+    if rest_bytes > READ_BUDGET:
+        return _grep_directive(n_bytes, n_lines, last, rest_bytes, path)
+    if last == 0:
+        return _none_shown_directive(n_bytes, n_lines, path)
+    return _tail_directive(n_bytes, n_lines, last, path)
+
+
 def _none_shown_directive(n_bytes, n_lines, path):
     return (
         "MEMORY.md is %d bytes, %d lines; its first line exceeds the cap, so "
@@ -149,14 +201,18 @@ def build_context(path):
     lines = _split_lines(text)
     used = 2 + _esc_len(header) + _esc_len("\n")
     last = 0
+    shown_bytes = 0
     for i, line in enumerate(lines, start=1):
         used += _esc_len(line)
-        if used + _esc_len(_tail_directive(len(raw), len(lines), i, path)) > CAP:
+        rest = len(raw) - shown_bytes - len(line.encode("utf-8"))
+        if used + _esc_len(_rest_directive(len(raw), len(lines), i, rest, path)) > CAP:
             break
         last = i
+        shown_bytes += len(line.encode("utf-8"))
+    directive = _rest_directive(len(raw), len(lines), last, len(raw) - shown_bytes, path)
     if last == 0:
-        return header + _none_shown_directive(len(raw), len(lines), path)
-    return header + "".join(lines[:last]) + "\n" + _tail_directive(len(raw), len(lines), last, path)
+        return header + directive
+    return header + "".join(lines[:last]) + "\n" + directive
 
 
 def _emit_ctx(ctx):
@@ -190,7 +246,10 @@ def main():
     except Exception as exc:
         ctx = (
             "DinoStack memory hook error (%s): MEMORY.md was not delivered. "
-            "Read %s in full before your first decision." % (type(exc).__name__, path)
+            "Before any decision that may depend on a recorded fact or operator "
+            "ruling, grep %s for it (`grep -n -i '<topic>' %s`) and Read only "
+            "a window around each hit; Read the whole file only if it is at "
+            "most %d bytes." % (type(exc).__name__, path, path, READ_BUDGET)
         )
     _emit_ctx(ctx)
 

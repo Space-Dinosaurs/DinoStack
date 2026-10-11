@@ -1193,7 +1193,7 @@ Read:
 - Files mentioned in the ticket description
 - Sibling files to understand existing patterns
 - `$REPO/AGENTS.md` for conventions
-- The project's `MEMORY.md` (delivered to the main session at start; Read it in full if it is not in context) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
+- The project's `MEMORY.md` (delivered to the main session at start; follow the session-start-memory hook's directive for any unshown part, else grep it on demand and Read bounded windows around hits) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
 - Any `[track]/AGENTS.md` files for tracks touched by this ticket - track-specific conventions, stack, and gotchas
 
 Focus on understanding enough to make a solid plan - don't over-read.

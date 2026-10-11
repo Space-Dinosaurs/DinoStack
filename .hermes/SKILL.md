@@ -15339,7 +15339,7 @@ Upstream deps: content/references/planning-artifacts.md (Brief template and fiel
                content/sections/02-delegation.md (surface-and-proceed protocol);
                content/rules/conventions.md (git worktree conventions, base-branch resolution);
                .agentic/brief-session.json (resume state, includes rubric array);
-               MEMORY.md (prior-decisions scan, delivered to the main session at start; Read it in full if not in context);
+               MEMORY.md (prior-decisions scan, delivered to the main session at start; else grep on demand);
                docs/overview/_proposed/outcome-rubric.md (when product-discovery was run first).
 
 Downstream consumers: content/commands/ds-implement-ticket.md Phase 0b (brief_path check);
@@ -15649,7 +15649,7 @@ Full framing review is in scope.
 
 Runs after intent capture, before the gray-area menu.
 
-**MEMORY.md:** in the main session's context (SessionStart hook); if absent or truncated, Read it in full first.
+**MEMORY.md:** in the main session's context (SessionStart hook); for any part not shown, follow the hook's directive (grep the intent keywords, Read bounded windows around hits).
 Scan in-context content for keyword overlap with intent (substring match on
 space-separated keywords from the intent statement).
 
@@ -18782,7 +18782,7 @@ Read:
 - Files mentioned in the ticket description
 - Sibling files to understand existing patterns
 - `$REPO/AGENTS.md` for conventions
-- The project's `MEMORY.md` (delivered to the main session at start; Read it in full if it is not in context) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
+- The project's `MEMORY.md` (delivered to the main session at start; follow the session-start-memory hook's directive for any unshown part, else grep it on demand and Read bounded windows around hits) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
 - Any `[track]/AGENTS.md` files for tracks touched by this ticket - track-specific conventions, stack, and gotchas
 
 Focus on understanding enough to make a solid plan - don't over-read.
@@ -22028,7 +22028,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 12. **Root `CLAUDE.md` memory main-only migration** - root `MEMORY.md` reaches only the main session (Claude Code: DinoStack's `session-start-memory` SessionStart hook), never subagents. Write these two lines byte-exact:
     ```
     <!-- dinostack:memory-main-only -->
-    MEMORY.md (durable facts, operator rulings) is not auto-loaded. Main session: a DinoStack SessionStart hook delivers it; if it is absent or truncated, Read all of it before any other tool call, whatever the task. Subagents: grep on demand (`grep -n -i '<topic>' MEMORY.md`); if your worktree lacks it, grep the primary checkout's copy, never Read it (Read is denied there).
+    MEMORY.md (durable facts, operator rulings) is not auto-loaded. Main session: a DinoStack SessionStart hook delivers it whole, or its head plus a directive for the rest - follow that directive; if neither is in context, grep on demand and Read only bounded windows around hits, never the whole file at once. Subagents: grep on demand (`grep -n -i '<topic>' MEMORY.md`); if your worktree lacks it, grep the primary checkout's copy, never Read it (Read is denied there).
     ```
     - **IMPORT** = a line equal, after trimming whitespace, to `@MEMORY.md` or `@./MEMORY.md`, in root `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md`. **MARKER present** = root `CLAUDE.md` has a line equal, after trimming, to the first line above.
     - **Host guard (first):** if `CLAUDECODE=1` and `session-start-memory.py` does not appear in `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json`, plan no change and report "Memory main-only migration skipped: run the DinoStack installer or ds-update, then re-run /ds-init-project." If `CLAUDECODE` is unset, add the report line "Claude Code teammates without the DinoStack installer fall back to the pointer line."
@@ -25625,7 +25625,7 @@ Manual `/ds-wrap` is synchronous: there is no in-session auto-enrichment protoco
    - `cp <dir>/CLAUDE.md <dir>/AGENTS.md` to preserve content.
    - **Root directory:** overwrite `<dir>/CLAUDE.md` with `@AGENTS.md` followed by these two lines byte-exact:
      <!-- dinostack:memory-main-only -->
-     MEMORY.md (durable facts, operator rulings) is not auto-loaded. Main session: a DinoStack SessionStart hook delivers it; if it is absent or truncated, Read all of it before any other tool call, whatever the task. Subagents: grep on demand (`grep -n -i '<topic>' MEMORY.md`); if your worktree lacks it, grep the primary checkout's copy, never Read it (Read is denied there).
+     MEMORY.md (durable facts, operator rulings) is not auto-loaded. Main session: a DinoStack SessionStart hook delivers it whole, or its head plus a directive for the rest - follow that directive; if neither is in context, grep on demand and Read only bounded windows around hits, never the whole file at once. Subagents: grep on demand (`grep -n -i '<topic>' MEMORY.md`); if your worktree lacks it, grep the primary checkout's copy, never Read it (Read is denied there).
      so Claude Code loads the migrated file while `MEMORY.md` reaches only the main session via DinoStack's SessionStart hook. Exception: when `CLAUDECODE=1` and `session-start-memory.py` is absent from `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json`, write `@AGENTS.md` then `@MEMORY.md` instead and add the Watch Out For line `Legacy @MEMORY.md import written: run the DinoStack installer, then /ds-init-project, to make MEMORY.md main-session-only.` Either way, per Atomic write discipline <!-- aw-site: claude-md-root --> (unconditional publish). Apply the dangling-import guard: if root `MEMORY.md` does not exist, seed it with the `/ds-init-project` Step 8 stub before writing the import (consistent with this preflight's existing silent-stub-creation pattern in item 4), per Atomic write discipline <!-- aw-site: memory-md-seed --> (conditional publish - never overwrite an existing `MEMORY.md`).
    - **Track directories:** overwrite `<dir>/CLAUDE.md` with the single line `@AGENTS.md` only - tracks do not have their own `MEMORY.md`, so no `@MEMORY.md` import is added, per Atomic write discipline <!-- aw-site: claude-md-track --> (unconditional publish).
    - Skip directories where `AGENTS.md` already exists (leave `CLAUDE.md` untouched).
