@@ -1242,6 +1242,14 @@ def test_session_windows_count_legacy_duplicate_rows_once():
         assert (before["sessions"], before["wall_seconds_sum"]) == (1, 40), before
         assert (after["sessions"], after["wall_seconds_sum"]) == (1, 300), after
 
+        newer_repo, older_repo = Path(tmp) / "newer", Path(tmp) / "older"
+        _write_jsonl(newer_repo / ".agentic" / "session-log" / "dev.jsonl",
+                     [row("2026-08-26T00:00:00+00:00", "s9", 300)])
+        _write_jsonl(older_repo / ".agentic" / "session-log" / "dev.jsonl",
+                     [row("2026-08-11T00:00:00+00:00", "s9", 100)])
+        rows = _mod._collect_session_log([newer_repo, older_repo])["rows"]
+        assert [(r[0].isoformat(), r[2]) for r in rows] == [("2026-08-26T00:00:00+00:00", 300)], rows
+
 
 if __name__ == "__main__":
     run_tests()

@@ -318,7 +318,7 @@ def run_tests():
         print("\nAll retro tests passed.")
 
 
-def _one_commit_repo(tmpdir: str, subject: str) -> str:
+def _one_commit_repo(tmpdir: str, subject: str, origin_main: bool = True) -> str:
     repo = os.path.join(tmpdir, "prrepo")
     os.makedirs(repo)
     _git(["init", "-b", "main"], cwd=repo)
@@ -330,13 +330,16 @@ def _one_commit_repo(tmpdir: str, subject: str) -> str:
                GIT_COMMITTER_DATE="2026-05-01T10:00:00")
     subprocess.run(["git", "commit", "--message", subject], cwd=repo, env=env,
                    capture_output=True, check=True)
+    if origin_main:
+        _git(["update-ref", "refs/remotes/origin/main", "HEAD"], cwd=repo)
     return repo
 
 
-def _retro_with_gh(repo: str, gh_available: bool, prs: list, as_json: bool = False) -> str:
+def _retro_with_gh(repo: str, gh_available: bool, prs: list, as_json: bool = False,
+                   gh_warn: str | None = None) -> str:
     orig_gh, orig_fetch = _mod._gh_available, _mod._fetch_gh_prs
     _mod._gh_available = lambda: gh_available
-    _mod._fetch_gh_prs = lambda *a, **k: (prs, None)
+    _mod._fetch_gh_prs = lambda *a, **k: (prs, gh_warn)
     try:
         rc, out = _capture_retro(_make_args(**{"json": as_json}), repo)
     finally:
@@ -390,6 +393,42 @@ def test_retro_gh_ok_prints_pr_counts():
         repo = _one_commit_repo(tmpdir, "feat: add thing (#12)")
         out = _retro_with_gh(repo, True, [pr])
         assert _total_row(out) == ["TOTAL", "1", "1", "1", "2.0", "d", "1"], out
+
+
+def test_retro_gh_empty_with_dangling_origin_head_prints_na():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = _one_commit_repo(tmpdir, "feat: thing (#12)", origin_main=False)
+        _git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master"], cwd=repo)
+        out = _retro_with_gh(repo, True, [])
+        assert _total_row(out) == ["TOTAL", "1", "n/a", "n/a", "n/a", "1"], out
+        data = json.loads(_retro_with_gh(repo, True, [], as_json=True))
+        assert data["authors"]["carol"]["prs"] is None
+        assert "no base branch resolved" in data["prs_absent_reason"]
+
+
+def test_retro_gh_empty_with_git_log_failure_prints_na():
+    orig = _mod._count_git_pr_merges
+    _mod._count_git_pr_merges = lambda *a, **k: None
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = _one_commit_repo(tmpdir, "plain commit")
+            out = _retro_with_gh(repo, True, [])
+            data = json.loads(_retro_with_gh(repo, True, [], as_json=True))
+    finally:
+        _mod._count_git_pr_merges = orig
+    assert _total_row(out) == ["TOTAL", "1", "n/a", "n/a", "n/a", "1"], out
+    assert "git log on origin/main failed" in data["prs_absent_reason"]
+
+
+def test_retro_gh_failure_prints_na():
+    warn = "gh pr list failed; PR data omitted."
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = _one_commit_repo(tmpdir, "plain commit")
+        out = _retro_with_gh(repo, True, [], gh_warn=warn)
+        assert _total_row(out) == ["TOTAL", "1", "n/a", "n/a", "n/a", "1"], out
+        data = json.loads(_retro_with_gh(repo, True, [], as_json=True, gh_warn=warn))
+        assert data["authors"]["carol"]["prs"] is None
+        assert data["prs_absent_reason"] == warn
 
 
 if __name__ == "__main__":

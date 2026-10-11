@@ -48,7 +48,8 @@ Upstream deps: Python 3 stdlib (json, sys, os, argparse, datetime, pathlib,
                Optional pyyaml soft dependency for ~/.agentic/pricing.yml
                parsing; absent pyyaml -> token-only output with the
                "Install pyyaml for pricing support." line.
-               `retro` also shells out to git (always) and gh (optional).
+               `retro` also shells out to git (always) and gh (optional),
+               and loads bin/_lib.py (resolve_base_branch) by resolved path.
 
 Downstream consumers: content/commands/ds-cost.md (command spec);
                       developers running the command interactively.
@@ -66,7 +67,8 @@ Failure modes: missing .agentic/events.jsonl -> prints empty rollup with
                `retro` not in a git repo -> exit 1, friendly message.
                `retro` gh unavailable or unauthenticated, gh failing, or gh
                returning [] while first-parent history on the base branch
-               has a (#N) subject in range -> PRS/MERGED/AVG_MERGE_TIME print
+               (bin/_lib.py resolve_base_branch) has a (#N) subject in range
+               or cannot be checked -> PRS/MERGED/AVG_MERGE_TIME print
                n/a (JSON: null, plus a top-level prs_absent_reason) with a
                one-line warning; never a false 0.
                `team`/`operator` count each session_uuid once (its last row,
@@ -125,19 +127,20 @@ def _load_repo_root():
 _REPO_ROOT = _load_repo_root()
 
 
-def _load_telemetry():
+def _load_bin_module(name: str):
     import importlib.machinery as _ilm
     import importlib.util as _ilu
 
     loader = _ilm.SourceFileLoader(
-        "_telemetry", str(Path(__file__).resolve().parent / "_telemetry.py")
+        name, str(Path(__file__).resolve().parent / f"{name}.py")
     )
-    mod = _ilu.module_from_spec(_ilu.spec_from_loader("_telemetry", loader))
+    mod = _ilu.module_from_spec(_ilu.spec_from_loader(name, loader))
     loader.exec_module(mod)
     return mod
 
 
-_TELEMETRY = _load_telemetry()
+_TELEMETRY = _load_bin_module("_telemetry")
+_LIB = _load_bin_module("_lib")
 
 
 def _agentic_root() -> Path:
@@ -982,20 +985,9 @@ def _fetch_gh_prs(
 _PR_SUBJECT_RE = re.compile(r"\(#\d+\)")
 
 
-def _base_branch() -> str:
-    """origin/HEAD's target, else the first of main/master that resolves, else HEAD."""
-    out, _, rc = _run(["git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"])
-    if rc == 0 and out.strip():
-        return out.strip()
-    for name in ("main", "master"):
-        _, _, rc = _run(["git", "rev-parse", "--verify", "--quiet", name])
-        if rc == 0:
-            return name
-    return "HEAD"
-
-
-def _count_git_pr_merges(since: str, until: str, author: str | None, base: str) -> int:
-    """Count first-parent commits on `base` in the window whose subject carries (#N)."""
+def _count_git_pr_merges(since: str, until: str, author: str | None, base: str) -> int | None:
+    """Count first-parent commits on `base` in the window whose subject carries
+    (#N). None when git log fails."""
     cmd = [
         "git", "log", "--first-parent", base,
         f"--since={since}",
@@ -1007,8 +999,35 @@ def _count_git_pr_merges(since: str, until: str, author: str | None, base: str) 
         cmd.append(f"--author={author}")
     out, _, rc = _run(cmd)
     if rc != 0:
-        return 0
+        return None
     return sum(1 for line in out.splitlines() if _PR_SUBJECT_RE.search(line))
+
+
+def _empty_gh_absent_reason(since: str, until: str, author: str | None) -> str | None:
+    """Why an empty gh PR list cannot be believed, or None when git history
+    on the base branch confirms it. Any cross-check failure is a reason."""
+    top, _, rc = _run(["git", "rev-parse", "--show-toplevel"])
+    base = None
+    if rc == 0 and top.strip():
+        base, _, _ = _LIB.resolve_base_branch(top.strip(), None, prog="ds-cost retro")
+    if base is None:
+        return (
+            "gh returned no PRs and no base branch resolved to cross-check them "
+            "against git history. PR data omitted."
+        )
+    git_merges = _count_git_pr_merges(since, until, author, base)
+    if git_merges is None:
+        return (
+            f"gh returned no PRs and git log on {base} failed, so they could not "
+            "be cross-checked. PR data omitted."
+        )
+    if git_merges:
+        return (
+            f"gh returned no PRs, but {git_merges} first-parent commit(s) on "
+            f"{base} in range carry a (#N) subject; gh likely cannot see "
+            "this repo. PR data omitted."
+        )
+    return None
 
 
 def _aggregate_retro(
@@ -1228,14 +1247,7 @@ def cmd_retro(args: argparse.Namespace) -> int:
         if pr_warn:
             prs_absent_reason = pr_warn
         elif not prs:
-            base = _base_branch()
-            git_merges = _count_git_pr_merges(since_str, until_str, author_filter, base)
-            if git_merges:
-                prs_absent_reason = (
-                    f"gh returned no PRs, but {git_merges} first-parent commit(s) on "
-                    f"{base} in range carry a (#N) subject; gh likely cannot see "
-                    "this repo. PR data omitted."
-                )
+            prs_absent_reason = _empty_gh_absent_reason(since_str, until_str, author_filter)
     else:
         prs_absent_reason = "gh not available or not authenticated; PR data omitted."
     if prs_absent_reason:

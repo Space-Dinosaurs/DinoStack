@@ -220,3 +220,16 @@ def test_latest_session_rows_keeps_last_row_per_uuid():
         {"session_uuid": "a", "n": 3},
     ]
     assert tel.latest_session_rows([]) == []
+
+
+def test_latest_session_rows_picks_greatest_ts_not_input_order():
+    from datetime import datetime, timezone
+    newer = {"session_uuid": "a", "ts": "2026-07-02T10:00:00Z", "repo": 1}
+    older = {"session_uuid": "a", "ts": "2026-07-01T10:00:00+00:00", "repo": 2}
+    assert tel.latest_session_rows([newer, older]) == [newer]
+    tie_first = {"session_uuid": "b", "ts": "2026-07-01T10:00:00Z", "n": 1}
+    tie_second = {"session_uuid": "b", "ts": "2026-07-01T10:00:00+00:00", "n": 2}
+    assert tel.latest_session_rows([tie_first, tie_second]) == [tie_second]
+    no_ts = {"session_uuid": "c", "n": "no-ts"}
+    dated = {"session_uuid": "c", "ts": datetime(2026, 7, 1, tzinfo=timezone.utc)}
+    assert tel.latest_session_rows([dated, no_ts]) == [dated]

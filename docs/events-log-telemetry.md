@@ -296,7 +296,9 @@ all developers whose telemetry has landed on the branch via pull after merge.
 Session logs written before 2026-08-08 hold one cumulative row per turn;
 since then `bin/ds-identity` upserts one row per `session_uuid`.
 `ds-cost team`/`operator` and `ds-change-delta` count each `session_uuid`
-once, using its last row.
+once, using its latest row (greatest `ts`). A session whose rows carry more
+than one `project_slug` is credited by `ds-cost operator` only to its latest
+row's project.
 
 ## Practical notes
 

@@ -27,7 +27,8 @@ Public API:
         (run_index null) stop of the same orphan gets run_tokens = its
         growth over the previous stop, not the cumulative total.
     latest_session_rows(rows) -> list
-        Keeps the last row per `session_uuid`; rows without one pass through.
+        Keeps the greatest-ts row per `session_uuid` (ties: later input row);
+        rows without one pass through.
     primary_root(start) -> Path
     merge_primary_spawn_rows(cwd_events_path, events, primary_events_path=None) -> list
         Appends the primary root's hook spawn_start/spawn_complete rows when
@@ -54,6 +55,7 @@ import importlib.util
 import json
 import os
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 PRICING_PATH = Path(os.path.expanduser("~/.agentic/pricing.yml"))
@@ -321,23 +323,43 @@ def normalize_hook_spawns(events: list[dict], include_legacy: bool) -> list[Spaw
     return list(recs.values())
 
 
+def _row_ts(row: dict) -> datetime | None:
+    ts = row.get("ts")
+    if isinstance(ts, str):
+        try:
+            ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(ts, datetime):
+        return None
+    return ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
+
+
 def latest_session_rows(rows: list) -> list:
-    """Keep the last row per `session_uuid`, in input order of those last rows.
+    """Keep one row per `session_uuid`: the one with the greatest `ts`.
 
     Session-log files were appended once per conductor turn, cumulatively,
     before 2026-08-08; since then bin/ds-identity upserts one row per
     session_uuid. The pre-2026-08-08 duplicate rows inflate every all-time
-    read: session counts and token/wall sums. The last row of a session is
-    its most cumulative one. Rows without a string session_uuid pass through.
+    read: session counts and token/wall sums. A session's latest row is its
+    most cumulative one. `ts` is an ISO string or a datetime; a row with no
+    parseable `ts` ranks below any row that has one, and ties go to the row
+    later in input order (input order alone is wrong when several files or
+    repos are concatenated). Kept rows stay in input order; rows without a
+    string session_uuid pass through.
     Retirement: never for all-time readers; a no-op for windows starting
     after 2026-08-08.
     """
-    last: dict[str, int] = {}
+    floor = datetime.min.replace(tzinfo=timezone.utc)
+    best: dict[str, tuple] = {}
     for i, row in enumerate(rows):
         uuid = row.get("session_uuid") if isinstance(row, dict) else None
         if isinstance(uuid, str) and uuid:
-            last[uuid] = i
-    keep = set(last.values())
+            ts = _row_ts(row)
+            key = (ts is not None, ts or floor, i)
+            if uuid not in best or key > best[uuid]:
+                best[uuid] = key
+    keep = {key[2] for key in best.values()}
     out = []
     for i, row in enumerate(rows):
         uuid = row.get("session_uuid") if isinstance(row, dict) else None

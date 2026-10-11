@@ -15781,7 +15781,7 @@ ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH] [--window-days N] [--pr-lo
   hook-deny, token, and wall-time metrics are computed over the MERGED
   row set across every `--repo` - not independently per repo and then
   combined. PR history is reported separately, per repo. Session-log
-  rows count once per `session_uuid` (its last row, in whichever window
+  rows count once per `session_uuid` (its latest-`ts` row, in whichever window
   that row falls), so pre-2026-08-08 per-turn cumulative rows do not
   inflate session counts or sums.
 - `--pr-lookahead-days N` (optional, default 7): merged PRs up to N days
@@ -16455,9 +16455,11 @@ It is the third dimension in the cost-visibility hierarchy:
 | `operator` | All projects, all developers | `~/.agentic/session-log/*.jsonl` (global mirror) |
 | `project` | One project, all sessions | `.agentic/events.jsonl` (local telemetry) |
 
-Both `team` and `operator` count each `session_uuid` once, using its last row:
-session logs written before 2026-08-08 hold one cumulative row per turn, and
-summing them would inflate session counts and totals.
+Both `team` and `operator` count each `session_uuid` once, using its latest row
+(greatest `ts`): session logs written before 2026-08-08 hold one cumulative row
+per turn, and summing them would inflate session counts and totals. A session
+whose rows carry more than one `project_slug` is credited by `operator` only
+to its latest row's project, never split across projects.
 
 **Multi-scope handle attribution:** A developer who uses project, profile, and
 global handles can appear as separate rows in both `team` and `operator`
@@ -16507,7 +16509,9 @@ Data sources (used in order of availability):
    merged count, files-changed sum, and time-from-open-to-merge as a wall-clock
    proxy. When `gh` is unavailable or fails, or returns no PRs while the base
    branch's first-parent history has a `(#N)` subject in range (gh cannot see
-   the repo), a one-line warning is printed and `PRS`, `MERGED` and
+   the repo) or cannot be checked (no base branch resolves - AGENTS.md
+   `BASE_BRANCH:` first, then `origin/HEAD`, then `origin/main`/`master` - or
+   `git log` fails), a one-line warning is printed and `PRS`, `MERGED` and
    `AVG_MERGE_TIME` print `n/a`, never `0`. `--json` reports them as `null`
    with the reason in a top-level `prs_absent_reason`.
 2. **`git log`** - always available in a git repo. Provides commit count per

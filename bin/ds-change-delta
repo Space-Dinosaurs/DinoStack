@@ -389,7 +389,7 @@ def _collect_session_log(repos: list[Path]) -> dict:
     "cache_read":int} breakdown, carried alongside the aggregate `tokens_sum`
     so a caller can distinguish "the aggregate is zero" from "one component
     field is zero" (see _tokens_field_sums_all_zero, mutation C's target).
-    `rows` holds one row per session_uuid (its last, most cumulative row,
+    `rows` holds one row per session_uuid (its latest-ts, most cumulative row,
     via _telemetry.latest_session_rows), so _window_slice counts each
     session once; the extents are taken over every row read."""
     keyed: list[dict] = []
@@ -432,6 +432,7 @@ def _collect_session_log(repos: list[Path]) -> dict:
                     tokens_fields["input"] = tokens_sum
                 keyed.append({
                     "session_uuid": rec.get("session_uuid"),
+                    "ts": ts,
                     "row": (ts, spawn_count, wall_seconds, tokens_sum, tokens_fields, str(path)),
                 })
                 if repo_earliest is None or ts < repo_earliest:
