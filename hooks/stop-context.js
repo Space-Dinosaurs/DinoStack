@@ -551,11 +551,21 @@ function skillCandidateDetectionEnabled(cwd) {
  * Returns null if the file is absent, empty, or unreadable.
  *
  * Counting rules:
- *   - conductor-emitted spawn_complete events (data.source !== 'hook') always
- *     contribute wall_seconds + tokens + spawn count. Their presence in a
- *     session (data.source !== 'hook') is what defines a "ticketed" session
- *     for the double-count guard below - NOT the mere presence of ANY
- *     spawn_complete (see DS-160 fix note).
+ *   - Session filter: when sessionId is set, only rows whose
+ *     data.session_uuid equals it are read; a row with no session_uuid is
+ *     dropped, since nothing ties it to this session. Rows are read
+ *     unfiltered only when sessionId is null.
+ *   - conductor-emitted spawn_complete events (data.source !== 'hook')
+ *     contribute wall_seconds + tokens + spawn count in a ticketed session.
+ *     Their presence in a session (data.source !== 'hook') is what defines a
+ *     "ticketed" session for the double-count guard below - NOT the mere
+ *     presence of ANY spawn_complete (see DS-160 fix note).
+ *   - Telemetry v2 precedence (DS-246): a session with any hook spawn_start or
+ *     spawn_complete carrying data.telemetry_v === 2 is counted from hook rows
+ *     only, as in a pure ad-hoc session below, even when it also has a
+ *     conductor spawn_complete. v2 hooks record every spawn with
+ *     transcript-resolved tokens; the conductor-only branch applies to
+ *     ticketed sessions with no v2 hook rows.
  *   - conductor_direct events are NO LONGER counted (deprecated; hook-emitted
  *     spawn_start events replace them for ad-hoc session tracking).
  *   - DS-160 double-count guard: when the session has at least one
@@ -665,9 +675,10 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
     }
   }
 
-  // Parse once, filtering to the current session (events without a
-  // session_uuid are tolerated/included for back-compat with
-  // pre-instrumentation lines).
+  // Parse once, filtering to the current session. When sessionId is known,
+  // a row without data.session_uuid is dropped: it cannot be attributed to
+  // this session, and admitting it put one stray uuid-less conductor
+  // spawn_complete into every session's aggregate.
   const parsed = [];
   for (const line of lines) {
     const trimmed = line.trim();
@@ -676,22 +687,31 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
     try { obj = JSON.parse(trimmed); } catch (_) { continue; }
     if (!obj) continue;
     const data = obj.data || {};
-    if (sessionId && data.session_uuid && data.session_uuid !== sessionId) continue;
+    if (sessionId && data.session_uuid !== sessionId) continue;
     parsed.push(obj);
   }
 
   // Session-type determination: ONLY a conductor-emitted (non-hook)
   // spawn_complete marks this a "ticketed" session. A hook-emitted
   // spawn_complete does NOT, by itself, imply the conductor also reported
-  // this spawn (see DS-160 fix note above).
+  // this spawn (see DS-160 fix note above). A session with any telemetry v2
+  // hook row (DS-246) takes the hook branch regardless: v2 hooks record every
+  // spawn with transcript-resolved tokens, and that branch ignores conductor
+  // rows, so a conductor row cannot zero out real hook telemetry and nothing
+  // is counted twice.
   const hasConductorSpawnComplete = parsed.some(
     obj => obj.event === 'spawn_complete' && (obj.data || {}).source !== 'hook'
   );
+  const hasV2HookSpawnRow = parsed.some(obj => {
+    const data = obj.data || {};
+    return (obj.event === 'spawn_start' || obj.event === 'spawn_complete')
+      && data.source === 'hook' && data.telemetry_v === 2;
+  });
 
-  if (hasConductorSpawnComplete) {
-    // Ticketed/mixed session: count ONLY conductor-emitted spawn_complete
-    // events. ALL hook-emitted telemetry (spawn_start and spawn_complete)
-    // is excluded - double-count guard.
+  if (hasConductorSpawnComplete && !hasV2HookSpawnRow) {
+    // Ticketed/mixed session without v2 hook rows: count ONLY
+    // conductor-emitted spawn_complete events. ALL hook-emitted telemetry
+    // (spawn_start and spawn_complete) is excluded - double-count guard.
     for (const obj of parsed) {
       if (obj.event !== 'spawn_complete') continue;
       const data = obj.data || {};
@@ -699,7 +719,7 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
       recordSpawn(obj.agent, Number(data.wall_seconds) || 0, data.tokens || {});
     }
   } else {
-    // Pure ad-hoc session: dedup hook-emitted spawn_start/spawn_complete by
+    // Pure ad-hoc session, or any session with v2 hook rows: dedup hook-emitted spawn_start/spawn_complete by
     // spawn_id so each real spawn counts exactly once, and a spawn whose
     // SubagentStop was lost (spawn_start with no paired spawn_complete)
     // still counts rather than being silently dropped. Legacy spawn_start
@@ -771,14 +791,15 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
 /**
  * Append a single session_total event to .agentic/events.jsonl summing
  * spawn activity for the current session (conductor_direct is a retired
- * event name and is no longer counted - see :555 above). In a ticketed
- * session (any conductor-emitted spawn_complete present), only those
- * conductor-emitted spawn_complete events are summed - all hook-emitted
- * telemetry is excluded as a double-count guard. In a pure ad-hoc session
- * (no conductor-emitted spawn_complete), hook-emitted spawn_start events
- * are deduped by spawn_id and counted instead, so spawn_count can be
- * nonzero with zero spawn_complete events present. See scanSessionAggregate
- * (:686-751) for the full branch logic.
+ * event name and is no longer counted - see scanSessionAggregate above). In
+ * a ticketed session with no telemetry v2 hook rows (any conductor-emitted
+ * spawn_complete present), only those conductor-emitted spawn_complete
+ * events are summed - all hook-emitted telemetry is excluded as a
+ * double-count guard. In a pure ad-hoc session, or any session with a v2
+ * hook spawn row, hook-emitted spawn_start events are deduped by spawn_id
+ * and counted instead, so spawn_count can be nonzero with zero
+ * spawn_complete events present. See scanSessionAggregate for the full
+ * branch logic.
  * Best-effort: any fs / parse failure is swallowed silently.
  *
  * @param {string} cwd - Verified project directory.
