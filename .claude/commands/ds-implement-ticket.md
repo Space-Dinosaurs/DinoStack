@@ -2560,7 +2560,7 @@ for i in 1 2 3; do
   git -C "$TEMP_CLONE" commit -m "qa: ${TICKET_SLUG}/${BRANCH_SLUG} PASS evidence"
 done
 
-find "$TEMP_CLONE" -delete
+find "$TEMP_CLONE" -delete 2>/dev/null || true
 ```
 
 After temp-clone push succeeds, fetch the updated remote-tracking ref into the main repo:

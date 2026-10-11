@@ -3182,16 +3182,6 @@
       "source_token": "if"
     },
     {
-      "expected_target": "find",
-      "generated_token": "find",
-      "kind": "operational",
-      "occurrence_hash": "00d531eeeffedac9a9e4ba90417e99799b91e43a856bd1de79554dabcbd20196",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "find"
-    },
-    {
       "expected_target": ".agentic/loop-state-",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
       "kind": "operational",
@@ -3840,6 +3830,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "run"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "/dev",
+      "kind": "display-only",
+      "occurrence_hash": "0cd06791a7ad5ed69eb8f242d7c952f30ab4d1d0f87abd030b9753ea6b062682",
+      "resolution_mode": "display-only",
+      "scope": "display-only",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/dev"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -7162,6 +7162,16 @@
       "source_token": "bin/ds-learning-shard"
     },
     {
+      "expected_target": "find",
+      "generated_token": "find",
+      "kind": "operational",
+      "occurrence_hash": "3e958ac903e959da008b5f000403df6fb8cd2b0698f4b5545fab42a5bb7cd830",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "find"
+    },
+    {
       "expected_target": "content/commands/ds-ticket-status-sync.md",
       "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
       "kind": "operational",
@@ -8170,6 +8180,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "KC_REVERT_RISK"
+    },
+    {
+      "expected_target": "true",
+      "generated_token": "true",
+      "kind": "operational",
+      "occurrence_hash": "4cc58ab958266b2b937a387d5f009994f3571174603c536db2deda2f26be2969",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "true"
     },
     {
       "expected_target": ".agentic/batch-state.json",

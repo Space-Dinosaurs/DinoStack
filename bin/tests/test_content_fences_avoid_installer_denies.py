@@ -19,9 +19,10 @@ Failure modes: pure static analysis of tracked text files. Matching is
          ; & | { ( or then/do/else) inside bare, bash, sh, shell and zsh
          fences; comment text is ignored. A denied command reached any other
          way (a subcommand such as `git -C x rm -rf .`, a variable, eval) is
-         not detected. If install.sh stops shipping Bash deny rules, or the
-         block's shape changes so none parse, the prefix test fails loudly
-         rather than letting the scan pass vacuously.
+         not detected. If no Bash deny prefix parses, the prefix test fails
+         loudly rather than letting the scan pass vacuously. That failure is
+         this test's retirement condition: when .claude/install.sh ships no
+         Bash deny prefixes, delete this test rather than repair the parse.
 
 Performance: negligible - one regex pass over content/**/*.md.
 """
@@ -29,6 +30,8 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 INSTALL_SH = REPO_ROOT / ".claude" / "install.sh"
@@ -77,8 +80,9 @@ def test_install_sh_ships_bash_deny_prefixes():
     )
 
 
-def test_scanner_detects_a_denied_command():
-    sample = "```bash\nmkdir -p x\n[ -d x ] && rm -rf x\n```\n"
+@pytest.mark.parametrize("lang", ["", "bash", "sh", "shell", "zsh"])
+def test_scanner_detects_a_denied_command(lang):
+    sample = f"```{lang}\nmkdir -p x\n[ -d x ] && rm -rf x\n```\n"
     assert _scan(sample, ["rm -rf"]) == [(3, "rm -rf", "[ -d x ] && rm -rf x")]
 
 
