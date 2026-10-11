@@ -7,9 +7,10 @@ that itself contains a marker-like string).
 Puts the invariant "a `<!-- shared: -->` span in content/agents/*.md is
 byte-identical to its `<!-- FRAGMENT: -->` source" on the already-required
 `bin-tests` CI check, and proves the two failure-mode guards actually fire
-rather than silently no-op'ing on a corrupted span. Also pins the
-untrusted-content-is-data span's exact three-file consumer set
-(UNTRUSTED_CONTENT_FILES, DS-238), mirroring LEARNINGS_RETRIEVAL_FILES.
+rather than silently no-op'ing on a corrupted span. Also pins the exact
+consumer sets of the untrusted-content-is-data (UNTRUSTED_CONTENT_FILES,
+DS-238), shell-portability (SHELL_PORTABILITY_FILES), and worker-shell
+(WORKER_SHELL_FILES) spans, mirroring LEARNINGS_RETRIEVAL_FILES.
 """
 
 import importlib.util
@@ -104,7 +105,7 @@ class TestFragmentBodyRejectsMarkerLikeStrings(unittest.TestCase):
 # update this map in the same commit as any deliberate span addition or
 # removal.
 EXPECTED_SPAN_IDS = {
-    "architect.md": frozenset({"learnings-retrieval"}),
+    "architect.md": frozenset({"learnings-retrieval", "shell-portability"}),
     "debugger.md": frozenset({"learnings-retrieval", "untrusted-content-is-data"}),
     "engineer.md": frozenset(
         {
@@ -113,11 +114,17 @@ EXPECTED_SPAN_IDS = {
             "identifier-type-list",
             "learnings-retrieval",
             "rename-exemption-clause",
+            "shell-portability",
             "test-file-glob-list",
+            "worker-shell",
         }
     ),
-    "investigator.md": frozenset({"learnings-retrieval", "untrusted-content-is-data"}),
-    "qa-engineer.md": frozenset({"untrusted-content-is-data"}),
+    "investigator.md": frozenset(
+        {"learnings-retrieval", "shell-portability", "untrusted-content-is-data"}
+    ),
+    "qa-engineer.md": frozenset(
+        {"shell-portability", "untrusted-content-is-data", "worker-shell"}
+    ),
     # skeptic.md deliberately carries NO learnings-retrieval span: wiring
     # retrieval into the Skeptic was cut on independence grounds (DS-223
     # hard constraint 2). This absence is load-bearing, not an oversight.
@@ -127,6 +134,7 @@ EXPECTED_SPAN_IDS = {
             "identifier-rename-trigger",
             "identifier-type-list",
             "rename-exemption-clause",
+            "shell-portability",
             "test-file-glob-list",
         }
     ),
@@ -146,6 +154,14 @@ LEARNINGS_RETRIEVAL_FILES = frozenset(
 UNTRUSTED_CONTENT_FILES = frozenset(
     {"debugger.md", "investigator.md", "qa-engineer.md"}
 )
+
+# The exact sets of agent files that must carry the shell-portability and
+# worker-shell spans. Pinned separately from EXPECTED_SPAN_IDS for the same
+# leak-visibility reason as LEARNINGS_RETRIEVAL_FILES above.
+SHELL_PORTABILITY_FILES = frozenset(
+    {"architect.md", "engineer.md", "investigator.md", "qa-engineer.md", "skeptic.md"}
+)
+WORKER_SHELL_FILES = frozenset({"engineer.md", "qa-engineer.md"})
 
 
 class TestLiveTreeIsStamped(unittest.TestCase):
@@ -258,6 +274,12 @@ class TestLiveTreeIsStamped(unittest.TestCase):
 
     def test_untrusted_content_span_file_set_over_full_glob(self):
         self._assert_span_file_set("untrusted-content-is-data", UNTRUSTED_CONTENT_FILES)
+
+    def test_shell_portability_span_file_set_over_full_glob(self):
+        self._assert_span_file_set("shell-portability", SHELL_PORTABILITY_FILES)
+
+    def test_worker_shell_span_file_set_over_full_glob(self):
+        self._assert_span_file_set("worker-shell", WORKER_SHELL_FILES)
 
     def test_learnings_retrieval_fragment_preserves_silent_degradation(self):
         """The retrieval instruction must stay a silent no-op when there is
