@@ -190,7 +190,8 @@ DENY_MESSAGE_TEMPLATE = (
     "inside your own branch. Verify the spawn's worktree_setup/create_commands "
     "actually populated {caller_root} as a real worktree branch; if this write "
     "is genuinely needed against the primary checkout, ask an operator to add "
-    "its path to worktree_write_guard_exemptions in "
+    "the entry {exempt_entry!r} (paths there are relative to the primary "
+    "checkout) to worktree_write_guard_exemptions in "
     "<primary_root>/.agentic/config.json."
 )
 
@@ -418,6 +419,7 @@ def main() -> None:
             path=target,
             primary_root=primary_root,
             caller_root=caller_root,
+            exempt_entry=rel_target,
         )
         # Decision print comes FIRST, unconditionally. Telemetry is loaded
         # and called only after the decision has reached stdout, and is
