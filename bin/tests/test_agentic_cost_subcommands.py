@@ -519,6 +519,48 @@ def test_filter_records_since():
     print("PASS test_filter_records_since")
 
 
+def _legacy_duplicate_lines() -> str:
+    """Pre-2026-08-08 shape: one cumulative row per turn for uuid-1, then uuid-2."""
+    return "".join(line + "\n" for line in (
+        _make_session_line("alice", "uuid-1", "proj-x", "2026-07-01T10:00:00Z",
+                           wall=10.0, input_tokens=100),
+        _make_session_line("alice", "uuid-1", "proj-x", "2026-07-01T10:05:00Z",
+                           wall=20.0, input_tokens=200),
+        _make_session_line("alice", "uuid-1", "proj-x", "2026-07-01T10:09:00Z",
+                           wall=30.0, input_tokens=300),
+        _make_session_line("alice", "uuid-2", "proj-x", "2026-07-02T10:00:00Z",
+                           wall=5.0, input_tokens=50),
+    ))
+
+
+def test_team_counts_legacy_duplicate_rows_once():
+    with tempfile.TemporaryDirectory() as tmp:
+        log_dir = Path(tmp) / "session-log"
+        log_dir.mkdir()
+        (log_dir / "alice.jsonl").write_text(_legacy_duplicate_lines())
+        args = types.SimpleNamespace(json=True)
+        rc, out, _ = _capture_cmd(_mod.cmd_team, args, session_log_dir=log_dir)
+        assert rc == 0
+        alice = json.loads(out)["alice"]
+        assert alice["sessions"] == 2, alice
+        assert alice["tokens"]["input"] == 350, alice
+        assert alice["wall_seconds"] == 35.0, alice
+
+
+def test_operator_counts_legacy_duplicate_rows_once():
+    with tempfile.TemporaryDirectory() as tmp:
+        log_dir = Path(tmp) / "session-log"
+        log_dir.mkdir()
+        (log_dir / "alice.jsonl").write_text(_legacy_duplicate_lines())
+        args = types.SimpleNamespace(since=None, json=True)
+        rc, out, _ = _capture_cmd(_mod.cmd_operator, args, global_log_dir=log_dir)
+        assert rc == 0
+        proj = json.loads(out)["alice"]["proj-x"]
+        assert proj["sessions"] == 2, proj
+        assert proj["tokens"]["input"] == 350, proj
+        assert proj["wall_seconds"] == 35.0, proj
+
+
 def test_session_hook_spawn_tokens_render_na():
     """session with hook spawn_start only (zero tokens) -> n/a in token columns."""
     with tempfile.TemporaryDirectory() as tmp:

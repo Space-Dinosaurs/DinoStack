@@ -48,7 +48,8 @@ Upstream deps: Python 3 stdlib (json, sys, os, argparse, datetime, pathlib,
                Optional pyyaml soft dependency for ~/.agentic/pricing.yml
                parsing; absent pyyaml -> token-only output with the
                "Install pyyaml for pricing support." line.
-               `retro` also shells out to git (always) and gh (optional).
+               `retro` also shells out to git (always) and gh (optional),
+               and loads bin/_lib.py (resolve_base_branch) by resolved path.
 
 Downstream consumers: content/commands/ds-cost.md (command spec);
                       developers running the command interactively.
@@ -64,8 +65,14 @@ Failure modes: missing .agentic/events.jsonl -> prints empty rollup with
                missing/empty ~/.agentic/session-log/ -> prints empty-data
                message and exits 0.
                `retro` not in a git repo -> exit 1, friendly message.
-               `retro` gh unavailable or unauthenticated -> git-only mode with
-               one-line warning.
+               `retro` gh unavailable or unauthenticated, gh failing, or gh
+               returning [] while first-parent history on the base branch
+               (bin/_lib.py resolve_base_branch) has a (#N) subject in range
+               or cannot be checked -> PRS/MERGED/AVG_MERGE_TIME print
+               n/a (JSON: null, plus a top-level prs_absent_reason) with a
+               one-line warning; never a false 0.
+               `team`/`operator` count each session_uuid once (its last row,
+               via _telemetry.latest_session_rows).
 
 Performance: O(N events) single pass; <2s on a session with 50 events
              per acceptance criterion 3. `retro` performance bounded by
@@ -120,19 +127,20 @@ def _load_repo_root():
 _REPO_ROOT = _load_repo_root()
 
 
-def _load_telemetry():
+def _load_bin_module(name: str):
     import importlib.machinery as _ilm
     import importlib.util as _ilu
 
     loader = _ilm.SourceFileLoader(
-        "_telemetry", str(Path(__file__).resolve().parent / "_telemetry.py")
+        name, str(Path(__file__).resolve().parent / f"{name}.py")
     )
-    mod = _ilu.module_from_spec(_ilu.spec_from_loader("_telemetry", loader))
+    mod = _ilu.module_from_spec(_ilu.spec_from_loader(name, loader))
     loader.exec_module(mod)
     return mod
 
 
-_TELEMETRY = _load_telemetry()
+_TELEMETRY = _load_bin_module("_telemetry")
+_LIB = _load_bin_module("_lib")
 
 
 def _agentic_root() -> Path:
@@ -631,7 +639,7 @@ def _aggregate_team(records: list[dict]) -> dict:
                       by_agent: {agent: {spawns, wall_seconds, tokens_total}}}}
     """
     agg: dict = {}
-    for rec in records:
+    for rec in _TELEMETRY.latest_session_rows(records):
         dev = rec.get("developer_id")
         if not dev:
             continue
@@ -721,7 +729,7 @@ def _aggregate_operator(records: list[dict]) -> dict:
                                                 cache_creation, cache_read}}}
     """
     agg: dict = {}
-    for rec in records:
+    for rec in _TELEMETRY.latest_session_rows(records):
         dev = rec.get("developer_id")
         if not dev:
             continue
@@ -974,6 +982,54 @@ def _fetch_gh_prs(
     return prs, None
 
 
+_PR_SUBJECT_RE = re.compile(r"\(#\d+\)")
+
+
+def _count_git_pr_merges(since: str, until: str, author: str | None, base: str) -> int | None:
+    """Count first-parent commits on `base` in the window whose subject carries
+    (#N). None when git log fails."""
+    cmd = [
+        "git", "log", "--first-parent", base,
+        f"--since={since}",
+        f"--until={until}",
+        "--no-color",
+        "--pretty=format:%s",
+    ]
+    if author:
+        cmd.append(f"--author={author}")
+    out, _, rc = _run(cmd)
+    if rc != 0:
+        return None
+    return sum(1 for line in out.splitlines() if _PR_SUBJECT_RE.search(line))
+
+
+def _empty_gh_absent_reason(since: str, until: str, author: str | None) -> str | None:
+    """Why an empty gh PR list cannot be believed, or None when git history
+    on the base branch confirms it. Any cross-check failure is a reason."""
+    top, _, rc = _run(["git", "rev-parse", "--show-toplevel"])
+    base = None
+    if rc == 0 and top.strip():
+        base, _, _ = _LIB.resolve_base_branch(top.strip(), None, prog="ds-cost retro")
+    if base is None:
+        return (
+            "gh returned no PRs and no base branch resolved to cross-check them "
+            "against git history. PR data omitted."
+        )
+    git_merges = _count_git_pr_merges(since, until, author, base)
+    if git_merges is None:
+        return (
+            f"gh returned no PRs and git log on {base} failed, so they could not "
+            "be cross-checked. PR data omitted."
+        )
+    if git_merges:
+        return (
+            f"gh returned no PRs, but {git_merges} first-parent commit(s) on "
+            f"{base} in range carry a (#N) subject; gh likely cannot see "
+            "this repo. PR data omitted."
+        )
+    return None
+
+
 def _aggregate_retro(
     commits: list[dict],
     prs: list[dict],
@@ -1046,6 +1102,7 @@ def _render_retro_table(
     since: str,
     until: str,
     warnings: list[str],
+    prs_known: bool = True,
 ) -> str:
     lines: list[str] = []
     lines.append(f"Retro rollup for {repo} ({since} -> {until})")
@@ -1074,10 +1131,14 @@ def _render_retro_table(
 
     for author in sorted(agg.keys()):
         b = agg[author]
-        avg_merge = _format_days(b["merge_times_days"])
+        if prs_known:
+            prs_cell, merged_cell = str(b["prs"]), str(b["merged"])
+            avg_merge = _format_days(b["merge_times_days"])
+        else:
+            prs_cell, merged_cell, avg_merge = "n/a", "n/a", "n/a"
         lines.append(
-            f"  {author:<20}{b['commits']:>8}{b['prs']:>6}"
-            f"{b['merged']:>8}{avg_merge:>16}{b['files_touched']:>14}"
+            f"  {author:<20}{b['commits']:>8}{prs_cell:>6}"
+            f"{merged_cell:>8}{avg_merge:>16}{b['files_touched']:>14}"
         )
         total_commits += b["commits"]
         total_prs += b["prs"]
@@ -1085,10 +1146,14 @@ def _render_retro_table(
         all_merge_times.extend(b["merge_times_days"])
         total_files += b["files_touched"]
 
-    total_avg = _format_days(all_merge_times)
+    if prs_known:
+        total_prs_cell, total_merged_cell = str(total_prs), str(total_merged)
+        total_avg = _format_days(all_merge_times)
+    else:
+        total_prs_cell, total_merged_cell, total_avg = "n/a", "n/a", "n/a"
     lines.append(
-        f"  {'TOTAL':<20}{total_commits:>8}{total_prs:>6}"
-        f"{total_merged:>8}{total_avg:>16}{total_files:>14}"
+        f"  {'TOTAL':<20}{total_commits:>8}{total_prs_cell:>6}"
+        f"{total_merged_cell:>8}{total_avg:>16}{total_files:>14}"
     )
     lines.append("")
 
@@ -1173,14 +1238,21 @@ def cmd_retro(args: argparse.Namespace) -> int:
     # Fetch git log
     commits = _fetch_git_log(since_str, until_str, author_filter)
 
-    # Fetch PR data (optional)
+    # Fetch PR data (optional). An empty gh list is believed only when git
+    # history agrees; otherwise the PR columns are absent, never 0.
     prs: list[dict] = []
+    prs_absent_reason: str | None = None
     if _gh_available():
         prs, pr_warn = _fetch_gh_prs(since_str, until_str, author_filter)
         if pr_warn:
-            warnings.append(pr_warn)
+            prs_absent_reason = pr_warn
+        elif not prs:
+            prs_absent_reason = _empty_gh_absent_reason(since_str, until_str, author_filter)
     else:
-        warnings.append("gh not available or not authenticated; PR data omitted.")
+        prs_absent_reason = "gh not available or not authenticated; PR data omitted."
+    if prs_absent_reason:
+        warnings.append(prs_absent_reason)
+    prs_known = prs_absent_reason is None
 
     agg = _aggregate_retro(commits, prs, author_filter)
 
@@ -1191,11 +1263,11 @@ def cmd_retro(args: argparse.Namespace) -> int:
             json_agg[author] = {
                 "commits": b["commits"],
                 "files_touched": b["files_touched"],
-                "prs": b["prs"],
-                "merged": b["merged"],
+                "prs": b["prs"] if prs_known else None,
+                "merged": b["merged"] if prs_known else None,
                 "avg_merge_time_days": (
                     round(sum(b["merge_times_days"]) / len(b["merge_times_days"]), 2)
-                    if b["merge_times_days"] else None
+                    if prs_known and b["merge_times_days"] else None
                 ),
                 "ticket_prefixes": {
                     prefix: {
@@ -1212,13 +1284,14 @@ def cmd_retro(args: argparse.Namespace) -> int:
             "until": until_str,
             "warning": _RETRO_WARNING,
             "warnings": warnings,
+            "prs_absent_reason": prs_absent_reason,
             "authors": json_agg,
         }
         sys.stdout.write(json.dumps(out, indent=2) + "\n")
         return 0
 
     sys.stdout.write(
-        _render_retro_table(agg, repo, since_str, until_str, warnings)
+        _render_retro_table(agg, repo, since_str, until_str, warnings, prs_known)
     )
     return 0
 

@@ -5,7 +5,9 @@ Purpose: DS-246 shared spawn-telemetry reader for bin/ds-cost, bin/ds-calibrate
          run (a resumed agent's k-th completion is run k), prices tokens
          against a rate table with the 5m/1h cache-write split, and merges
          spawn rows the hooks wrote to the PRIMARY checkout when a bin tool
-         runs from inside a linked worktree.
+         runs from inside a linked worktree. Also dedups session-log rows to
+         one per session_uuid (latest_session_rows) for ds-cost team/operator
+         and ds-change-delta.
 
 Public API:
     DEFAULT_RATES: dict - built-in USD-per-MTok table from the DS-246 ticket
@@ -26,6 +28,9 @@ Public API:
         start_ts=None (callers that count spawns skip it). A later unpaired
         (run_index null) stop of the same orphan gets run_tokens = its
         growth over the previous stop, not the cumulative total.
+    latest_session_rows(rows) -> list
+        Keeps the greatest-ts row per `session_uuid` (ties: later input row);
+        rows without one pass through.
     primary_root(start) -> Path
     merge_primary_spawn_rows(cwd_events_path, events, primary_events_path=None) -> list
         Appends the primary root's hook spawn_start/spawn_complete rows when
@@ -52,6 +57,7 @@ import importlib.util
 import json
 import os
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 PRICING_PATH = Path(os.path.expanduser("~/.agentic/pricing.yml"))
@@ -317,6 +323,51 @@ def normalize_hook_spawns(events: list[dict], include_legacy: bool) -> list[Spaw
             if run["model"]:
                 rec.model = run["model"]
     return list(recs.values())
+
+
+def _row_ts(row: dict) -> datetime | None:
+    ts = row.get("ts")
+    if isinstance(ts, str):
+        try:
+            ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(ts, datetime):
+        return None
+    return ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
+
+
+def latest_session_rows(rows: list) -> list:
+    """Keep one row per `session_uuid`: the one with the greatest `ts`.
+
+    Session-log files were appended once per conductor turn, cumulatively,
+    before 2026-08-08; since then bin/ds-identity upserts one row per
+    session_uuid. The pre-2026-08-08 duplicate rows inflate every all-time
+    read: session counts and token/wall sums. A session's latest row is its
+    most cumulative one. `ts` is an ISO string or a datetime; a row with no
+    parseable `ts` ranks below any row that has one, and ties go to the row
+    later in input order (input order alone is wrong when several files or
+    repos are concatenated). Kept rows stay in input order; rows without a
+    string session_uuid pass through.
+    Retirement: never for all-time readers; a no-op for windows starting
+    after 2026-08-08.
+    """
+    floor = datetime.min.replace(tzinfo=timezone.utc)
+    best: dict[str, tuple] = {}
+    for i, row in enumerate(rows):
+        uuid = row.get("session_uuid") if isinstance(row, dict) else None
+        if isinstance(uuid, str) and uuid:
+            ts = _row_ts(row)
+            key = (ts is not None, ts or floor, i)
+            if uuid not in best or key > best[uuid]:
+                best[uuid] = key
+    keep = {key[2] for key in best.values()}
+    out = []
+    for i, row in enumerate(rows):
+        uuid = row.get("session_uuid") if isinstance(row, dict) else None
+        if not (isinstance(uuid, str) and uuid) or i in keep:
+            out.append(row)
+    return out
 
 
 def _load_hooks_lib(name: str):

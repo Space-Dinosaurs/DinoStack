@@ -35,7 +35,10 @@ ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH] [--window-days N] [--pr-lo
 - `--repo PATH` (repeatable, at least one required). Session, spawn,
   hook-deny, token, and wall-time metrics are computed over the MERGED
   row set across every `--repo` - not independently per repo and then
-  combined. PR history is reported separately, per repo.
+  combined. PR history is reported separately, per repo. Session-log
+  rows count once per `session_uuid` (its latest-`ts` row, in whichever window
+  that row falls), so pre-2026-08-08 per-turn cumulative rows do not
+  inflate session counts or sums.
 - `--pr-lookahead-days N` (optional, default 7): merged PRs up to N days
   past a window's end still count for that window's tickets.
 - `--json` for the full machine-readable report; default is a fixed-width
