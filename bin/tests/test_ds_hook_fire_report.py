@@ -971,3 +971,58 @@ def test_stranded_archive_log_is_recovered(tmp_path):
     assert row["status"] == "ACTIVE"
     assert row["fire_count_window"] == 1
     assert row["fire_count_all_time"] == 1
+
+
+# ---------------------------------------------------------------------------
+# (g) Consumer repo: --repo with fires logs but no hooks/ dir reads hook
+#     sources from this tool's own checkout and still reads fires from
+#     --repo.
+#     Mutation: restore the exit-1 "no hooks/ dir" branch in main() - both
+#     tests below redden on the non-zero exit.
+# ---------------------------------------------------------------------------
+
+_REAL_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _real_hook_names() -> list[str]:
+    return sorted(p.name for p in (_REAL_ROOT / "hooks").glob("enforce-*.py"))
+
+
+def test_consumer_repo_without_hooks_dir_reads_fires_from_repo(tmp_path):
+    repo = tmp_path / "consumer"
+    real_hooks = _real_hook_names()
+    assert real_hooks, "real checkout has no hooks/enforce-*.py"
+    _write(
+        repo / ".agentic" / ".enforcement-fires.jsonl",
+        json.dumps(
+            {
+                "ts": _RECENT_TS,
+                "hook": real_hooks[0][: -len(".py")],
+                "decision": "deny",
+                "reason": "consumer-repo fire",
+            }
+        )
+        + "\n",
+    )
+    assert not (repo / "hooks").exists()
+    report = _run_json(repo)
+    assert report["meta"]["repo"] == str(repo.resolve())
+    assert report["meta"]["hooks_dir"] == str(_REAL_ROOT / "hooks")
+    assert report["meta"]["log_present"] is True
+    assert sorted(r["hook"] for r in report["hooks"]) == real_hooks
+    row = _row_for(report, real_hooks[0])
+    assert row["status"] == "ACTIVE"
+    assert row["fire_count_window"] == 1
+
+    table_proc = _run(repo)
+    assert table_proc.returncode == 0, table_proc.stderr
+    assert f"hooks_dir={_REAL_ROOT / 'hooks'}" in table_proc.stdout
+
+
+def test_consumer_repo_missing_fires_log_is_absent_not_zero(tmp_path):
+    repo = tmp_path / "consumer"
+    repo.mkdir()
+    report = _run_json(repo)
+    assert report["meta"]["log_present"] is False
+    assert report["hooks"], "expected rows from the tool's own hooks/"
+    assert all(r["status"] == "UNMEASURED" for r in report["hooks"])
