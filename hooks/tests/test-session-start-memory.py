@@ -4,13 +4,14 @@ Tests for hooks/session-start-memory.py.
 
 Every case runs the hook as a subprocess against a scratch git repo, the
 way the Claude Code hook runner does. After the T1-T16 pass against the
-real hook, each named mutation (a)-(o) is applied to a copy of the hook and
+real hook, each named mutation (a)-(q) is applied to a copy of the hook and
 the test it targets is run against that copy; the suite fails if the
 mutation does not redden it.
 """
 
 import json
 import os
+import shlex
 import shutil
 import stat
 import subprocess
@@ -64,7 +65,7 @@ def directive(n, n_lines, last, path, rest=0, memory=None):
     if rest > READ_BUDGET:
         shown = "only lines 1-%d are shown" % last if last else "its first line exceeds the cap, so none is shown"
         k, span = window_limit(memory)
-        return GREP_DIRECTIVE % (n, n_lines, shown, last + 1, n_lines, rest, path, k, k, span)
+        return GREP_DIRECTIVE % (n, n_lines, shown, last + 1, n_lines, rest, shlex.quote(path), k, k, span)
     return DIRECTIVE % (n, n_lines, last, path, last + 1, n_lines, n_lines, last + 1, n_lines)
 
 
@@ -174,12 +175,14 @@ def t1_small_file_full():
 def t2_large_file_head():
     # Shaped like the measured authentic8 MEMORY.md: ~309 KB, ~1,126 lines, ~275 B/line.
     memory = big_memory(309 * 1024, "x" * 260)
-    root = make_repo("t2", migrated(), memory)
+    root = make_repo("t2 it's", migrated(), memory)
     _, _, rest = check_head_cut(root, memory)
     assert rest > READ_BUDGET, rest
     tail = ctx_of(run_payload(root)).rsplit("\nMEMORY.md is ", 1)[1]
     assert "in full" not in tail, tail
-    assert "grep -n -i '<topic>' " + os.path.join(root, "MEMORY.md") in tail, tail
+    path = os.path.join(root, "MEMORY.md")
+    assert " " in path and "'" in path
+    assert "grep -n -i '<topic>' " + shlex.quote(path) + "`" in tail, tail
     limit = int(tail.split("limit at most ", 1)[1].split(" ", 1)[0])
     assert WINDOW_MIN < limit < WINDOW_MAX, limit
     assert max(spans(memory, limit)) <= READ_BUDGET, limit
@@ -245,7 +248,7 @@ def t9_first_line_too_long():
 
 
 def t10_unreadable_memory():
-    root = make_repo("t10", migrated(), "CANARY_T10\n")
+    root = make_repo("t10 x", migrated(), "CANARY_T10\n")
     path = os.path.join(root, "MEMORY.md")
     os.chmod(path, 0)
     try:
@@ -259,7 +262,7 @@ def t10_unreadable_memory():
         want = ("): MEMORY.md was not delivered. Before any decision that may depend on a recorded fact "
                 "or operator ruling, grep %s for it (`grep -n -i '<topic>' %s`) and Read only a window "
                 "around each hit; Read the whole file only if it is at most %d bytes."
-                % (path, path, READ_BUDGET))
+                % (path, shlex.quote(path), READ_BUDGET))
         assert want in ctx, ctx
         assert "in full" not in ctx, ctx
         assert "CANARY_T10" not in ctx
@@ -378,6 +381,9 @@ MUTATIONS = [
     ("(h) threshold compared with >=", "    if rest_bytes > READ_BUDGET:\n",
      "    if rest_bytes >= READ_BUDGET:\n", "T13"),
     ("(i) grep branch never taken", "\nREAD_BUDGET = 30000\n", "\nREAD_BUDGET = 10 ** 9\n", "T2"),
+    ("(p) grep command path unquoted", "rest_bytes, shlex.quote(path),\n", "rest_bytes, path,\n", "T2"),
+    ("(q) fallback grep command path unquoted", "path, shlex.quote(path), READ_BUDGET)", "path, path, READ_BUDGET)",
+     "T10"),
     ("(j) window limit hardcoded", "    return lo, _max_span(sizes, lo)\n",
      "    return WINDOW_MAX, _max_span(sizes, WINDOW_MAX)\n", "T2"),
     ("(k) none-shown keeps the read-in-full text for a large file",

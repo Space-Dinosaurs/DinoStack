@@ -34,15 +34,20 @@ Behavior:
         stripped `@MEMORY.md` / `@./MEMORY.md` line (the import already
         delivers it, to subagents too), or when root/MEMORY.md is absent.
         Otherwise emits hookSpecificOutput.additionalContext: a header plus
-        the whole file when it fits CAP, else a header, the longest
-        whole-line prefix (lines 1-L) that fits, and a directive for the
-        unshown remainder. A remainder of at most READ_BUDGET bytes gets a
+        the whole file when it fits CAP, else a header, a whole-line
+        prefix (lines 1-L), and a directive for the unshown remainder. L is
+        the last line before the first one that, with its directive, would
+        exceed CAP; the loop stops there, so near READ_BUDGET a longer
+        prefix that would fit with the shorter read-in-full directive is
+        not tried. A remainder of at most READ_BUDGET bytes gets a
         directive to Read lines L+1 to EOF in full before the first
         decision. A larger one gets a grep-on-demand directive instead: do
         not Read the remainder whole, grep MEMORY.md before any decision
         that may depend on a recorded fact or operator ruling, and Read only
         windows around hits, with a limit sized so that no span of that many
-        consecutive lines in the file exceeds READ_BUDGET. Remainder bytes
+        consecutive lines in the file exceeds READ_BUDGET, unless one line
+        alone does: then the limit is 1 and the stated span is over budget.
+        The emitted grep command shell-quotes the path. Remainder bytes
         are counted from the raw file. A first line too long to show (L = 0)
         follows the same split on the whole file. Any exception in Phase B
         emits a fallback directive naming the path that never mandates a
@@ -66,9 +71,8 @@ Failure modes: always exits 0 and never writes anything. CAP is 8500 because
     ~2 B/token, so one Read holds ~50 KB of it; 30 KB leaves ~40% margin
     for the Read tool's line-number prefixes and denser text. The window
     limit is the largest k in WINDOW_MIN..WINDOW_MAX whose heaviest k-line
-    span is at most READ_BUDGET, so a single outlier line shrinks it for
-    the whole file; with WINDOW_MIN = 1 a window exceeds READ_BUDGET only
-    when one line alone does.
+    span is at most READ_BUDGET, else WINDOW_MIN, so a single outlier line
+    shrinks it for the whole file.
 
 Performance: one `git rev-parse` (2 s timeout) and reads of at most four
     files; well under the 5 s registration timeout.
@@ -78,6 +82,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 
@@ -191,7 +196,7 @@ def _grep_directive(n_bytes, n_lines, last, rest_bytes, path, window):
         "hit, limit at most %d (the heaviest %d-line span in this file is %d "
         "bytes). This holds for the whole session, including after a compact "
         "or clear."
-        % (n_bytes, n_lines, shown, last + 1, n_lines, rest_bytes, path,
+        % (n_bytes, n_lines, shown, last + 1, n_lines, rest_bytes, shlex.quote(path),
            window[0], window[0], window[1])
     )
 
@@ -274,7 +279,7 @@ def main():
             "Before any decision that may depend on a recorded fact or operator "
             "ruling, grep %s for it (`grep -n -i '<topic>' %s`) and Read only "
             "a window around each hit; Read the whole file only if it is at "
-            "most %d bytes." % (type(exc).__name__, path, path, READ_BUDGET)
+            "most %d bytes." % (type(exc).__name__, path, shlex.quote(path), READ_BUDGET)
         )
     _emit_ctx(ctx)
 
