@@ -9,6 +9,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -191,7 +192,7 @@ def test_subagent_meta_usage_wall_and_pr_created(tmp_path):
               content=[{"type": "tool_result", "tool_use_id": "t3", "content": "see https://github.com/o/r/pull/99"}]),
         _user("2026-10-01T10:01:40Z", wt,
               content=[{"type": "tool_result", "tool_use_id": "t4", "is_error": True,
-                        "content": "already exists: https://github.com/o/r/pull/12"}]),
+                        "content": "https://github.com/o/r/pull/13"}]),
     ])
     (sub_dir / "agent-a1.meta.json").write_text(json.dumps(
         {"agentType": "engineer", "description": "do x", "toolUseId": "toolu_9"}), encoding="utf-8")
@@ -200,8 +201,156 @@ def test_subagent_meta_usage_wall_and_pr_created(tmp_path):
     subs = {x.agent_id: x for x in s.subagents}
     a1, b2 = subs["a1"], subs["b2"]
     assert (a1.agent_type, a1.description, a1.tool_use_id) == ("engineer", "do x", "toolu_9")
-    assert a1.pr_created == [11, 12]
+    assert a1.pr_created == [("o/r", 11), ("o/r", 12)]
     assert a1.wall_seconds == 100.0
     assert a1.usage[("claude-opus-5-5", "sdk-cli", "2.1.287")]["output"] == 5
     assert (b2.agent_type, b2.description, b2.tool_use_id, b2.pr_created) == (None, None, None, [])
     assert b2.usage == {}
+
+
+def _one_sub(tmp_path, records):
+    repo = tmp_path / "r"
+    store = tmp_path / "store"
+    pdir = _session_dir(store, repo)
+    _write(pdir / "sess.jsonl", [_user("2026-10-01T10:00:00Z", str(repo))])
+    _write(pdir / "sess" / "subagents" / "agent-a1.jsonl", records)
+    (s,) = tr.sessions(str(repo), START, END, [store])
+    (sub,) = s.subagents
+    return sub
+
+
+def _tool_call(tid, command, ts="2026-10-01T10:00:10Z"):
+    return _asst("u-" + tid, 5, ts, "/w", sidechain=True,
+                 content=[{"type": "tool_use", "id": tid, "name": "Bash", "input": {"command": command}}])
+
+
+def _tool_result(tid, text, git_pr=None, is_error=False, ts="2026-10-01T10:00:20Z"):
+    block = {"type": "tool_result", "tool_use_id": tid, "content": text}
+    if is_error:
+        block["is_error"] = True
+    tur = {"gitOperation": {"pr": git_pr}} if git_pr else None
+    return _user(ts, "/w", content=[block], tool_use_result=tur)
+
+
+def test_pr_created_matches_command_substitution_env_prefix_in_a_chain(tmp_path):
+    cmd = "cd /x/wt && GH_TOKEN=$(gh auth token --user someone) gh pr create --base develop --title 't'"
+    sub = _one_sub(tmp_path, [_tool_call("t1", cmd), _tool_result("t1", "https://github.com/o/api/pull/7")])
+    assert sub.pr_created == [("o/api", 7)]
+
+
+def test_pr_created_trusts_git_operation_whatever_the_command(tmp_path):
+    sub = _one_sub(tmp_path, [
+        _tool_call("t1", "bash /tmp/open_pr.sh"),
+        _tool_result("t1", "done", git_pr={"number": 31, "url": "https://github.com/o/web/pull/31",
+                                           "action": "created"}),
+    ])
+    assert sub.pr_created == [("o/web", 31)]
+
+
+def test_pr_created_keeps_repos_apart_for_colliding_numbers(tmp_path):
+    sub = _one_sub(tmp_path, [
+        _tool_call("t1", "gh pr create -R o/api"),
+        _tool_result("t1", "https://github.com/o/api/pull/5"),
+        _tool_call("t2", "gh pr create -R o/web", ts="2026-10-01T10:00:30Z"),
+        _tool_result("t2", "https://github.com/o/web/pull/5", ts="2026-10-01T10:00:40Z"),
+    ])
+    assert sub.pr_created == [("o/api", 5), ("o/web", 5)]
+
+
+def test_pr_created_ignores_an_errored_gh_pr_create(tmp_path):
+    sub = _one_sub(tmp_path, [
+        _tool_call("t1", "gh pr create --base main"),
+        _tool_result("t1", "a pull request already exists: https://github.com/o/r/pull/4", is_error=True),
+    ])
+    assert sub.pr_created == []
+
+
+def test_malformed_shapes_do_not_raise(tmp_path):
+    sub = _one_sub(tmp_path, [
+        {"type": "user", "timestamp": "2026-10-01T10:00:00Z", "cwd": "/w", "message": "gh pr create"},
+        {"type": "assistant", "timestamp": "2026-10-01T10:00:01Z", "message": {
+            "content": [{"type": "tool_use", "id": "t1", "input": "gh pr create"}, "gh pr create"]}},
+        {"type": "user", "timestamp": "2026-10-01T10:00:02Z", "toolUseResult": "gitOperation",
+         "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "x"}]}},
+        {"type": "assistant", "timestamp": "2026-10-01T10:00:03Z", "message": {"usage": "assistant", "model": 5}},
+        ["gh pr create"],
+    ])
+    assert sub.pr_created == []
+    assert sub.usage == {}
+
+
+def test_file_history_snapshot_nested_timestamp_is_not_a_record_time(tmp_path):
+    repo = tmp_path / "r"
+    store = tmp_path / "store"
+    _write(_session_dir(store, repo) / "sess.jsonl", [
+        _user("2026-10-01T10:00:00Z", str(repo)),
+        {"type": "file-history-snapshot", "messageId": "m",
+         "snapshot": {"messageId": "m", "trackedFileBackups": {}, "timestamp": "2026-10-05T10:00:00Z"}},
+        _user("2026-10-01T11:00:00Z", str(repo)),
+    ])
+    (s,) = tr.sessions(str(repo), START, END, [store])
+    assert s.last_ts == datetime(2026, 10, 1, 11, tzinfo=timezone.utc)
+
+
+def test_cost_start_ts_comes_from_the_last_cost_state_start_time(tmp_path):
+    repo = tmp_path / "r"
+    store = tmp_path / "store"
+    late = datetime(2026, 10, 1, 12, tzinfo=timezone.utc)
+    rec = _cost(3.0, {})
+    rec["startTime"] = int(late.timestamp() * 1000)
+    _write(_session_dir(store, repo) / "sess.jsonl", [_user("2026-10-01T10:00:00Z", str(repo)), rec])
+    (s,) = tr.sessions(str(repo), START, END, [store])
+    assert (s.cost_usd, s.cost_start_ts) == (3.0, late)
+
+
+def test_naive_window_is_read_as_utc_not_local(tmp_path, monkeypatch):
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset unavailable")
+    monkeypatch.setenv("TZ", "America/Los_Angeles")
+    time.tzset()
+    try:
+        repo = tmp_path / "r"
+        store = tmp_path / "store"
+        _write(_session_dir(store, repo) / "sess.jsonl", [_user("2026-10-01T10:00:00Z", str(repo))])
+        got = tr.sessions(str(repo), datetime(2026, 10, 1, 9, 30), datetime(2026, 10, 1, 10, 30), [store])
+        assert [s.session_id for s in got] == ["sess"]
+    finally:
+        monkeypatch.delenv("TZ")
+        time.tzset()
+
+
+def test_mtime_prefilter_keeps_a_session_whose_subagent_file_is_recent(tmp_path):
+    repo = tmp_path / "r"
+    store = tmp_path / "store"
+    pdir = _session_dir(store, repo)
+    main = _write(pdir / "sess.jsonl", [_user("2026-10-01T10:00:00Z", str(repo))])
+    sub = _write(pdir / "sess" / "subagents" / "agent-a1.jsonl", [_user("2026-10-01T10:00:00Z", "/w")])
+    old = datetime(2026, 9, 1, tzinfo=timezone.utc).timestamp()
+    recent = datetime(2026, 10, 1, 12, tzinfo=timezone.utc).timestamp()
+    os.utime(main, (old, old))
+    os.utime(sub, (recent, recent))
+    (s,) = tr.sessions(str(repo), START, END, [store])
+    assert [x.agent_id for x in s.subagents] == ["a1"]
+
+
+def test_cwd_is_checked_per_session_not_per_project_dir(tmp_path):
+    repo = tmp_path / "r"
+    store = tmp_path / "store"
+    shared = _session_dir(store, repo, "-foo")
+    _write(shared / "a.jsonl", [_user("2026-10-01T10:00:00Z", str(repo / "foo"))])
+    _write(shared / "b.jsonl", [_user("2026-10-01T10:00:00Z", str(tmp_path / "r-foo"))])
+    got = tr.sessions(str(repo), START, END, [store])
+    assert [s.session_id for s in got] == ["a"]
+
+
+def test_missing_cache_creation_split_is_none_and_total_is_kept(tmp_path):
+    repo = tmp_path / "r"
+    store = tmp_path / "store"
+    rec = _asst("m1", 9, "2026-10-01T10:00:00Z", str(repo))
+    del rec["message"]["usage"]["cache_creation"]
+    _write(_session_dir(store, repo) / "sess.jsonl", [rec, _asst("m2", 9, "2026-10-01T10:00:01Z", str(repo))])
+    (s,) = tr.sessions(str(repo), START, END, [store])
+    bucket = s.conductor[("claude-opus-5-5", "cli", "2.1.287")]
+    assert bucket["cache_creation"] == 100
+    assert bucket["cache_creation_5m"] is None
+    assert bucket["cache_creation_1h"] is None
