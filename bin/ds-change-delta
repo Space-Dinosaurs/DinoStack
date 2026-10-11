@@ -107,7 +107,8 @@ Upstream deps: git, gh (optional - PR-history metrics degrade to
             Subprocess wrapper section below for its rc=124-on-timeout
             semantics), `iter_jsonl_dict_records`, and `rate_or_none`
             (the shared numerator/denominator-<=0-renders-as-None rule).
-            Reads `<repo>/.agentic/session-log/*.jsonl`,
+            Reads `<repo>/.agentic/session-log/*.jsonl` (one row per
+            session_uuid, via _telemetry.latest_session_rows),
             `<repo>/.agentic/.enforcement-fires.jsonl` plus its three
             known stranded-copy locations (see _stranded_fire_log_paths),
             `<repo>/.agentic/events.jsonl` (hook spawn rows),
@@ -387,8 +388,11 @@ def _collect_session_log(repos: list[Path]) -> dict:
     `tokens_fields` is a per-row {"input":int,"output":int,"cache_creation":int,
     "cache_read":int} breakdown, carried alongside the aggregate `tokens_sum`
     so a caller can distinguish "the aggregate is zero" from "one component
-    field is zero" (see _tokens_field_sums_all_zero, mutation C's target)."""
-    rows: list[tuple[datetime, int, int, int, dict, str]] = []
+    field is zero" (see _tokens_field_sums_all_zero, mutation C's target).
+    `rows` holds one row per session_uuid (its last, most cumulative row,
+    via _telemetry.latest_session_rows), so _window_slice counts each
+    session once; the extents are taken over every row read."""
+    keyed: list[dict] = []
     per_repo_extent: dict[str, tuple[datetime, datetime]] = {}
     for repo in repos:
         log_dir = repo / ".agentic" / "session-log"
@@ -426,13 +430,17 @@ def _collect_session_log(repos: list[Path]) -> dict:
                 elif isinstance(tok, (int, float)):
                     tokens_sum = int(tok)
                     tokens_fields["input"] = tokens_sum
-                rows.append((ts, spawn_count, wall_seconds, tokens_sum, tokens_fields, str(path)))
+                keyed.append({
+                    "session_uuid": rec.get("session_uuid"),
+                    "row": (ts, spawn_count, wall_seconds, tokens_sum, tokens_fields, str(path)),
+                })
                 if repo_earliest is None or ts < repo_earliest:
                     repo_earliest = ts
                 if repo_latest is None or ts > repo_latest:
                     repo_latest = ts
         if repo_earliest is not None and repo_latest is not None:
             per_repo_extent[str(repo)] = (repo_earliest, repo_latest)
+    rows = [k["row"] for k in _TELEMETRY.latest_session_rows(keyed)]
     earliest, latest, limiting_early, limiting_late = _intersect_repo_extents(per_repo_extent)
     return {
         "rows": rows,

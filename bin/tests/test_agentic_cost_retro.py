@@ -318,5 +318,79 @@ def run_tests():
         print("\nAll retro tests passed.")
 
 
+def _one_commit_repo(tmpdir: str, subject: str) -> str:
+    repo = os.path.join(tmpdir, "prrepo")
+    os.makedirs(repo)
+    _git(["init", "-b", "main"], cwd=repo)
+    _git(["config", "user.email", "carol@example.com"], cwd=repo)
+    _git(["config", "user.name", "carol"], cwd=repo)
+    Path(repo, "f.txt").write_text("x\n")
+    _git(["add", "f.txt"], cwd=repo)
+    env = dict(os.environ, GIT_AUTHOR_DATE="2026-05-01T10:00:00",
+               GIT_COMMITTER_DATE="2026-05-01T10:00:00")
+    subprocess.run(["git", "commit", "--message", subject], cwd=repo, env=env,
+                   capture_output=True, check=True)
+    return repo
+
+
+def _retro_with_gh(repo: str, gh_available: bool, prs: list, as_json: bool = False) -> str:
+    orig_gh, orig_fetch = _mod._gh_available, _mod._fetch_gh_prs
+    _mod._gh_available = lambda: gh_available
+    _mod._fetch_gh_prs = lambda *a, **k: (prs, None)
+    try:
+        rc, out = _capture_retro(_make_args(**{"json": as_json}), repo)
+    finally:
+        _mod._gh_available, _mod._fetch_gh_prs = orig_gh, orig_fetch
+    assert rc == 0
+    return out
+
+
+def _total_row(out: str) -> list[str]:
+    (row,) = [line.split() for line in out.splitlines() if line.strip().startswith("TOTAL")]
+    return row
+
+
+def test_retro_gh_empty_with_git_pr_merge_prints_na():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = _one_commit_repo(tmpdir, "feat: add thing (#12)")
+        out = _retro_with_gh(repo, True, [])
+        assert _total_row(out) == ["TOTAL", "1", "n/a", "n/a", "n/a", "1"], out
+        assert "(#N)" in out
+        data = json.loads(_retro_with_gh(repo, True, [], as_json=True))
+        carol = data["authors"]["carol"]
+        assert carol["prs"] is None and carol["merged"] is None, carol
+        assert carol["avg_merge_time_days"] is None
+        assert "(#N)" in data["prs_absent_reason"]
+
+
+def test_retro_gh_empty_without_git_pr_merge_reports_zero():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = _one_commit_repo(tmpdir, "plain commit")
+        out = _retro_with_gh(repo, True, [])
+        assert _total_row(out) == ["TOTAL", "1", "0", "0", "n/a", "1"], out
+        data = json.loads(_retro_with_gh(repo, True, [], as_json=True))
+        assert data["authors"]["carol"]["prs"] == 0
+        assert data["prs_absent_reason"] is None
+
+
+def test_retro_gh_unavailable_prints_na():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = _one_commit_repo(tmpdir, "plain commit")
+        out = _retro_with_gh(repo, False, [])
+        assert _total_row(out) == ["TOTAL", "1", "n/a", "n/a", "n/a", "1"], out
+        data = json.loads(_retro_with_gh(repo, False, [], as_json=True))
+        assert data["authors"]["carol"]["prs"] is None
+        assert "gh not available" in data["prs_absent_reason"]
+
+
+def test_retro_gh_ok_prints_pr_counts():
+    pr = {"author": {"login": "carol"}, "createdAt": "2026-05-01T00:00:00Z",
+          "mergedAt": "2026-05-03T00:00:00Z", "files": []}
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = _one_commit_repo(tmpdir, "feat: add thing (#12)")
+        out = _retro_with_gh(repo, True, [pr])
+        assert _total_row(out) == ["TOTAL", "1", "1", "1", "2.0", "d", "1"], out
+
+
 if __name__ == "__main__":
     run_tests()

@@ -1221,6 +1221,28 @@ def test_spawn_sides_gated_by_v2_coverage():
         assert t["skeptic_reviews"] == 2 and t["qa_fail_backs"] == 1 and t["re_raised"] == 1
 
 
+def test_session_windows_count_legacy_duplicate_rows_once():
+    def row(ts, uuid, wall):
+        r = _session_row(ts, 1, wall, 10, 5)
+        r["session_uuid"] = uuid
+        return r
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        _write_jsonl(repo / ".agentic" / "session-log" / "dev.jsonl", [
+            row("2026-08-11T00:00:00+00:00", "s1", 100),
+            row("2026-08-18T00:00:00+00:00", "s2", 40),
+            row("2026-08-26T00:00:00+00:00", "s1", 300),
+        ])
+        data = _mod._collect_session_log([repo])
+        assert data["earliest_ts"] == datetime.fromisoformat("2026-08-11T00:00:00+00:00")
+        before_start, before_end, after_start, after_end = _mod._windows(CUT_DT, 14)
+        before = _mod._window_slice(data["rows"], before_start, before_end)
+        after = _mod._window_slice(data["rows"], after_start, after_end)
+        assert (before["sessions"], before["wall_seconds_sum"]) == (1, 40), before
+        assert (after["sessions"], after["wall_seconds_sum"]) == (1, 300), after
+
+
 if __name__ == "__main__":
     run_tests()
     for _name, _fn in list(globals().items()):

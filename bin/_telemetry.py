@@ -26,6 +26,8 @@ Public API:
         start_ts=None (callers that count spawns skip it). A later unpaired
         (run_index null) stop of the same orphan gets run_tokens = its
         growth over the previous stop, not the cumulative total.
+    latest_session_rows(rows) -> list
+        Keeps the last row per `session_uuid`; rows without one pass through.
     primary_root(start) -> Path
     merge_primary_spawn_rows(cwd_events_path, events, primary_events_path=None) -> list
         Appends the primary root's hook spawn_start/spawn_complete rows when
@@ -317,6 +319,31 @@ def normalize_hook_spawns(events: list[dict], include_legacy: bool) -> list[Spaw
             if run["model"]:
                 rec.model = run["model"]
     return list(recs.values())
+
+
+def latest_session_rows(rows: list) -> list:
+    """Keep the last row per `session_uuid`, in input order of those last rows.
+
+    Session-log files were appended once per conductor turn, cumulatively,
+    before 2026-08-08; since then bin/ds-identity upserts one row per
+    session_uuid. The pre-2026-08-08 duplicate rows inflate every all-time
+    read: session counts and token/wall sums. The last row of a session is
+    its most cumulative one. Rows without a string session_uuid pass through.
+    Retirement: never for all-time readers; a no-op for windows starting
+    after 2026-08-08.
+    """
+    last: dict[str, int] = {}
+    for i, row in enumerate(rows):
+        uuid = row.get("session_uuid") if isinstance(row, dict) else None
+        if isinstance(uuid, str) and uuid:
+            last[uuid] = i
+    keep = set(last.values())
+    out = []
+    for i, row in enumerate(rows):
+        uuid = row.get("session_uuid") if isinstance(row, dict) else None
+        if not (isinstance(uuid, str) and uuid) or i in keep:
+            out.append(row)
+    return out
 
 
 def _load_hooks_lib(name: str):

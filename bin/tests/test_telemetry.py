@@ -202,3 +202,21 @@ def test_primary_root_and_merge_from_linked_worktree():
         main_events = main / ".agentic" / "events.jsonl"
         assert tel.merge_primary_spawn_rows(main_events, [start]) == [start]
         assert tel.merge_primary_spawn_rows(wt_events, list(local), Path(tmp) / "nope.jsonl") == local
+
+
+def test_latest_session_rows_keeps_last_row_per_uuid():
+    rows = [
+        {"session_uuid": "a", "n": 1},
+        {"n": "no-uuid"},
+        {"session_uuid": "b", "n": 1},
+        {"session_uuid": "a", "n": 2},
+        {"session_uuid": "", "n": "empty-uuid"},
+        {"session_uuid": "a", "n": 3},
+    ]
+    assert tel.latest_session_rows(rows) == [
+        {"n": "no-uuid"},
+        {"session_uuid": "b", "n": 1},
+        {"session_uuid": "", "n": "empty-uuid"},
+        {"session_uuid": "a", "n": 3},
+    ]
+    assert tel.latest_session_rows([]) == []
