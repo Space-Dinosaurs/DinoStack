@@ -26,6 +26,7 @@ Failure modes: a missing hook file fails the test loudly; it never skips.
 Performance: standard.
 """
 import importlib.util
+import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -65,3 +66,16 @@ def test_pointer_identical_in_both_prose_files():
         f"  ds-init-project.md: {pointers[0]!r}\n"
         f"  ds-wrap.md:         {pointers[1]!r}"
     )
+
+
+def test_stale_pointer_prefix_matches_current_pointer():
+    marker = _hook_marker()
+    for path in PROSE:
+        text = path.read_text(encoding="utf-8")
+        prefixes = re.findall(r"starts with `(MEMORY\.md \(durable facts[^`]*)`", text)
+        assert len(prefixes) == 1, f"{path.relative_to(REPO)}: {len(prefixes)} stale-pointer rules"
+        pointer = _marker_and_next(path, marker)
+        assert pointer.startswith(prefixes[0]), (
+            f"{path.relative_to(REPO)}: stale-pointer prefix {prefixes[0]!r} "
+            "does not match the current pointer, so the refresh rule would rewrite it every run"
+        )

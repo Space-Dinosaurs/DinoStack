@@ -21342,16 +21342,6 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "apply_patch",
-      "generated_token": "Write",
-      "kind": "semantic-reference",
-      "occurrence_hash": "20c2728e7d6f24c17d7d9aa33c3bf4a82b758075db1ee2e140b9810400b01e73",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "Write"
-    },
-    {
       "expected_target": "dinostack-codex-wrap",
       "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
@@ -21520,16 +21510,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/tracker.yml"
-    },
-    {
-      "expected_target": ".agentic/learnings.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
-      "kind": "operational",
-      "occurrence_hash": "27bc4622fa81b4499b7d78ca7e96781126108152a352a970fe6f391e8c234823",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/learnings.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -22902,6 +22882,16 @@
       "source_token": "/dev"
     },
     {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "729180056e65195c6de8fe2575fb199716c9a59278b655592db5b9c4a8db7235",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/learnings.md"
+    },
+    {
       "expected_target": "dinostack-codex-wrap",
       "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
@@ -23692,6 +23682,16 @@
       "source_token": "content/references/skeptic-protocol.md"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "a28bccd6a799e0a830e31ede200fee92c2b830c0ace3dc24a9e5d0d2758d8e2d",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "content/commands/ds-wrap-deferred.md",
       "generated_token": "manual workflow 'ds-wrap-deferred' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-wrap-deferred`",
       "kind": "operational",
@@ -23910,6 +23910,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "else"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "b2283c659ecee6abc08a8a08251dadb6f4416f33a2a982d90f6b1c356ef06271",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
     },
     {
       "expected_target": "dinostack-codex-wrap",
@@ -24732,6 +24742,16 @@
       "source_token": "<cwd>/.agentic/_wrap.md"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "dbb272b88667231ce3660dc3ebe9de14948040ee882d16e1b9b1f7390e8aa2db",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
@@ -24782,6 +24802,16 @@
       "source_token": ".claude/"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "e1a1176aea34b69915e264d62a56d688e6a4a48d12cf5c0ba5644966e4eca27c",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": ".agentic/wrap/last-wrap",
       "generated_token": "$AE_PROJECT_DIR/.agentic/wrap/last-wrap",
       "kind": "operational",
@@ -24790,6 +24820,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/wrap/last-wrap"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "e45df3696fa352660454cdb04e415a3db0090950894915ce0e0bc1720f8f091e",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
     },
     {
       "expected_target": ".agentic/deploy.md",
@@ -24950,6 +24990,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/config.json>"
+    },
+    {
+      "expected_target": "apply_patch",
+      "generated_token": "Write",
+      "kind": "semantic-reference",
+      "occurrence_hash": "ebb6465ac1b9568400b15c4bcc51d0c9773b975958c68123620d57eb5aec8a94",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Write"
     },
     {
       "expected_target": ".agentic/deploy.md",
@@ -25305,7 +25355,7 @@
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
-      "occurrence_hash": "fe750d60b7257ff3bf9fa803da80836273049e037c19ed363e9385e760e5be7a",
+      "occurrence_hash": "ff8f0e234f4a3b2297e0fba491830340fc414a1686caaba9b0bd69a315c2f37b",
       "resolution_mode": "compatibility-preamble",
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",

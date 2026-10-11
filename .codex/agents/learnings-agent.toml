@@ -229,7 +229,7 @@ Only when the event has no `.agentic/learnings.md` counterpart (e.g. a standing 
 
 Append under the `# Memory` heading (create the heading if absent).
 
-**Dedup:** read the existing file, lowercase + collapse whitespace runs to single space + substring match. If any existing entry contains the candidate's case-insensitive whitespace-collapsed text as a substring, skip the append and record `"skipped (duplicate): MEMORY.md"` in `writer_actions[]`.
+**Dedup:** read the existing file in chunks (offset/limit, at most 100 lines per Read, halving `limit` on a too-large error, until EOF), lowercase + collapse whitespace runs to single space + substring match. If any existing entry contains the candidate's case-insensitive whitespace-collapsed text as a substring, skip the append and record `"skipped (duplicate): MEMORY.md"` in `writer_actions[]`.
 
 **Compiled mode (`memory_mode: compiled`).** Never write `MEMORY.md` and never create a heading. Dedup against it as above, then append the entry, verbatim in the format above, as one line of `.agentic/memory-capture-inbox.md` (create if absent); the next `ds-memory-capture flush` (run by `/ds-wrap`, Phase 11b or `/ds-memory-update`) turns it into a shard. Return `memory_md_appended: false` and record `".agentic/memory-capture-inbox.md: queued 1 entry"` in `writer_actions[]`. See `content/references/memory-shard-convention.md` §Two-tier capture.
 
