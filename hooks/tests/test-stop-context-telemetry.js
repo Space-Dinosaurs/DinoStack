@@ -49,6 +49,16 @@
  *      duration, not 0. Exercises writeSessionTotal end-to-end (Tests
  *      2/9/10/11/12 call scanSessionAggregate directly); does not modify
  *      or duplicate any of them.
+ *  16. uuidless-conductor-row-not-admitted: a conductor spawn_complete with
+ *      no session_uuid is not counted in a spawn-less session.
+ *  17. v2-hook-rows-survive-stray-conductor-rows: v2 hook spawn rows plus
+ *      conductor rows from no session and another session -> the hook rows'
+ *      tokens, not zero.
+ *  18. v2-hook-rows-win-over-same-session-conductor-row: a same-session
+ *      conductor spawn_complete beside v2 hook rows -> hook rows counted,
+ *      conductor row ignored, no double count.
+ *  19. ticketed-session-without-v2-counts-conductor-only: conductor rows plus
+ *      legacy hook rows -> conductor rows only.
  *
  * Run with: node hooks/tests/test-stop-context-telemetry.js
  */
@@ -717,6 +727,138 @@ console.log('\nTest 15: hook-spawn-complete-tokens-flow-into-writeSessionTotal')
       `session_total.tokens.input === 77, the real hook-resolved value (got: ${ev.data && ev.data.tokens && ev.data.tokens.input})`);
     assert(ev.data && ev.data.tokens && ev.data.tokens.output === 33,
       `session_total.tokens.output === 33 (got: ${ev.data && ev.data.tokens && ev.data.tokens.output})`);
+  }
+  cleanup(tmpDir);
+}
+
+function asV2(line) {
+  const obj = JSON.parse(line);
+  obj.data.telemetry_v = 2;
+  return JSON.stringify(obj);
+}
+
+// Shape of the real uuid-less conductor row (2026-08-25T22:29:30Z in the
+// DinoStack log): skeptic calibration fields, no session_uuid, no source.
+function makeUuidlessConductorComplete() {
+  return JSON.stringify({
+    ts: '2026-08-25T22:29:30.153Z',
+    phase: 'spawn',
+    event: 'spawn_complete',
+    agent: 'skeptic',
+    task_id: null,
+    data: {
+      findings_count: { critical: 0, major: 0, minor: 1 },
+      iteration: 1, signed_off: true, status: 'DONE', tier: 'elevated',
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Test 16: uuidless-conductor-row-not-admitted
+// ---------------------------------------------------------------------------
+console.log('\nTest 16: uuidless-conductor-row-not-admitted');
+{
+  const tmpDir = makeTmpProject();
+  const sessionId = 'sess-016';
+  const eventsPath = path.join(tmpDir, '.agentic', 'events.jsonl');
+  fs.writeFileSync(eventsPath, makeUuidlessConductorComplete() + '\n', 'utf8');
+
+  const agg = scanSessionAggregate(eventsPath, sessionId);
+  assert(agg !== null, 'aggregate not null');
+  if (agg) {
+    assert(agg.spawn_count === 0,
+      `spawn_count === 0 for a spawn-less session (got: ${agg.spawn_count})`);
+    assert(Object.keys(agg.by_agent).length === 0,
+      `by_agent empty (got: ${JSON.stringify(agg.by_agent)})`);
+  }
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// Test 17: v2-hook-rows-survive-stray-conductor-rows
+// ---------------------------------------------------------------------------
+console.log('\nTest 17: v2-hook-rows-survive-stray-conductor-rows');
+{
+  const tmpDir = makeTmpProject();
+  const sessionId = 'sess-017';
+  const eventsPath = path.join(tmpDir, '.agentic', 'events.jsonl');
+  const tokens = { input: 900, output: 80, cache_creation: 7, cache_read: 6000 };
+  fs.writeFileSync(eventsPath,
+    makeUuidlessConductorComplete() + '\n'
+    + makeSpawnComplete('qa-engineer', 'sess-other-017', 40) + '\n'
+    + asV2(makeHookSpawnStart('engineer', sessionId, 'spawn-017')) + '\n'
+    + asV2(makeHookSpawnComplete('engineer', sessionId, 'spawn-017', 12, tokens)) + '\n',
+    'utf8'
+  );
+
+  const agg = scanSessionAggregate(eventsPath, sessionId);
+  assert(agg !== null, 'aggregate not null');
+  if (agg) {
+    assert(agg.spawn_count === 1, `spawn_count === 1 (got: ${agg.spawn_count})`);
+    assert(agg.tokens.input === 900 && agg.tokens.cache_read === 6000,
+      `tokens are the hook row's (got: ${JSON.stringify(agg.tokens)})`);
+    assert(agg.wall_seconds === 12, `wall_seconds === 12 (got: ${agg.wall_seconds})`);
+    assert(JSON.stringify(Object.keys(agg.by_agent)) === '["engineer"]',
+      `by_agent has only engineer (got: ${JSON.stringify(Object.keys(agg.by_agent))})`);
+  }
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// Test 18: v2-hook-rows-win-over-same-session-conductor-row
+// ---------------------------------------------------------------------------
+console.log('\nTest 18: v2-hook-rows-win-over-same-session-conductor-row');
+{
+  const tmpDir = makeTmpProject();
+  const sessionId = 'sess-018';
+  const eventsPath = path.join(tmpDir, '.agentic', 'events.jsonl');
+  const tokens = { input: 300, output: 30, cache_creation: 0, cache_read: 3000 };
+  fs.writeFileSync(eventsPath,
+    asV2(makeHookSpawnStart('engineer', sessionId, 'spawn-018')) + '\n'
+    + asV2(makeHookSpawnComplete('engineer', sessionId, 'spawn-018', 20, tokens)) + '\n'
+    + makeSpawnComplete('engineer', sessionId, 20,
+      { input: 0, output: 0, cache_creation: 0, cache_read: 0 }) + '\n',
+    'utf8'
+  );
+
+  const agg = scanSessionAggregate(eventsPath, sessionId);
+  assert(agg !== null, 'aggregate not null');
+  if (agg) {
+    assert(agg.spawn_count === 1,
+      `spawn_count === 1, not 2 or a conductor-only count (got: ${agg.spawn_count})`);
+    assert(agg.tokens.input === 300 && agg.tokens.cache_read === 3000,
+      `tokens are the hook row's, not the conductor row's zeros (got: ${JSON.stringify(agg.tokens)})`);
+  }
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// Test 19: ticketed-session-without-v2-counts-conductor-only
+// ---------------------------------------------------------------------------
+console.log('\nTest 19: ticketed-session-without-v2-counts-conductor-only');
+{
+  const tmpDir = makeTmpProject();
+  const sessionId = 'sess-019';
+  const eventsPath = path.join(tmpDir, '.agentic', 'events.jsonl');
+  const c = { input: 100, output: 50, cache_creation: 0, cache_read: 0 };
+  fs.writeFileSync(eventsPath,
+    makeHookSpawnStart('engineer', sessionId, 'spawn-019a') + '\n'
+    + makeHookSpawnComplete('engineer', sessionId, 'spawn-019a', 9,
+      { input: 5000, output: 5000, cache_creation: 0, cache_read: 0 }) + '\n'
+    + makeSpawnComplete('engineer', sessionId, 10, c) + '\n'
+    + makeHookSpawnStart('skeptic', sessionId, 'spawn-019b') + '\n'
+    + makeSpawnComplete('skeptic', sessionId, 10, c) + '\n',
+    'utf8'
+  );
+
+  const agg = scanSessionAggregate(eventsPath, sessionId);
+  assert(agg !== null, 'aggregate not null');
+  if (agg) {
+    assert(agg.spawn_count === 2,
+      `spawn_count === 2, one per conductor row (got: ${agg.spawn_count})`);
+    assert(agg.tokens.input === 200 && agg.tokens.output === 100,
+      `tokens are the conductor rows' sum only (got: ${JSON.stringify(agg.tokens)})`);
+    assert(agg.wall_seconds === 20, `wall_seconds === 20 (got: ${agg.wall_seconds})`);
   }
   cleanup(tmpDir);
 }

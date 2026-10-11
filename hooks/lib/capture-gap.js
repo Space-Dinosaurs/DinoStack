@@ -103,10 +103,10 @@ function _tokenize(str) {
  *   (a) At least one learning-worthy event this session (debugger/investigator
  *       spawn_complete, skeptic spawn_complete with major/critical resolved, or
  *       tool_failure_workaround). Events without session_uuid are DELIBERATELY
- *       EXCLUDED (inverse of scanSessionAggregate which includes absent uuids
- *       for back-compat). This exclusion prevents false nags from legacy event
- *       lines whose session cannot be determined. Self-heals after one post-upgrade
- *       session where emits carry session_uuid.
+ *       EXCLUDED (as in scanSessionAggregate when a session id is known). This
+ *       exclusion prevents false nags from legacy event lines whose session
+ *       cannot be determined. Self-heals after one post-upgrade session where
+ *       emits carry session_uuid.
  *   (b) No today-dated [LRN- or [KNW- entries in .agentic/learnings.md.
  *   (c) No domain-proximate guardrail added this session (suppression). The
  *       suppressor checks git diff --name-only origin/HEAD..HEAD (all session
@@ -176,12 +176,11 @@ function detectCaptureGap(cwd, sessionId, cachedEventsRaw) {
 
       const data = (obj && obj.data) || {};
 
-      // DELIBERATE: lines without data.session_uuid are EXCLUDED here.
-      // This is the inverse of scanSessionAggregate (which includes absent uuids
-      // for back-compat). The backstop must not nag on legacy event lines from
-      // prior sessions that lack session attribution - that would cause false
-      // positives on every session until the file rotates. scanSessionAggregate
-      // keeps absent=include for back-compat; only this backstop uses absent=exclude.
+      // DELIBERATE: lines without data.session_uuid are EXCLUDED here, the
+      // same rule scanSessionAggregate applies when a session id is known.
+      // The backstop must not nag on legacy event lines from prior sessions
+      // that lack session attribution - that would cause false positives on
+      // every session until the file rotates.
       if (!data.session_uuid || data.session_uuid !== sessionId) continue;
 
       // Pagination: skip lines at or before the last sweep timestamp.
