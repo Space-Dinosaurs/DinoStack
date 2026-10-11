@@ -35,8 +35,11 @@ Public API: ds-hook-fire-report [--repo PATH] [--days N] [--json]
             log_confidence_eligible below). --repo defaults to cwd, same
             convention as ds-evaluate. Exit 0 always (a missing/absent/
             malformed fires log is a per-hook UNMEASURED status, not a CLI
-            failure) unless --repo does not look like a DinoStack checkout
-            (no hooks/ dir), which exits 1.
+            failure). When --repo has no hooks/ dir (a consumer repo, not
+            a DinoStack checkout), hook sources are read from this tool's
+            own checkout instead, while fire logs are still read from
+            --repo; `meta.hooks_dir` and the table header name the hooks
+            dir actually used.
 
             meta.log_confidence_eligible (DS-179 round 3) - a single derived
             bool combining BOTH failure modes the Skeptic found in
@@ -95,8 +98,8 @@ Upstream deps: Python 3 stdlib only (argparse, datetime, json, sys,
                would then resolve relative to the symlink's own directory,
                not this file's real location) - never against the `--repo`
                target. `--repo` names which tree to MEASURE (where
-               hooks/enforce-*.py and .agentic/.enforcement-fires.jsonl
-               live); it is independent of where this tool's own code
+               .agentic/.enforcement-fires.jsonl lives, and hooks/enforce-
+               *.py too when it has a hooks/ dir); it is independent of where this tool's own code
                lives, so a `--repo` pointing at a tree lacking
                scripts/lib/enforcer_facts.py still loads the module
                correctly from this tool's own checkout. Reads
@@ -394,16 +397,20 @@ def _load_jsonl(
     return records, total, malformed
 
 
-def build_report(repo_root: Path, days: int) -> dict:
+def build_report(repo_root: Path, days: int, hooks_root: Path | None = None) -> dict:
     """Return {"meta": {...}, "hooks": [...]} per the module's Status enum.
     `days` is the fire-count window in days (requested_window_days),
     measured back from "now" (UTC) at call time - it governs
     fire_count_window only. Confidence tiering belongs to the caller
     (content/commands/ds-prune-harness.md Signal 8) and must key on
     meta.log_confidence_eligible (density + corruption) together with
-    meta.log_coverage_days (span), never on requested_window_days alone."""
+    meta.log_coverage_days (span), never on requested_window_days alone.
+    `hooks_root` is the tree whose hooks/ supplies hook sources (default
+    `repo_root`); fire logs are always read from `repo_root`."""
+    if hooks_root is None:
+        hooks_root = repo_root
     enforcer_facts = _load_enforcer_facts()
-    facts = enforcer_facts.derive_enforcer_facts(repo_root)
+    facts = enforcer_facts.derive_enforcer_facts(hooks_root)
 
     fires_path = repo_root / ".agentic" / ".enforcement-fires.jsonl"
     fires_path_exists = fires_path.exists()
@@ -560,6 +567,7 @@ def build_report(repo_root: Path, days: int) -> dict:
 
     meta = {
         "repo": str(repo_root),
+        "hooks_dir": str(hooks_root / "hooks"),
         "requested_window_days": days,
         "log_present": log_present,
         "log_total_lines": log_total_lines,
@@ -579,6 +587,7 @@ def build_report(repo_root: Path, days: int) -> dict:
 def _print_table(report: dict) -> None:
     meta = report["meta"]
     rows = report["hooks"]
+    print(f"repo={meta['repo']} hooks_dir={meta['hooks_dir']}")
     print("Legend:")
     for status, text in _LEGEND.items():
         print(f"  {status}: {text}")
@@ -629,7 +638,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--repo",
         default=".",
-        help="path to the DinoStack checkout (default: cwd)",
+        help="repo whose .agentic/ fire logs to read (default: cwd); hook "
+        "sources come from its hooks/ dir, or from this tool's own DinoStack "
+        "checkout when it has none (a consumer repo)",
     )
     parser.add_argument(
         "--days",
@@ -646,15 +657,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     repo_root = Path(args.repo).expanduser().resolve()
-    if not (repo_root / "hooks").is_dir():
-        print(
-            f"ds-hook-fire-report: error: {repo_root} is not a DinoStack "
-            "checkout (no hooks/ dir)",
-            file=sys.stderr,
-        )
-        return 1
+    if (repo_root / "hooks").is_dir():
+        hooks_root = repo_root
+    else:
+        hooks_root = _REPO_ROOT_DEFAULT
 
-    report = build_report(repo_root, args.days)
+    report = build_report(repo_root, args.days, hooks_root)
 
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
