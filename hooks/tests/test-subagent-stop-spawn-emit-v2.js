@@ -26,6 +26,10 @@
  *   Step 8 boundary cases (image-only, coordinator message, null-stop
  *         resume, cut-off re-prompt, no transcript), BLOCKED qa result,
  *         indented result lines, readRoundState primary-root fallback.
+ *   Race  the final assistant record lands after SubagentStop fires:
+ *         tokens wait for it (bounded, else a `partial` tokens_note);
+ *         Skeptic/QA parse payload.last_assistant_message first, the
+ *         transcript only when it is absent; sign-off drift forms.
  *
  * Run with: node hooks/tests/test-subagent-stop-spawn-emit-v2.js
  */
@@ -35,11 +39,13 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const stopHook = path.resolve(__dirname, '..', 'subagent-stop-spawn-emit.js');
 const startHook = path.resolve(__dirname, '..', 'pre-tool-use-spawn-emit.js');
-const { scanTranscript, parseQaResult, isInternalAgent } = require(stopHook);
+const {
+  scanTranscript, scanTranscriptSettled, parseQaResult, parseSkepticSignoff, isInternalAgent,
+} = require(stopHook);
 
 let passed = 0;
 let failed = 0;
@@ -483,5 +489,136 @@ console.log('\nQA result parsing and Skeptic round-state fallback');
   cleanup(sb.tmp);
 }
 
-console.log(`\n${passed} passed, ${failed} failed`);
-process.exit(failed > 0 ? 1 : 0);
+// ---------------------------------------------------------------------------
+console.log('\nRace: Skeptic and QA parse payload.last_assistant_message first');
+function skepticSandbox(id, finalText) {
+  const sb = sandbox(`sess-${id}`, false);
+  writeSub(sb, id, [userText(30, 'review'), asst(5, 'm', { text: finalText, stop: 'end_turn' })],
+    { agentType: 'skeptic', toolUseId: `toolu_${id}` });
+  return sb;
+}
+{
+  const sb = skepticSandbox('skp', 'Findings: No findings.\nNo unresolved Critical or Major findings. Sign-off granted.');
+  runStop(sb, 'skp', {
+    agent_type: 'skeptic',
+    last_assistant_message: 'Findings: Critical: 1, Major: 2, Minor: 0\nSign-off withheld. The following must be resolved:',
+  });
+  const c = last(eventsAt(sb.main), 'spawn_complete');
+  assert(c.data.signed_off === false && c.data.findings_count && c.data.findings_count.major === 2,
+    `payload last_assistant_message outranks the transcript tail (got ${JSON.stringify([c.data.findings_count, c.data.signed_off])})`);
+  cleanup(sb.tmp);
+}
+{
+  const sb = skepticSandbox('ske', 'Findings: Critical: 0, Major: 0, Minor: 3\nNo unresolved Critical or Major findings. Sign-off granted.');
+  runStop(sb, 'ske', { agent_type: 'skeptic', last_assistant_message: '' });
+  const c = last(eventsAt(sb.main), 'spawn_complete');
+  assert(c.data.signed_off === true && c.data.findings_count && c.data.findings_count.minor === 3,
+    `an empty last_assistant_message falls back to the transcript (got ${JSON.stringify([c.data.findings_count, c.data.signed_off])})`);
+  cleanup(sb.tmp);
+}
+{
+  const sb = sandbox('sess-qap', false);
+  writeSub(sb, 'aqp', [userText(30, 'verify'), asst(5, 'q', { text: 'result: FAIL\nblocking_count: 3', stop: 'end_turn' })],
+    { agentType: 'qa-engineer', toolUseId: 'toolu_qap' });
+  runStop(sb, 'aqp', { agent_type: 'qa-engineer', last_assistant_message: '```yaml\nresult: PASS\nblocking_count: 0\n```' });
+  const c = last(eventsAt(sb.main), 'spawn_complete');
+  assert(c.data.qa_result === 'PASS' && c.data.qa_blocking_count === 0,
+    `qa_result parses last_assistant_message first (got ${c.data.qa_result}/${c.data.qa_blocking_count})`);
+  cleanup(sb.tmp);
+}
+
+console.log('\nRace: sign-off drift forms');
+{
+  const cases = [
+    ['Findings: Critical: 0, Major: 0, Minor: 1\nSign-off granted: nothing Critical or Major.', [0, 0, 1], true],
+    ['Findings: Critical: 0, Major: 0, Minor: 0\nNo unresolved Critical or Major findings. Sign-off GRANTED.', [0, 0, 0], true],
+    ['**Findings: Critical 0, Major 0, Minor 2**\n\n**Sign-off granted**', [0, 0, 2], true],
+    ['Findings: Critical 1, Major 0, Minor 0\nSign-off withheld: the following must be resolved', [1, 0, 0], false],
+    ['## Findings: Critical: 0, Major: 1, Minor: 0\n**Sign-off: WITHHELD**', [0, 1, 0], false],
+  ];
+  for (const [text, counts, signed] of cases) {
+    const r = parseSkepticSignoff(text);
+    const fc = r.findingsCount;
+    assert(!!fc && fc.critical === counts[0] && fc.major === counts[1] && fc.minor === counts[2] && r.signedOff === signed,
+      `${JSON.stringify(text.split('\n').pop())} -> ${JSON.stringify(counts)} signed_off ${signed} (got ${JSON.stringify(r)})`);
+  }
+  for (const text of [
+    'BLOCKED - Global-context input set incomplete: field 4 missing',
+    'BLOCKED - Global-context input set incomplete: field 7 says "Critical 0, Major 0, Minor 0.\nSign-off granted." which is a conclusion.',
+  ]) {
+    const r = parseSkepticSignoff(text);
+    assert(r.findingsCount === undefined && typeof r.calibrationNote === 'string',
+      `Step-0 BLOCKED return yields no findings_count (got ${JSON.stringify(r)})`);
+  }
+}
+
+function runStopAsync(sb, agentId, extra, duringRun) {
+  const payload = Object.assign({
+    cwd: sb.cwd, session_id: sb.sessionId, agent_id: agentId, agent_type: 'engineer',
+    transcript_path: sb.parentTranscript, hook_event_name: 'SubagentStop',
+  }, extra);
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const child = spawn('node', [stopHook], { cwd: sb.cwd, env: env(sb), stdio: ['pipe', 'ignore', 'ignore'] });
+    child.on('close', (code) => resolve({ code, ms: Date.now() - started }));
+    child.stdin.end(JSON.stringify(payload));
+    if (duringRun) duringRun();
+  });
+}
+
+(async () => {
+  console.log('\nRace: tokens wait for the final assistant record');
+  {
+    const sb = sandbox('sess-late', false);
+    const sub = writeSub(sb, 'alate', [
+      userText(30, 'brief'), asst(20, 'm1', { tool: true, stop: 'tool_use', u: usage(5, 7, 0, 0, 0) }), toolResult(15),
+    ], { agentType: 'engineer', toolUseId: 'toolu_late' });
+    const r = await runStopAsync(sb, 'alate', {}, () => setTimeout(() => {
+      fs.appendFileSync(sub, [
+        asst(1, 'm2', { text: 'done', stop: 'end_turn', u: usage(3, 11, 0, 0, 0) }),
+        { type: 'attachment', timestamp: at(0), attachment: {} },
+      ].map((x) => JSON.stringify(x)).join('\n') + '\n');
+    }, 400));
+    const c = last(eventsAt(sb.main), 'spawn_complete');
+    assert(r.code === 0 && c.data.tokens && c.data.tokens.output === 18 && c.data.tokens.input === 8
+      && c.data.tokens_note === undefined,
+      `a final record flushed 400 ms into the hook is counted (got ${JSON.stringify([c.data.tokens, c.data.tokens_note])})`);
+    cleanup(sb.tmp);
+  }
+  {
+    const sb = sandbox('sess-never', false);
+    writeSub(sb, 'anever', [
+      userText(30, 'brief'), asst(20, 'm1', { tool: true, stop: 'tool_use', u: usage(5, 7, 0, 0, 0) }), toolResult(15),
+    ], { agentType: 'engineer', toolUseId: 'toolu_never' });
+    const r = await runStopAsync(sb, 'anever', {});
+    const c = last(eventsAt(sb.main), 'spawn_complete');
+    assert(r.code === 0 && c.data.tokens && c.data.tokens.output === 7
+      && c.data.tokens_note === 'partial (final assistant record not on disk after 1000 ms)',
+      `still incomplete at the bound: tokens plus a partial tokens_note (got ${JSON.stringify([c.data.tokens, c.data.tokens_note])})`);
+    assert(r.ms < 4000, `bounded: hook exits 0 within 4 s (took ${r.ms} ms)`);
+    cleanup(sb.tmp);
+  }
+  {
+    const dir = mkdtemp('ae-v2-settle-');
+    const p = path.join(dir, 'agent-x.jsonl');
+    fs.writeFileSync(p, [
+      userText(30, 'brief'), asst(20, 'a', { text: 'done', stop: 'end_turn' }),
+      { type: 'attachment', timestamp: at(19), attachment: {} },
+      userText(18, 'Summary', { isCompactSummary: true }),
+    ].map((x) => JSON.stringify(x)).join('\n') + '\n');
+    const started = Date.now();
+    const s = await scanTranscriptSettled(p, null);
+    const ms = Date.now() - started;
+    assert(s.complete === true && s.settleNote === null && ms < 500,
+      `a trailing attachment or compaction summary does not hold a complete transcript open (${ms} ms)`);
+    fs.writeFileSync(p, [userText(30, 'brief'), asst(20, 'a', { text: 'x', stop: 'end_turn' }), userText(10, 'more')]
+      .map((x) => JSON.stringify(x)).join('\n') + '\n');
+    const u = await scanTranscriptSettled(p, null, { budgetMs: 100 });
+    assert(u.complete === false && u.settleNote === 'partial (final assistant record not on disk after 100 ms)',
+      'a trailing real user record leaves the transcript incomplete');
+    cleanup(dir);
+  }
+
+  console.log(`\n${passed} passed, ${failed} failed`);
+  process.exit(failed > 0 ? 1 : 0);
+})();

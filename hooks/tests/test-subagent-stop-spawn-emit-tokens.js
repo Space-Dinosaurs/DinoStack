@@ -141,6 +141,7 @@ function assistantTurn(inputTokens, outputTokens, cacheCreation, cacheRead) {
     timestamp: new Date().toISOString(),
     message: {
       model: 'claude-test',
+      stop_reason: 'end_turn',
       usage: {
         input_tokens: inputTokens,
         output_tokens: outputTokens,
@@ -161,6 +162,7 @@ function assistantTurnWithUsage(usage) {
     timestamp: new Date().toISOString(),
     message: {
       model: 'claude-test',
+      stop_reason: 'end_turn',
       usage,
     },
   });
