@@ -238,13 +238,23 @@ def test_pr_created_matches_command_substitution_env_prefix_in_a_chain(tmp_path)
     assert sub.pr_created == [("o/api", 7)]
 
 
-def test_pr_created_trusts_git_operation_whatever_the_command(tmp_path):
+def test_pr_created_prefers_git_operation_for_a_real_gh_pr_create(tmp_path):
     sub = _one_sub(tmp_path, [
-        _tool_call("t1", "bash /tmp/open_pr.sh"),
-        _tool_result("t1", "done", git_pr={"number": 31, "url": "https://github.com/o/web/pull/31",
-                                           "action": "created"}),
+        _tool_call("t1", "gh pr create --fill"),
+        _tool_result("t1", "see https://github.com/o/other/pull/2",
+                     git_pr={"number": 31, "url": "https://github.com/o/web/pull/31", "action": "created"}),
     ])
     assert sub.pr_created == [("o/web", 31)]
+
+
+def test_git_operation_alone_does_not_create_a_pr(tmp_path):
+    script = "cat > /tmp/x.py <<'EOF'\nif \"gh pr create\" in cmd:\n    print(url)\nEOF\npython3 /tmp/x.py"
+    sub = _one_sub(tmp_path, [
+        _tool_call("t1", script),
+        _tool_result("t1", "https://github.com/o/r/pull/2005",
+                     git_pr={"number": 2005, "url": "https://github.com/o/r/pull/2005", "action": "created"}),
+    ])
+    assert sub.pr_created == []
 
 
 def test_pr_created_keeps_repos_apart_for_colliding_numbers(tmp_path):

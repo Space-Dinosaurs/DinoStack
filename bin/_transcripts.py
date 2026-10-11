@@ -44,11 +44,13 @@ Public API:
     Sub: agent_id, agent_type, description, tool_use_id, usage,
         wall_seconds, pr_created. Meta fields are None without a
         `.meta.json`; wall_seconds is None without a timestamp.
-        pr_created: list of (repo, number), repo `owner/name` or None. A
-        tool_result whose `toolUseResult.gitOperation.pr.action` is
-        "created" is authoritative whatever the command text; otherwise a
-        non-error result of a `gh pr create` command contributes the PR URL
-        it printed.
+        pr_created: list of (repo, number), repo `owner/name` or None. Only
+        a non-error result of a command that really runs `gh pr create`
+        counts; its number and repo come from the result's
+        `toolUseResult.gitOperation.pr` ("created") when present, else
+        from the PR URL it printed. gitOperation alone never counts: the
+        harness also records one for a command that merely contains the
+        text "gh pr create" and prints a PR URL.
     Usage: dict keyed by (model, entrypoint, version) -> token dict
         (input, output, cache_read, cache_creation, cache_creation_5m,
         cache_creation_1h, messages). One assistant record per
@@ -311,9 +313,6 @@ def _pr_refs(rec: dict, pr_uses: set) -> List[PrRef]:
     if not isinstance(content, list):
         return []
     found: List[PrRef] = []
-    git_pr = _pr_from_git_operation(rec)
-    if git_pr is not None:
-        found.append(git_pr)
     for block in content:
         if not isinstance(block, dict):
             continue
@@ -323,7 +322,11 @@ def _pr_refs(rec: dict, pr_uses: set) -> List[PrRef]:
                 pr_uses.add(block["id"])
         elif block.get("type") == "tool_result" and block.get("tool_use_id") in pr_uses:
             pr_uses.discard(block["tool_use_id"])
-            if block.get("is_error") or git_pr is not None:
+            if block.get("is_error"):
+                continue
+            git_pr = _pr_from_git_operation(rec)
+            if git_pr is not None:
+                found.append(git_pr)
                 continue
             m = _PR_URL_RE.search(json.dumps(block.get("content")))
             if m:
@@ -368,8 +371,7 @@ def _scan(path: Path, want_cost: bool, want_prs: bool, skip_sidechain: bool) -> 
                 total = rec.get("totalCostUSD") if rec else None
                 if isinstance(total, (int, float)) and not isinstance(total, bool):
                     cost_rec = rec
-            if want_prs and ("pr create" in line or '"gitOperation"' in line
-                             or pr_uses and '"tool_use_id"' in line):
+            if want_prs and ("pr create" in line or pr_uses and '"tool_use_id"' in line):
                 rec = _loads(line)
                 if rec:
                     prs.extend(_pr_refs(rec, pr_uses))
