@@ -149,6 +149,7 @@ function assistantRecord(text, overrides = {}) {
     message: {
       role: 'assistant',
       model: 'claude-sonnet-5',
+      stop_reason: 'end_turn',
       content: [{ type: 'text', text }],
       usage: { input_tokens: 10, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     },

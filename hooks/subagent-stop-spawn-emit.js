@@ -53,8 +53,11 @@
  *            run's share in `run_tokens`, both with
  *            `cache_creation_5m`/`cache_creation_1h`. The transcript cap is
  *            MAX_TRANSCRIPT_BYTES (256 MiB), read streamed in one pass that
- *            also yields the run's last assistant text for the Skeptic and
- *            QA parses (no second read).
+ *            also yields the run's last assistant text. The pass is re-run
+ *            while the run's final assistant record is not yet on disk
+ *            (scanTranscriptSettled(), bounded by
+ *            TRANSCRIPT_SETTLE_BUDGET_MS); still missing at the bound, the
+ *            partial `tokens` carry a `tokens_note: "partial (...)"`.
  *          - Model: transcript `message.model` first (never `<synthetic>`),
  *            else the sidecar alias unless `inherit`; `model_source` says
  *            which.
@@ -63,7 +66,9 @@
  *            `description` and `toolUseId`.
  *          - qa-engineer: `qa_result` (PASS/FAIL/PARTIAL/INCONCLUSIVE/
  *            BLOCKED) and `qa_blocking_count` from the run's last text, or
- *            `qa_result_note`.
+ *            `qa_result_note`. The Skeptic and QA parses read the payload's
+ *            `last_assistant_message` first, the transcript's last text
+ *            only when the payload lacks it.
  *          - Label: sidecar `agentType`, then payload `agent_type`
  *            (`agent_source: "payload"`), then the paired start.
  *
@@ -133,8 +138,9 @@
  *
  * Public API: run() - invoked when executed as a script (require.main ===
  *             module) by the Claude Code SubagentStop hook. Exported for
- *             in-process tests only: scanTranscript, findMatch,
- *             isInternalAgent, parseQaResult, resolveSubagentFiles.
+ *             in-process tests only: scanTranscript,
+ *             scanTranscriptSettled, findMatch, isInternalAgent,
+ *             parseQaResult, parseSkepticSignoff, resolveSubagentFiles.
  *
  * Upstream deps: Node built-ins only (fs, path, os via
  *                hooks/lib/config-dir.js, child_process for the M2
@@ -289,7 +295,9 @@
  *                (`data.tokens_note: "skipped (transcript too large)"`) -
  *                never partial-summed, same never-fabricate principle as
  *                the `wall_seconds` sanity-cap treatment above. `tokens`
- *                and `tokens_note` are mutually exclusive on a given event.
+ *                and `tokens_note` are mutually exclusive on a given event,
+ *                except for the `partial (...)` note of an unsettled
+ *                transcript (see the DS-246 Tokens bullet above).
  *
  *                **Known, documented blemish (round-3): partial sums are
  *                not flagged.** When a transcript contains a mix of
@@ -342,6 +350,10 @@
  *              chunked streamLines read of the resolved transcript,
  *              size-capped at MAX_TRANSCRIPT_BYTES (256 MiB) - a transcript
  *              at or above that size is skipped entirely rather than read.
+ *              While the run's final assistant record is missing, that read
+ *              is repeated on file growth for at most
+ *              TRANSCRIPT_SETTLE_BUDGET_MS (1000ms) plus one re-scan's
+ *              overrun; a complete transcript adds no wait.
  *
  *              Round-3 fix (M3): two calibration-only contributors, both
  *              added by DS-178 unit A and both previously undocumented
@@ -416,6 +428,14 @@ const MAX_PROJECT_DIRS_SCAN = 1000;
 // A transcript at or above this size is SKIPPED entirely (never
 // partial-summed) - see the token-resolution doc-comment note above.
 const MAX_TRANSCRIPT_BYTES = 256 * 1024 * 1024;
+
+// A run's transcript is complete once its final assistant record, carrying
+// one of these stop reasons, is on disk (see scanTranscriptSettled()).
+const TERMINAL_STOP_REASONS = new Set(['end_turn', 'stop_sequence', 'max_tokens', 'refusal']);
+// Total wait for that record. With a Skeptic's DIFF_SHORTSTAT_TIMEOUT_MS this
+// still leaves headroom under the hook's 5s timeout (.claude/install.sh).
+const TRANSCRIPT_SETTLE_BUDGET_MS = 1000;
+const TRANSCRIPT_SETTLE_POLL_MS = 25;
 
 /**
  * Claude Code's cwd->project-hash substitution scheme: every '/' becomes
@@ -606,6 +626,11 @@ function tsMs(ts) {
  * assistant text in this run (after lastPriorCompleteTs when the boundary is
  * missing). `model` is the last `message.model` that is not `<synthetic>`.
  *
+ * `complete` is true when the last assistant record, or user record that is
+ * not `isCompactSummary`, is an assistant record whose stop_reason is in
+ * TERMINAL_STOP_REASONS - i.e. the run's final message is on disk.
+ * `size` is the byte length read.
+ *
  * A negative, non-numeric or empty usage block never counts as parsed; a
  * transcript with none yields tokens null plus a note, never a zero fill.
  * `readError` is set (to the same note) only when the file itself could not
@@ -619,7 +644,9 @@ function scanTranscript(transcriptPath, lastPriorCompleteTs, maxBytes) {
     runStartTs: null, runTokens: null, lastText: null,
     attributionAgent: null, firstTimestamp: null, firstUserText: null,
   };
-  const failed = (note) => ({ ...blank, tokens: null, tokensNote: note, model: null, modelNote: note, readError: note });
+  const failed = (note) => ({
+    ...blank, tokens: null, tokensNote: note, model: null, modelNote: note, readError: note, complete: false, size: 0,
+  });
 
   let stat;
   try { stat = fs.statSync(transcriptPath); } catch (_) { return failed('unavailable (transcript not found)'); }
@@ -637,6 +664,7 @@ function scanTranscript(transcriptPath, lastPriorCompleteTs, maxBytes) {
   let prevDialog = null;
   let runStartTs = null;
   let lastText = null;
+  let lastDialog = null;
 
   const res = streamLines(transcriptPath, 0, (line) => {
     const trimmed = line.trim();
@@ -657,6 +685,7 @@ function scanTranscript(transcriptPath, lastPriorCompleteTs, maxBytes) {
         if (text) firstUserText = text;
       }
       const content = message ? message.content : null;
+      if (!obj.isCompactSummary) lastDialog = obj;
       // Compaction summaries and image-only records never start a run, and
       // are transparent: the next real user record still "follows" the turn end.
       if (obj.isCompactSummary || isImageOnly(content)) return;
@@ -674,6 +703,7 @@ function scanTranscript(transcriptPath, lastPriorCompleteTs, maxBytes) {
     }
     if (obj.type !== 'assistant') return;
     prevDialog = obj;
+    lastDialog = obj;
     if (!message) return;
     const id = typeof message.id === 'string' && message.id ? message.id : `__noid_${noIdCounter++}`;
     if (Array.isArray(message.content) && message.content.some((b) => b && b.type === 'tool_use')) toolUseIds.add(id);
@@ -704,13 +734,50 @@ function scanTranscript(transcriptPath, lastPriorCompleteTs, maxBytes) {
     runTokens = sumBands(all.filter((u) => { const m = tsMs(u.firstSeen); return m !== null && m >= startMs; })
       .map((u) => u.bands));
   }
+  const complete = !!(lastDialog && lastDialog.type === 'assistant' && lastDialog.message
+    && TERMINAL_STOP_REASONS.has(lastDialog.message.stop_reason));
   return {
     tokens,
     tokensNote: tokens ? null : 'unavailable (transcript unreadable)',
     model,
     modelNote: model ? null : 'unavailable (transcript unreadable)',
     runStartTs, runTokens, lastText, attributionAgent, firstTimestamp, firstUserText, readError: null,
+    complete, size: res.size,
   };
+}
+
+/**
+ * scanTranscript(), re-run until `complete` or the settle budget runs out.
+ * SubagentStop fires before the harness has flushed the run's final
+ * assistant record (measured on 2.1.287: it lands 30-60 ms into the hook),
+ * so a single scan undercounts tokens and misses the final text. Between
+ * scans the file size is polled every TRANSCRIPT_SETTLE_POLL_MS; a re-scan
+ * starts only when the file grew and the previous scan's duration still
+ * fits before the deadline, so the added wall time is at most budgetMs plus
+ * one re-scan's overrun. Still incomplete at the bound: `settleNote` is set
+ * and run() emits it as `tokens_note` alongside the partial `tokens`.
+ */
+async function scanTranscriptSettled(transcriptPath, lastPriorCompleteTs, opts) {
+  const budgetMs = opts && Number.isFinite(opts.budgetMs) ? opts.budgetMs : TRANSCRIPT_SETTLE_BUDGET_MS;
+  const deadline = Date.now() + budgetMs;
+  let started = Date.now();
+  let scan = scanTranscript(transcriptPath, lastPriorCompleteTs);
+  let scanMs = Date.now() - started;
+  while (!scan.readError && !scan.complete) {
+    let grew = false;
+    while (!grew && Date.now() + TRANSCRIPT_SETTLE_POLL_MS <= deadline) {
+      await new Promise((resolve) => setTimeout(resolve, TRANSCRIPT_SETTLE_POLL_MS));
+      try { grew = fs.statSync(transcriptPath).size > scan.size; } catch (_) { grew = false; }
+    }
+    if (!grew || Date.now() + scanMs > deadline) break;
+    started = Date.now();
+    scan = scanTranscript(transcriptPath, lastPriorCompleteTs);
+    scanMs = Date.now() - started;
+  }
+  scan.settleNote = !scan.readError && !scan.complete && scan.tokens
+    ? `partial (final assistant record not on disk after ${budgetMs} ms)`
+    : null;
+  return scan;
 }
 
 /**
@@ -740,8 +807,10 @@ function extractAssistantText(message) {
 // "Findings: No findings."), optionally bold-wrapped, anywhere in the text
 // (multiline, global) - collects EVERY occurrence so the caller can apply
 // the last-line tie-break (see parseSkepticSignoff's doc-comment).
-const _FINDINGS_LINE_RE = /^[ \t]*(?:\*\*)?Findings:.*$/gm;
-const _FINDINGS_COUNTS_RE = /Findings:\s*(?:\*\*)?\s*Critical:\s*(\d+)\s*,\s*Major:\s*(\d+)\s*,\s*Minor:\s*(\d+)/;
+// Measured drift accepted too: an ATX heading marker, and counts written
+// without their colons ("**Findings: Critical 0, Major 0, Minor 2**").
+const _FINDINGS_LINE_RE = /^[ \t]*(?:#{1,6}[ \t]+)?(?:\*\*)?Findings:.*$/gm;
+const _FINDINGS_COUNTS_RE = /Findings:\s*(?:\*\*)?\s*Critical:?\s*(\d+)\s*,\s*Major:?\s*(\d+)\s*,\s*Minor:?\s*(\d+)/;
 const _FINDINGS_NONE_RE = /Findings:\s*(?:\*\*)?\s*No findings\.?/i;
 // The two mandated verdict literals (content/agents/skeptic.md "Sign-off
 // format"): "No unresolved Critical or Major findings. Sign-off granted."
@@ -773,9 +842,14 @@ const _VERDICT_LINE_PREFIX = _LINE_MARKER_PREFIX + '(?:\\*\\*[ \\t]*)?';
 // anchor. Requiring the clause instead would leave the bare form unmatched
 // and bias every ambiguous case toward withheld.
 const _SIGNOFF_GRANTED_CLAUSE = '(?:No unresolved Critical or Major findings\\.[ \\t]*(?:\\*\\*)?)?';
+// Line-anchored verdicts also accept the measured drift forms, in any case:
+// the literal ended by ':' or a closing '**' instead of '.'
+// ("Sign-off granted:", "**Sign-off granted**", "Sign-off GRANTED."), and
+// "Sign-off: GRANTED". The substring fallback stays on the exact literals.
+const _signoffVerdict = (word) => `Sign-off(?:[ \\t]+${word}(?:[.:]|\\*\\*)|:[ \\t]*(?:\\*\\*[ \\t]*)?${word}\\b)`;
 const _SIGNOFF_GRANTED_LINE_RE = new RegExp(
-  _VERDICT_LINE_PREFIX + _SIGNOFF_GRANTED_CLAUSE + 'Sign-off granted\\.');
-const _SIGNOFF_WITHHELD_LINE_RE = new RegExp(_VERDICT_LINE_PREFIX + 'Sign-off withheld\\.');
+  _VERDICT_LINE_PREFIX + _SIGNOFF_GRANTED_CLAUSE + _signoffVerdict('granted'), 'i');
+const _SIGNOFF_WITHHELD_LINE_RE = new RegExp(_VERDICT_LINE_PREFIX + _signoffVerdict('withheld'), 'i');
 // Opening/closing marker of a fenced code block (``` or ~~~), carrying the
 // same marker prefixes a verdict line may carry. The marker must be the
 // LAST content on the line, optionally followed by a language tag (which
@@ -1392,7 +1466,7 @@ async function run() {
     let tokensNote = null;
     try {
       if (files.transcriptPath) {
-        scan = scanTranscript(files.transcriptPath, lastPriorCompleteTs);
+        scan = await scanTranscriptSettled(files.transcriptPath, lastPriorCompleteTs);
         tokensNote = scan.tokensNote;
       } else {
         tokensNote = `unavailable (transcript not found; tried: ${files.tried.join(', ') || 'none'})`;
@@ -1456,6 +1530,11 @@ async function run() {
       });
     }
 
+    // The harness's own copy of this run's final text; the transcript tail is
+    // only the fallback for a payload without it.
+    const payloadLastText = typeof payload.last_assistant_message === 'string'
+      && payload.last_assistant_message.trim() ? payload.last_assistant_message : null;
+
     // Calibration fields: Skeptic only. calibration_note is one shared field;
     // each miss contributes its own labelled clause, joined with "; ".
     let calibrationFields = {};
@@ -1472,7 +1551,8 @@ async function run() {
         }
 
         let signoff;
-        if (!files.transcriptPath || !scan) signoff = { calibrationNote: 'unavailable (transcript not found)' };
+        if (payloadLastText) signoff = parseSkepticSignoff(payloadLastText);
+        else if (!files.transcriptPath || !scan) signoff = { calibrationNote: 'unavailable (transcript not found)' };
         else if (scan.readError) signoff = { calibrationNote: scan.readError };
         else signoff = parseSkepticSignoff(scan.lastText);
         if (Object.prototype.hasOwnProperty.call(signoff, 'findingsCount')) {
@@ -1499,7 +1579,8 @@ async function run() {
 
     let qaFields = {};
     if (agentName === 'qa-engineer') {
-      const qa = scan && scan.lastText ? parseQaResult(scan.lastText)
+      const qaText = payloadLastText || (scan && scan.lastText);
+      const qa = qaText ? parseQaResult(qaText)
         : { qaResultNote: tokensNote || 'unavailable (no assistant text in run)' };
       qaFields = qa.qaResult
         ? { qa_result: qa.qaResult, ...(qa.qaBlockingCount !== null ? { qa_blocking_count: qa.qaBlockingCount } : {}) }
@@ -1539,7 +1620,9 @@ async function run() {
         ...(wallNote ? { wall_note: wallNote } : {}),
         suspect,
         transcript_source: files.transcriptSource,
-        ...(tokens ? { tokens } : { tokens_note: tokensNote || 'unavailable (transcript unreadable)' }),
+        ...(tokens
+          ? { tokens, ...(scan.settleNote ? { tokens_note: scan.settleNote } : {}) }
+          : { tokens_note: tokensNote || 'unavailable (transcript unreadable)' }),
         ...(runTokens ? { run_tokens: runTokens } : {}),
         ...(model ? { model, model_source: modelSource } : { model_note: modelNote || 'unavailable (transcript unreadable)' }),
         ...qaFields,
@@ -1559,4 +1642,7 @@ if (require.main === module) {
   run().catch(() => process.exit(0));
 }
 
-module.exports = { scanTranscript, findMatch, isInternalAgent, parseQaResult, resolveSubagentFiles };
+module.exports = {
+  scanTranscript, scanTranscriptSettled, findMatch, isInternalAgent, parseQaResult, parseSkepticSignoff,
+  resolveSubagentFiles,
+};

@@ -135,10 +135,15 @@ unmatched or if the paired duration exceeds a 24h sanity ceiling, in which
 case `data.suspect` is also `true`), and `data.tokens` (real, summed from
 the subagent's own transcript, when it can be found, read, and yields at
 least one parsed assistant-with-usage record) OR `data.tokens_note` (a
-descriptive reason when it cannot - tokens and the note are mutually
-exclusive, never both, never a zero-filled stand-in for "we could not
-determine this"); it
-does NOT carry the `tier`/`model`/`status`/calibration fields above. See
+descriptive reason when it cannot - never a zero-filled stand-in for "we
+could not determine this"). The two are mutually exclusive except for one
+case: the hook waits up to 1000 ms for the run's final assistant record to
+reach the transcript, and a transcript still without it then carries its
+partial `tokens` plus `tokens_note: "partial (final assistant record not on
+disk after 1000 ms)"`. The Skeptic and QA parses read the SubagentStop
+payload's `last_assistant_message`, falling back to the transcript only when
+it is absent. It does NOT carry the conductor-side `tier`/`status` fields
+above. See
 [content/references/events-log.md](../content/references/events-log.md) for
 the full schema and how consumers avoid double-counting the two variants.
 
