@@ -15,7 +15,7 @@ Covers:
   6. Non-dict data is tolerated (treated as {} for cwd purposes).
   7-8. Repo-root anchoring and worktree aggregation.
   9. session_id/agent_id/tool_use_id join keys: present, absent,
-     non-string, byte-identity, and fail-open.
+     non-string, byte-identity, length cap, and fail-open.
 """
 
 from __future__ import annotations
@@ -345,6 +345,18 @@ except Exception:
     raised9 = True
 check("a raising payload lookup never propagates", raised9 is False)
 check("a raising payload lookup prints nothing", out9.getvalue() == "" and err9.getvalue() == "")
+
+tmp9b = tempfile.mkdtemp(prefix="test-enforcement-log-9b-")
+enforcement_log.log_fire(
+    {"cwd": tmp9b, "session_id": "s" * 5000, "agent_id": "a" * 200, "tool_use_id": "t" * 201},
+    "enforce-tier", "deny", "long ids",
+)
+rows9b = read_lines(tmp9b)
+check("long-ids: one line written", len(rows9b) == 1)
+if rows9b:
+    check("session_id truncated to 200 chars", rows9b[0].get("session_id") == "s" * 200)
+    check("agent_id at exactly 200 chars kept whole", rows9b[0].get("agent_id") == "a" * 200)
+    check("tool_use_id at 201 chars truncated to 200", rows9b[0].get("tool_use_id") == "t" * 200)
 
 print(f"\n{total - failed}/{total} tests passed.")
 if failed:

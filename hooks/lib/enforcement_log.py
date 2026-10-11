@@ -32,8 +32,8 @@ Public API (module-level function, no class):
               is read from data["cwd"] when data is a dict and that key is
               a non-empty string; falls back to os.getcwd() otherwise.
               session_id, agent_id, and tool_use_id are copied into the
-              row from data when each is a non-empty string, and omitted
-              otherwise (never written as null).
+              row from data when each is a non-empty string (truncated to
+              200 chars), and omitted otherwise (never written as null).
         hook_name: short hook identifier, e.g. "enforce-tier". Any type is
               accepted and coerced with str() - callers pass a literal.
         decision: the action taken, e.g. "deny" or "allow_advisory". Free-
@@ -256,6 +256,7 @@ _REASON_MAX_LEN = 800
 # session/subagent/tool call that hit it. Each is omitted unless it is a
 # non-empty string, so a payload without them writes the canonical 4 fields.
 _JOIN_KEYS = ("session_id", "agent_id", "tool_use_id")
+_JOIN_KEY_MAX_LEN = 200
 
 
 def _now_iso() -> str:
@@ -300,7 +301,7 @@ def log_fire(data, hook_name, decision, reason, *, detail=None) -> None:
             for key in _JOIN_KEYS:
                 value = data.get(key)
                 if isinstance(value, str) and value:
-                    entry[key] = value
+                    entry[key] = value[:_JOIN_KEY_MAX_LEN]
 
         # `detail` is strictly additive and strictly optional. An absent,
         # empty, non-dict, or non-serializable `detail` degrades to the
