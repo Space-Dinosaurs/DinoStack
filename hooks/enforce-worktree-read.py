@@ -210,7 +210,8 @@ DENY_MESSAGE_TEMPLATE = (
     "({caller_root}). Reading outside your own worktree defeats isolation - "
     "act only on the files inside your own branch. If this file is genuinely "
     "needed, ask the conductor to include its content in your spawn brief, "
-    "or ask an operator to add its path to worktree_read_guard_exemptions "
+    "or ask an operator to add the entry {exempt_entry!r} (paths there are "
+    "relative to the primary checkout) to worktree_read_guard_exemptions "
     "in <primary_root>/.agentic/config.json."
 )
 
@@ -404,6 +405,7 @@ def main() -> None:
             path=target,
             primary_root=primary_root,
             caller_root=caller_root,
+            exempt_entry=rel_target,
         )
         # Decision print comes FIRST, unconditionally. Telemetry is loaded
         # and called only after the decision has reached stdout, and is

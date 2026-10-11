@@ -290,6 +290,16 @@ check_deny(
     must_contain=("Worktree-read guard", PRIMARY_TARGET, "wk-1", "agent_type='engineer'"),
 )
 
+# An operator who copied the absolute path shown in the deny into the
+# exemption list got an entry that never matches; the deny must name the
+# relative entry instead.
+check_deny(
+    "deny names the relative exemption entry 'content/foo.md'",
+    make_payload("Read", PRIMARY_TARGET, agent_id="wk-1", agent_type="engineer", cwd=WORKTREE),
+    primary_root=PRIMARY,
+    must_contain=("'content/foo.md'",),
+)
+
 # agent_type must NOT appear in the deny reason when absent from the
 # payload (the field is optional context, never a gate on its own).
 check_deny(
