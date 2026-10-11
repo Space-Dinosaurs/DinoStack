@@ -5,7 +5,9 @@ Purpose: DS-246 shared spawn-telemetry reader for bin/ds-cost, bin/ds-calibrate
          run (a resumed agent's k-th completion is run k), prices tokens
          against a rate table with the 5m/1h cache-write split, and merges
          spawn rows the hooks wrote to the PRIMARY checkout when a bin tool
-         runs from inside a linked worktree.
+         runs from inside a linked worktree. Also dedups session-log rows to
+         one per session_uuid (latest_session_rows) for ds-cost team/operator
+         and ds-change-delta.
 
 Public API:
     DEFAULT_RATES: dict - built-in USD-per-MTok table from the DS-246 ticket

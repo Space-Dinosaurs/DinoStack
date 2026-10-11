@@ -16509,11 +16509,15 @@ Data sources (used in order of availability):
    merged count, files-changed sum, and time-from-open-to-merge as a wall-clock
    proxy. When `gh` is unavailable or fails, or returns no PRs while the base
    branch's first-parent history has a `(#N)` subject in range (gh cannot see
-   the repo) or cannot be checked (no base branch resolves - AGENTS.md
-   `BASE_BRANCH:` first, then `origin/HEAD`, then `origin/main`/`master` - or
-   `git log` fails), a one-line warning is printed and `PRS`, `MERGED` and
+   the repo) or cannot be checked (no base branch resolves, or `git log`
+   fails), a one-line warning is printed and `PRS`, `MERGED` and
    `AVG_MERGE_TIME` print `n/a`, never `0`. `--json` reports them as `null`
-   with the reason in a top-level `prs_absent_reason`.
+   with the reason in a top-level `prs_absent_reason`. The base branch is the
+   first that exists of: AGENTS.md's `BASE_BRANCH:` declaration as
+   `origin/<name>` (authoritative - if it does not exist, nothing below is
+   tried), `origin/HEAD`'s target, `origin/develop` and then
+   `origin/development` (each only when that local branch exists),
+   `origin/main`, `origin/master`.
 2. **`git log`** - always available in a git repo. Provides commit count per
    author, files-touched sum, and ticket-prefix scan (regex `[A-Z]{2,10}-\d+`
    matched against commit subjects).

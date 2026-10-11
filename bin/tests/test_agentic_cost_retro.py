@@ -6,7 +6,9 @@ Creates a temp git repo, seeds commits across 2 authors with mixed ticket
 prefixes, then verifies aggregation, ticket-prefix scan, gh-absent fallback,
 edge cases (empty range, date out of range, malformed date).
 
-Run with: python3 bin/tests/test_agentic_cost_retro.py
+Run with: python3 -m pytest bin/tests/test_agentic_cost_retro.py
+(collects the test_* functions; the legacy run_tests() block runs only via
+python3 bin/tests/test_agentic_cost_retro.py)
 """
 
 import importlib.machinery
@@ -407,17 +409,38 @@ def test_retro_gh_empty_with_dangling_origin_head_prints_na():
 
 
 def test_retro_gh_empty_with_git_log_failure_prints_na():
-    orig = _mod._count_git_pr_merges
-    _mod._count_git_pr_merges = lambda *a, **k: None
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            repo = _one_commit_repo(tmpdir, "plain commit")
-            out = _retro_with_gh(repo, True, [])
-            data = json.loads(_retro_with_gh(repo, True, [], as_json=True))
-    finally:
-        _mod._count_git_pr_merges = orig
+    # origin/main names a missing object: rev-parse --verify accepts it, so
+    # the resolver returns it, but `git log origin/main` exits 128.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = _one_commit_repo(tmpdir, "plain commit", origin_main=False)
+        ref = Path(repo, ".git", "refs", "remotes", "origin", "main")
+        ref.parent.mkdir(parents=True, exist_ok=True)
+        ref.write_text("1" * 40 + "\n")
+        out = _retro_with_gh(repo, True, [])
+        data = json.loads(_retro_with_gh(repo, True, [], as_json=True))
     assert _total_row(out) == ["TOTAL", "1", "n/a", "n/a", "n/a", "1"], out
     assert "git log on origin/main failed" in data["prs_absent_reason"]
+
+
+def test_retro_base_branch_declaration_beats_origin_head():
+    # origin/HEAD -> origin/main has no (#N) merge; the declared origin/release
+    # does, so only a resolver honoring AGENTS.md reports PR data absent.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo = _one_commit_repo(tmpdir, "plain commit")
+        _git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], cwd=repo)
+        _git(["checkout", "-q", "-b", "release"], cwd=repo)
+        Path(repo, "g.txt").write_text("y\n")
+        _git(["add", "g.txt"], cwd=repo)
+        env = dict(os.environ, GIT_AUTHOR_DATE="2026-05-02T10:00:00",
+                   GIT_COMMITTER_DATE="2026-05-02T10:00:00")
+        subprocess.run(["git", "commit", "--message", "feat: release thing (#7)"], cwd=repo,
+                       env=env, capture_output=True, check=True)
+        _git(["update-ref", "refs/remotes/origin/release", "HEAD"], cwd=repo)
+        _git(["checkout", "-q", "main"], cwd=repo)
+        Path(repo, "AGENTS.md").write_text("BASE_BRANCH: release\n")
+        data = json.loads(_retro_with_gh(repo, True, [], as_json=True))
+    assert data["authors"]["carol"]["prs"] is None, data
+    assert "on origin/release" in data["prs_absent_reason"]
 
 
 def test_retro_gh_failure_prints_na():

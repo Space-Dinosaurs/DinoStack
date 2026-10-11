@@ -145,7 +145,10 @@ Downstream consumers: bin/ds-config (atomic_write), bin/ds-defer (both
                       attribute access keeps working), bin/ds-branch-prune
                       (resolve_base_branch ONLY - it imports no other
                       symbol from this module, and specifically not `_run`;
-                      see that function's Public API entry above).
+                      see that function's Public API entry above),
+                      bin/ds-cost (resolve_base_branch ONLY, loaded by
+                      resolved path; `retro` cross-checks an empty gh PR
+                      list against the base branch's history).
                       bin/ds-identity does NOT
                       use this module - it ships its own
                       _atomic_write_identity, its own lock contextmanager,
