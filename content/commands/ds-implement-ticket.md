@@ -2515,7 +2515,7 @@ for entry in "${QA_SCREENSHOT_PATHS[@]}"; do
   cp "$SRC_PATH" "$SCREENSHOTS_SRC/" 2>/dev/null || true
 done
 # If nothing copied, treat as skip
-[ "$(ls -A "$SCREENSHOTS_SRC")" ] || { QA_EVIDENCE_URLS=(); rm -rf "$SCREENSHOTS_SRC"; proceed to Phase 9; }
+[ "$(ls -A "$SCREENSHOTS_SRC")" ] || { QA_EVIDENCE_URLS=(); rmdir "$SCREENSHOTS_SRC"; proceed to Phase 9; }
 ```
 
 **Check whether `qa-evidence` branch already exists on remote:**
@@ -2554,7 +2554,7 @@ for i in 1 2 3; do
   git -C "$TEMP_CLONE" commit -m "qa: ${TICKET_SLUG}/${BRANCH_SLUG} PASS evidence"
 done
 
-rm -rf "$TEMP_CLONE"
+find "$TEMP_CLONE" -delete
 ```
 
 After temp-clone push succeeds, fetch the updated remote-tracking ref into the main repo:
@@ -2625,7 +2625,7 @@ If any step in the above sequence fails (push fails after 3 retries, worktree cr
 Clean up temp dir:
 
 ```bash
-rm -rf "$SCREENSHOTS_SRC" 2>/dev/null || true
+find "$SCREENSHOTS_SRC" -delete 2>/dev/null || true
 ```
 
 Clean up the original `/tmp/qa_*` source files that were consumed. Run this unconditionally after the copy loop and temp-dir cleanup, but only when `QA_SCREENSHOT_PATHS` is non-empty. Use the parsed paths so only copied files are deleted. Guard with `|| true` so Phase 8.5 remains soft-fail.
