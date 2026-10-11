@@ -252,8 +252,8 @@ _LOG_BASENAME = ".enforcement-fires.jsonl"
 # path. Doubled for headroom rather than tuned to the single longest known
 # caller.
 _REASON_MAX_LEN = 800
-# Payload keys copied verbatim into the row so a deny can be joined to the
-# session/subagent/tool call that hit it. Each is omitted unless it is a
+# Payload keys copied into the row, truncated to _JOIN_KEY_MAX_LEN, so a deny
+# can be joined to the session/subagent/tool call that hit it. Each is omitted unless it is a
 # non-empty string, so a payload without them writes the canonical 4 fields.
 _JOIN_KEYS = ("session_id", "agent_id", "tool_use_id")
 _JOIN_KEY_MAX_LEN = 200
