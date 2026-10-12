@@ -1251,6 +1251,226 @@ def test_session_windows_count_legacy_duplicate_rows_once():
         assert [(r[0].isoformat(), r[2]) for r in rows] == [("2026-08-26T00:00:00+00:00", 300)], rows
 
 
+# ---------------------------------------------------------------------------
+# eval side: compare_eval over evaluate(include_sessions=True) reports.
+# Windows: before [08-11, 08-25), after [08-25, 09-08); NOW is after both.
+# ---------------------------------------------------------------------------
+
+from datetime import timedelta
+
+_ENVELOPE = {"status", "value", "coverage", "missing"}
+_EVAL_REPO = "/r"
+
+
+def _srow(sid: str, ts: datetime, ep: str | None, cost: float | None, model="claude-opus-5-5",
+          version="2.1.287") -> dict:
+    return {"session_id": sid, "repo": _EVAL_REPO, "first_ts": ts.isoformat(), "entrypoint": ep,
+            "model": model, "version": version, "cost_usd": cost}
+
+
+def _side_rows(side: str, specs: list[tuple[str | None, float | None]]) -> list[dict]:
+    """One session per spec, a minute apart, starting at the side's window start."""
+    start = datetime(2026, 8, 11, tzinfo=timezone.utc) if side == "before" else CUT_DT
+    return [_srow(f"{side}-{i}", start + timedelta(minutes=i), ep, cost)
+            for i, (ep, cost) in enumerate(specs)]
+
+
+def _eval_report(rows: list[dict]) -> dict:
+    reconciled = [r for r in rows if r["cost_usd"] is not None]
+    total = (_mod._metric("OK" if len(reconciled) == len(rows) else "PARTIAL", sum(r["cost_usd"] for r in reconciled),
+                          round(len(reconciled) / len(rows), 4))
+             if rows else _mod._absent("no in-window sessions in any store"))
+    return {
+        "meta": {"sessions": len(rows), "repos": [_EVAL_REPO],
+                 "base": {_EVAL_REPO: {"ref": "main", "source": "explicit", "diagnostics": []}}},
+        "cost": {"window_total": total, "straddling_sessions": 0,
+                 "reconciled": {"usd": sum(r["cost_usd"] for r in reconciled) if reconciled else None,
+                                "sessions": len(reconciled)}},
+        "session_rows": rows,
+    }
+
+
+def _compare(before_rows: list[dict], after_rows: list[dict], base=None) -> dict:
+    reports = {"before": _eval_report(before_rows), "after": _eval_report(after_rows)}
+    base = base or {"before": {_EVAL_REPO: 3}, "after": {_EVAL_REPO: 5}}
+    return _mod.compare_eval(reports, base, CUT_DT, 14, NOW)
+
+
+def _envelopes(node, path="eval"):
+    """Yield (path, envelope) for every figure in the eval block."""
+    if isinstance(node, dict) and "status" in node:
+        yield path, node
+        return
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k != "meta":
+                yield from _envelopes(v, f"{path}.{k}")
+
+
+def _simpson_rows():
+    before = _side_rows("before", [("cli", 10.0)] * 8 + [("sdk-cli", 100.0)] * 2)
+    after = _side_rows("after", [("cli", 12.0)] * 2 + [("sdk-cli", 90.0)] * 8)
+    return before, after
+
+
+def test_eval_block_shape_and_every_figure_is_an_envelope():
+    ev = _compare(*_simpson_rows())
+    assert {"before", "after", "confounders", "pooled", "per_entrypoint", "mix_shifted",
+            "prefix_test"} <= set(ev), sorted(ev)
+    assert set(ev["confounders"]["before"]) == {"entrypoint", "model", "version", "base_commits"}
+    assert ev["confounders"]["after"]["base_commits"]["value"] == {_EVAL_REPO: 5}
+    found = list(_envelopes(ev))
+    assert len(found) > 30, len(found)
+    for path, m in found:
+        assert _ENVELOPE <= set(m), (path, m)
+        assert m["status"] in ("OK", "ABSENT", "PARTIAL"), (path, m)
+
+
+def test_eval_per_entrypoint_deltas_are_not_pooled():
+    """Mutation (a): pooling entrypoints into one delta. cli and sdk-cli each
+    move one way while the mix shift moves the pooled figure the other."""
+    ev = _compare(*_simpson_rows())
+    pe = ev["per_entrypoint"]
+    assert set(pe) == {"cli", "sdk-cli"}, sorted(pe)
+    assert pe["cli"]["before"]["value"] == 10.0 and pe["cli"]["after"]["value"] == 12.0
+    assert pe["cli"]["delta"]["value"] == 2.0, pe["cli"]["delta"]
+    assert pe["sdk-cli"]["delta"]["value"] == -10.0, pe["sdk-cli"]["delta"]
+    assert ev["pooled"]["delta"]["value"] == 46.4, ev["pooled"]["delta"]
+    assert ev["mix_shifted"]["value"] is True
+    assert ev["mix_shifted"]["points"] == {"cli": 60.0, "sdk-cli": 60.0}
+
+
+def test_eval_prefix_test_at_k_5_25_100():
+    """Mutation (b): prefix_test removed or a K missing. Cost rises with
+    session order, so each K gives a distinct delta."""
+    before = _side_rows("before", [("cli", float(i)) for i in range(120)])
+    after = _side_rows("after", [("cli", 200.0 + i) for i in range(120)])
+    pt = _compare(before, after)["prefix_test"]
+    assert set(pt) == {"5", "25", "100"}, sorted(pt)
+    expected = {"5": (117.0, 202.0), "25": (107.0, 212.0), "100": (69.5, 249.5)}
+    for k, (b, a) in expected.items():
+        assert pt[k]["before"]["value"] == b and pt[k]["after"]["value"] == a, (k, pt[k])
+        assert pt[k]["before"]["sessions"] == int(k) and pt[k]["delta"]["value"] == a - b, (k, pt[k])
+        assert pt[k]["delta"]["status"] == "OK", pt[k]
+
+    short = _compare(_side_rows("before", [("cli", 1.0)] * 3), _side_rows("after", [("cli", 2.0)] * 30))
+    assert short["prefix_test"]["5"]["before"]["status"] == "PARTIAL"
+    assert "only 3 of 5 sessions in the window" in short["prefix_test"]["5"]["before"]["missing"]
+    assert short["prefix_test"]["25"]["after"]["status"] == "OK"
+    assert short["prefix_test"]["100"]["after"]["status"] == "PARTIAL"
+
+
+def test_eval_mix_shifted_threshold_is_strictly_more_than_10_points():
+    """Mutation (c): threshold moved off 10 points. Exactly 10 is not a shift;
+    10.01 is."""
+    def rows(side, cli, total):
+        return _side_rows(side, [("cli", 1.0)] * cli + [("sdk-cli", 1.0)] * (total - cli))
+
+    assert _mod.MIX_SHIFT_POINTS == 10
+    at = _compare(rows("before", 5, 10), rows("after", 6, 10))["mix_shifted"]
+    assert at["points"]["cli"] == 10.0 and at["value"] is False, at
+    above = _compare(rows("before", 5000, 10000), rows("after", 6001, 10000))["mix_shifted"]
+    assert above["points"]["cli"] == 10.01 and above["value"] is True, above
+
+
+def test_eval_absent_window_is_absent_never_zero():
+    """Mutation (d): an ABSENT window figure replaced by 0."""
+    ev = _compare([], _side_rows("after", [("cli", 4.0)] * 6), base={"before": {_EVAL_REPO: None},
+                                                                       "after": {_EVAL_REPO: 2}})
+    for name in ("sessions", "cost_usd", "usd_per_reconciled_session", "straddling_sessions"):
+        m = ev["before"][name]
+        assert m["status"] == "ABSENT" and m["value"] is None and m["missing"], (name, m)
+    for m in (ev["pooled"]["before"], ev["pooled"]["delta"], ev["per_entrypoint"]["cli"]["before"],
+              ev["per_entrypoint"]["cli"]["delta"], ev["prefix_test"]["5"]["before"],
+              ev["prefix_test"]["5"]["delta"], ev["mix_shifted"], ev["confounders"]["before"]["entrypoint"],
+              ev["confounders"]["before"]["base_commits"]):
+        assert m["status"] == "ABSENT" and m["value"] is None and m["missing"], m
+
+    uncosted = _compare(_side_rows("before", [("cli", None)] * 4), _side_rows("after", [("cli", 3.0)] * 4))
+    m = uncosted["pooled"]["before"]
+    assert m["status"] == "ABSENT" and m["value"] is None, m
+    assert m["missing"] == ["none of 4 before sessions has cost-state covering it"], m
+
+
+def test_eval_sessions_assigned_once_by_first_ts_and_after_not_elapsed():
+    crossing = _srow("x", CUT_DT - timedelta(hours=1), "cli", 5.0)
+    early = _srow("early", datetime(2026, 8, 1, tzinfo=timezone.utc), "cli", 99.0)
+    reports = {"before": _eval_report([crossing, early]), "after": _eval_report([crossing])}
+    base = {"before": {_EVAL_REPO: 1}, "after": {_EVAL_REPO: 1}}
+    ev = _mod.compare_eval(reports, base, CUT_DT, 14, NOW)
+    assert ev["meta"]["sessions_assigned"] == {"before": 1, "after": 0, "first_ts_outside_windows": 1}
+    assert ev["pooled"]["after"]["status"] == "ABSENT"
+
+    running = _mod.compare_eval(reports, base, CUT_DT, 14, datetime(2026, 9, 1, tzinfo=timezone.utc))
+    assert running["after"]["sessions"]["status"] == "PARTIAL"
+    assert any("not yet elapsed" in x for x in running["after"]["sessions"]["missing"])
+    assert running["before"]["sessions"]["status"] == "OK"
+
+
+def test_build_eval_side_windows_and_base_commit_count():
+    calls = []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "g"
+        repo.mkdir()
+        _init_git_repo(repo)
+        day = timedelta(days=1)
+        assert _mod._base_commit_count(str(repo), "HEAD", CUT_DT - day, CUT_DT + day) == 1
+        assert _mod._base_commit_count(str(repo), "HEAD", CUT_DT + day, CUT_DT + 2 * day) == 0
+        assert _mod._base_commit_count(str(repo), "no-such-ref", CUT_DT - day, CUT_DT + day) is None
+        assert _mod._base_commit_count(str(repo), None, CUT_DT - day, CUT_DT + day) is None
+
+        def fake_evaluate(repos, start, end, *, stores=None, include_sessions=False):
+            calls.append((start, end, include_sessions))
+            report = _eval_report([])
+            report["meta"]["repos"] = [str(repo)]
+            ref = "HEAD" if start >= CUT_DT - 2 * day else None
+            report["meta"]["base"] = {str(repo): {"ref": ref, "source": "explicit", "diagnostics": []}}
+            return report
+
+        ev = _mod.build_eval_side([repo], CUT_DT - 2 * day, 3, NOW, evaluate=fake_evaluate)
+    before_start, before_end, after_start, after_end = _mod._windows(CUT_DT - 2 * day, 3)
+    assert calls == [(before_start, before_end, True), (after_start, after_end, True)], calls
+    assert ev["confounders"]["before"]["base_commits"]["status"] == "ABSENT"
+    assert ev["confounders"]["after"]["base_commits"]["value"] == {str(repo): 1}
+
+
+def test_eval_side_in_cli_json_and_its_subprocesses_are_read_only():
+    recorded: list[list[str]] = []
+    real = _mod._EVAL._LIB._run
+
+    def recording(args, cwd=None, timeout=None, env=None):
+        recorded.append(list(args))
+        return real(args, cwd=cwd, timeout=timeout, env=env)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "ro"
+        repo.mkdir()
+        _init_git_repo(repo)
+        subprocess.run(["git", "update-ref", "refs/remotes/origin/main", "HEAD"], cwd=repo, check=True)
+        out = StringIO()
+        orig_stdout, _mod._EVAL._LIB._run = sys.stdout, recording
+        sys.stdout = out
+        try:
+            rc = _mod.main(["--cut", CUT_ISO, "--repo", str(repo), "--json"])
+        finally:
+            sys.stdout, _mod._EVAL._LIB._run = orig_stdout, real
+    assert rc == 0
+    report = json.loads(out.getvalue())
+    assert {"meta", "metrics", "pr_history", "agent_model", "per_ticket", "eval"} <= set(report)
+    assert set(report["eval"]["prefix_test"]) == {"5", "25", "100"}
+    git_read = {"log", "rev-list", "remote", "show-ref", "symbolic-ref", "rev-parse"}
+    for args in recorded:
+        if args[0] == "git":
+            sub = args[3] if args[1] == "-C" else args[1]
+            assert sub in git_read, args
+        elif args[0] == "gh":
+            assert args[1:3] == ["pr", "list"], args
+        else:
+            assert args[1].endswith("ds-feedback") and args[2] == "list", args
+    assert any(a[:2] == ["git", "rev-list"] for a in recorded), recorded
+
+
 if __name__ == "__main__":
     run_tests()
     for _name, _fn in list(globals().items()):

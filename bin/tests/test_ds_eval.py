@@ -837,3 +837,24 @@ def test_cli_store_replaces_defaults_and_reports_missing_as_absent(tmp_path, mon
 def test_cli_usage_errors_exit_2(tmp_path, argv):
     assert cli.main(["--repo", str(tmp_path), *argv]) == 2
     assert cli.main(["--repo", str(tmp_path / "missing")]) == 2
+
+
+def test_session_summary_dominant_key_and_include_sessions(tmp_path, monkeypatch):
+    s = session(tmp_path, "s1", cost=7.5)
+    s.conductor[("claude-opus-5-5", "sdk-cli", "2.1.290")] = dict(s.conductor[("claude-opus-5-5", "cli", "2.1.287")],
+                                                                   messages=3)
+    row = ev.session_summary(s, "/r1")
+    assert row == {"session_id": "s1", "repo": "/r1", "first_ts": T(2).isoformat(), "model": "claude-opus-5-5",
+                   "entrypoint": "sdk-cli", "version": "2.1.290", "cost_usd": 7.5}
+    bare = session(tmp_path, "s2", subs=[sub("a1")], cost=None)
+    bare.conductor = tr.Usage()
+    assert ev.session_summary(bare, "/r1")["entrypoint"] == "cli"
+    bare.subagents = []
+    empty = ev.session_summary(bare, "/r1")
+    assert (empty["entrypoint"], empty["model"], empty["version"], empty["cost_usd"]) == (None, None, None, None)
+
+    monkeypatch.setattr(ev, "_load_repo", lambda r, *a: inp([s], repo=str(r)))
+    plain = ev.evaluate(["/r1"], START, END, use_gh=False, stores=[], rates=RATES)
+    assert "session_rows" not in plain
+    report = ev.evaluate(["/r1"], START, END, use_gh=False, stores=[], rates=RATES, include_sessions=True)
+    assert report["session_rows"] == [row]
