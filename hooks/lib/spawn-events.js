@@ -5,7 +5,7 @@
  *          (resolveMainRepoRoot), so a SubagentStop whose cwd is a linked
  *          isolation worktree no longer lands in a worktree-local file that
  *          is discarded with the worktree. Readers whose own writes stay at
- *          the cwd root (session_total, capture-gap cursor) merge this
+ *          the cwd root (session totals, capture-gap cursor) merge this
  *          session's primary-root spawn rows back in.
  *
  * Public API (CommonJS):

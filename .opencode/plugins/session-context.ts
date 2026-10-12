@@ -3,7 +3,7 @@
  *          activity shard and recomposes the derived `.agentic/context.md`
  *          rollup on every busy->idle transition (`session.idle`), runs full
  *          Stop-hook-equivalent finalization (loop-state, batch-state,
- *          session_total, shard + rollup) once per session when the user invokes
+ *          shard + rollup) once per session when the user invokes
  *          `/ds-wrap` (`command.executed`), and emits a skill-load instruction
  *          on `session.created` when `skill_auto_load: true` is set in
  *          `~/.config/opencode/agentic-engineering.json`.
@@ -38,9 +38,9 @@
  *                when true. Missing config or a prompt failure is logged and
  *                swallowed.
  *                session.idle does the shard write + rollup recompose only — no
- *                loop-state, batch-state, or events.jsonl writes happen there.
- *                Finalization writes (loop-state, batch-state,
- *                events.jsonl) run only on /ds-wrap completion via
+ *                loop-state or batch-state writes happen there.
+ *                Finalization writes (loop-state, batch-state) run only on
+ *                /ds-wrap completion via
  *                command.executed and are independent and best-effort: a
  *                failure in one does not affect the others. writeLoopState now
  *                carries the same session_id ownership check as
@@ -54,9 +54,9 @@
  *                diagnostic session.prompt (noreply: true) fires once on
  *                /ds-wrap. The prompt is fire-and-forget (no await) so it
  *                cannot block the handler even if delivery hangs. cwd values
- *                with path-traversal components are rejected by all three
+ *                with path-traversal components are rejected by both
  *                writers (defence in depth). The per-session-once invariant
- *                for session_total relies on the user invoking /ds-wrap;
+ *                for the finalization writes relies on the user invoking /ds-wrap;
  *                OpenCode does not expose a guaranteed shutdown hook from
  *                plugins.
  *                SHARD MODEL (DS-107): this plugin no longer writes
@@ -112,9 +112,8 @@
  *                hooks/lib/state-mark.js must be mirrored here and vice versa.
  *
  * Performance: ~5-20 ms typical on session.idle (one git status subprocess);
- *              slightly heavier on /ds-wrap completion (multiple writes, one
- *              full-file read+parse of events.jsonl for the session_total
- *              rollup, one .agentic/ readdir plus one stat per keyed
+ *              slightly heavier on /ds-wrap completion (multiple writes,
+ *              one .agentic/ readdir plus one stat per keyed
  *              loop-state candidate, capped at 100). The generic `event` hook fires for every bus event
  *              in the session (potentially hundreds per session); the
  *              unmatched-type early-return must stay cheap (a single
@@ -269,140 +268,6 @@ export const SessionContextPlugin: Plugin = async ({
     return {} as any;
   }
   (globalThis as any)[PLUGIN_INSTANCE_KEY] = true;
-
-  /**
-   * Aggregate spawn_complete events from events.jsonl for the current
-   * session and append a session_total rollup. Counts every spawn_complete
-   * regardless of data.source (conductor- and hook-emitted alike);
-   * implements neither stop-context.js's DS-160 hook-telemetry double-count
-   * guard nor its ad-hoc spawn_start dedup (see hooks/stop-context.js
-   * scanSessionAggregate for that logic). Silent failure on every error
-   * path.
-   */
-  async function writeSessionTotal(cwd: string, sessionID: string | null) {
-    // M4: Reject cwd values with traversal components before any path join.
-    const resolvedCwd = path.resolve(cwd);
-    if (resolvedCwd !== cwd) {
-      await log(
-        "warn",
-        "Skipping session_total write: cwd contains traversal components",
-        { cwd },
-      );
-      return;
-    }
-
-    const eventsPath = path.join(cwd, ".agentic", "events.jsonl");
-    try {
-      const eventsFile = Bun.file(eventsPath);
-      if (!(await eventsFile.exists())) return;
-      const raw = await eventsFile.text();
-      if (!raw.trim()) return;
-
-      const lines = raw.split("\n");
-      let totalWall = 0;
-      let spawnCount = 0;
-      const totalTokens: {
-        input: number;
-        output: number;
-        cache_creation: number;
-        cache_read: number;
-      } = {
-        input: 0,
-        output: 0,
-        cache_creation: 0,
-        cache_read: 0,
-      };
-      const byAgent: Record<
-        string,
-        {
-          spawns: number;
-          wall_seconds: number;
-          tokens: {
-            input: number;
-            output: number;
-            cache_creation: number;
-            cache_read: number;
-          };
-        }
-      > = {};
-      const tokenKeys = [
-        "input",
-        "output",
-        "cache_creation",
-        "cache_read",
-      ] as const;
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        let obj: any;
-        try {
-          obj = JSON.parse(trimmed);
-        } catch (_) {
-          continue;
-        }
-        const ev = obj && obj.event;
-        if (ev !== "spawn_complete") continue;
-        const data = (obj && obj.data) || {};
-        // Filter to current session when session_uuid is present on the
-        // event payload. Events without session_uuid are included
-        // unconditionally (tolerant of pre-instrumentation events).
-        if (sessionID && data.session_uuid && data.session_uuid !== sessionID) {
-          continue;
-        }
-        const wall = Number(data.wall_seconds) || 0;
-        totalWall += wall;
-        const tokens = data.tokens || {};
-        for (const k of tokenKeys) {
-          totalTokens[k] += Number(tokens[k]) || 0;
-        }
-        if (ev === "spawn_complete") {
-          spawnCount += 1;
-          const agentName = (obj && obj.agent) || "unknown";
-          if (!byAgent[agentName]) {
-            byAgent[agentName] = {
-              spawns: 0,
-              wall_seconds: 0,
-              tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
-            };
-          }
-          byAgent[agentName].spawns += 1;
-          byAgent[agentName].wall_seconds += wall;
-          for (const k of tokenKeys) {
-            byAgent[agentName].tokens[k] += Number(tokens[k]) || 0;
-          }
-        }
-      }
-
-      const event = {
-        ts: new Date().toISOString(),
-        phase: "session_end",
-        event: "session_total",
-        agent: null,
-        task_id: null,
-        data: {
-          wall_seconds: Number(totalWall.toFixed(3)),
-          tokens: totalTokens,
-          spawn_count: spawnCount,
-          by_agent: byAgent,
-          session_uuid: sessionID || null,
-        },
-      };
-      // C3: Use fs/promises.appendFile rather than read-modify-write so
-      // concurrent writers cannot lose lines.
-      await appendFile(eventsPath, JSON.stringify(event) + "\n");
-      await log("info", "Appended session_total", {
-        eventsPath,
-        spawn_count: spawnCount,
-        wall_seconds: Number(totalWall.toFixed(3)),
-      });
-    } catch (err: any) {
-      await log("warn", "Failed to write session_total", {
-        eventsPath,
-        error: err.message,
-      });
-    }
-  }
 
   /** Maximum keyed loop-state candidates processed per call, newest-mtime-first. */
   const KEYED_CANDIDATE_CAP = 100;
@@ -1130,7 +995,7 @@ ${toolsLine}
       if (type === "session.idle") {
         // session.idle fires per busy->idle transition (every turn), NOT
         // once per session. This branch is intentionally limited to
-        // context.md refresh; loop-state / batch-state / session_total
+        // context.md refresh; loop-state / batch-state
         // writes belong on /ds-wrap (see command.executed below) so they fire
         // once per session.
         await log("info", "session.idle event handler entered");
@@ -1217,10 +1082,9 @@ ${toolsLine}
             "Auto-appended by /ds-wrap finalization",
           );
 
-          // The three finalization writes are independent and best-effort.
+          // The two finalization writes are independent and best-effort.
           await writeLoopState(cwd, sid);
           await writeBatchState(cwd, sid);
-          await writeSessionTotal(cwd, sid);
 
           // Surface a session prompt so the user knows the session was
           // finalized and should be ended cleanly. Prompt failure falls

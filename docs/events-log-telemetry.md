@@ -66,16 +66,16 @@ Each line is one JSON object:
 orchestration boundary: worker spawn, worker return, Skeptic finding/sign-off,
 QA result, /ds-wrap completion, finding fix.
 
-**The Stop hook** (`hooks/stop-context.js`) appends a `session_total` event
-on every TURN (it runs once per Stop invocation, which fires on every turn,
-not once per session).
+**The Stop hook** (`hooks/stop-context.js`) reads `events.jsonl` on every
+TURN but no longer appends to it; it writes session totals only to the
+per-developer session log (see `session_total` below).
 
-The Stop hook is not the only non-conductor writer: `hooks/pre-tool-use-spawn-emit.js`
+Three hooks do append: `hooks/pre-tool-use-spawn-emit.js`
 (`PreToolUse(Task/Agent)`) appends a hook-emitted `spawn_start` mid-turn on
 every subagent spawn, and `hooks/subagent-stop-spawn-emit.js` (`SubagentStop`,
 DS-160) appends a hook-emitted `spawn_complete` whenever a subagent finishes -
-both fire while the conductor's turn is still in progress. A fifth writer,
-`hooks/conductor-overreach-nudge.js` (also a Stop hook), appends a
+both fire while the conductor's turn is still in progress. The third,
+`hooks/conductor-overreach-nudge.js` (a Stop hook), appends a
 `conductor_overreach` event, but only when its `ratio_trigger` condition
 fires - see below. It also guards against re-firing when the harness
 re-invokes Stop after its own `additionalContext` (see below).
@@ -149,28 +149,21 @@ the full schema and how consumers avoid double-counting the two variants.
 
 ### session_total
 
-Emitted by the Stop hook on every TURN (the Stop hook fires once per turn,
-not once per session).
+No longer written to `events.jsonl`. The Stop hook (and the OpenCode
+plugin on `/ds-wrap`) used to append one, and it printed a zero aggregate
+whenever no spawn rows existed. Historical rows stay in old logs and
+readers ignore them.
 
-Key `data` fields: `wall_seconds`, summed `tokens`, `spawn_count`,
-`by_agent` rollup (per-agent `spawns`, `wall_seconds`, `tokens_total`), and
-(DS-171) `agentic_root_drift_levels` (int) / `agentic_root_found_git`
-(boolean) - same diagnostics form as `spawn_start` above, computed for the
-`.agentic/events.jsonl` write this event is appended to.
-
-This event is also mirrored to `.agentic/session-log/<developer_id>.jsonl`
-for team rollup via `ds-cost team`, written by `bin/ds-identity write-hook`
-- the mirror does not carry the two `agentic_root_*` fields.
-`write-hook` performs its own independent repo-root resolution and skips
-the write entirely when neither a `.git` ancestor nor an `.agentic/`
-directory already present at the cwd itself is found (DS-171 round-3
-rework: the `.agentic/`-marker fallback previously walked upward from cwd
-and could resolve to the always-present global `~/.agentic/` store,
-silently poisoning it - it never climbs past the starting cwd now), so an
-existing mirror line does correctly imply resolution succeeded; the two
-fields are simply not threaded through from `session_total`'s
-separately-computed resolution for `events.jsonl`, not evidence of a
-weaker discipline on this path.
+Session totals now live only in `.agentic/session-log/<developer_id>.jsonl`
+(event name still `session_total`), for team rollup via `ds-cost team`,
+written by `bin/ds-identity write-hook`. `write-hook` performs its own
+repo-root resolution and skips the write entirely when neither a `.git`
+ancestor nor an `.agentic/` directory already present at the cwd itself is
+found (DS-171 round-3 rework: the `.agentic/`-marker fallback previously
+walked upward from cwd and could resolve to the always-present global
+`~/.agentic/` store, silently poisoning it - it never climbs past the
+starting cwd now), so an existing session-log line does correctly imply
+resolution succeeded.
 
 ### meta_review_complete
 
@@ -303,7 +296,7 @@ row's project.
 ## Practical notes
 
 **Append discipline.** No fsync, no lock file. Multiple writers append
-(conductor, the Stop hook, the two spawn-telemetry hooks, and the
+(conductor, the two spawn-telemetry hooks, and the
 conductor-overreach Stop hook, all noted above) via `appendFileSync`/`>>`,
 each an `O_APPEND` write, so lines never interleave mid-write; no
 cross-writer locking is needed.

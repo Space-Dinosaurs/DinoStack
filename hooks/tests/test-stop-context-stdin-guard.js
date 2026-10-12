@@ -14,7 +14,7 @@
  *       1000ms production-defaults bar asserted at the shared-helper level
  *       in test-stdin-guard.js).
  *   (b) slow-chunked valid Claude Stop payload delivered over >2s (via
- *       spawnDelayedChunks) -> .agentic/context.md AND .agentic/events.jsonl
+ *       spawnDelayedChunks) -> .agentic/context.md AND the session-log line
  *       are written correctly in a tmp fixture project dir, matching the
  *       fixture pattern used by test-stop-context-deferred-wrap.js /
  *       test-stop-context-session-log.js.
@@ -99,6 +99,9 @@ async function testOpenButSilentStdin() {
 async function testSlowChunkedPayloadWritesCorrectly() {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-stop-stdinguard-b-');
   try {
+    fs.mkdirSync(path.join(fakeHome, '.agentic'), { recursive: true });
+    fs.writeFileSync(path.join(fakeHome, '.agentic', 'identity.yml'),
+      'developer_id: testdev\ncreated_at: 2026-01-01T00:00:00Z\n', { mode: 0o600 });
     const sessionId = 'stdin-guard-slow-chunk-session';
     const payload = JSON.stringify({
       cwd: projectDir,
@@ -148,16 +151,15 @@ async function testSlowChunkedPayloadWritesCorrectly() {
         '(b) context.md Recent Focus reflects the fully-delivered transcript (no truncation)');
     }
 
-    const eventsPath = path.join(agenticDir, 'events.jsonl');
-    assert(fs.existsSync(eventsPath), '(b) .agentic/events.jsonl written after slow-chunked delivery');
-    if (fs.existsSync(eventsPath)) {
-      const lines = fs.readFileSync(eventsPath, 'utf8').trim().split('\n').filter(Boolean);
-      const totals = lines.map((l) => { try { return JSON.parse(l); } catch (_) { return null; } })
-        .filter((o) => o && o.event === 'session_total');
-      assert(totals.length === 1, `(b) exactly one session_total event written (got: ${totals.length})`);
-      if (totals.length === 1) {
-        assert(totals[0].data && totals[0].data.session_uuid === sessionId,
-          '(b) session_total event carries the correct session_uuid');
+    const logPath = path.join(agenticDir, 'session-log', 'testdev.jsonl');
+    assert(fs.existsSync(logPath), '(b) session-log line written after slow-chunked delivery');
+    if (fs.existsSync(logPath)) {
+      const lines = fs.readFileSync(logPath, 'utf8').trim().split('\n').filter(Boolean)
+        .map((l) => { try { return JSON.parse(l); } catch (_) { return null; } });
+      assert(lines.length === 1, `(b) exactly one session-log line written (got: ${lines.length})`);
+      if (lines.length === 1) {
+        assert(lines[0] && lines[0].session_uuid === sessionId,
+          '(b) session-log line carries the correct session_uuid');
       }
     }
   } finally {
@@ -173,7 +175,7 @@ async function main() {
   console.log('(a) open-but-silent stdin -> bounded exit');
   await testOpenButSilentStdin();
 
-  console.log('\n(b) slow-chunked valid payload (>2s) -> context.md + events.jsonl written');
+  console.log('\n(b) slow-chunked valid payload (>2s) -> context.md + session-log written');
   await testSlowChunkedPayloadWritesCorrectly();
 
   console.log(`\n${passed} passed, ${failed} failed`);

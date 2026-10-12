@@ -112,16 +112,6 @@
       "source_token": "content/rules/conventions.md"
     },
     {
-      "expected_target": "content/references/events-log.md",
-      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
-      "kind": "operational",
-      "occurrence_hash": "0f4cf3c7badbb32bb27c8133678667372a3a9520655f311abd11aaf0ababa627",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/events-log.md"
-    },
-    {
       "expected_target": ".codex/skill-frontmatter/**",
       "generated_token": "$AE_REPO_DIR/.codex/skill-frontmatter/**",
       "kind": "operational",
@@ -492,6 +482,16 @@
       "source_token": "METHODOLOGY.md"
     },
     {
+      "expected_target": "content/references/events-log.md",
+      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
+      "kind": "operational",
+      "occurrence_hash": "34de28db4c7d0d8199f76ed6faa19d32139247c0f90340dbb21243e42953775c",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/events-log.md"
+    },
+    {
       "expected_target": "Task",
       "generated_token": "Task",
       "kind": "semantic-reference",
@@ -582,6 +582,16 @@
       "source_token": "/simplify"
     },
     {
+      "expected_target": "content/sections/09-events-log.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/09-events-log.md",
+      "kind": "operational",
+      "occurrence_hash": "44870abe09f553b35499480c5d051f62bcf827c12925da2be4ed44b5d19600a4",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/09-events-log.md"
+    },
+    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -642,16 +652,6 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "content/references/events-log.md",
-      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
-      "kind": "operational",
-      "occurrence_hash": "482a85deaf5d0307a46743304fddd0f5af6b93439e3d4e93c7cd73998419a3e2",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/events-log.md"
-    },
-    {
       "expected_target": ".agentic/**",
       "generated_token": "$AE_PROJECT_DIR/.agentic/**",
       "kind": "operational",
@@ -670,16 +670,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/sections/02-delegation.md"
-    },
-    {
-      "expected_target": "content/references/events-log.md",
-      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
-      "kind": "operational",
-      "occurrence_hash": "4a516beb23ef2104ff3717af6c2c037cb93c91cf54ca90a8650b064d23594689",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/events-log.md"
     },
     {
       "expected_target": "content/SKILL.md",
@@ -1632,16 +1622,6 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "**Writer scope (Codex runtime boundary).** `$AE_PROJECT_DIR/.agentic/events.jsonl` has six writers on Claude Code (the conductor, the Stop hook, two spawn-telemetry hooks, the advisory conductor-overreach Stop hook, and the operator-invoked `bin/ds-agentic-repair --fix` repair tool), but the current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not append `session_total` events, run the spawn-telemetry hooks, or mirror project-local orchestration state. The conductor-overreach detector is not ported here either, but NOT because the Codex Stop payload lacks a transcript - it genuinely carries a `transcript_path` pointing at a real structured rollout file (confirmed against the installed Codex CLI binary's own JSON schema strings); the gap is that the rollout format is Codex's own schema (`tool_invocation`/`tool_result` as a `RawPayloadKind`), not Claude Code's `tool_use`/`tool_result` content-block shape the detector parses, so a port needs a Codex-rollout-specific block parser that does not exist yet. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.",
-      "kind": "operational",
-      "occurrence_hash": "b8279fedcea9ea98c2a0e295d946e9bf51cdb2b601b5066cee849f25e402869f",
-      "resolution_mode": "codex-stop-hook-runtime",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "**Writer scope: `.agentic/events.jsonl` has six writers** - the conductor (appends per orchestration boundary), the Stop hook (`hooks/stop-context.js`, `session_total` per turn), two mid-turn spawn hooks (`hooks/pre-tool-use-spawn-emit.js`: `spawn_start`; `hooks/subagent-stop-spawn-emit.js`: `spawn_complete`, DS-160), the advisory Stop hook `hooks/conductor-overreach-nudge.js` (`conductor_overreach`, only on `ratio_trigger`), and `bin/ds-agentic-repair --fix` (operator-invoked, not a hook - dedup-appends a phantom tree's events.jsonl, order-preserving). Append-only writes (not turn timing) give safety; only these hooks write on subagents' behalf. Other `.agentic/` files: qa.md, tasks.jsonl by conductor; `loop-state-<LOOP_KEY>.json`/legacy `loop-state.json` by conductor + Stop hook (liveness refresh) + SessionEnd hook (interrupted-mark)."
-    },
-    {
       "expected_target": "content/references/cross-session-loop-resume.md",
       "generated_token": "$AE_REPO_DIR/content/references/cross-session-loop-resume.md",
       "kind": "operational",
@@ -1772,6 +1752,16 @@
       "source_token": "content/references/activation-detail.md"
     },
     {
+      "expected_target": "content/references/events-log.md",
+      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
+      "kind": "operational",
+      "occurrence_hash": "c43e7a5d51aacac06c2326867073754276c9d541e9ba2813799ea37f4d2611ef",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/events-log.md"
+    },
+    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -1872,16 +1862,6 @@
       "source_token": ".agentic/config.json"
     },
     {
-      "expected_target": "content/sections/09-events-log.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/09-events-log.md",
-      "kind": "operational",
-      "occurrence_hash": "cff3e2ac456f16758800c9d381266dbe6fc68c0164482c32c7f40e90082ce8c4",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/09-events-log.md"
-    },
-    {
       "expected_target": "apply_patch",
       "generated_token": "Write",
       "kind": "semantic-reference",
@@ -1950,6 +1930,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
+    },
+    {
+      "expected_target": "content/references/events-log.md",
+      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
+      "kind": "operational",
+      "occurrence_hash": "d6c0b313167510a3f19845a21b52f0aa3f233258ad37155fac37e864e66b3fe5",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/events-log.md"
     },
     {
       "expected_target": "content/references/task-state-file.md",
@@ -2120,6 +2110,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/dinostack"
+    },
+    {
+      "expected_target": "~/.codex/projects/[hash]/context.md",
+      "generated_token": "**Writer scope (Codex runtime boundary).** `$AE_PROJECT_DIR/.agentic/events.jsonl` has five writers on Claude Code (the conductor, two spawn-telemetry hooks, the advisory conductor-overreach Stop hook, and the operator-invoked `bin/ds-agentic-repair --fix` repair tool), but the current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not run the spawn-telemetry hooks or mirror project-local orchestration state. The conductor-overreach detector is not ported here either, but NOT because the Codex Stop payload lacks a transcript - it genuinely carries a `transcript_path` pointing at a real structured rollout file (confirmed against the installed Codex CLI binary's own JSON schema strings); the gap is that the rollout format is Codex's own schema (`tool_invocation`/`tool_result` as a `RawPayloadKind`), not Claude Code's `tool_use`/`tool_result` content-block shape the detector parses, so a port needs a Codex-rollout-specific block parser that does not exist yet. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.",
+      "kind": "operational",
+      "occurrence_hash": "e33b152a268924ed38bb0c8165baee47b95263d86b21b37623781aac385c7c53",
+      "resolution_mode": "codex-stop-hook-runtime",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "**Writer scope: `.agentic/events.jsonl` has five writers** - the conductor (appends per orchestration boundary), two mid-turn spawn hooks (`hooks/pre-tool-use-spawn-emit.js`: `spawn_start`; `hooks/subagent-stop-spawn-emit.js`: `spawn_complete`, DS-160), the advisory Stop hook `hooks/conductor-overreach-nudge.js` (`conductor_overreach`, only on `ratio_trigger`), and `bin/ds-agentic-repair --fix` (operator-invoked, not a hook - dedup-appends a phantom tree's events.jsonl, order-preserving). Append-only writes (not turn timing) give safety; only these hooks write on subagents' behalf. Other `.agentic/` files: qa.md, tasks.jsonl by conductor; `loop-state-<LOOP_KEY>.json`/legacy `loop-state.json` by conductor + Stop hook (liveness refresh) + SessionEnd hook (interrupted-mark)."
     },
     {
       "expected_target": "content/references/task-state-file.md",

@@ -362,7 +362,7 @@ def test_synthetic_new_writers_are_reported_unclassified(tmp_path):
 
 def test_scan_scope_reaches_adapters_and_excluded_files():
     found = _scan()
-    assert ".opencode/plugins/session-context.ts" in found.get("events.jsonl", set())
+    assert ".opencode/plugins/session-context.ts" in found.get("batch-state.json", set())
     assert "bin/ds-migrate" in found.get(".manifest-not-found-warned", set())
 
 

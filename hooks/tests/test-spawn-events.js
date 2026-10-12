@@ -9,7 +9,7 @@
  *     through untouched when the roots agree; null when both are absent.
  *   - streamLines offsets, partial trailing line, flushTail.
  *   - QA 8: in a session rooted in a linked worktree, the real Stop hook's
- *     session_total counts spawns whose rows live at the primary root (and
+ *     session-log line counts spawns whose rows live at the primary root (and
  *     sums v2 per-run walls), and the real PostToolUse capture nudge fires
  *     for a debugger spawn_complete written to the primary root.
  *
@@ -153,6 +153,8 @@ console.log('\nQA 8: worktree-rooted session sees primary-root spawn rows');
   const S = 'sess-qa8';
   const fakeHome = path.join(tmp, 'home');
   fs.mkdirSync(path.join(fakeHome, '.agentic'), { recursive: true });
+  fs.writeFileSync(path.join(fakeHome, '.agentic', 'identity.yml'),
+    'developer_id: testdev\ncreated_at: 2026-01-01T00:00:00Z\n', { mode: 0o600 });
   const now = Date.now();
   const iso = (dt) => new Date(now + dt).toISOString();
   fs.writeFileSync(path.join(main, '.agentic', 'events.jsonl'), [
@@ -180,15 +182,15 @@ console.log('\nQA 8: worktree-rooted session sees primary-root spawn rows');
   spawnSync('node', [stopContextPath, '--cadence=turn'], {
     input: JSON.stringify({ cwd: wt, session_id: S, transcript: [] }), env, encoding: 'utf8', timeout: 20000,
   });
-  const total = fs.existsSync(wtEvents)
-    ? fs.readFileSync(wtEvents, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
-      .filter((e) => e.event === 'session_total').pop()
+  const logPath = path.join(wt, '.agentic', 'session-log', 'testdev.jsonl');
+  const total = fs.existsSync(logPath)
+    ? fs.readFileSync(logPath, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).pop()
     : null;
-  assert(!!total, 'the Stop hook wrote a session_total at the worktree root');
+  assert(!!total, 'the Stop hook wrote a session-log line at the worktree root');
   if (total) {
-    assert(total.data.spawn_count === 2, `session_total.spawn_count counts the 2 primary-root spawns (got ${total.data.spawn_count})`);
+    assert(total.data.spawn_count === 2, `session-log spawn_count counts the 2 primary-root spawns (got ${total.data.spawn_count})`);
     assert(total.data.wall_seconds === 19,
-      `session_total.wall_seconds sums v2 run walls 10 + 5 + 4 (got ${total.data.wall_seconds})`);
+      `session-log wall_seconds sums v2 run walls 10 + 5 + 4 (got ${total.data.wall_seconds})`);
   }
   assert(fs.existsSync(path.join(wt, '.agentic', '.capture-gap-last-sweep')),
     "the Stop hook's capture-gap backstop fired (its sweep cursor was written at the worktree root)");

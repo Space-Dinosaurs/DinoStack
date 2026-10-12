@@ -166,8 +166,7 @@ function _resolveThreshold(cwd) {
 
 /**
  * Append a single conductor_overreach event line. Best-effort, atomic
- * single-line append (matches writeSessionTotal's pattern in
- * hooks/stop-context.js). Any error is swallowed.
+ * single-line append. Any error is swallowed.
  *
  * @param {string} cwd
  * @param {string|null} sessionId
