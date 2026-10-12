@@ -9,15 +9,16 @@ Purpose: Shared read-only reader over Claude Code session transcripts across
          Retire this module when the harness ships a cost export that
          covers all profiles (per-session cost and per-agent usage); the
          transcript shapes it parses are undocumented harness internals.
-         Intentionally unwired when added: later units of the ds-eval
-         telemetry program (bin/_eval.py / ds-eval, ds-cost, ds-change-delta,
-         ds-skill-load-rate) are its consumers.
+         Further consumers in the ds-eval telemetry program (bin/_eval.py /
+         ds-eval, ds-cost, ds-change-delta) are added by later units.
 
 Public API:
-    stores(extra=None) -> list[Path]
+    stores(extra=None, include_default=True) -> list[Path]
         Realpath-deduped union of existing `~/.claude*/projects` dirs, the
         `projects` dir under each dir named by `_lib.CONFIG_DIR_ENV`, and each
         `extra` path (a config dir with a `projects` child, or a projects dir).
+        include_default=False keeps only the `extra` paths (a `--store` flag
+        that replaces the default set).
     project_dir_prefix(repo) -> str
         Claude Code's project-dir name for an absolute path: every
         non-alphanumeric character becomes "-" (`/Users/x/r` -> `-Users-x-r`,
@@ -76,7 +77,9 @@ Upstream deps: Python 3 stdlib; bin/_lib.py (CONFIG_DIR_ENV), loaded by
     subagents at <store>/<project-dir>/<session>/subagents/agent-<id>.jsonl
     plus agent-<id>.meta.json (agentType, description, toolUseId).
 
-Downstream consumers: none yet (see Purpose); bin/tests/test_transcripts.py.
+Downstream consumers: bin/ds-skill-load-rate, bin/ds-learnings-retrieval-rate,
+    bin/ds-measure-conductor-tool-calls (store set and repo-to-dir mapping);
+    bin/tests/test_transcripts.py.
 
 Failure modes: never raises on a missing store, an unreadable file, a
     malformed line or a missing or wrongly-typed field - such a record is
@@ -226,12 +229,14 @@ def _loads(line: str) -> Optional[dict]:
     return rec if isinstance(rec, dict) else None
 
 
-def stores(extra: Optional[Iterable] = None) -> List[Path]:
-    candidates: List[Path] = [Path(p) for p in sorted(glob.glob(os.path.expanduser("~/.claude*/projects")))]
-    for var in _lib.CONFIG_DIR_ENV:
-        raw = os.environ.get(var, "").strip()
-        if raw:
-            candidates.append(Path(os.path.abspath(os.path.expanduser(raw))) / "projects")
+def stores(extra: Optional[Iterable] = None, include_default: bool = True) -> List[Path]:
+    candidates: List[Path] = []
+    if include_default:
+        candidates.extend(Path(p) for p in sorted(glob.glob(os.path.expanduser("~/.claude*/projects"))))
+        for var in _lib.CONFIG_DIR_ENV:
+            raw = os.environ.get(var, "").strip()
+            if raw:
+                candidates.append(Path(os.path.abspath(os.path.expanduser(raw))) / "projects")
     for p in extra or ():
         p = Path(os.path.abspath(os.path.expanduser(str(p))))
         candidates.append(p / "projects" if (p / "projects").is_dir() else p)

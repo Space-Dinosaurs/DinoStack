@@ -13,11 +13,19 @@ Purpose: Read-only measurement tool (DS-227). Answers one question from the
 
 Public API: ds-skill-load-rate [--json] [--project-dir NAME]
                                 [--repo-path PATH] [--all-projects]
+                                [--store DIR ...]
             Exactly one of --project-dir, --repo-path, --all-projects may be
-            given; with none, the default is --repo-path <cwd>. Prints a
-            human report (headline unprompted-load rate, per-session-mode
-            counts, the nudge-fired-with-no-load count, and the exact scope
-            used) or, with --json, the same data as one JSON object -
+            given; with none, the default is --repo-path <cwd>. Every scope
+            is applied in every store bin/_transcripts.py's stores() finds
+            (each `~/.claude*/projects` dir plus the active config dir's),
+            not only the active CLAUDE_CONFIG_DIR; a repeatable
+            `--store DIR` (a config dir or a projects dir) replaces that
+            set. Prints a human report (a header naming every store
+            scanned with its session count, headline unprompted-load rate,
+            per-session-mode counts, the nudge-fired-with-no-load count,
+            and the exact scope used) or, with --json, the same data as one
+            JSON object (`stores`: one {path, project_dirs, sessions} entry
+            per store, a store with no matching project dir listed with 0) -
             including the headline figure itself, as
             `unprompted_load_rate` (float 0..1, or JSON null on no-data)
             and `unprompted_load_rate_display` (the literal string
@@ -38,19 +46,23 @@ Public API: ds-skill-load-rate [--json] [--project-dir NAME]
             parser's real option strings - unreachable in the shipped
             state, see Failure modes below.
 
-            --project-dir NAME     scan exactly
-                                    <config_dir>/projects/NAME/*.jsonl,
-                                    where NAME is already in Claude Code's
-                                    project-directory naming form (an
-                                    absolute path with every `/` replaced by
+            --project-dir NAME     scan exactly <store>/NAME/*.jsonl in
+                                    each store, where NAME is already in
+                                    Claude Code's project-directory naming
+                                    form (an absolute path with every
+                                    non-alphanumeric character replaced by
                                     `-` - every real NAME therefore begins
                                     with `-`; both `--project-dir NAME` and
                                     `--project-dir=NAME` accept a
                                     single-leading-dash value, see
                                     _normalize_argv). For fixture-driven
                                     tests.
-            --repo-path PATH       derive NAME from PATH via the same
-                                    transform, then scan that one directory.
+            --repo-path PATH       scan the project dirs
+                                    _transcripts.project_dirs(PATH, ...)
+                                    maps PATH to in each store: dirs named
+                                    with PATH's prefix (the repo and its
+                                    worktrees) holding a session whose
+                                    first cwd is PATH or under it.
                                     Default PATH is the current working
                                     directory (Claude Code keys a session's
                                     project directory off the cwd the
@@ -58,17 +70,19 @@ Public API: ds-skill-load-rate [--json] [--project-dir NAME]
                                     toplevel - matching that is the point of
                                     this flag defaulting to os.getcwd()
                                     rather than a git-derived path).
-            --all-projects          scan every project directory under
-                                    config_dir. Explicit widen only, per the
+            --all-projects          scan every project directory in every
+                                    store. Explicit widen only, per the
                                     DS-227 scoping constraint that a
                                     same-host default must not fold in
                                     unrelated repos' sessions.
 
 Upstream deps: Python 3 stdlib only (argparse, glob, json, os, sys, pathlib).
-               Imports five names from bin/_lib.py (DS-227 round 2):
-               resolve_claude_config_dir() - never a hardcoded ~/.claude
-               (bin/ds-parse-subagent-usage shipped exactly that bug, fixed
-               in PR #723); MAX_TRANSCRIPT_BYTES, iter_jsonl_dict_records,
+               bin/_transcripts.py for the store set (stores()) and the
+               repo-to-project-dir mapping (project_dirs(),
+               project_dir_prefix()) - store discovery and dir naming are
+               not re-implemented here.
+               Imports four names from bin/_lib.py (DS-227 round 2):
+               MAX_TRANSCRIPT_BYTES, iter_jsonl_dict_records,
                and rate_or_none - the streaming scan skeleton and the
                "no data renders as absent" rate helper, both actually
                shared with bin/ds-learnings-retrieval-rate (same size-guard,
@@ -89,7 +103,7 @@ Upstream deps: Python 3 stdlib only (argparse, glob, json, os, sys, pathlib).
                */*.jsonl) for a structurally different signal (one boolean
                "did role-appropriate retrieval fire" vs this file's
                three-way first-occurrence race across two record types).
-               Reads <config_dir>/projects/<project-dir>/*.jsonl -
+               Reads <store>/<project-dir>/*.jsonl in every store -
                TOP-LEVEL session transcripts only, deliberately not the
                */subagents/agent-*.jsonl glob bin/ds-learnings-retrieval-rate
                reads, because a skill load is a top-level-session event, not
@@ -123,10 +137,11 @@ Failure modes: collect()/classify_transcript() never raise and main() never
                (exit 1, traceback) if _KNOWN_OPTION_TOKENS ever drifts from
                the parser's real option strings; this guards against a
                source edit, not a runtime input, and is unreachable in the
-               shipped state. A missing config dir, a
-               missing projects/ dir, an absent/nonexistent scoped project
-               directory, or zero discovered transcripts within scope exits
-               0 with error="no_transcripts" and the headline rate rendered
+               shipped state. No store at all, no store holding the scoped
+               project directory, or zero discovered transcripts within
+               scope across every store exits 0 with error="no_transcripts"
+               (each store still listed, with 0 sessions) and the headline
+               rate rendered
                as the literal string "ABSENT" (never "0" - a zero-initialized
                accumulator silently reporting "nothing happened" as "the
                measurement is zero" is a real prior defect in this repo:
@@ -205,11 +220,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _transcripts  # noqa: E402
 from _lib import (  # noqa: E402
     MAX_TRANSCRIPT_BYTES,
     iter_jsonl_dict_records,
     rate_or_none,
-    resolve_claude_config_dir,
     transcript_is_oversize_or_unreadable,
 )
 
@@ -375,45 +390,38 @@ def classify_transcript(path: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def project_dir_name_for(repo_path: str) -> str:
-    """Claude Code's project-directory naming transform: an absolute path
-    with every `/` replaced by `-`. Verified against the live projects/
-    listing (dots are NOT converted - only `/`)."""
-    absolute = os.path.abspath(repo_path)
-    return absolute.replace(os.sep, "-")
+def _store_project_dirs(store: Path, args) -> list[Path]:
+    if args.all_projects:
+        return sorted(p for p in store.glob("*") if p.is_dir())
+    if args.project_dir:
+        target = store / args.project_dir
+        return [target] if target.is_dir() else []
+    return _transcripts.project_dirs(args.repo_path or os.getcwd(), [store])
 
 
-def resolve_scope(config_dir: Path, args) -> tuple[list[Path], dict]:
-    """Returns (project_dirs, scope_meta). scope_meta always carries enough
-    detail to reconstruct the filter without re-running the tool (AC2: a
-    rate without its scope is not a verified claim)."""
-    projects_root = config_dir / "projects"
+def resolve_scope(stores: list[Path], args) -> tuple[dict, dict]:
+    """Returns ({store: project_dirs}, scope_meta). scope_meta always carries
+    enough detail to reconstruct the filter without re-running the tool
+    (AC2: a rate without its scope is not a verified claim)."""
+    by_store = {store: _store_project_dirs(store, args) for store in stores}
+    names = [d.name for dirs in by_store.values() for d in dirs]
 
     if args.all_projects:
-        dirs = sorted(p for p in projects_root.glob("*") if p.is_dir())
-        return dirs, {
-            "mode": "all-projects",
-            "project_dirs": [d.name for d in dirs],
-        }
+        return by_store, {"mode": "all-projects", "project_dirs": names}
 
     if args.project_dir:
-        target = projects_root / args.project_dir
-        dirs = [target] if target.is_dir() else []
-        return dirs, {
+        return by_store, {
             "mode": "explicit-project-dir",
-            "project_dirs": [d.name for d in dirs],
+            "project_dirs": names,
             "requested": args.project_dir,
         }
 
     repo_path = args.repo_path or os.getcwd()
-    name = project_dir_name_for(repo_path)
-    target = projects_root / name
-    dirs = [target] if target.is_dir() else []
-    return dirs, {
+    return by_store, {
         "mode": "repo-path" if args.repo_path else "cwd-default",
-        "project_dirs": [d.name for d in dirs],
+        "project_dirs": names,
         "repo_path": os.path.abspath(repo_path),
-        "derived_project_dir": name,
+        "derived_project_dir": _transcripts.project_dir_prefix(repo_path),
     }
 
 
@@ -422,11 +430,11 @@ def resolve_scope(config_dir: Path, args) -> tuple[list[Path], dict]:
 # ---------------------------------------------------------------------------
 
 
-def collect(config_dir: Path, args) -> dict:
-    project_dirs, scope_meta = resolve_scope(config_dir, args)
+def collect(stores: list[Path], args) -> dict:
+    by_store, scope_meta = resolve_scope(stores, args)
 
     payload = {
-        "config_dir": str(config_dir),
+        "stores": [],
         "scope": scope_meta,
         "sessions_scanned": 0,
         "sessions_unreadable": 0,
@@ -439,8 +447,16 @@ def collect(config_dir: Path, args) -> dict:
     }
 
     transcripts: list[Path] = []
-    for project_dir in project_dirs:
-        transcripts.extend(sorted(Path(p) for p in glob.glob(str(project_dir / "*.jsonl"))))
+    for store, project_dirs in by_store.items():
+        found: list[Path] = []
+        for project_dir in project_dirs:
+            found.extend(sorted(Path(p) for p in glob.glob(str(project_dir / "*.jsonl"))))
+        payload["stores"].append({
+            "path": str(store),
+            "project_dirs": [d.name for d in project_dirs],
+            "sessions": len(found),
+        })
+        transcripts.extend(found)
 
     if not transcripts:
         payload["error"] = "no_transcripts"
@@ -533,9 +549,15 @@ def format_scope(scope: dict) -> list[str]:
     return lines
 
 
+def format_stores(stores: list[dict]) -> list[str]:
+    lines = [f"stores scanned ({len(stores)}):" + ("" if stores else " (none found)")]
+    lines.extend(f"  {s['path']}: {s['sessions']} sessions" for s in stores)
+    return lines
+
+
 def render(payload: dict) -> str:
     lines: list[str] = []
-    lines.append(f"config_dir: {payload['config_dir']}")
+    lines.extend(format_stores(payload["stores"]))
     lines.extend(format_scope(payload["scope"]))
     target_names = ", ".join(sorted(f"\"{n}\"" for n in TARGET_SKILL_NAMES))
     lines.append(f"  filter: model-initiated load matched on tool_use name==\"Skill\" AND "
@@ -549,12 +571,12 @@ def render(payload: dict) -> str:
 
     if payload["error"] == "no_transcripts":
         lines.append(
-            "No top-level session transcripts found in scope. This measurement reads "
-            "Claude Code's own per-session transcripts under"
+            "No top-level session transcripts found in scope in any store. This "
+            "measurement reads Claude Code's own per-session transcripts under"
         )
         lines.append(
-            "  <config_dir>/projects/<project-dir>/*.jsonl - absent when the scoped "
-            "project directory does not exist, or on a fresh machine."
+            "  <store>/<project-dir>/*.jsonl - absent when no store holds the scoped "
+            "project directory, or on a fresh machine."
         )
         lines.append(f"unprompted_load_rate: {ABSENT}")
         lines.append("error: no_transcripts")
@@ -625,7 +647,8 @@ def render(payload: dict) -> str:
 # since argparse's default consuming behavior already accepts a bare
 # non-dash token as the value with no rewrite needed.
 _DASH_VALUE_OPTS = ("--project-dir", "--repo-path")
-_KNOWN_OPTION_TOKENS = ("--json", "--project-dir", "--repo-path", "--all-projects", "-h", "--help")
+_KNOWN_OPTION_TOKENS = ("--json", "--project-dir", "--repo-path", "--all-projects", "--store",
+                        "-h", "--help")
 
 
 def _normalize_argv(argv: list) -> list:
@@ -657,6 +680,10 @@ def _build_parser() -> argparse.ArgumentParser:
         )
     )
     parser.add_argument("--json", action="store_true", help="emit JSON instead of a table")
+    parser.add_argument(
+        "--store", action="append", metavar="DIR",
+        help="scan this config dir or projects dir instead of every store (repeatable)",
+    )
     scope_group = parser.add_mutually_exclusive_group()
     scope_group.add_argument(
         "--project-dir", help="scan exactly this Claude-Code-form project directory name"
@@ -704,8 +731,8 @@ def main(argv=None) -> int:
     argv = _normalize_argv(list(argv))
     args = parser.parse_args(argv)
 
-    config_dir = resolve_claude_config_dir()
-    payload = collect(config_dir, args)
+    stores = _transcripts.stores(args.store, include_default=not args.store)
+    payload = collect(stores, args)
 
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))

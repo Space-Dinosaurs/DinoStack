@@ -97,6 +97,16 @@ def test_stores_absent_is_empty(isolated_env):
     assert tr.stores() == []
 
 
+def test_stores_without_default_keeps_only_extra(isolated_env, tmp_path, monkeypatch):
+    (isolated_env / ".claude" / "projects").mkdir(parents=True)
+    (tmp_path / "envcfg" / "projects").mkdir(parents=True)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "envcfg"))
+    only = tmp_path / "only" / "projects"
+    only.mkdir(parents=True)
+    got = tr.stores(extra=[tmp_path / "only", tmp_path / "missing"], include_default=False)
+    assert got == [Path(os.path.realpath(only))]
+
+
 def _session_dir(store: Path, repo: Path, suffix: str = "") -> Path:
     return store / (tr.project_dir_prefix(repo) + suffix)
 

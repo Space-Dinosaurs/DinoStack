@@ -20,7 +20,16 @@ Purpose: Read-only calibration tool. Walks recent Claude Code session
          recommendation itself.
 
 Public API: ds-measure-conductor-tool-calls [--limit N] [--json]
-            Prints a per-session table to stdout (session_id[:8],
+                                            [--store DIR ...]
+            Scans the cwd's sessions in every store bin/_transcripts.py's
+            stores() finds (each `~/.claude*/projects` dir plus the active
+            config dir's), not only the active CLAUDE_CONFIG_DIR; a
+            repeatable `--store DIR` (a config dir or a projects dir)
+            replaces that set. --limit applies to the newest N transcripts
+            across all stores. Prints a header naming every store scanned
+            (its sessions in the sample, and how many it holds in all - 0
+            for a store with no matching project dir), then a per-session
+            table to stdout (session_id[:8],
             conductor_tool_calls, spawns, whitelisted_excluded, or "n/a
             (unreadable)" for a transcript that yielded zero parsed
             records) followed by a recommended THRESHOLD line. An
@@ -31,16 +40,21 @@ Public API: ds-measure-conductor-tool-calls [--limit N] [--json]
             available/transcript_note split, so a session that could not be
             measured is never folded into the zero-spawn population used to
             recommend a threshold. --json emits the same data (plus
-            unreadable_count) as a JSON object instead. Exit 0 always
-            (advisory tool).
+            unreadable_count, `stores`: one {path, sessions, found} entry
+            per store, and `error`) as a JSON object instead. When no store
+            yields a transcript the input is reported absent ("No
+            transcripts found." / error="no_transcripts",
+            recommended_threshold null), never as a zero sample. Exit 0
+            always (advisory tool).
 
-Upstream deps: Python 3 stdlib only (json, sys, os, glob, argparse, pathlib,
-               re). Resolves the Claude projects directory via
-               CLAUDE_CONFIG_DIR when set, else ~/.claude, matching the
-               cwd-hash + fallback-glob resolution pattern in
-               bin/ds-parse-subagent-usage (_project_hash_from_cwd).
+Upstream deps: Python 3 stdlib (json, sys, os, argparse, pathlib, re);
+               bin/_transcripts.py for the store set (stores()) and the
+               cwd-to-project-dir mapping (project_dirs(): dirs named with
+               the cwd's prefix, i.e. the repo and its worktrees, holding a
+               session whose first cwd is the cwd or under it) - store
+               discovery and dir naming are not re-implemented here.
                Reads top-level *.jsonl session transcripts under
-               <config_dir>/projects/<project-hash>/ (main-session records
+               <store>/<project-dir>/ in every store (main-session records
                only - subagent turns live in a separate subagents/*.jsonl
                sidecar per session and are NOT scanned here, since a
                subagent's own tool calls are never conductor calls by
@@ -56,9 +70,10 @@ Downstream consumers: Operators calibrating conductor_overreach_threshold in
                        hooks/conductor-overreach-nudge.js. Not imported by
                        any other module - standalone CLI.
 
-Failure modes: never raises. A missing/unreadable projects directory prints
-               "No transcripts found." and exits 0. Malformed JSONL lines
-               within an otherwise-readable transcript are skipped
+Failure modes: never raises. No store, or no matching project directory
+               or transcript in any store, prints "No transcripts found."
+               (--json: error="no_transcripts") and exits 0. Malformed
+               JSONL lines within an otherwise-readable transcript are skipped
                individually. A transcript file that is missing, empty, or
                wholly malformed (zero parsed records) is reported as
                "unreadable" and excluded from both the zero-spawn and
@@ -75,12 +90,14 @@ Performance: O(total transcript bytes) single pass per file; typically a few
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import os
 import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _transcripts  # noqa: E402
 
 # Tool names treated as "conductor investigation-shaped" tool calls.
 INVESTIGATION_TOOLS = {"Read", "Grep", "Glob"}
@@ -129,32 +146,9 @@ POST_SPAWN_SPOTCHECK_WINDOW = 2
 DEFAULT_THRESHOLD = 12
 
 
-def _project_hash_from_cwd(cwd: str) -> str:
-    return cwd.replace("/", "-")
-
-
-def _config_dir() -> Path:
-    env = os.environ.get("CLAUDE_CONFIG_DIR")
-    if env:
-        return Path(env)
-    return Path(os.path.expanduser("~/.claude"))
-
-
-def _resolve_transcript_dir() -> Path | None:
-    base = _config_dir()
+def _resolve_transcript_dirs(stores: list[Path]) -> dict[Path, list[Path]]:
     cwd = os.getcwd()
-    primary = base / "projects" / _project_hash_from_cwd(cwd)
-    if primary.is_dir():
-        return primary
-    # Fallback: glob for any project dir whose basename matches this repo's
-    # basename token, so the tool still works from a worktree subdirectory.
-    pattern = str(base / "projects" / "*")
-    candidates = sorted(glob.glob(pattern))
-    repo_token = Path(cwd).name.replace("/", "-")
-    for c in candidates:
-        if c.endswith(repo_token):
-            return Path(c)
-    return None
+    return {store: _transcripts.project_dirs(cwd, [store]) for store in stores}
 
 
 def _is_whitelisted_path(value: str) -> bool:
@@ -341,31 +335,56 @@ def _measure_session(transcript_path: Path) -> dict:
     return result
 
 
+def _print_stores(stores_out: list[dict]) -> None:
+    print(f"stores scanned ({len(stores_out)}):" + ("" if stores_out else " (none found)"))
+    for s in stores_out:
+        print(f"  {s['path']}: {s['sessions']} sessions (of {s['found']} found)")
+    print()
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="ds-measure-conductor-tool-calls")
     parser.add_argument("--limit", type=int, default=30,
                          help="Max session transcripts to scan (default 30).")
     parser.add_argument("--json", action="store_true",
                          help="Emit JSON instead of a printed table.")
+    parser.add_argument("--store", action="append", metavar="DIR",
+                        help="Scan this config dir or projects dir instead of "
+                             "every store (repeatable).")
     args = parser.parse_args(argv)
 
-    transcript_dir = _resolve_transcript_dir()
-    if transcript_dir is None:
-        print("No transcripts found.")
-        return 0
-
+    stores = _transcripts.stores(args.store, include_default=not args.store)
+    found = {
+        store: [p for d in dirs for p in d.glob("*.jsonl")]
+        for store, dirs in _resolve_transcript_dirs(stores).items()
+    }
     files = sorted(
-        [p for p in transcript_dir.glob("*.jsonl")],
-        key=lambda p: p.stat().st_mtime,
+        [(store, p) for store, paths in found.items() for p in paths],
+        key=lambda item: item[1].stat().st_mtime,
         reverse=True,
     )[: args.limit]
+    stores_out = [
+        {"path": str(store), "sessions": sum(1 for s, _ in files if s == store),
+         "found": len(paths)}
+        for store, paths in found.items()
+    ]
 
     if not files:
-        print("No transcripts found.")
+        if args.json:
+            print(json.dumps({
+                "stores": stores_out,
+                "rows": [],
+                "sample_size": 0,
+                "recommended_threshold": None,
+                "error": "no_transcripts",
+            }, indent=2))
+        else:
+            _print_stores(stores_out)
+            print("No transcripts found.")
         return 0
 
     rows = []
-    for f in files:
+    for _store, f in files:
         m = _measure_session(f)
         rows.append({
             "session": f.stem[:8],
@@ -396,6 +415,8 @@ def main(argv: list[str]) -> int:
 
     if args.json:
         print(json.dumps({
+            "stores": stores_out,
+            "error": None,
             "rows": rows,
             "sample_size": len(rows),
             "unreadable_count": len(unreadable_rows),
@@ -404,6 +425,7 @@ def main(argv: list[str]) -> int:
         }, indent=2))
         return 0
 
+    _print_stores(stores_out)
     header = f"{'session':<10}{'calls':>8}{'spawns':>8}{'whitelisted':>13}"
     print(header)
     print("-" * len(header))
