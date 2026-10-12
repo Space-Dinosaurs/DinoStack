@@ -12,8 +12,10 @@ Public API: ds-eval --repo P [P ...] [--since S] [--until U] [--base REF]
             [--store D ...] [--ticket-pattern RE] [--no-gh] [--json]
             --since/--until: an ISO8601 date or datetime (UTC when naive),
             or `Nd` (N days before --until). Defaults: --until now,
-            --since 14d. --store adds a config dir or projects dir to the
-            stores _transcripts.stores() finds. --no-gh skips every gh call.
+            --since 14d. --store (a config dir or projects dir, repeatable)
+            REPLACES the default store set (_transcripts.resolve_stores); an
+            unreadable or missing store is listed in meta.stores as ABSENT
+            (sessions null), never 0. --no-gh skips every gh call.
             Default output is a compact table; --json prints the full
             evaluate() dict (the binding shape; see bin/_eval.py).
             Exit 0 on any well-formed run, including one whose metrics are
@@ -82,7 +84,9 @@ def _print_table(r: dict) -> None:
     meta = r["meta"]
     print(f"ds-eval  {', '.join(meta['repos'])}")
     print(f"window   {meta['start']} .. {meta['end']}   sessions {meta['sessions']}")
-    print("stores   " + ", ".join(f"{s} ({n})" for s, n in meta["sessions_by_store"].items()))
+    print("stores")
+    for entry in meta["stores"]:
+        print(_EVAL._TRANSCRIPTS.store_line(entry))
 
     print("\n[cost]")
     c = r["cost"]
@@ -166,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--since", default=DEFAULT_SINCE, help="ISO8601 date/datetime or Nd (default 14d)")
     p.add_argument("--until", default=None, help="ISO8601 date/datetime (default now)")
     p.add_argument("--base", default=None, help="Base ref for merged-PR history (default: resolved per repo)")
-    p.add_argument("--store", nargs="+", action="extend", default=[], help="Extra transcript store(s)")
+    p.add_argument("--store", nargs="+", action="extend", default=[], help="Transcript store(s); replaces the default set")
     p.add_argument("--ticket-pattern", default=None, help="Ticket id regex (default: learned prefixes)")
     p.add_argument("--no-gh", action="store_true", help="Make no gh calls")
     p.add_argument("--json", action="store_true", help="Print the full evaluate() dict as JSON")
@@ -191,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ds-eval: --repo {repo} is not a directory", file=sys.stderr)
             return 2
 
-    stores = _EVAL._TRANSCRIPTS.stores(args.store)
+    stores = _EVAL._TRANSCRIPTS.resolve_stores(args.store)
     report = _EVAL.evaluate(args.repo, since, until, base=args.base, ticket_re=args.ticket_pattern,
                             use_gh=not args.no_gh, stores=stores)
     if args.json:

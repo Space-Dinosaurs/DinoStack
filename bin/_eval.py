@@ -33,6 +33,11 @@ Public API:
         can carry denies from several hooks. `base=None` resolves each repo's base via
         _lib.resolve_base_branch. `stores` defaults to _transcripts.stores();
         `rates` defaults to _telemetry.load_rates(include_defaults=True).
+        `stores` is a _transcripts.StoreSet (default resolve_stores()) or a
+        list of store paths. meta.stores has one entry per store
+        (_transcripts.store_entry: path, status scanned|partial, sessions)
+        plus one per unreadable or missing requested store, whose `sessions`
+        is None (ABSENT), never 0.
     metric(status, value, coverage=None, missing=()) -> dict
         The envelope every metric uses: {status: OK|ABSENT|PARTIAL, value,
         coverage, missing}. ABSENT means no input (value is None, never 0);
@@ -1531,7 +1536,11 @@ def evaluate(repos, start: datetime, end: datetime, *, base=None, ticket_re=None
              stores=None, rates=None) -> dict:
     start = start if start.tzinfo else start.replace(tzinfo=timezone.utc)
     end = end if end.tzinfo else end.replace(tzinfo=timezone.utc)
-    stores = _TRANSCRIPTS.stores() if stores is None else list(stores)
+    if stores is None:
+        stores = _TRANSCRIPTS.resolve_stores()
+    elif not hasattr(stores, "readable"):
+        stores = _TRANSCRIPTS.StoreSet([Path(s) for s in stores], [], [])
+    store_set, stores = stores, list(stores.readable)
     pricing_source = "caller-supplied"
     if rates is None:
         rates, pricing_source = _TELEMETRY.load_rates(include_defaults=True)
@@ -1552,10 +1561,15 @@ def evaluate(repos, start: datetime, end: datetime, *, base=None, ticket_re=None
     by_store: dict = {str(s): 0 for s in stores}
     for s in sessions:
         by_store[str(s.store)] = by_store.get(str(s.store), 0) + 1
+    store_entries = []
+    for store in stores:
+        unreadable_dirs = [u for r in repos for u in _TRANSCRIPTS.project_dirs_checked(r, store)[1]]
+        store_entries.append(_TRANSCRIPTS.store_entry(store, by_store.get(str(store), 0), unreadable_dirs))
+    store_entries += store_set.problem_entries()
     meta = {
         "repos": [inp["repo"] for inp in inputs],
         "start": start.isoformat(), "end": end.isoformat(),
-        "stores": [str(s) for s in stores], "sessions_by_store": by_store, "sessions": len(sessions),
+        "stores": store_entries, "sessions": len(sessions),
         "base": {inp["repo"]: {"ref": inp["base"], "source": inp["base_source"],
                                "diagnostics": inp["base_diagnostics"]} for inp in inputs},
         "repo_slug": {inp["repo"]: inp["slug"] for inp in inputs},

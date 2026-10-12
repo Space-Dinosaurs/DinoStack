@@ -752,13 +752,42 @@ def test_evaluate_end_to_end_and_cli_no_gh(tmp_path, monkeypatch, capsys):
     assert rc == 0 and calls == []
     out = json.loads(capsys.readouterr().out)
     assert out["meta"]["gh"][str(repo)] == "disabled (--no-gh)"
-    assert out["meta"]["stores"] == [os.path.realpath(store)]
+    assert [(e["path"], e["status"], e["sessions"]) for e in out["meta"]["stores"]] == [
+        (os.path.realpath(store), "scanned", 1)]
     rc = cli.main(["--repo", str(repo), "--since", "7d", "--until", "2026-10-08", "--no-gh", "--store", str(store)])
     table = capsys.readouterr().out
     assert rc == 0
     for section in ("[cost]", "[agents]", "[skeptic_rounds]", "[work_items]", "[hooks]", "[mix]",
                     "[decisions]", "[gaps]"):
         assert section in table
+
+
+def test_cli_store_replaces_defaults_and_reports_missing_as_absent(tmp_path, monkeypatch, capsys):
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    for var in tr._lib.CONFIG_DIR_ENV:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(ev, "_feedback_items", lambda r: [])
+    monkeypatch.setattr(cli, "_EVAL", ev)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    default_store = _write_store(home / ".claude" / "x", repo).rename(home / ".claude" / "projects")
+    store = _write_store(tmp_path, repo)
+    argv = ["--repo", str(repo), "--since", "2026-10-01", "--until", "2026-10-08", "--no-gh", "--json"]
+
+    assert cli.main(argv) == 0
+    meta = json.loads(capsys.readouterr().out)["meta"]
+    assert [(e["path"], e["sessions"]) for e in meta["stores"]] == [(os.path.realpath(default_store), 1)]
+
+    assert cli.main(argv + ["--store", str(store), str(tmp_path / "nope")]) == 0
+    meta = json.loads(capsys.readouterr().out)["meta"]
+    assert [(e["path"], e["status"], e["sessions"]) for e in meta["stores"]] == [
+        (os.path.realpath(store), "scanned", 1), (str(tmp_path / "nope"), "missing", None)]
+    assert meta["sessions"] == 1
+
+    assert cli.main(argv[:-1] + ["--store", str(tmp_path / "nope")]) == 0
+    table = capsys.readouterr().out
+    assert "ABSENT (missing: does not exist)" in table
 
 
 @pytest.mark.parametrize("argv", [["--since", "yesterday"], ["--since", "2026-10-09", "--until", "2026-10-08"],
