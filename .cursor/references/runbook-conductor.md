@@ -1,13 +1,14 @@
 <!--
 Purpose: Procedure for the optional cross-session runbook conductor: after
          /ds-ticket-triage, one session watches the ticket sessions the
-         operator opens for the triage lanes, relays operator rulings and
+         operator opens for the triage lanes, or starts them itself as
+         headless lanes via bin/ds-lane, relays operator rulings and
          stoppages between them, and holds risky actions for an operator
          decision. It never implements, reviews, or executes a held action.
 
 Public API: Read-only reference document. Entered only from
             /ds-ticket-triage Output item 8, when the operator replies
-            "conduct". Defines the state file
+            "conduct" or "launch". Defines the state file
             <repo>/.agentic/runbook-<KEY>.json, the kickoff and naming
             format, the watch subscription, the stoppage relay branches,
             and the binding message templates (ruling, state, hold, queue).
@@ -17,7 +18,8 @@ Upstream deps: Claude Code cross-session tools (ListAgents, SendMessage,
                the /ds-ticket-triage artifact (lane fences, KEY stem);
                gh CLI and the configured tracker (live PR, CI and ticket
                state); per-ticket loop-state files written by
-               /ds-implement-ticket (read-only here).
+               /ds-implement-ticket (read-only here); bin/ds-lane (launch
+               mode only).
 
 Downstream consumers: content/commands/ds-ticket-triage.md Output item 8;
                       content/references/conductor-turn-format.md scope
@@ -44,7 +46,7 @@ Performance: one cron firing per 30 minutes plus one turn per idle notice;
 
 # Runbook conductor
 
-An optional mode for a session that has just run `/ds-ticket-triage`. The operator opens one ticket session per lane; this session watches them, relays operator rulings, surfaces stoppages as Operator decisions, and holds risky actions until the operator rules. Each ticket session still runs its own full `/ds-implement-ticket` flow. No message ever tells a session to skip its own Skeptic, QA or gates.
+An optional mode for a session that has just run `/ds-ticket-triage`. The operator opens one ticket session per lane, or this session starts each lane headless (§Launched lanes); this session watches them, relays operator rulings, surfaces stoppages as Operator decisions, and holds risky actions until the operator rules. Each ticket session still runs its own full `/ds-implement-ticket` flow. No message ever tells a session to skip its own Skeptic, QA or gates.
 
 ## Preconditions and degrade
 
@@ -57,7 +59,7 @@ An optional mode for a session that has just run `/ds-ticket-triage`. The operat
 
 One file, `<repo>/.agentic/runbook-<KEY>.json`, where `KEY` is the triage artifact stem (`triage-YYYYMMDD-4hex`). Only the conductor writes it, write-ahead: atomic tmp+rename, before any SendMessage it records.
 
-Fields: `schema_version`, `runbook_key`, `conductor_session_id`, `repo`, `status` (`active`|`complete`), `updated_at`, `resume_hint`, `waves[]`, `sessions[]` (each `{name, tickets[], adopted_via: issued|operator-confirmed, surfaced_status}`), `rulings[]`, `holds[]`, `queue[]`, `cron_id`.
+Fields: `schema_version`, `runbook_key`, `conductor_session_id`, `repo`, `status` (`active`|`complete`), `updated_at`, `resume_hint`, `waves[]`, `sessions[]` (each `{name, tickets[], adopted_via: issued|operator-confirmed|launched, lane, surfaced_status}`; `lane` is present only for launched sessions), `rulings[]`, `holds[]`, `queue[]`, `cron_id`.
 
 `holds[]` entries are `{ticket, session, summary, decision_verbatim}`. The executor is always the reporting `session`.
 
@@ -76,6 +78,16 @@ The kickoff is never written into the triage artifact. After "conduct", record e
 - A row is adopted when its name, minus the ` [hex]` suffix, equals an issued `sessions[].name`.
 - Only issued names are adopted automatically. A session the operator explicitly names is added to `sessions[]` with `adopted_via: operator-confirmed`; its `tickets[]` are the tickets the operator names with it.
 - A session's tickets always come from `sessions[].tickets`, never from its name.
+
+## Launched lanes
+
+Entered when the operator replies "launch" instead of "conduct". This section replaces §Kickoff and naming's per-lane print: launch prints nothing per lane.
+
+- **Start.** For each lane, write `<repo>/.agentic/lanes/prompts/<name>.md`, where `<name>` is the lane's ticket IDs joined by "-". Its content is `<repo>/.agentic/lanes/prompts/_rules.md` when that file exists, followed by the artifact's lane fence, verbatim. Then run `ds-lane start <name> <that file>` and record `{name, tickets[], adopted_via: launched, lane: <name>}` in `sessions[]`, and the lanes' tickets as the first entry of `waves[]`. Start lanes in artifact order under the cap rule in **Firing**; the rest are queued, and a queued lane has no `sessions[]` entry until it starts. `ds-lane start` adds the `LANE-DONE`/`LANE-BLOCKED` marker contract itself and runs the lane in this session's permission mode.
+- **Not adopted.** Launched sessions get no `ListAgents` adoption, no `notify_when_idle` arming, and no absent-name stoppage.
+- **Firing.** The §Watch cron still exists and drives every firing. Each firing runs `ds-lane reap`, then `ds-lane list <the launched lane names>`. A lane newly showing `blocked` becomes an Operator decision whose dedupe key is its `LANE-BLOCKED` line verbatim, kept in `surfaced_status`; its slot stays reserved until its ruling is delivered. A queued lane starts only while `ds-lane count` plus the blocked lanes with no delivered ruling is below `DS_LANE_MAX` (default 5).
+- **Delivery.** Rulings and every other message to a launched lane go by its `ds-lane list` row: STATE `alive` with PROC `up` (feeder still open) takes `ds-lane send <name> <text>`; PROC `down` takes `ds-lane resume <name> <text>`. A lane showing `blocked` with PROC still `up` has no feeder: its ruling stays pending and is retried each firing until PROC is `down`.
+- **Reports.** Read a lane's report with `ds-lane tail <name> 1`. A report of a destructive or restoring action goes to §Holds. This reference adds no SendMessage instruction for launched lanes.
 
 ## Watch
 
@@ -146,7 +158,7 @@ When a wave's tickets are done, re-run `/ds-ticket-triage` over the remaining ti
 
 ## Session reuse
 
-Only on explicit operator request. Until M1 is measured, print the paste line for the operator and send only `queue`.
+Launched lanes are never reused. Otherwise only on explicit operator request. Until M1 is measured, print the paste line for the operator and send only `queue`.
 
 ## Conductor compaction
 
