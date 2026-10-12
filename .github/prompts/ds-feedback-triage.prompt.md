@@ -24,7 +24,10 @@ loop, not a multi-phase pipeline. No subagent spawns, no new config toggles.
 ## Step 1 - Load open items
 
 Run `ds-feedback list --status open` (prints a JSON array; empty store
-or file-absent prints `[]`). If the array is empty, print:
+or file-absent prints `[]`). Items carrying a `fire_label` (an operator
+verdict on one hook deny) are born `triaged`, so they never appear here;
+`ds-eval` reads them for a hook's labelled false-positive rate. If the
+array is empty, print:
 
 ```
 No open feedback items in ~/.agentic/feedback.jsonl.

@@ -27,8 +27,23 @@ Data model:
     suggested_title    caller-supplied draft field; non-empty string.
     suggested_body     caller-supplied draft field; non-empty string.
     status             (CLI-owned) one of "open", "triaged", "dismissed";
-                       assigned "open" on append, changed only via `mark`.
+                       assigned on append ("triaged" when the draft carries
+                       a valid fire_label, else "open"), changed only via
+                       `mark`.
     session_uuid       caller-supplied via --session-uuid at append time.
+    fire_label         OPTIONAL caller-supplied draft field: an operator
+                       verdict on one hook deny, {hook, fire_key, fire_ts,
+                       verdict}. All four are non-empty strings; verdict is
+                       "true_positive" or "false_positive"; fire_key is
+                       bin/_eval.py's fire_key() of the deny row. Absent from
+                       the stored item when the draft has none. Born
+                       "triaged" so /ds-feedback-triage (which lists only
+                       open items) never shows it; bin/_eval.py reads it to
+                       compute a hook's labelled false-positive rate.
+                       Retirement: per hook, sampling stops after 2
+                       consecutive evaluations with a labelled false-positive
+                       rate < 0.1 at n >= 10; the field retires when no hook
+                       is D2-flagged for 3 consecutive evaluations.
 
   IMPORTANT: id, ts, and status are CLI-owned. On `append`, any id/ts/status
   keys present in a caller-supplied draft object are IGNORED and overwritten
@@ -40,6 +55,7 @@ Data model:
     severity: high | medium | low
     category: tool-friction | process-escalation | guardrail-fire | operator-correction
     status:   open | triaged | dismissed
+    fire_label.verdict: true_positive | false_positive
 
 Upstream deps: Python 3 stdlib only (argparse, json, os, sys, uuid, datetime,
                pathlib). Shared helpers: bin/_lib (acquire_exclusive_lock,
@@ -47,11 +63,14 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, sys, uuid, datetime,
 
 Downstream consumers: content/commands/ds-wrap.md Part D.5 (writes drafts via
                       `append` at end of session); content/commands/ds-feedback-triage.md
-                      (reads via `list`, updates status via `mark`).
+                      (reads via `list`, updates status via `mark`); bin/_eval.py
+                      (reads fire_label items via `list --status triaged --repo`).
 
 Failure modes:
   append: per-item soft-fail - an individual draft that fails validation
-    (bad enum value, missing/empty required string field) is skipped with a
+    (bad enum value, missing/empty required string field, or a fire_label
+    that is not an object of four non-empty strings with a valid verdict)
+    is skipped with a
     warning printed to stderr; the batch continues. An empty or all-invalid
     batch is NOT an error (exit 0, no-op). Exit 1 only on hard errors:
     --file missing/unreadable, --file not valid JSON, --file not a JSON
@@ -123,6 +142,8 @@ SCOPE_VALUES = ("project", "methodology")
 SEVERITY_VALUES = ("high", "medium", "low")
 CATEGORY_VALUES = ("tool-friction", "process-escalation", "guardrail-fire", "operator-correction")
 STATUS_VALUES = ("open", "triaged", "dismissed")
+VERDICT_VALUES = ("true_positive", "false_positive")
+FIRE_LABEL_FIELDS = ("hook", "fire_key", "fire_ts", "verdict")
 
 DRAFT_STRING_FIELDS = ("evidence", "suggested_title", "suggested_body")
 
@@ -186,6 +207,16 @@ def _validate_draft(draft: dict) -> str | None:
         value = draft.get(field)
         if not isinstance(value, str) or not value.strip():
             return f"missing/empty required field {field!r}"
+    if "fire_label" in draft:
+        label = draft["fire_label"]
+        if not isinstance(label, dict):
+            return "fire_label is not a JSON object"
+        for field in FIRE_LABEL_FIELDS:
+            value = label.get(field)
+            if not isinstance(value, str) or not value.strip():
+                return f"missing/empty fire_label field {field!r}"
+        if label["verdict"] not in VERDICT_VALUES:
+            return f"invalid fire_label verdict {label['verdict']!r} (must be one of {VERDICT_VALUES})"
     return None
 
 
@@ -226,9 +257,11 @@ def cmd_append(args: argparse.Namespace) -> int:
             "evidence": draft["evidence"],
             "suggested_title": draft["suggested_title"],
             "suggested_body": draft["suggested_body"],
-            "status": "open",
+            "status": "triaged" if "fire_label" in draft else "open",
             "session_uuid": args.session_uuid,
         }
+        if "fire_label" in draft:
+            record["fire_label"] = {f: draft["fire_label"][f] for f in FIRE_LABEL_FIELDS}
         accepted.append(record)
 
     if not accepted:

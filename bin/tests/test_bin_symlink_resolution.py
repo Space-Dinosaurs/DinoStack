@@ -70,6 +70,7 @@ CASES = [
     ("agentic-learnings-retrieval-rate", ["--help"], 0),
     ("agentic-skill-load-rate", ["--help"], 0),
     ("agentic-change-delta", ["--help"], 0),
+    ("agentic-eval", ["--help"], 0),
     ("agentic-cost", ["--help"], 0),
 ]
 
