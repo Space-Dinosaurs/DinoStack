@@ -47,12 +47,12 @@
 #            3.2). Defaults to /usr/local/bin/bash:/opt/homebrew/bin/bash.
 #
 # Upstream dependencies: bash >= 5, node + npm + npm ci, python3 + pytest +
-#            pytest-timeout + pyyaml, zsh, gitleaks, gh >= 2.52, git. The
-#            preflight verifies each and prints the exact install command for
-#            whatever is missing. NOTHING here downgrades a missing TOOL to a
-#            skip: a silently-skipped assertion is indistinguishable from a
-#            pass (see AGENTS.md, three separate recorded instances of that
-#            failure family).
+#            pytest-timeout + pytest-xdist + pyyaml, zsh, gitleaks,
+#            gh >= 2.52, git. The preflight verifies each and prints the
+#            exact install command for whatever is missing. NOTHING here
+#            downgrades a missing TOOL to a skip: a silently-skipped
+#            assertion is indistinguishable from a pass (see AGENTS.md, three
+#            separate recorded instances of that failure family).
 #
 #            ONE GATE CAN STILL SKIP ITSELF, and no preflight can prevent it:
 #            check-npm-audit.sh needs the npm advisory ENDPOINT, not just a
@@ -155,12 +155,13 @@ if ! command -v npm >/dev/null 2>&1; then
   _miss "npm (not on PATH; scripts/check-npm-audit.sh cannot audit without it)" "brew install node"
 fi
 
-# python3 + the three modules bin-tests.yml installs.
+# python3 + the four modules bin-tests.yml installs (pytest-xdist runs the
+# pytest gate below in parallel).
 if ! command -v python3 >/dev/null 2>&1; then
   _miss "python3 (not on PATH)" "brew install python"
-elif ! python3 -c "import pytest, pytest_timeout, yaml" >/dev/null 2>&1; then
-  _miss "python modules pytest / pytest-timeout / pyyaml" \
-        "pip install pytest pytest-timeout pyyaml"
+elif ! python3 -c "import pytest, pytest_timeout, xdist, yaml" >/dev/null 2>&1; then
+  _miss "python modules pytest / pytest-timeout / pytest-xdist / pyyaml" \
+        "pip install pytest pytest-timeout pytest-xdist pyyaml"
 fi
 
 # gh >= 2.52.
@@ -315,7 +316,15 @@ if _require_file scripts/stamp-agent-fragments.sh; then
   _run_gate "stamp-agent-fragments.sh" "$BASH5" scripts/stamp-agent-fragments.sh
 fi
 if _require_file scripts/build-all.sh; then
+  _failed_before_build="$FAILED"
   _run_gate "build-all.sh" "$BASH5" scripts/build-all.sh
+  # The tree is now freshly built, so the installer tests below need not
+  # rebuild it on every one of their .claude/install.sh runs (see the
+  # AE_INSTALL_SKIP_BUILD block there). Only when the build passed: otherwise
+  # those installs must still exercise it.
+  if [ "$FAILED" = "$_failed_before_build" ]; then
+    export AE_INSTALL_SKIP_BUILD=1
+  fi
 fi
 
 # adapter-sync.yml :: "Verify adapter-sync pathspec entries exist". git diff
@@ -370,8 +379,15 @@ fi
 echo "OK: no docs/planning/ files are tracked."'
 
 # --- python bin tests ------------------------------------------------------
+# Parallel, unlike CI's serial run of the same suite (same tests, same
+# per-test timeout). --dist loadfile keeps each file on one worker: the
+# TestZReport cases in the *_invariants.py files read state their own file's
+# earlier tests built, and test_agentic_migrate.py's apply runs contend for
+# one lock (~/.agentic/.scaffolding-apply.lock) and exit 0 when it is held,
+# so splitting either file across workers fails it.
 _run_gate "pytest bin/tests/" \
-  python3 -m pytest bin/tests/ -q --timeout=60 --timeout-method=thread
+  python3 -m pytest bin/tests/ -q --timeout=60 --timeout-method=thread \
+    -n auto --maxprocesses 8 --dist loadfile
 
 # --- bin-tests.yml collected-count floors ----------------------------------
 # Derived from the workflow, never hand-copied: each floor lives in exactly
