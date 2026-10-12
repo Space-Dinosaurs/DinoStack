@@ -3,8 +3,8 @@
 Tests for hooks/session-start-memory.py.
 
 Every case runs the hook as a subprocess against a scratch git repo, the
-way the Claude Code hook runner does. After the T1-T16 pass against the
-real hook, each named mutation (a)-(q) is applied to a copy of the hook and
+way the Claude Code hook runner does. After the T1-T17 pass against the
+real hook, each named mutation (a)-(r) is applied to a copy of the hook and
 the test it targets is run against that copy; the suite fails if the
 mutation does not redden it.
 """
@@ -153,10 +153,15 @@ def check_head_cut(root, memory):
     assert after_head.startswith("\nMEMORY.md is "), repr(after_head[:80])
     assert after_head[1:] == directive(n, len(lines), last, path, rest, memory), after_head[-600:]
     assert os.path.isabs(path)
-    grown_rest = rest - len(lines[last].encode("utf-8"))
-    grown = (ctx.split(head, 1)[0] + head + lines[last] + "\n"
-             + directive(n, len(lines), last + 1, path, grown_rest, memory))
-    assert len(json.dumps(grown, ensure_ascii=True)) > CAP, "L is not the longest prefix that fits"
+    prefix = ctx.split(head, 1)[0] + head
+    grown_rest = rest
+    for longer in range(last + 1, len(lines)):
+        prefix += lines[longer - 1]
+        if len(json.dumps(prefix + "\n", ensure_ascii=True)) > CAP:
+            break
+        grown_rest -= len(lines[longer - 1].encode("utf-8"))
+        grown = prefix + "\n" + directive(n, len(lines), longer, path, grown_rest, memory)
+        assert len(json.dumps(grown, ensure_ascii=True)) > CAP, "L=%d fits but %d was shown" % (longer, last)
     return stdout, last, rest
 
 
@@ -351,6 +356,40 @@ def t16_invalid_utf8_counts_raw_bytes():
     assert "in full" not in rest, rest[:300]
 
 
+def t17_longer_prefix_fits_with_shorter_directive():
+    # Line A leaves a remainder just over READ_BUDGET (grep directive) and does
+    # not fit; line B after it drops the remainder to READ_BUDGET, and the
+    # shorter read-in-full directive lets lines 1-B fit.
+    root = make_repo("t17", migrated())
+    path = os.path.join(root, "MEMORY.md")
+    head = big_memory(4 * 1024, "h" * 60)
+    line_b = "- b\n"
+    line_t = "- tail " + "t" * (READ_BUDGET - len("- tail \n")) + "\n"
+    header = ("Root MEMORY.md (" + path + "), delivered to the main session only by "
+              "the DinoStack session-start-memory hook:\n\n")
+    n_head = len(split_lines(head))
+
+    def sized(a_len, n_shown):
+        line_a = "- a " + "a" * (a_len - len("- a \n")) + "\n"
+        memory = head + line_a + line_b + line_t
+        lines = split_lines(memory)
+        rest = len(memory.encode("utf-8")) - len("".join(lines[:n_shown]).encode("utf-8"))
+        ctx = header + "".join(lines[:n_shown]) + "\n" + directive(
+            len(memory.encode("utf-8")), len(lines), n_shown, path, rest, memory)
+        return memory, len(json.dumps(ctx, ensure_ascii=True))
+
+    a_len = 100
+    while sized(a_len + 1, n_head + 2)[1] <= CAP:
+        a_len += 1
+    memory, with_b = sized(a_len, n_head + 2)
+    assert with_b <= CAP, "construction: lines 1-B do not fit"
+    assert sized(a_len, n_head + 1)[1] > CAP, "construction: lines 1-A fit, so the early-break case is not exercised"
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(memory)
+    _, last, rest = check_head_cut(root, memory)
+    assert (last, rest) == (n_head + 2, READ_BUDGET), (last, n_head + 2, rest)
+
+
 TESTS = [
     ("T1", t1_small_file_full), ("T2", t2_large_file_head),
     ("T3", t3_import_line_suppresses), ("T4", t4_no_marker),
@@ -360,6 +399,7 @@ TESTS = [
     ("T11", t11_multibyte_filler), ("T12", t12_small_remainder_reads_in_full),
     ("T13", t13_threshold_boundary), ("T14", t14_first_line_too_long_large_file),
     ("T15", t15_long_line_cluster), ("T16", t16_invalid_utf8_counts_raw_bytes),
+    ("T17", t17_longer_prefix_fits_with_shorter_directive),
 ]
 
 # (tag, old, new, test that must redden)
@@ -401,6 +441,10 @@ MUTATIONS = [
     ("(o) remainder counted from re-encoded text",
      "    sizes = _line_bytes(raw)\n",
      '    sizes = [len(l.encode("utf-8")) for l in lines]\n', "T16"),
+    ("(r) prefix scan stops at the first line that does not fit",
+     "        if used + _esc_len(_rest_directive(len(raw), len(lines), i, rest, path, window)) <= CAP:\n",
+     "        if used + _esc_len(_rest_directive(len(raw), len(lines), i, rest, path, window)) > CAP:\n"
+     "            break\n        if True:\n", "T17"),
 ]
 
 

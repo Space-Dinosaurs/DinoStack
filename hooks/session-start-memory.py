@@ -36,12 +36,12 @@ Behavior:
         Otherwise emits hookSpecificOutput.additionalContext: a header plus
         the whole file when it fits CAP, else a header, a whole-line
         prefix (lines 1-L), and a directive for the unshown remainder. L is
-        the last line before the first one that, with its directive, would
-        exceed CAP; the loop stops there, so near READ_BUDGET a longer
-        prefix that would fit with the shorter read-in-full directive is
-        not tried. A remainder of at most READ_BUDGET bytes gets a
-        directive to Read lines L+1 to EOF in full before the first
-        decision. A larger one gets a grep-on-demand directive instead: do
+        the largest line count whose prefix and directive together fit CAP.
+        The read-in-full directive is shorter than the grep directive, so a
+        longer prefix can fit where a shorter one did not; the scan runs
+        until the prefix alone exceeds CAP. A remainder of at most
+        READ_BUDGET bytes gets a directive to Read lines L+1 to EOF in full
+        before the first decision. A larger one gets a grep-on-demand directive instead: do
         not Read the remainder whole, grep MEMORY.md before any decision
         that may depend on a recorded fact or operator ruling, and Read only
         windows around hits, with a limit sized so that no span of that many
@@ -232,13 +232,16 @@ def build_context(path):
     used = 2 + _esc_len(header) + _esc_len("\n")
     last = 0
     shown_bytes = 0
+    prefix_bytes = 0
     for i, line in enumerate(lines, start=1):
         used += _esc_len(line)
-        rest = len(raw) - shown_bytes - sizes[i - 1]
-        if used + _esc_len(_rest_directive(len(raw), len(lines), i, rest, path, window)) > CAP:
+        if used > CAP:
             break
-        last = i
-        shown_bytes += sizes[i - 1]
+        prefix_bytes += sizes[i - 1]
+        rest = len(raw) - prefix_bytes
+        if used + _esc_len(_rest_directive(len(raw), len(lines), i, rest, path, window)) <= CAP:
+            last = i
+            shown_bytes = prefix_bytes
     directive = _rest_directive(len(raw), len(lines), last, len(raw) - shown_bytes, path, window)
     if last == 0:
         return header + directive
