@@ -463,6 +463,8 @@ def t_hook_create(h):
     assert run_hook(h, "please continue", fresh, home) is None
     notice = "<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n</task-notification>"
     assert run_hook(h, notice, fresh, home, env=att) is None
+    handback = '<agent-message from="a97bfec6cf5323097">\n[Subagent hand-back] done\n</agent-message>'
+    assert run_hook(h, handback, fresh, home, env=att) is None
     assert run_hook(h, "please continue", fresh, home, env={"CLAUDE_CODE_SESSION_ATTENDED": "0"}) is None
     assert run_hook(h, "please continue", fresh, home, env=att, extra={"agent_id": "a1"}) is None
     not_cond = write_transcript([session_start(NOW - 100), user(NOW - 90), asst(NOW - 89)], conductor=False)
@@ -501,8 +503,11 @@ MUTATIONS = [
      'if payload.get("agent_id"):', t_hook_create),
     ("declined-injection-repeats", "lib/cache_keepalive.py", "            return (False, False)\n    return (True, status",
      "            pass\n    return (True, status", t_creation_due),
-    ("create-on-notification", "cache-keepalive.py", "    if lib.LG.is_harness_injected_text(prompt):\n        return\n",
+    ("create-on-notification", "cache-keepalive.py",
+     "    if lib.LG.is_harness_injected_text(prompt) or prompt.lstrip().startswith(lib.NON_OPERATOR_PREFIXES):\n        return\n",
      "", t_hook_create),
+    ("create-on-handback", "lib/cache_keepalive.py", 'NON_OPERATOR_PREFIXES = ("<agent-message", "<task-notification>")',
+     'NON_OPERATOR_PREFIXES = ("<task-notification>",)', t_hook_create),
     ("repeat-wrap", "lib/cache_keepalive.py", '    if state.get("wrapped_since_idle"):\n',
      '    if False:\n', t_no_repeat_wrap),
     ("no-cost-cap", "lib/cache_keepalive.py", 'return ("delete", "cost-capped")', 'pass', t_release_wrap),

@@ -149,6 +149,9 @@ PING_CC_TOKENS = 854
 PING_OUT_TOKENS = 193
 
 CREATE_NOTE_MARKER = "[dinostack-cache-keepalive:create]"
+# Prompts the harness submits on a subagent's behalf (measured: a subagent
+# hand-back arrives as a UserPromptSubmit starting "<agent-message from=").
+NON_OPERATOR_PREFIXES = ("<agent-message", "<task-notification>")
 BLOCK_OUTPUT = {"continue": False, "suppressOutput": True, "stopReason": ""}
 WRAP_MARKER = LG.WRAP_MARKER
 TERMINAL_STATUSES = frozenset(("completed", "failed", "killed", "stopped"))

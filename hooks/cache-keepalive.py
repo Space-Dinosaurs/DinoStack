@@ -37,7 +37,8 @@ Behavior (UserPromptSubmit only; any other event gets no output):
     any other prompt: only when CLAUDE_CODE_SESSION_ATTENDED == "1" (Claude
         Code sets 0 for -p, --resume -p, the SDK, agent-teams teammates and
         bg/daemon sessions), the payload has no agent_id, the prompt is not
-        harness-injected (a task notification), and creation_due():
+        harness-injected (a task notification or subagent hand-back, see
+        NON_OPERATOR_PREFIXES), and creation_due():
         additionalContext create_note(). Otherwise nothing.
 
 Why it fails closed: an exception after the marker matched gives
@@ -66,26 +67,36 @@ Measurements (Claude Code 2.1.287, haiku 4.5 and opus 5.5 scratch sessions,
         sdk-cli/0; SDK sdk-ts/0; teammate cli/0 (m5-sessionstart.jsonl).
     M6 PASS: a gated ping makes exactly 1 request; Stop hooks do not block.
     M7 PASS (criterion: the job is never hidden; at most one disclosed
-        line naming the job and the opt-out; a model may decline): opus
-        created the cron in 5/6 sessions and disclosed it in one line in
-        3/5; haiku created it in 3/6. A declined note is not repeated in
-        that process, so that session has no keepalive. A note asking the
-        model to hide the job was refused 4/4, so the note states origin,
-        purpose and the opt-out. Gate-note and no-note branches PASS
-        (m7-m7o1, m7-m7o3, t2).
+        line naming the job and the opt-out; a model may decline). Final
+        note text, real 20-minute cadence, opus: created 3/4 and disclosed
+        in one line 3/3 (final-wrap-f4/f6/f7 panes; f5 declined as "burns
+        usage"); with a 1-minute test cron opus declined 2/2 (f2, f3), so
+        the rate depends on the stated cadence. Earlier note text (with a
+        since-removed "operator already knows" sentence): opus 5/6 created,
+        3/5 disclosed; haiku 3/6. A declined note is not repeated in that
+        process, so that session has no keepalive. A note asking the model
+        to hide the job was refused 4/4. Gate-note and no-note branches
+        PASS (m7-m7o1, m7-m7o3, t2).
     M8 PASS: gated ping median cache_creation 446, output 39 (n=5); the sim
         verdict stays keep 7200 (m8.txt).
     M9 PASS: gate absent -> CronDelete + ok, 2 requests, no later fire.
     M11 PASS: next genuine prompt re-creates the cron, 1 extra request.
     M13 PASS: corpus wording and statuses confirmed; in_flight True on a
         live conductor transcript.
-    M14 PASS: wraps cost 4 requests, ~0.28 of a cold write at median S on
-        opus (0.32-0.43 haiku); resume file <= 1.6 KB with all headings;
-        ~21 terminal lines (measured while the wrap still ended with the
-        since-removed self-close; the close added one Bash call).
-    M15 PASS on opus 3/3 and the lock-busy skip; haiku failed under the
-        original note text (it ran or obeyed the kickoff).
-    M16 PASS 2/2 (m16-w18, m16-w22).
+    M14 PASS on the final text (opus, real cron, final-wrap-f4/f6/f7):
+        4 requests, 0.277-0.279 of a cold write at median S, resume file
+        1.4 KB with all headings, the operator's open decision quoted
+        verbatim in 3/3; the wrap turn prints 22-23 lines, so a 2h idle
+        ending in a wrap leaves about 35 (12 from fires), within the 40-line
+        budget the conductor accepted. Earlier text: haiku 0.32-0.43.
+    M15 PASS on the final text 3/3 (f4/f6/f7: lock, writes under the
+        project only, release, CronDelete, final line, no fire afterwards,
+        session left open until /exit); lock-busy skip PASS (w24, earlier
+        text). Haiku failed under the original note text.
+    M16 PASS on the final text (m16-f4: next step and the open decision
+        restated verbatim, file moved to consumed/, old transcript never
+        read); earlier 2/2 (m16-w18, m16-w22) had "None" decisions.
+    Scenario 11 PASS: `claude --resume` loads a wrapped session (f6).
 
 Upstream deps: Python 3.9+ stdlib; hooks/lib/cache_keepalive.py and
     hooks/lib/loop_guard.py, loaded lazily with importlib.
@@ -169,7 +180,7 @@ def handle_prompt(lib, payload, env, prompt):
     # and enforce-turn-shape.py blocks its zero-warrant replies whether or not
     # the cron was created there (measured), so creating on it cost extra
     # Stop-blocked requests.
-    if lib.LG.is_harness_injected_text(prompt):
+    if lib.LG.is_harness_injected_text(prompt) or prompt.lstrip().startswith(lib.NON_OPERATOR_PREFIXES):
         return
     path = _str(payload, "transcript_path")
     if not lib.is_conductor(path):
