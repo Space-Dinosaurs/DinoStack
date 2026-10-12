@@ -85,6 +85,12 @@ else
   _fail "triage Output item 8 does not name ds-lane"
 fi
 
+if grep -qF 'Cron tools could not be loaded' <<<"$item8"; then
+  _pass "triage Output item 8 has a launch load-failure line"
+else
+  _fail "triage Output item 8 has no launch load-failure line"
+fi
+
 launched="$(awk '/^## Launched lanes$/{in_l=1; next} in_l && /^## /{in_l=0} in_l{print}' "$REF")"
 if [[ -z "$launched" ]]; then
   _fail "$REF_PATH has no ## Launched lanes section"
@@ -96,6 +102,17 @@ else
       _fail "## Launched lanes does not name $cmd"
     fi
   done
+  firing="$(grep -F '**Firing.**' <<<"$launched")"
+  if grep -qF '`dead`' <<<"$firing"; then
+    _pass "## Launched lanes Firing surfaces a dead lane"
+  else
+    _fail "## Launched lanes Firing never surfaces a dead lane (crash, API error or stop stalls silently)"
+  fi
+  if grep -qF '`done`' <<<"$(grep -F '**Delivery.**' <<<"$launched")"; then
+    _pass "## Launched lanes Delivery names done lanes"
+  else
+    _fail "## Launched lanes Delivery does not exclude done lanes"
+  fi
   if grep -qF 'open a new session' <<<"$launched"; then
     _fail "## Launched lanes contains a per-lane 'open a new session' print"
   else

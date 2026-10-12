@@ -20,9 +20,10 @@
 #
 # Test hygiene: everything lives under a mktemp -d root removed on exit,
 #               after every process whose argv names that root is killed.
-#               The only path outside it is the tool's fixed tab lock
-#               /tmp/ds-lane-tab-<uid>.lock, created by the lock-busy case
-#               only when absent and removed afterwards.
+#               The only path outside it is the tool's fixed tab lock file
+#               /tmp/ds-lane-tab-<uid>.lock: the lock-busy case flocks it,
+#               and the lock-unavailable case swaps it for a directory only
+#               while no one holds it, removing the directory afterwards.
 
 set -u
 
@@ -99,10 +100,14 @@ done
 EOF
 printf '#!/bin/bash\nexec -a claude /bin/bash %q "$@"\n' "$STUB/claude-stub.sh" > "$STUB/claude"
 chmod +x "$STUB/claude"
+# A shebang install: runs as `bash <path>/claude -p ...`, so argv[0] is the interpreter.
+mkdir -p "$STUB/shebang"
+{ echo '#!/usr/bin/env bash'; cat "$STUB/claude-stub.sh"; } > "$STUB/shebang/claude"
+chmod +x "$STUB/shebang/claude"
 
 cat > "$OSA_DIR/osascript" << 'EOF'
 #!/bin/bash
-# argv: -e <script> <command> <conductor tty>
+# argv: -e <script> <command> <conductor tty>  (close: -e <script> <own tty> <conductor tty>)
 printf '%s' "$2" > "$STUB_LOG_DIR/osa-script"
 printf '%s' "$3" > "$STUB_LOG_DIR/osa-cmd"
 printf '%s' "$4" > "$STUB_LOG_DIR/osa-tty"
@@ -112,12 +117,18 @@ if [ "${STUB_OSA_GATE:-}" = 1 ]; then
   [ -e "$STUB_LOG_DIR/osa-go" ] || { echo "gate never opened" >&2; exit 1; }
 fi
 case "${STUB_OSA_MODE:-kept}" in
-  kept) echo "ok|tab|42|$4|Terminal|42|$4|Terminal" ;;
-  guard) echo "ok|window|42|$4|Terminal|42|$4|Terminal" ;;
-  notkept-window) echo "ok|tab|43|$4|Terminal|42|$4|Terminal" ;;
-  notkept-tty) echo "ok|tab|42|/dev/ttys999|Terminal|42|$4|Terminal" ;;
-  notkept-app) echo "ok|tab|42|$4|Safari|42|$4|Terminal" ;;
+  kept) echo "ok|tab|0|42|$4|Terminal|42|$4|Terminal" ;;
+  guard) echo "ok|window|0|42|$4|Terminal|42|$4|Terminal" ;;
+  orphan) echo "ok|tab|1|42|$4|Terminal|42|$4|Terminal" ;;
+  orphan-window) echo "ok|window|2|42|$4|Terminal|42|$4|Terminal" ;;
+  eight-fields) echo "ok|window|42|$4|Terminal|42|$4|Terminal" ;;
+  notkept-window) echo "ok|tab|0|43|$4|Terminal|42|$4|Terminal" ;;
+  notkept-tty) echo "ok|tab|0|42|/dev/ttys999|Terminal|42|$4|Terminal" ;;
+  notkept-app) echo "ok|tab|0|42|$4|Safari|42|$4|Terminal" ;;
   nomatch) echo "nomatch" ;;
+  close-ok) echo "ok" ;;
+  close-busy) echo "busy" ;;
+  close-notfront) echo "notfront" ;;
   fail) echo "execution error: stub refused (-1743)" >&2; echo "second line" >&2; exit 1 ;;
 esac
 EOF
@@ -244,6 +255,14 @@ out="$(lane list a b | awk 'NR > 1 { print $1 }' | tr '\n' ' ')"
 check "list a b shows a and b only" eq "$out" "a b "
 lane stop c > /dev/null
 
+DS_LANE_CLAUDE_BIN="$STUB/shebang/claude" lane start sb "$PROMPT" > /dev/null 2>&1
+check "shebang-installed claude lane shows alive" state_is sb alive
+check "shebang-installed claude lane is counted" eq "$(lane count)" 1
+out="$(lane start sb "$PROMPT" 2>&1)"; rc=$?
+check "shebang-installed claude lane refuses a second start" died_with "$rc" "$out" "lane 'sb' is already running"
+lane stop sb > /dev/null
+check "stopped shebang lane goes down" wait_until 10 lane_down sb
+
 out="$(cd "$PRIMARY" && env -u CLAUDE_CONFIG_DIR "$TOOL" resume-hint a)"
 check "resume-hint without CLAUDE_CONFIG_DIR prints the bare resume command" eq "$out" "cd $(printf '%q' "$PRIMARY") && claude --resume $(init_field a session_id)"
 out="$(lane resume-hint a)"
@@ -300,19 +319,54 @@ check "tab.log: focus kept" tab_line_is t1 "focus: kept"
 check "tab.log records the tab path" eq "$(head -n1 "$RUN/t1.tab.log")" "opened: tab"
 check "tab command (no run-dir override)" eq "$(cat "$LOG/osa-cmd")" "cd $(printf '%q' "$PRIMARY") && DS_LANE_WATCH_CLOSE_TAB=1 DS_LANE_CONDUCTOR_TTY=$(printf '%q' "$pty_tty") $(printf '%q' "$TOOL_REAL") watch t1; exit"
 
+# No AppleScript runs against Terminal here, so these pin the script's routing structure.
 osa_script="$(cat "$LOG/osa-script")"
+sed -n "/^CLOSE_TAB_OSA='/,/^end run'/p" "$TOOL" | sed -e "1s/^CLOSE_TAB_OSA='//" -e "\$s/'\$//" > "$TMP/close.applescript"
+close_script="$(cat "$TMP/close.applescript")"
+osa_line() { printf '%s\n' "$1" | grep -n -F -- "$2" | head -n1 | cut -d: -f1; }
+osa_before() { # osa_before <script> <earlier> <later>: both present, earlier first
+  local a b
+  a="$(osa_line "$1" "$2")"; b="$(osa_line "$1" "$3")"
+  [[ -n "$a" && -n "$b" ]] && (( a < b ))
+}
+osa_prev_line() { printf '%s\n' "$1" | grep -B1 -F -- "$2" | head -n1 | tr -s ' '; }
 check "AppleScript sends do script exactly twice" eq "$(printf '%s\n' "$osa_script" | grep -c 'do script')" 2
-check "do script into the new tab only behind the tty guard" eq "$(printf '%s\n' "$osa_script" | grep -B1 'do script theCmd in newTab' | head -n1 | tr -s ' ')" " if tty of newTab is not condTty then"
-check "guard-tripped branch opens a new window" eq "$(printf '%s\n' "$osa_script" | grep -A3 'do script theCmd in newTab' | sed -n 3,4p | tr -s ' ')" " else
- do script theCmd"
+osa_handler() { printf '%s\n' "$1" | sed -n '/^on newTtys/,/^end newTtys/p'; }
+check "the only targeted do script goes to the tab whose tty is targetTty" eq "$(osa_prev_line "$osa_script" 'do script theCmd in aTab')" " if tty of aTab is targetTty then"
+check "targetTty is only ever empty or the single new tty" eq "$(printf '%s\n' "$osa_script" | grep -F 'set targetTty to' | tr -s ' ' | tr '\n' '|')" " set targetTty to \"\"| if (count of found) is 1 then set targetTty to item 1 of found|"
+check "found is only ever empty or the new ttys" eq "$(printf '%s\n' "$osa_script" | grep -F 'set found to' | grep -v '^ *set found to {}$' | tr -s ' ' | tr '\n' '|')" " set found to my newTtys(beforeTtys)|"
+check "new ttys are scanned across every window (native tabs are one-tab windows)" eq "$(osa_handler "$osa_script" | grep -E 'repeat with|does not contain' | tr -s ' ' | tr '\n' '|')" " repeat with aWin in windows| repeat with aTab in tabs of aWin| if beforeTtys does not contain t then set end of found to t|"
+check "before-ttys recorded across every window, before Cmd-T" osa_before "$osa_script" 'set end of beforeTtys to (tty of aTab)' 'keystroke "t"'
+check "before-ttys loop spans all windows" eq "$(printf '%s\n' "$osa_script" | sed -n '/^on run/,$p' | grep -B2 -F 'set end of beforeTtys' | head -n2 | tr -s ' ' | tr '\n' '|')" " repeat with aWin in windows| repeat with aTab in tabs of aWin|"
+check "no single new tab -> new window" contains "$osa_script" 'if how is "window" then set cmdTty to tty of (do script theCmd)'
+check "orphans exclude the tty running the command" eq "$(osa_prev_line "$osa_script" 'set orphans to orphans + 1')" " repeat with t in my newTtys(beforeTtys)"
+check "orphan test compares against cmdTty" contains "$osa_script" 'if (contents of t) is not cmdTty then set orphans to orphans + 1'
+check "nothing is closed by the open script" bash -c '! grep -qE "close |keystroke \"w\"" <<< "$1"' _ "$osa_script"
+check "conductor tab selected before Cmd-T" osa_before "$osa_script" 'set selected of aTab to true' 'keystroke "t"'
+osa_encloses() { # osa_encloses <script> <if-line> <inner>: inner follows the if with no end if between
+  local a b
+  osa_before "$1" "$2" "$3" || return 1
+  a="$(osa_line "$1" "$2")"; b="$(osa_line "$1" "$3")"
+  ! printf '%s\n' "$1" | sed -n "${a},${b}p" | grep -q 'end if'
+}
+check "Cmd-T sent only while Terminal is frontmost" osa_encloses "$osa_script" 'if termFront then' 'keystroke "t"'
+check "Cmd-W sent only for our tab in a frontmost Terminal" osa_encloses "$close_script" 'if termFront and selTty is myTty then' 'keystroke "w"'
+check "open restores the frontmost app by process id" contains "$osa_script" 'whose unix id is recPid) to true'
+check "close restores the frontmost app by process id" contains "$close_script" 'whose unix id is recPid) to true'
+check "no activate by process name" bash -c '! grep -q "tell application recApp" "$1"' _ "$TOOL"
 if command -v osacompile > /dev/null 2>&1; then
   check "open AppleScript compiles" osacompile -o "$TMP/open.scpt" "$LOG/osa-script"
-  sed -n "/^CLOSE_TAB_OSA='/,/^end run'/p" "$TOOL" | sed -e "1s/^CLOSE_TAB_OSA='//" -e "\$s/'\$//" > "$TMP/close.applescript"
   check "close AppleScript compiles" osacompile -o "$TMP/close.scpt" "$TMP/close.applescript"
 fi
 
 open_in_pty t1 STUB_OSA_MODE=guard
-check "tab.log: guard tripped -> new window, focus kept" eq "$(tail -n2 "$RUN/t1.tab.log" | tr '\n' '|')" "opened: window|focus: kept|"
+check "tab.log: no new tab -> new window, reported as misplaced" eq "$(tail -n2 "$RUN/t1.tab.log" | tr '\n' '|')" "opened: window|tab misplaced (new window, no new tab found); focus: kept|"
+open_in_pty t1 STUB_OSA_MODE=orphan
+check "tab.log: stray new tab reported as orphaned, not focus kept" eq "$(tail -n2 "$RUN/t1.tab.log" | tr '\n' '|')" "opened: tab|tab orphaned (1 other new tab(s) after Cmd-T, left open); focus: kept|"
+open_in_pty t1 STUB_OSA_MODE=orphan-window
+check "tab.log: orphan on the window path" tab_line_is t1 "tab orphaned (2 other new tab(s) after Cmd-T, left open); focus: kept"
+open_in_pty t1 STUB_OSA_MODE=eight-fields
+check "tab.log: output without an orphan count is an error" contains "$(last_tab_line t1)" "tab error: unexpected osascript output 'ok|window|42|"
 open_in_pty t1 STUB_OSA_MODE=notkept-window
 check "tab.log: focus NOT kept (front window changed)" contains "$(last_tab_line t1)" "focus: NOT kept (front window 43, tab "
 open_in_pty t1 STUB_OSA_MODE=notkept-tty
@@ -332,16 +386,67 @@ done
 open_in_pty t1 PATH="$SANDBOX"
 check "tab.log: no osascript" tab_line_is t1 "tab skipped: no osascript"
 
-if [[ -e "$TAB_LOCK" ]]; then
-  echo "SKIP: $TAB_LOCK already exists; lock-busy case not run"
-else
-  mkdir "$TAB_LOCK" && echo "$$" > "$TAB_LOCK/pid"
+# Lock busy: hold the tab lock from another process, as a concurrent opener would.
+python3 - "$TAB_LOCK" "$TMP/locked" << 'PY' &
+import fcntl, os, sys, time
+try:
+    fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except OSError:
+    sys.exit(1)
+open(sys.argv[2], "w").close()
+time.sleep(8)
+PY
+holder=$!
+if wait_until 5 test -e "$TMP/locked"; then
   open_in_pty t1 DS_LANE_TAB_LOCK_WAIT_S=1
   check "tab.log: lock busy" tab_line_is t1 "tab skipped: lock busy"
-  rm -f "$TAB_LOCK/pid"
+  kill "$holder" 2> /dev/null
+  wait "$holder" 2> /dev/null
+  open_in_pty t1
+  check "lock is free again once its holder is gone" tab_line_is t1 "focus: kept"
+else
+  echo "SKIP: $TAB_LOCK is held or unusable; lock-busy case not run"
+fi
+
+# Lock unavailable: the lock path is a directory. Only when no one holds the lock file.
+if python3 - "$TAB_LOCK" << 'PY'
+import fcntl, os, sys
+p = sys.argv[1]
+if os.path.lexists(p):
+    if os.path.islink(p) or not os.path.isfile(p):
+        sys.exit(1)
+    fd = os.open(p, os.O_WRONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit(1)
+    os.unlink(p)
+os.mkdir(p)
+PY
+then
+  open_in_pty t1
+  check "tab.log: lock unavailable" tab_line_is t1 "tab skipped: lock unavailable"
   rmdir "$TAB_LOCK"
+else
+  echo "SKIP: $TAB_LOCK is held or not a plain file; lock-unavailable case not run"
 fi
 lane stop t1 > /dev/null
+
+# Tab close outcomes, recorded in the lane's tab.log.
+CLOSE_LOG="$TMP/close tab.log"
+close_tab() { # close_tab <osa mode> [env assignments...]
+  local mode="$1"; shift
+  (cd "$PRIMARY" && env STUB_OSA_MODE="$mode" "$@" "$TOOL" __close-tab /dev/ttys998 /dev/ttys997 "$CLOSE_LOG")
+  tail -n1 "$CLOSE_LOG" 2> /dev/null
+}
+check "close: ok" eq "$(close_tab close-ok)" "close: ok"
+check "close: tab busy" eq "$(close_tab close-busy)" "close skipped: tab busy"
+check "close: Terminal not frontmost" eq "$(close_tab close-notfront)" "close skipped: Terminal not frontmost"
+check "close: no matching tab" eq "$(close_tab nomatch)" "close skipped: no matching tab"
+check "close: osascript exit 1" eq "$(close_tab fail)" "close error: execution error: stub refused (-1743)"
+check "close: no osascript" eq "$(close_tab close-ok PATH="$SANDBOX")" "close skipped: no osascript"
+check "close passes its own and the conductor tty" eq "$(cat "$LOG/osa-cmd")|$(cat "$LOG/osa-tty")" "/dev/ttys998|/dev/ttys997"
 
 # No ancestor with a terminal: start runs as an orphan in its own session.
 python3 - "$TOOL" "$PROMPT" "$PRIMARY" "$TMP/orphan.out" << 'PY'

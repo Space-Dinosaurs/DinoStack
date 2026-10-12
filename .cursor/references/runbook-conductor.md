@@ -10,8 +10,11 @@ Public API: Read-only reference document. Entered only from
             /ds-ticket-triage Output item 8, when the operator replies
             "conduct" or "launch". Defines the state file
             <repo>/.agentic/runbook-<KEY>.json, the kickoff and naming
-            format, the watch subscription, the stoppage relay branches,
-            and the binding message templates (ruling, state, hold, queue).
+            format, the launched-lanes procedure (ds-lane start, per-firing
+            reap and list, blocked and dead lanes as Operator decisions,
+            delivery by send or resume), the watch subscription, the
+            stoppage relay branches, and the binding message templates
+            (ruling, state, hold, queue).
 
 Upstream deps: Claude Code cross-session tools (ListAgents, SendMessage,
                CronCreate, CronList, CronDelete), loaded via ToolSearch;
@@ -85,15 +88,15 @@ Entered when the operator replies "launch" instead of "conduct". This section re
 
 - **Start.** For each lane, write `<repo>/.agentic/lanes/prompts/<name>.md`, where `<name>` is the lane's ticket IDs joined by "-". Its content is `<repo>/.agentic/lanes/prompts/_rules.md` when that file exists, followed by the artifact's lane fence, verbatim. Then run `ds-lane start <name> <that file>` and record `{name, tickets[], adopted_via: launched, lane: <name>}` in `sessions[]`, and the lanes' tickets as the first entry of `waves[]`. Start lanes in artifact order under the cap rule in **Firing**; the rest are queued, and a queued lane has no `sessions[]` entry until it starts. `ds-lane start` adds the `LANE-DONE`/`LANE-BLOCKED` marker contract itself and runs the lane in this session's permission mode.
 - **Not adopted.** Launched sessions get no `ListAgents` adoption, no `notify_when_idle` arming, and no absent-name stoppage.
-- **Firing.** The §Watch cron still exists and drives every firing. Each firing runs `ds-lane reap`, then `ds-lane list <the launched lane names>`. A lane newly showing `blocked` becomes an Operator decision whose dedupe key is its `LANE-BLOCKED` line verbatim, kept in `surfaced_status`; its slot stays reserved until its ruling is delivered. A queued lane starts only while `ds-lane count` plus the blocked lanes with no delivered ruling is below `DS_LANE_MAX` (default 5).
-- **Delivery.** Rulings and every other message to a launched lane go by its `ds-lane list` row: STATE `alive` with PROC `up` (feeder still open) takes `ds-lane send <name> <text>`; PROC `down` takes `ds-lane resume <name> <text>`. A lane showing `blocked` with PROC still `up` has no feeder: its ruling stays pending and is retried each firing until PROC is `down`.
+- **Firing.** The §Watch cron still exists and drives every firing. Each firing runs `ds-lane reap`, then `ds-lane list <the launched lane names>`. A lane newly showing `blocked` or `dead` becomes an Operator decision whose dedupe key, kept in `surfaced_status`, is its `LANE-BLOCKED` line verbatim, or for `dead` (it exited with no marker: crash, API error or `stop`) `dead: ` plus its last `ds-lane tail <name> 1` message verbatim. Its slot stays reserved until its ruling is delivered. A queued lane starts only while `ds-lane count` plus the `blocked` or `dead` lanes with PROC `down` and no delivered ruling is below `DS_LANE_MAX` (default 5).
+- **Delivery.** Write each message to `<repo>/.agentic/lanes/prompts/<name>.msg.md` and pass that file, never the text inline. A message goes by the lane's `ds-lane list` row: STATE `alive` with PROC `up` (feeder still open) takes `ds-lane send <name> <file>`; PROC `down` with STATE `blocked` or `dead` takes `ds-lane resume <name> <file>`. A lane showing `blocked` with PROC still `up` has no feeder: its ruling stays pending and is retried each firing until PROC is `down`. A lane showing `done` gets no message, and a ruling that names no session goes only to the launched lanes not showing `done`.
 - **Reports.** Read a lane's report with `ds-lane tail <name> 1`. A report of a destructive or restoring action goes to §Holds. This reference adds no SendMessage instruction for launched lanes.
 
 ## Watch
 
 - Arm each adopted session with `SendMessage{to, notify_when_idle: true, content: ""}`. This is a subscription, not an envelope message. Re-arm it after every idle notice.
 - Create one cron, every 30 minutes on an off-minute (for example `7,37 * * * *`), whose prompt names the absolute state-file path and this reference. Record its id in `cron_id`. If `CronList` no longer shows it, re-create it (M4).
-- Each firing runs `ListAgents`, re-arms any conducted session missing a watch, and evaluates the close-out condition. An issued session name absent from `ListAgents` (a lane whose `/rename` was skipped) is surfaced once as a stoppage: surface it unless that session's `surfaced_status` is already `absent from ListAgents`, then set it to that.
+- Each firing evaluates the close-out condition. A firing with at least one session not launched by §Launched lanes also runs `ListAgents` and re-arms any such session missing a watch. An issued session name absent from `ListAgents` (a lane whose `/rename` was skipped) is surfaced once as a stoppage: surface it unless that session's `surfaced_status` is already `absent from ListAgents`, then set it to that.
 - **Silence.** A firing or notice with no stoppage emits no operator-visible text; the turn is tool calls only.
 
 ## Stoppage relay
