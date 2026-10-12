@@ -191,6 +191,28 @@ def t_release_wrap(h):
              True) == ("ping", "pass")
 
 
+def wrap_attachment(t, ck):
+    return {"type": "attachment", "timestamp": iso(t), "attachment": {
+        "type": "hook_additional_context", "hookEvent": "UserPromptSubmit",
+        "content": [ck.wrap_note("/repo", "SID", "/proj")]}}
+
+
+def t_no_repeat_wrap(h):
+    """A wrap whose CronDelete was skipped or failed must not wrap again: the
+    next fire deletes, and any fire after that is blocked."""
+    ck = load(h)
+    d = lambda recs: ck.decide(ck.session_state(recs), NOW, True, True, lambda: False, True)
+    idle = [user(NOW - 4 * 3600), asst(NOW - 4 * 3600 + 1)]
+    wrapped = idle + [ping(NOW - 3000, ck), wrap_attachment(NOW - 3000, ck), asst(NOW - 2999)]
+    assert d(idle + [ping(NOW - 3000, ck), asst(NOW - 2999)]) == ("wrap", "release-wrap")
+    assert ck.session_state(wrapped)["wrapped_since_idle"] is True
+    assert d(wrapped) == ("delete", "already-wrapped"), d(wrapped)
+    after = wrapped + [ping(NOW - 1800, ck)]
+    assert d(after) == ("block", "already-wrapped"), d(after)
+    back = after + [user(NOW - 600), asst(NOW - 599)]
+    assert ck.session_state(back)["wrapped_since_idle"] is False
+
+
 def t_session_state(h):
     ck = load(h)
     recs = [user(NOW - 9000), asst(NOW - 8999), ping(NOW - 6000, ck), asst(NOW - 5999), ping(NOW - 3600, ck),
@@ -448,7 +470,7 @@ def t_hook_create(h):
     assert _ctx(run_hook(h, "please continue", unknown, home, env=att)) == ck.create_note(True)
 
 
-CASES = [t_constants, t_decide_actions, t_release_wrap, t_session_state, t_blocked_fire_records, t_rate_limit,
+CASES = [t_constants, t_decide_actions, t_release_wrap, t_no_repeat_wrap, t_session_state, t_blocked_fire_records, t_rate_limit,
          t_is_ping_record, t_cron_status, t_creation_due, t_in_flight, t_is_conductor, t_kickoff, t_rates_parity,
          t_skill_regex, t_hook_ping_actions, t_hook_disabled, t_hook_create]
 
@@ -476,6 +498,8 @@ MUTATIONS = [
      'if payload.get("agent_id"):', t_hook_create),
     ("declined-injection-repeats", "lib/cache_keepalive.py", "            return (False, False)\n    return (True, status",
      "            pass\n    return (True, status", t_creation_due),
+    ("repeat-wrap", "lib/cache_keepalive.py", '    if state.get("wrapped_since_idle"):\n',
+     '    if False:\n', t_no_repeat_wrap),
     ("no-cost-cap", "lib/cache_keepalive.py", 'return ("delete", "cost-capped")', 'pass', t_release_wrap),
     ("ping-prompt-says-hook", "lib/loop_guard.py", "If a DinoStack note in THIS turn", "If a hook note in THIS turn",
      t_skill_regex),

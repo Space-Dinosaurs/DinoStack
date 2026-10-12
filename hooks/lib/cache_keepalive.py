@@ -26,7 +26,9 @@ Public API:
         is a directory, i.e. the session has spawned a subagent.
     session_state(records) -> dict: ttl ("1h" | "5m" | None),
         last_request_start, idle_since, prefix_tokens, ping_rate_limited,
-        pings_since_idle.
+        pings_since_idle, wrapped_since_idle (a ping turn after the newest
+        real request carried WRAP_MARKER), fires_since_wrap (ping records
+        after the last such turn).
     in_flight(transcript_path) -> bool: a launched async agent or background
         Bash task has no terminal notification yet. True on any doubt.
     decide(state, now, enabled, conductor, in_flight, wrap_ok)
@@ -58,6 +60,9 @@ decide order (first that holds wins):
         L < COLD_AFTER_S (the model's self-delete costs 2 warm requests),
         else block (a cold self-delete would pay a full re-write).
     rate-limited -> block.  cache-presumed-cold (L >= COLD_AFTER_S) -> block.
+    already-wrapped (wrapped since idle_since: the wrap turn's CronDelete
+        was skipped or failed) -> delete on the first fire after the wrap,
+        block on every later one; a session never wraps twice per idle.
     release-wrap (now - idle_since >= RELEASE_AFTER_S, nothing in flight)
         -> wrap; delete when the wrap command file is missing.
     cost-capped (pings_since_idle >= max_pings(prefix)) -> delete.
@@ -226,17 +231,26 @@ def session_state(records) -> dict:
     last_user_ts = None
     in_ping_turn = False
     turn = 0
+    wrap_turns = []
+    ping_turns = []
     for rec in records:
         if not isinstance(rec, dict) or rec.get("isSidechain"):
             continue
         kind = rec.get("type")
         ts = _ts(rec.get("timestamp"))
+        if kind == "attachment":
+            att = rec.get("attachment") or {}
+            if in_ping_turn and att.get("hookEvent") == "UserPromptSubmit" and WRAP_MARKER in json.dumps(att):
+                wrap_turns.append(turn)
+            continue
         if kind == "user":
             if ts is not None:
                 last_user_ts = ts
             if LG.starts_turn(rec):
                 in_ping_turn = LG.is_ping_record(rec)
                 turn += 1
+                if in_ping_turn:
+                    ping_turns.append(turn)
             continue
         if kind != "assistant":
             continue
@@ -275,7 +289,10 @@ def session_state(records) -> dict:
     real = [r for r in requests if not r["ping"]]
     idle_since = real[-1]["start"] if real else None
     last_real_turn = real[-1]["turn"] if real else 0
+    wraps = [t for t in wrap_turns if t > last_real_turn]
     return {
+        "wrapped_since_idle": bool(wraps),
+        "fires_since_wrap": len([t for t in ping_turns if wraps and t > wraps[-1]]),
         "ttl": ttl,
         "last_request_start": requests[-1]["start"] if requests else None,
         "idle_since": idle_since,
@@ -380,6 +397,11 @@ def decide(state, now, enabled=True, conductor=True, in_flight=lambda: True, wra
         return ("block", "rate-limited")
     if not warm:
         return ("block", "cache-presumed-cold")
+    if state.get("wrapped_since_idle"):
+        # Only the model's CronDelete ends the cron; if the wrap turn skipped
+        # or failed it, release still holds, so without this every later
+        # fire would wrap again. One more self-delete, then block.
+        return ("block" if state.get("fires_since_wrap") else "delete", "already-wrapped")
     idle_since = state.get("idle_since")
     if (idle_since is None or now - idle_since >= RELEASE_AFTER_S) and not in_flight():
         return ("wrap", "release-wrap") if wrap_ok else ("delete", "release-wrap-unavailable")
