@@ -65,7 +65,9 @@ a store with no v2 rows is `ABSENT`, both with `null` values.
   in `tokens_null_runs`, never priced as zero.
 - `per_ticket`: one row per ticket whose first v2 spawn (else its ledger
   `opened_ts`) falls in the window, keyed by the hooks' `task_id`. Each
-  row reports Skeptic reviews, max iteration, Critical/Major/Minor totals,
+  row reports Skeptic reviews (every Skeptic run, with
+  `skeptic_reviews_with_findings` counting those that carry a findings
+  count), max iteration, Critical/Major/Minor totals,
   `re_raised` (`null` when no `findings_log` entry records it), QA runs and
   fail-backs (FAIL or PARTIAL), merged and follow-up PRs, re-entries more
   than 1h after the first merge, Critical+Major findings after it (`null`

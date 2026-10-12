@@ -21,9 +21,12 @@ Purpose: DS-241 one-shot before/after telemetry delta tool. Resolves a
          intersected across repos, through _side_status; pre-v2 rows
          never contribute): `agent_model` (per agent x model runs,
          tokens, wall and dollars, exact-id and family-priced dollars
-         reported separately) and `per_ticket` (Skeptic reviews, max
-         iteration, C/M/m, re_raised, QA runs and fail-backs, merged and
-         follow-up PRs, loops, end-to-end wall, escaped-defect signals).
+         reported separately) and `per_ticket` (Skeptic reviews counted
+         from every Skeptic run, with skeptic_reviews_with_findings as
+         their findings coverage, max iteration, C/M/m, re_raised, QA runs
+         and fail-backs, merged and follow-up PRs, loops, end-to-end wall,
+         escaped-defect signals). The per-ticket, PR-attribution and
+         pricing helpers live in bin/_eval.py, shared with bin/ds-eval.
 
 Public API: ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH]
             [--window-days N] [--pr-lookahead-days N]
@@ -31,7 +34,7 @@ Public API: ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH]
             Default output: a fixed-width table. --json emits the full
             {"meta":..., "metrics":..., "pr_history":..., "agent_model":...,
             "per_ticket":...} object (see build_delta(), _agent_model_side()
-            and _ticket_row() for the exact shape - this is the binding
+            and bin/_eval.py's _ticket_row() for the exact shape - this is the binding
             contract the regression test asserts against).
             Exit 0 on any well-formed run, even one where every metric
             reports a non-OK status (an absent or short-of-window store
@@ -116,9 +119,10 @@ Upstream deps: git, gh (optional - PR-history metrics degrade to
             `<repo>/.agentic/loop-state-*.json` (findings_log re_raised,
             iteration fallback), and (per repo with a resolvable gh
             remote) the GitHub GraphQL `search` connection for merged PRs.
-            bin/_telemetry.py is loaded by resolved path
-            (SourceFileLoader), with ~/.agentic/pricing.yml overriding its
-            built-in rates when present.
+            bin/_eval.py is loaded by resolved path (SourceFileLoader)
+            for the moved helpers and its bin/_telemetry.py instance, with
+            ~/.agentic/pricing.yml overriding its built-in rates when
+            present.
 
 Downstream consumers: operator-invoked directly (content/commands/
             ds-change-delta.md); not called by any other DinoStack tool.
@@ -158,7 +162,6 @@ import importlib.machinery
 import importlib.util
 import json
 import re
-import statistics
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -167,21 +170,32 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _lib import _run, iter_jsonl_dict_records, rate_or_none  # noqa: E402
 
 
-def _load_telemetry():
+def _load_eval():
     loader = importlib.machinery.SourceFileLoader(
-        "_telemetry", str(Path(__file__).resolve().parent / "_telemetry.py")
+        "_eval", str(Path(__file__).resolve().parent / "_eval.py")
     )
-    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("_telemetry", loader))
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("_eval", loader))
     loader.exec_module(mod)
     return mod
 
 
-_TELEMETRY = _load_telemetry()
+_EVAL = _load_eval()
+_TELEMETRY = _EVAL._TELEMETRY
+_parse_ts = _EVAL._parse_ts
+_as_int = _EVAL._as_int
+_v2_coverage = _EVAL._v2_coverage
+_price_runs = _EVAL._price_runs
+_run_model = _EVAL._run_model
+_ticket_index = _EVAL._ticket_index
+_title_matches = _EVAL._title_matches
+_branch_matches = _EVAL._branch_matches
+_attribute_prs = _EVAL._attribute_prs
+_ticket_row = _EVAL._ticket_row
+_ticket_summary = _EVAL._ticket_summary
+_per_ticket_side = _EVAL._per_ticket_side
 
 GH_CALL_TIMEOUT_SECONDS = 30.0
 PR_LOOKAHEAD_DAYS_DEFAULT = 7
-REENTRY_AFTER_MERGE = timedelta(hours=1)
-QA_FAIL_RESULTS = ("FAIL", "PARTIAL")
 PR_PAGE_SIZE = 100
 PR_MAX_PAGES = 50
 # 100 years - generously above any realistic --window-days, but small
@@ -231,25 +245,6 @@ class CutResolutionError(Exception):
 # ---------------------------------------------------------------------------
 # Cut-point resolution and window computation
 # ---------------------------------------------------------------------------
-
-
-def _parse_ts(value) -> datetime | None:
-    """Parse an ISO8601 UTC timestamp, tolerating a trailing 'Z'. Mirrors
-    bin/ds-hook-fire-report's _parse_ts (duplicated, not imported)."""
-    if not value:
-        return None
-    s = str(value).strip()
-    if not s:
-        return None
-    try:
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        dt = datetime.fromisoformat(s)
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
 
 
 def _resolve_cut(cut_arg: str, cut_repo: str) -> tuple[datetime, str]:
@@ -908,16 +903,6 @@ def _pr_history_for_repo(
 # ---------------------------------------------------------------------------
 
 
-def _as_int(value) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str) and value.strip().isascii() and value.strip().isdigit():
-        return int(value)
-    return None
-
-
 def _collect_spawn_telemetry(repos: list[Path]) -> dict:
     """Per repo: v2 hook spawn records (legacy rows excluded - see
     bin/_telemetry.py's normalize_hook_spawns), the ticket ledger and
@@ -972,56 +957,6 @@ def _collect_spawn_telemetry(repos: list[Path]) -> dict:
     }
 
 
-def _v2_coverage(spawn_data: dict) -> dict:
-    return {
-        "earliest": spawn_data["earliest_ts"].isoformat() if spawn_data["earliest_ts"] else None,
-        "latest": spawn_data["latest_ts"].isoformat() if spawn_data["latest_ts"] else None,
-        "rows_total": spawn_data["rows_total"],
-    }
-
-
-def _price_runs(items: list[tuple[str, dict]], rates: dict) -> dict:
-    """Price (model, run) pairs on each run's own run_tokens. Exact-id and
-    family-priced dollars are kept apart; a run without run_tokens is
-    counted, never priced as zero."""
-    by_model: dict[str, dict[str, int]] = {}
-    tokens_null_runs = 0
-    for model, run in items:
-        if run["run_tokens"] is None:
-            tokens_null_runs += 1
-            continue
-        bands = by_model.setdefault(model, dict.fromkeys(_TELEMETRY.BANDS, 0))
-        for band, count in _TELEMETRY.token_bands(run["run_tokens"]).items():
-            bands[band] += count
-    tokens = dict.fromkeys(_TELEMETRY.BANDS, 0)
-    exact = family = 0.0
-    family_models: set[str] = set()
-    unpriced: set[str] = set()
-    for model, bands in by_model.items():
-        for band, count in bands.items():
-            tokens[band] += count
-        priced = _TELEMETRY.price_tokens(model, bands, rates)
-        if priced is None or priced["total"] is None:
-            unpriced.add(model)
-        elif priced["match"] == "exact":
-            exact += priced["total"]
-        else:
-            family += priced["total"]
-            family_models.add(model)
-    return {
-        "tokens": tokens,
-        "tokens_null_runs": tokens_null_runs,
-        "dollars_exact": round(exact, 6),
-        "dollars_family_estimated": round(family, 6),
-        "family_priced_models": sorted(family_models),
-        "unpriced_models": sorted(unpriced),
-    }
-
-
-def _run_model(rec, run: dict) -> str:
-    return run["model"] or rec.model or "(unknown)"
-
-
 def _agent_model_side(spawn_data: dict, start: datetime, end: datetime,
                       status: str, note: str | None, rates: dict,
                       pricing_source: str | None) -> dict:
@@ -1062,240 +997,6 @@ def _agent_model_side(spawn_data: dict, start: datetime, end: datetime,
         dollars_family_estimated=round(sum(r["dollars_family_estimated"] for r in rows), 6),
         family_priced_models=sorted({m for r in rows for m in r["family_priced_models"]}),
         unpriced_models=sorted({m for r in rows for m in r["unpriced_models"]}),
-    )
-    return side
-
-
-def _ticket_index(spawn_data: dict) -> dict[str, dict]:
-    """Every ticket named by a v2 spawn's task_id or a ledger row, with the
-    ts that places it in a window: its first v2 spawn, else its earliest
-    ledger opened_ts."""
-    index: dict[str, dict] = {}
-
-    def entry(ticket: str) -> dict:
-        return index.setdefault(ticket, {"recs": [], "repos": set(), "ledger": [],
-                                         "first_spawn_ts": None, "ledger_opened_ts": None})
-
-    for repo, rec in spawn_data["spawns"]:
-        if not rec.task_id:
-            continue
-        e = entry(str(rec.task_id))
-        e["recs"].append(rec)
-        e["repos"].add(repo)
-        first = _parse_ts(rec.start_ts) or _parse_ts(rec.runs[0]["end_ts"] if rec.runs else None)
-        if first is not None and (e["first_spawn_ts"] is None or first < e["first_spawn_ts"]):
-            e["first_spawn_ts"] = first
-    for repo, row in spawn_data["ledger"]:
-        ticket = row.get("ticket_id")
-        if not ticket:
-            continue
-        e = entry(str(ticket))
-        e["ledger"].append(row)
-        e["repos"].add(repo)
-        opened = _parse_ts(row.get("opened_ts"))
-        if opened is not None and (e["ledger_opened_ts"] is None or opened < e["ledger_opened_ts"]):
-            e["ledger_opened_ts"] = opened
-    return index
-
-
-def _title_matches(ticket: str, title: str) -> bool:
-    t = re.escape(ticket)
-    return re.match(rf"^\s*(?:\[{t}\]:?|{t}\s*:|[a-z]+\({t}\)!?:)", title, re.IGNORECASE) is not None
-
-
-def _branch_matches(ticket: str, head_ref: str) -> bool:
-    segment = head_ref.rsplit("/", 1)[-1]
-    return re.match(rf"^{re.escape(ticket)}(?![0-9])", segment, re.IGNORECASE) is not None
-
-
-def _attribute_prs(pr_nodes: dict[str, list[dict]], ledger: list[tuple[str, dict]],
-                   tickets: set[str]) -> tuple[dict[str, list[dict]], list[dict]]:
-    """A PR number a repo's ledger records is credited to every ledger
-    ticket recording it and leaves that repo's fallback pool. Any other PR
-    is credited by an anchored title prefix, else by the final
-    `/`-separated segment of headRefName; a fallback PR matching more than
-    one ticket is ambiguous and credited to none."""
-    credits: dict[str, list[dict]] = {}
-    ambiguous: list[dict] = []
-    for repo, nodes in pr_nodes.items():
-        ledger_map: dict[int, set[str]] = {}
-        for ledger_repo, row in ledger:
-            number = _as_int(row.get("pr_number"))
-            if ledger_repo == repo and number is not None and row.get("ticket_id"):
-                ledger_map.setdefault(number, set()).add(str(row["ticket_id"]))
-        for node in nodes:
-            number = _as_int(node.get("number"))
-            pr = {"repo": repo, "number": number, "merged_at": _parse_ts(node.get("mergedAt"))}
-            if number in ledger_map:
-                for ticket in ledger_map[number]:
-                    credits.setdefault(ticket, []).append(pr)
-                continue
-            title = node.get("title") or ""
-            hits = [t for t in tickets if _title_matches(t, title)]
-            if not hits:
-                head_ref = node.get("headRefName") or ""
-                hits = [t for t in tickets if _branch_matches(t, head_ref)]
-            if len(hits) == 1:
-                credits.setdefault(hits[0], []).append(pr)
-            elif hits:
-                ambiguous.append({"repo": repo, "number": number, "tickets": sorted(hits)})
-    return credits, ambiguous
-
-
-def _ticket_row(ticket: str, entry: dict, loop_states: list[dict], credited: list[dict],
-                pr_status: str, pr_cutoff: datetime, rates: dict) -> dict:
-    runs = [(rec, run) for rec in entry["recs"] for run in rec.runs]
-    skeptic_runs = [run for rec, run in runs if rec.agent == "skeptic"]
-    reviewed = [run for run in skeptic_runs if run["findings_count"] is not None]
-
-    ledger_rounds = [n for n in (_as_int(r.get("skeptic_rounds")) for r in entry["ledger"]) if n is not None]
-    ledger_skeptic_rounds = max(ledger_rounds) if ledger_rounds else None
-    skeptic_reviews, reviews_source = len(reviewed), "telemetry"
-    if not reviewed and ledger_skeptic_rounds is not None:
-        skeptic_reviews, reviews_source = ledger_skeptic_rounds, "ledger"
-    unit_counts = [n for n in (_as_int(r.get("unit_count")) for r in entry["ledger"]) if n is not None]
-    unit_count = max(max(unit_counts) if unit_counts else 1, 1)
-    findings = None
-    if reviewed:
-        findings = {
-            sev: sum(_as_int(run["findings_count"].get(sev)) or 0 for run in reviewed)
-            for sev in ("critical", "major", "minor")
-        }
-
-    iterations = [n for n in (_as_int(run["iteration"]) for run in skeptic_runs) if n is not None]
-    max_iteration, iteration_source = (max(iterations), "telemetry") if iterations else (None, None)
-    if max_iteration is None:
-        state_iters = [n for n in (_as_int((s.get("loop_state") or {}).get("iteration")) for s in loop_states)
-                       if n is not None]
-        if state_iters:
-            max_iteration, iteration_source = max(state_iters), "loop_state"
-
-    findings_log = [
-        f for s in loop_states for f in ((s.get("loop_state") or {}).get("findings_log") or [])
-        if isinstance(f, dict)
-    ]
-    keyed = [f for f in findings_log if "re_raised" in f]
-    re_raised = sum(1 for f in keyed if f["re_raised"] is True) if keyed else None
-
-    qa_runs = [run for rec, run in runs if rec.agent == "qa-engineer"]
-    qa_fail_backs = sum(1 for run in qa_runs if run["qa_result"] in QA_FAIL_RESULTS)
-
-    row = {
-        "ticket_id": ticket,
-        "first_spawn_ts": entry["first_spawn_ts"].isoformat() if entry["first_spawn_ts"] else None,
-        "skeptic_reviews": skeptic_reviews,
-        "skeptic_reviews_source": reviews_source,
-        "ledger_skeptic_rounds": ledger_skeptic_rounds,
-        "unit_count": unit_count,
-        "max_iteration": max_iteration,
-        "max_iteration_source": iteration_source,
-        "findings": findings,
-        "re_raised": re_raised,
-        "qa_runs": len(qa_runs),
-        "qa_fail_backs": qa_fail_backs,
-        "pr_status": pr_status,
-        "prs_merged": None,
-        "pr_numbers": None,
-        "final_merge_ts": None,
-        "e2e_wall_seconds": None,
-        "follow_up_prs": None,
-        "reentries_after_merge": None,
-        "post_merge_findings": None,
-        "loops": None,
-        **_price_runs([(_run_model(rec, run), run) for rec, run in runs], rates),
-    }
-    if pr_status != "OK":
-        return row
-
-    merged = sorted(
-        (pr for pr in credited if pr["merged_at"] is not None and pr["merged_at"] < pr_cutoff),
-        key=lambda pr: pr["merged_at"],
-    )
-    row["prs_merged"] = len(merged)
-    row["pr_numbers"] = [pr["number"] for pr in merged]
-    row["loops"] = (max(skeptic_reviews - unit_count, 0) + qa_fail_backs
-                    + max(len(merged) - unit_count, 0))
-    if not merged:
-        return row
-    first_merge = merged[0]["merged_at"]
-    final_merge = merged[-1]["merged_at"]
-    row["final_merge_ts"] = final_merge.isoformat()
-    if entry["first_spawn_ts"] is not None:
-        row["e2e_wall_seconds"] = (final_merge - entry["first_spawn_ts"]).total_seconds()
-    row["follow_up_prs"] = sum(1 for pr in merged if pr["merged_at"] > first_merge)
-    row["reentries_after_merge"] = sum(
-        1 for rec in entry["recs"]
-        if (start_ts := _parse_ts(rec.start_ts)) is not None
-        and start_ts > first_merge + REENTRY_AFTER_MERGE
-    )
-    if reviews_source == "telemetry":
-        row["post_merge_findings"] = sum(
-            (_as_int(run["findings_count"].get("critical")) or 0)
-            + (_as_int(run["findings_count"].get("major")) or 0)
-            for run in reviewed
-            if (end_ts := _parse_ts(run["end_ts"])) is not None and first_merge < end_ts < pr_cutoff
-        )
-    return row
-
-
-def _ticket_summary(rows: list[dict]) -> dict:
-    def present(key):
-        return [r[key] for r in rows if r[key] is not None]
-
-    loops = present("loops")
-    e2e = present("e2e_wall_seconds")
-    return {
-        "tickets": len(rows),
-        "loops_total": sum(loops) if loops else None,
-        "loops_mean": statistics.mean(loops) if loops else None,
-        "skeptic_reviews_total": sum(present("skeptic_reviews")),
-        "qa_fail_backs_total": sum(present("qa_fail_backs")),
-        "e2e_wall_seconds_median": statistics.median(e2e) if e2e else None,
-        "dollars_exact_total": round(sum(present("dollars_exact")), 6),
-        "dollars_family_estimated_total": round(sum(present("dollars_family_estimated")), 6),
-    }
-
-
-def _per_ticket_side(spawn_data: dict, index: dict[str, dict], start: datetime, end: datetime,
-                     status: str, note: str | None, credits: dict[str, list[dict]],
-                     ambiguous: list[dict], repo_pr_status: dict[str, str],
-                     pr_cutoff: datetime, rates: dict) -> dict:
-    """Tickets whose first v2 spawn (else earliest ledger opened_ts) falls
-    in [start, end). A ticket whose ledger opened_ts predates the v2
-    extent is listed in excluded_pre_v2, not reported; one with no ledger
-    row cannot be detected as pre-v2 and is anchored at its first v2
-    spawn. Every value is null unless status is OK."""
-    side: dict = {"status": status, "note": note, "v2_coverage": _v2_coverage(spawn_data)}
-    if status != "OK":
-        side.update(tickets=None, summary=None, excluded_pre_v2=None,
-                    ambiguous_prs=None, unattributed_runs=None)
-        return side
-    v2_start = spawn_data["earliest_ts"]
-    rows, excluded = [], []
-    for ticket in sorted(index):
-        entry = index[ticket]
-        anchor = entry["first_spawn_ts"] or entry["ledger_opened_ts"]
-        if anchor is None or not (start <= anchor < end):
-            continue
-        if entry["ledger_opened_ts"] is not None and entry["ledger_opened_ts"] < v2_start:
-            excluded.append(ticket)
-            continue
-        statuses = [repo_pr_status.get(repo, "NOT_FETCHED") for repo in sorted(entry["repos"])]
-        pr_status = next((s for s in statuses if s != "OK"), "OK")
-        rows.append(_ticket_row(ticket, entry, spawn_data["loop_states"].get(ticket, []),
-                                credits.get(ticket, []), pr_status, pr_cutoff, rates))
-    reported = {r["ticket_id"] for r in rows}
-    unattributed_runs = sum(
-        1 for _repo, rec in spawn_data["spawns"] if not rec.task_id
-        for run in rec.runs
-        if (ts := _parse_ts(run["end_ts"])) is not None and start <= ts < end
-    )
-    side.update(
-        tickets=rows,
-        summary=_ticket_summary(rows),
-        excluded_pre_v2=excluded,
-        ambiguous_prs=[a for a in ambiguous if reported & set(a["tickets"])],
-        unattributed_runs=unattributed_runs,
     )
     return side
 

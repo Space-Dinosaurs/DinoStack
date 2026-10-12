@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""
+Purpose: CLI over bin/_eval.py's evaluate(): one read-only evaluation of
+         one or more repos over one window - per-agent cost and value,
+         Skeptic yield per round, work items, hook deny quality, cost
+         reconciled to the harness cost-state, the ranked proposals
+         (D1a-D3) and the telemetry gaps (D4). Catches the operator having
+         to hand-join transcripts, hook rows, fire rows and git history to
+         see what is working. Retire with bin/_eval.py (see its manifest).
+
+Public API: ds-eval --repo P [P ...] [--since S] [--until U] [--base REF]
+            [--store D ...] [--ticket-pattern RE] [--no-gh] [--json]
+            --since/--until: an ISO8601 date or datetime (UTC when naive),
+            or `Nd` (N days before --until). Defaults: --until now,
+            --since 14d. --store adds a config dir or projects dir to the
+            stores _transcripts.stores() finds. --no-gh skips every gh call.
+            Default output is a compact table; --json prints the full
+            evaluate() dict (the binding shape; see bin/_eval.py).
+            Exit 0 on any well-formed run, including one whose metrics are
+            all ABSENT. Exit 2 on a usage error: an unparseable date, an
+            empty or inverted window, an invalid --ticket-pattern, or a
+            --repo that is not a directory.
+
+Upstream deps: bin/_eval.py (loaded by resolved path), which reads each
+            repo's .agentic/events.jsonl and .agentic/.enforcement-fires.jsonl,
+            the transcript stores, git, gh and ds-feedback; Python 3 stdlib.
+
+Downstream consumers: operator-invoked; bin/tests/test_ds_eval.py.
+
+Failure modes: never raises on missing telemetry; missing inputs are
+            ABSENT/PARTIAL metrics with a reason. Read-only.
+
+Performance: dominated by _eval.evaluate() (about 1 min per 280 sessions).
+"""
+from __future__ import annotations
+
+import argparse
+import importlib.machinery
+import importlib.util
+import json
+import re
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+
+def _load_eval():
+    path = Path(__file__).resolve().parent / "_eval.py"
+    loader = importlib.machinery.SourceFileLoader("_eval", str(path))
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("_eval", loader))
+    loader.exec_module(mod)
+    return mod
+
+
+_EVAL = _load_eval()
+DEFAULT_SINCE = "14d"
+_DAYS_RE = re.compile(r"^(\d+)d$")
+_HOOK_INPUT_RE = re.compile(r"^hooks\[(.+)\]\.(\w+)$")
+
+
+def _parse_when(value: str, until: datetime | None) -> datetime | None:
+    m = _DAYS_RE.match(value.strip())
+    if m:
+        return None if until is None else until - timedelta(days=int(m.group(1)))
+    return _EVAL._parse_ts(value)
+
+
+def _fmt_metric(m) -> str:
+    if not isinstance(m, dict) or "status" not in m:
+        return str(m)
+    parts = [m["status"]]
+    if m.get("coverage") is not None:
+        parts.append(f"cov {m['coverage']:.0%}")
+    if m["status"] != "ABSENT":
+        parts.append(json.dumps(m.get("value"), default=str))
+    if m.get("missing"):
+        parts.append("missing: " + "; ".join(m["missing"]))
+    return " | ".join(parts)
+
+
+def _print_table(r: dict) -> None:
+    meta = r["meta"]
+    print(f"ds-eval  {', '.join(meta['repos'])}")
+    print(f"window   {meta['start']} .. {meta['end']}   sessions {meta['sessions']}")
+    print("stores   " + ", ".join(f"{s} ({n})" for s, n in meta["sessions_by_store"].items()))
+
+    print("\n[cost]")
+    c = r["cost"]
+    rec = c["reconciled"]
+    usd = f"${rec['usd']:,.2f}" if rec["usd"] is not None else "n/a"
+    print(f"  reconciled       {rec['status']}  {usd} over {rec['sessions']} sessions")
+    pp = c["partial_process"]
+    lb = pp["last_process_usd_lower_bound"]
+    print(f"  partial_process  {pp['status']}  {pp['sessions']} sessions, lower bound "
+          + (f"${lb:,.2f}" if lb is not None else "n/a"))
+    nc = c["no_cost_state"]
+    pv = nc["priced_visible_usd"]
+    print(f"  no_cost_state    {nc['status']}  {nc['sessions']} sessions, priced visible "
+          + (f"${pv:,.2f}" if pv is not None else "n/a"))
+    print(f"  window_total     {_fmt_metric(c['window_total'])}")
+    print(f"  attributed_share {_fmt_metric(c['attributed_share'])}")
+    print(f"  straddling {c['straddling_sessions']}, visible > cost-state "
+          f"{c['visible_exceeds_cost_state']['sessions']}")
+
+    print("\n[agents]")
+    for name, a in r["agents"].items():
+        usd = a["usd"]
+        cost = f"${usd['value']:,.2f}" if usd["status"] != "ABSENT" and usd["value"] is not None else "n/a"
+        n = a.get("spawns", a.get("sessions"))
+        own = a.get("value", {}).get("own")
+        val = f"  value {own['status']}" if isinstance(own, dict) else ""
+        print(f"  {name:<24} n={n:<5} {usd['status']:<8} {cost:>12}{val}")
+
+    print("\n[skeptic_rounds]")
+    for key, m in r["skeptic_rounds"].items():
+        print(f"  {key}: {_fmt_metric(m)}")
+
+    print("\n[work_items]")
+    w = r["work_items"]
+    print(f"  coverage: {_fmt_metric(w['coverage'])}")
+    print(f"  tier_agreement: {json.dumps(w['tier_agreement'])}" + ("  (tier 4 disabled)" if w["tier4_disabled"]
+                                                                   else ""))
+    print(f"  pr_outcome: {_fmt_metric(w['pr_outcome'])}")
+    print(f"  rework: {_fmt_metric(w['rework'])}")
+
+    print("\n[hooks]  (deny / joinable / repeat_share / labelled n)")
+    for name, h in r["hooks"].items():
+        rs = h["repeat_share"]
+        rv = f"{rs['value']:.2f}" if rs["status"] != "ABSENT" else "ABSENT"
+        print(f"  {name:<40} {h['deny']['value']:>5} {h['joinable_deny']:>5} {rv:>8} {h['labelled']['n']:>4}")
+
+    print("\n[mix]")
+    for key, m in r["mix"].items():
+        if m["status"] == "ABSENT":
+            print(f"  {key}: ABSENT")
+            continue
+        shares = ", ".join(f"{k} {v['share']:.0%}" for k, v in m["value"].items())
+        print(f"  {key}: {m['status']}  {shares}")
+
+    print("\n[decisions]")
+    if not r["decisions"]:
+        print("  none")
+    for d in r["decisions"]:
+        rank = f"${d['rank_usd']:,.2f}" if d["rank_usd"] is not None else "unpriced"
+        ev = d["evidence"]
+        print(f"  {d['rule']:<4} {d['subject']}  [{ev['figure']} = {json.dumps(ev['value'])}, n={ev['count']}]"
+              f"  {rank}  -> {d['route']}")
+
+    print("\n[gaps]")
+    if not r["gaps"]:
+        print("  none")
+    grouped: dict = {}
+    for g in r["gaps"]:
+        m = _HOOK_INPUT_RE.match(g["input"])
+        key = (f"hooks[*].{m.group(2)}" if m else g["input"], g["status"], tuple(g["blocks"]))
+        grouped.setdefault(key, []).append(m.group(1) if m else None)
+    for (name, status, blocks), hooks in grouped.items():
+        names = [h for h in hooks if h]
+        detail = f" ({len(names)} hooks: {', '.join(names)})" if names else ""
+        print(f"  {name}: {status}{detail}  blocks {', '.join(blocks) or '-'}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="ds-eval", description="Evaluate DinoStack telemetry for one or more repos.")
+    p.add_argument("--repo", nargs="+", action="extend", required=True, help="Repo path(s) to evaluate")
+    p.add_argument("--since", default=DEFAULT_SINCE, help="ISO8601 date/datetime or Nd (default 14d)")
+    p.add_argument("--until", default=None, help="ISO8601 date/datetime (default now)")
+    p.add_argument("--base", default=None, help="Base ref for merged-PR history (default: resolved per repo)")
+    p.add_argument("--store", nargs="+", action="extend", default=[], help="Extra transcript store(s)")
+    p.add_argument("--ticket-pattern", default=None, help="Ticket id regex (default: learned prefixes)")
+    p.add_argument("--no-gh", action="store_true", help="Make no gh calls")
+    p.add_argument("--json", action="store_true", help="Print the full evaluate() dict as JSON")
+    args = p.parse_args(argv)
+
+    until = datetime.now(timezone.utc) if args.until is None else _parse_when(args.until, None)
+    since = _parse_when(args.since, until) if until is not None else None
+    if until is None or since is None:
+        print("ds-eval: --since/--until must be an ISO8601 date/datetime or Nd", file=sys.stderr)
+        return 2
+    if since >= until:
+        print("ds-eval: --since must be before --until", file=sys.stderr)
+        return 2
+    if args.ticket_pattern is not None:
+        try:
+            re.compile(args.ticket_pattern)
+        except re.error as exc:
+            print(f"ds-eval: invalid --ticket-pattern: {exc}", file=sys.stderr)
+            return 2
+    for repo in args.repo:
+        if not Path(repo).is_dir():
+            print(f"ds-eval: --repo {repo} is not a directory", file=sys.stderr)
+            return 2
+
+    stores = _EVAL._TRANSCRIPTS.stores(args.store)
+    report = _EVAL.evaluate(args.repo, since, until, base=args.base, ticket_re=args.ticket_pattern,
+                            use_gh=not args.no_gh, stores=stores)
+    if args.json:
+        print(json.dumps(report, indent=2, default=str))
+    else:
+        _print_table(report)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

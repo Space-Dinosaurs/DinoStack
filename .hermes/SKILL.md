@@ -4308,6 +4308,10 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       `--repo` to compute hook_denies_per_session for two
                       windows either side of a methodology-change cut
                       point);
+                      bin/ds-eval via bin/_eval.py (reads hook
+                      spawn_start/spawn_complete rows and
+                      .agentic/.enforcement-fires.jsonl deny rows, joined
+                      to operator fire labels by session_id/tool_use_id);
                       bin/ds-cost team (reads .agentic/session-log/ for team rollup);
                       hooks/conductor-overreach-nudge.js (the registered Stop hook that
                       appends conductor_overreach); bin/ds-cost session/project (render
@@ -4439,7 +4443,7 @@ Two callers populate it. `enforce-guarded-rm.py` writes `{"agent_self_corrects":
 
 **Retention:** not auto-rotated. Same operating posture as `events.jsonl` above - manual `mv` if it grows past concern. Project-local; gitignored. Note that in a repo with `abdication_guard_enabled: true`, `enforce-no-abdication.py`'s every-verdict posture makes this file grow with conductor turns rather than only with enforcement actions, so it fills faster than the action-only era's rate.
 
-**Consumer:** `/ds-wrap` Part D.5 signal 3(b) (Session-feedback capture signal, "Enforcement fire-log") tallies per `hook` value, counting only rows whose `decision` is not `"allow"`, as a `guardrail-fire` feedback candidate. Its read stays bounded but bounds on the FILTERED count - the last ~500 surviving rows, found within at most ~5000 raw tail lines - so every-verdict `"allow"` rows cannot crowd genuine fires out of the window. `bin/ds-evaluate` signal 3 tallies `"deny"` and `"allow_advisory"` per hook and, by design, counts any other `decision` value under neither total - so `"allow"` rows never reached those two totals. Its `newest_ts` and `last_10_days` figures are a separate matter: they originally counted every parsed row regardless of `decision`, which would have turned the per-day histogram into a conductor-turn histogram once `"allow"` rows existed, so `bin/ds-evaluate` now skips `decision == "allow"` rows before the timestamp is taken. A hook that logs only `"allow"` rows still appears under `by_hook` with both counts at 0 (ran, never fired). Any OTHER free-form `decision` value remains a fire and still feeds `newest_ts`/`last_10_days` - the exclusion is specific to `"allow"`, not a general "unrecognized value" filter. `/ds-failure-audit` is the third consumer (OPTIONAL supplementary source - item 4 of its "What the audit reads" list, and item 4 of the "Audit brief (verbatim - the binding contract)" under Step 3): it excludes `"allow"` rows from every guardrail-fire count and may use them only as a denominator when judging whether a guard is inert.
+**Consumer:** `/ds-wrap` Part D.5 signal 3(b) (Session-feedback capture signal, "Enforcement fire-log") tallies per `hook` value, counting only rows whose `decision` is not `"allow"`, as a `guardrail-fire` feedback candidate. Its read stays bounded but bounds on the FILTERED count - the last ~500 surviving rows, found within at most ~5000 raw tail lines - so every-verdict `"allow"` rows cannot crowd genuine fires out of the window. `bin/ds-evaluate` signal 3 tallies `"deny"` and `"allow_advisory"` per hook and, by design, counts any other `decision` value under neither total - so `"allow"` rows never reached those two totals. Its `newest_ts` and `last_10_days` figures are a separate matter: they originally counted every parsed row regardless of `decision`, which would have turned the per-day histogram into a conductor-turn histogram once `"allow"` rows existed, so `bin/ds-evaluate` now skips `decision == "allow"` rows before the timestamp is taken. A hook that logs only `"allow"` rows still appears under `by_hook` with both counts at 0 (ran, never fired). Any OTHER free-form `decision` value remains a fire and still feeds `newest_ts`/`last_10_days` - the exclusion is specific to `"allow"`, not a general "unrecognized value" filter. `/ds-failure-audit` is the third consumer (OPTIONAL supplementary source - item 4 of its "What the audit reads" list, and item 4 of the "Audit brief (verbatim - the binding contract)" under Step 3): it excludes `"allow"` rows from every guardrail-fire count and may use them only as a denominator when judging whether a guard is inert. `bin/ds-eval` (via `bin/_eval.py`) counts only `"deny"` rows per hook, joins each to operator labels by `fire_key` (`tool_use_id`, else `session_id@ts`), and reports a row with neither as not joinable rather than sampling it.
 
 ## Learnings-retrieval firing rate (transcript-derived, read-side only)
 
@@ -15803,7 +15807,9 @@ a store with no v2 rows is `ABSENT`, both with `null` values.
   in `tokens_null_runs`, never priced as zero.
 - `per_ticket`: one row per ticket whose first v2 spawn (else its ledger
   `opened_ts`) falls in the window, keyed by the hooks' `task_id`. Each
-  row reports Skeptic reviews, max iteration, Critical/Major/Minor totals,
+  row reports Skeptic reviews (every Skeptic run, with
+  `skeptic_reviews_with_findings` counting those that carry a findings
+  count), max iteration, Critical/Major/Minor totals,
   `re_raised` (`null` when no `findings_log` entry records it), QA runs and
   fail-backs (FAIL or PARTIAL), merged and follow-up PRs, re-entries more
   than 1h after the first merge, Critical+Major findings after it (`null`
@@ -16963,7 +16969,10 @@ loop, not a multi-phase pipeline. No subagent spawns, no new config toggles.
 ## Step 1 - Load open items
 
 Run `ds-feedback list --status open` (prints a JSON array; empty store
-or file-absent prints `[]`). If the array is empty, print:
+or file-absent prints `[]`). Items carrying a `fire_label` (an operator
+verdict on one hook deny) are born `triaged`, so they never appear here;
+`ds-eval` reads them for a hook's labelled false-positive rate. If the
+array is empty, print:
 
 ```
 No open feedback items in ~/.agentic/feedback.jsonl.

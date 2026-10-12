@@ -319,6 +319,12 @@ EXCLUDED_FILES = {
     # bin/ds-hook-fire-report above, which reads the identical fires-log
     # file the same way.
     "bin/ds-change-delta",
+    # bin/_eval.py (library behind the operator-invoked bin/ds-eval): every
+    # `.agentic`-reading site derives from a repo path passed to evaluate()
+    # from ds-eval's REQUIRED `--repo` argument; read-only, never called
+    # from a hooks/*.js or hooks/*.py call site - same rationale as
+    # bin/ds-change-delta above.
+    "bin/_eval.py",
 }
 
 # Test/fixture paths (at any depth) are never scanned as candidates.
