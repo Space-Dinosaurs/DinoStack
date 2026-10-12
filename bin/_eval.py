@@ -13,11 +13,9 @@ Purpose: Evaluation engine for the ds-eval telemetry program. Answers "what
          be tied to a ticket or PR. Also hosts the ticket/PR/pricing helpers
          bin/ds-change-delta imports (moved here so both tools share one
          copy).
-         Retire when the harness exports per-session cost with per-agent
-         and per-ticket attribution across every profile, and the
-         methodology's own decision rules move into a tracker-side report;
-         until then this is the only reader that joins transcripts, hook
-         spawn rows, fire rows and git history.
+         Retire when /ds-evaluate and ds-change-delta stop calling it; until
+         then it is the only reader that joins transcripts, hook spawn rows,
+         fire rows and git history.
 
 Public API:
     evaluate(repos, start, end, *, base=None, ticket_re=None, use_gh=True,
@@ -69,7 +67,8 @@ Work-item key (tiers, first match wins): 1 exactly one ticket id in the
     after the spawn ends. A PR ref's repo must equal the evaluated repo's
     owner/name; a ref with repo None matches only a merged PR number of that
     repo and is marked repo_inferred. A tier-3/4 PR resolves to the single
-    ticket id its subject (else body) carries, else to `pr:#N`. Ticket
+    ticket id its subject (else body) carries, else to `pr:<owner/name>#N`
+    (the repo path when no origin slug resolves). Ticket
     prefixes are learned from the ticket_id values in .agentic/tasks.jsonl
     and .agentic/ticket-ledger.jsonl and from hook task_ids, with fallback
     [A-Z][A-Z0-9]+-N. Tier 4 is disabled for a run when its tier agreement
@@ -87,8 +86,8 @@ Upstream deps: Python 3 stdlib; bin/_lib.py (resolve_base_branch, _run),
     state of engineer PRs not shown merged on the base ref).
 
 Downstream consumers: bin/ds-eval (CLI); bin/ds-change-delta (moved
-    helpers); bin/tests/test_ds_eval.py. Planned: /ds-evaluate (U7) and the
-    ds-change-delta eval side (U8).
+    helpers); bin/tests/test_ds_eval.py. Planned: /ds-evaluate (its signal
+    collection) and an evaluation side in ds-change-delta.
 
 Failure modes: never raises on a missing store, file, ref, gh or pricing;
     each degrades to an ABSENT or PARTIAL metric whose `missing` names the
@@ -402,12 +401,13 @@ def _ticket_row(ticket: str, entry: dict, loop_states: list[dict], credited: lis
         if (start_ts := _parse_ts(rec.start_ts)) is not None
         and start_ts > first_merge + REENTRY_AFTER_MERGE
     )
-    if reviews_source == "telemetry":
+    post_merge = [run for run in skeptic_runs
+                  if (end_ts := _parse_ts(run["end_ts"])) is not None and first_merge < end_ts < pr_cutoff]
+    if reviews_source == "telemetry" and all(run["findings_count"] is not None for run in post_merge):
         row["post_merge_findings"] = sum(
             (_as_int(run["findings_count"].get("critical")) or 0)
             + (_as_int(run["findings_count"].get("major")) or 0)
-            for run in reviewed
-            if (end_ts := _parse_ts(run["end_ts"])) is not None and first_merge < end_ts < pr_cutoff
+            for run in post_merge
         )
     return row
 

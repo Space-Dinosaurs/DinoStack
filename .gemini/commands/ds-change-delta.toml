@@ -71,7 +71,8 @@ a store with no v2 rows is `ABSENT`, both with `null` values.
   `re_raised` (`null` when no `findings_log` entry records it), QA runs and
   fail-backs (FAIL or PARTIAL), merged and follow-up PRs, re-entries more
   than 1h after the first merge, Critical+Major findings after it (`null`
-  when the review count fell back to the ledger's `skeptic_rounds`),
+  when the review count fell back to the ledger's `skeptic_rounds`, or when
+  any Skeptic run after the first merge carries no findings count),
   `ledger_skeptic_rounds` (shown beside a telemetry count so an undercount
   is visible), `unit_count` (from the ledger, default 1), rework loops
   (`max(skeptic_reviews - unit_count, 0) + qa_fail_backs +

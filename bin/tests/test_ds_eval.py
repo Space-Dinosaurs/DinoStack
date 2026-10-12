@@ -483,6 +483,48 @@ def test_ticket_row_counts_every_skeptic_run_and_reports_findings_coverage():
         4, "ledger", 0)
 
 
+def _post_merge_row(findings, ledger_rounds=None):
+    runs = [{"findings_count": f, "iteration": i + 1, "qa_result": None, "end_ts": iso(T(4, i)),
+             "model": "claude-opus-5-5", "run_tokens": None} for i, f in enumerate(findings)]
+    rec = type("Rec", (), {"agent": "skeptic", "runs": runs, "start_ts": iso(T(2)), "model": None})()
+    entry = {"recs": [rec], "ledger": [{"skeptic_rounds": ledger_rounds}] if ledger_rounds else [],
+             "first_spawn_ts": T(2), "repos": {"/r"}}
+    credited = [{"repo": "/r", "number": 1, "merged_at": T(3)}]
+    return ev._ticket_row("AUT-1", entry, [], credited, "OK", END, RATES)
+
+
+def test_post_merge_findings_null_when_a_post_merge_run_lacks_findings_count():
+    row = _post_merge_row([None, None, None], ledger_rounds=3)
+    assert row["findings"] is None
+    assert row["post_merge_findings"] is None
+    row = _post_merge_row([{"critical": 1, "major": 2, "minor": 0}, None])
+    assert row["post_merge_findings"] is None
+    row = _post_merge_row([{"critical": 1, "major": 2, "minor": 0}, {"critical": 0, "major": 1, "minor": 5}])
+    assert row["post_merge_findings"] == 4
+    row = _post_merge_row([])
+    assert row["post_merge_findings"] == 0 and row["skeptic_reviews"] == 0
+    row = _post_merge_row([], ledger_rounds=3)
+    assert row["skeptic_reviews_source"] == "ledger" and row["post_merge_findings"] is None
+
+
+def test_multi_repo_table_prefixes_decisions_and_gaps_with_repo(monkeypatch, capsys):
+    def denies(prefix):
+        return [{"ts": iso(T(2) + timedelta(minutes=5 * i)), "hook": "enforce-x", "decision": "deny",
+                 "session_id": f"{prefix}s", "tool_use_id": f"{prefix}{i}"} for i in range(10)]
+
+    inputs = {"/r1": inp(repo="/r1", fires=denies("a"), prs=None), "/r2": inp(repo="/r2", fires=None, prs=None)}
+    monkeypatch.setattr(ev, "_load_repo", lambda r, *a: inputs[str(r)])
+    report = ev.evaluate(["/r1", "/r2"], START, END, use_gh=False, stores=[], rates=RATES)
+    cli._print_table(report)
+    out = capsys.readouterr().out
+    decisions = out.split("[decisions]")[1].split("[gaps]")[0].strip().splitlines()
+    gaps = out.split("[gaps]")[1].strip().splitlines()
+    assert decisions and all(line.strip().startswith(("[/r1] ", "[/r2] ")) for line in decisions)
+    assert any(line.strip().startswith("[/r1] D2") for line in decisions)
+    assert gaps and all(line.strip().startswith(("[/r1] ", "[/r2] ")) for line in gaps)
+    assert any(line.strip().startswith("[/r2] hooks.fire_log") for line in gaps)
+
+
 def test_repeat_needs_same_session():
     rows = _denies(10, spacing=10, sessions=2)
     sections, *_ = run([inp(fires=rows)])

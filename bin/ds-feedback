@@ -40,7 +40,10 @@ Data model:
                        "triaged" so /ds-feedback-triage (which lists only
                        open items) never shows it; bin/_eval.py reads it to
                        compute a hook's labelled false-positive rate.
-                       Retire with bin/_eval.py.
+                       Retirement: per hook, sampling stops after 2
+                       consecutive evaluations with a labelled false-positive
+                       rate < 0.1 at n >= 10; the field retires when no hook
+                       is D2-flagged for 3 consecutive evaluations.
 
   IMPORTANT: id, ts, and status are CLI-owned. On `append`, any id/ts/status
   keys present in a caller-supplied draft object are IGNORED and overwritten
