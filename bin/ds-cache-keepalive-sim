@@ -1,0 +1,367 @@
+#!/usr/bin/env python3
+"""
+Purpose: Re-derive the prompt-cache keepalive's economics from the
+         operator's own Claude Code transcripts, so the retirement test and
+         any re-tune of hooks/lib/cache_keepalive.py are reproducible from a
+         clone. Prints, per cron period and release value, the keepalive EV,
+         the wrap-and-close terms, and a keep/opt-out verdict.
+
+Public API: ds-cache-keepalive-sim [--data FILE] [--days N]
+              [--period S | --periods S...] [--release-h H...] [--smin N]
+              [--cc N --out N | --pct P] [--read R] [--write W] [--oratio O]
+              [--class conductor|other|all] [--rule subdir|agenttool]
+              [--cost-cap | --no-cost-cap] [--open-frac F...]
+              [--del-req N] [--recreate-req N] [--block-tok N]
+              [--wrap-req N] [--wrap-new N] [--wrap-out N]
+              [--fresh-prefix N] [--resume-mode fresh|resume] [--json]
+            Exit 0 on success, 2 on bad arguments or unreadable --data.
+            Last line per period: "verdict P=<min>min: keep
+            RELEASE_AFTER_S=<argmax s>" or "verdict P=<min>min: opt-out
+            (EV_worst<=0)", where EV_worst is the total at the largest
+            --open-frac given.
+
+Model (units: base-input-token equivalents; read/write/output are
+    multipliers of the input price):
+    Sessions: every main-chain transcript under $HOME/.claude*/projects and
+    $CLAUDE_CONFIG_DIR/projects modified in the last --days days. A request
+    is one non-synthetic assistant message id; its time is the send time
+    (nearest earlier user record). Gaps whose later request follows a
+    SessionStart attachment (a process restart) are excluded, as are
+    5m-TTL requests and prefixes below --smin. A terminal session (last
+    activity > 24h ago) is assumed left open with probability f
+    (--open-frac).
+    Class: subdir = <transcript minus .jsonl>/subagents exists; agenttool =
+    an Agent or Task tool_use appears in the main chain.
+    Episode: fires every P at 20 averaged phases; a fire pings when the time
+    L since the last request is in [COLD-P, COLD); the ping that would be
+    last before release (or the cost cap) self-deletes (+del-req pings).
+    A return after a deletion pays recreate-req requests at read*S; each
+    blocked fire adds block-tok tokens written at write. Ping cost
+    read*S + write*cc + oratio*out.
+    Wrap: each return idle >= release + effective interval and each open
+    terminal session pays wrap-req*read*S + write*wrap-new +
+    oratio*wrap-out. With --resume-mode fresh every such return also saves
+    write*(S - fresh-prefix) (the operator starts a fresh session).
+    total(f) = keepalive_net - wrap_returns + saving - f*(abandon + wrap_terminals);
+    f* = the f where total is 0.
+
+Upstream deps: Python 3.9+ stdlib; hooks/lib/cache_keepalive.py for the
+               defaults (PERIOD_S, TTL_S, COLD_AFTER_S, RELEASE_AFTER_S,
+               MIN_PREFIX_TOKENS, PING_CC_TOKENS, PING_OUT_TOKENS,
+               DERIVATION_RATES); Claude Code transcript JSONL.
+
+Downstream consumers: the retirement and re-tune rules in
+                      hooks/cache-keepalive.py and
+                      docs/configuration-reference.md;
+                      bin/tests/test_ds_cache_keepalive_sim.py.
+
+Failure modes: read-only. Unparseable lines and unreadable transcripts are
+               skipped. No qualifying sessions prints zeros and an opt-out
+               verdict.
+
+Performance: one streaming pass over 30 days of transcripts (seconds to a
+             minute for a few GB); the simulation itself is milliseconds.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import glob
+import importlib.util
+import json
+import os
+import statistics
+import sys
+
+
+def _load_constants():
+    here = os.path.dirname(os.path.realpath(__file__))
+    path = os.path.join(here, "..", "hooks", "lib", "cache_keepalive.py")
+    spec = importlib.util.spec_from_file_location("cache_keepalive", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+CK = _load_constants()
+PHASES = 20
+
+
+def _ts(s):
+    return datetime.datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+
+
+def transcript_paths():
+    roots = set(glob.glob(os.path.expanduser("~/.claude*")))
+    env = os.environ.get("CLAUDE_CONFIG_DIR")
+    if env:
+        roots.add(env)
+    paths = set()
+    for root in roots:
+        paths.update(glob.glob(os.path.join(root, "projects", "*", "*.jsonl")))
+    return sorted(paths)
+
+
+def extract(paths, days, now=None):
+    now = now if now is not None else datetime.datetime.now(datetime.timezone.utc).timestamp()
+    cut = now - days * 86400
+    sessions = []
+    pings = []
+    for path in paths:
+        try:
+            if os.path.getmtime(path) < cut:
+                continue
+            fh = open(path, errors="replace")
+        except OSError:
+            continue
+        reqs = {}
+        order = []
+        last_user = None
+        ss_since = False
+        sched = False
+        agent_seen = False
+        with fh:
+            for line in fh:
+                try:
+                    d = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(d, dict) or d.get("isSidechain"):
+                    continue
+                t = d.get("timestamp")
+                if d.get("type") == "attachment" and (d.get("attachment") or {}).get("hookEvent") == "SessionStart":
+                    ss_since = True
+                if d.get("type") == "user" and t:
+                    last_user = _ts(t)
+                    sched = d.get("turnOrigin") == "scheduled"
+                if d.get("type") != "assistant":
+                    continue
+                m = d.get("message") or {}
+                content = m.get("content")
+                agent_now = isinstance(content, list) and any(
+                    isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ("Agent", "Task")
+                    for b in content)
+                mid = m.get("id")
+                u = m.get("usage")
+                if not mid or not u or m.get("model") == "<synthetic>" or not t:
+                    agent_seen = agent_seen or agent_now
+                    continue
+                if mid not in reqs:
+                    cc = u.get("cache_creation") or {}
+                    reqs[mid] = {
+                        "send": last_user if last_user else _ts(t), "end": _ts(t),
+                        "S": u.get("cache_read_input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("input_tokens", 0),
+                        "c1h": cc.get("ephemeral_1h_input_tokens", 0), "c5m": cc.get("ephemeral_5m_input_tokens", 0),
+                        "ss": ss_since, "sched": sched, "cc": u.get("cache_creation_input_tokens", 0),
+                        "out": u.get("output_tokens", 0), "cond": agent_seen,
+                    }
+                    ss_since = False
+                    order.append(mid)
+                else:
+                    reqs[mid]["end"] = max(reqs[mid]["end"], _ts(t))
+                    reqs[mid]["out"] = max(reqs[mid]["out"], u.get("output_tokens", 0))
+                agent_seen = agent_seen or agent_now
+        seq = [reqs[i] for i in order if reqs[i]["send"] >= cut]
+        if seq:
+            sessions.append({"f": path, "sub": os.path.isdir(path[:-6] + "/subagents"), "req": seq})
+        pings += [(r["cc"], r["out"]) for r in seq if r["sched"]]
+    return {"now": now, "sessions": sessions, "pings": pings}
+
+
+def _is5m(r):
+    return r["c5m"] > 0 and r["c1h"] == 0
+
+
+def _in_class(s, cls, rule):
+    if cls == "all":
+        return True
+    cond = s["sub"] if rule == "subdir" else any(r.get("cond") for r in s["req"])
+    return cond if cls == "conductor" else not cond
+
+
+def populations(data, a):
+    ret, term, nsess, wrap_ret = [], [], [], []
+    for s in data["sessions"]:
+        if not _in_class(s, a.cls, a.rule):
+            continue
+        seq = s["req"]
+        first = next((r["S"] for r in seq if r["S"] >= a.smin and not _is5m(r)), None)
+        if first:
+            nsess.append(first)
+        for x, y in zip(seq, seq[1:]):
+            if _is5m(x) or y["ss"] or x["S"] < a.smin:
+                continue
+            ret.append((y["send"] - x["send"], x["S"]))
+        z = seq[-1]
+        if data["now"] - z["end"] > 86400 and not _is5m(z) and z["S"] >= a.smin:
+            term.append(z["S"])
+    return ret, term, nsess
+
+
+def episode(g, P, T, S, a):
+    W, R, O = a.write, a.read, a.oratio
+    c = R * S + W * a.cc + O * a.out
+    nmax = int((W - R) * S // c) if a.cost_cap else float("inf")
+    eff = (CK.COLD_AFTER_S // P) * P
+    res = []
+    for k in range(PHASES):
+        t = (k + 0.5) / PHASES * P
+        lr, n, blk, dele = 0, 0, 0, False
+        while t < g:
+            L = t - lr
+            if L >= CK.COLD_AFTER_S:
+                blk += 1
+                t += P
+                continue
+            if L >= CK.COLD_AFTER_S - P:
+                n += 1
+                lr = t
+                if t + eff >= T or n >= nmax:
+                    dele = True
+                    break
+            else:
+                blk += 1
+            t += P
+        res.append((n, dele, blk, lr))
+    return res, c
+
+
+def simulate(data, a):
+    W, R, O = a.write, a.read, a.oratio
+    ret, term, nsess = populations(data, a)
+    create = sum(a.recreate_req * R * S for S in nsess)
+    out = {"returns": len(ret), "terminal": len(term), "sessions": len(nsess), "cc": a.cc, "out": a.out, "periods": []}
+    for P in a.periods:
+        eff = (CK.COLD_AFTER_S // P) * P
+        idle_pings = 3600 / eff
+        idle_fires = 3600 / P
+        per = {"period_s": P, "effective_interval_s": eff, "lines_per_h_active": 2 * 3600 / P,
+               "lines_per_h_idle": 3 * idle_pings + 2 * (idle_fires - idle_pings), "releases": []}
+        for Th in a.release_h:
+            T = Th * 3600
+            net = 0.0
+            for g, S in ret:
+                base = W * S if g >= CK.TTL_S else R * S
+                v = 0.0
+                rs, c = episode(g, P, T, S, a)
+                for n, dele, blk, lr in rs:
+                    cost = n * c + (a.del_req * c if dele else 0) + blk * a.block_tok * W
+                    cost += R * S if (g - lr) < CK.TTL_S else W * S
+                    if dele:
+                        cost += a.recreate_req * R * S
+                    v += base - cost
+                net += v / PHASES
+            ab = 0.0
+            for S in term:
+                rs, c = episode(float("inf"), P, T, S, a)
+                ab += statistics.mean(n * c + (a.del_req * c if dele else 0) for n, dele, blk, lr in rs)
+            net -= create
+            wrap_cost = lambda S: a.wrap_req * R * S + W * a.wrap_new + O * a.wrap_out
+            past = [S for g, S in ret if g >= T + eff]
+            wrap_ret = sum(map(wrap_cost, past)) if a.wrap_req else 0.0
+            wrap_term = sum(map(wrap_cost, term)) if a.wrap_req else 0.0
+            saving = sum(W * (S - a.fresh_prefix) for S in past) if (a.wrap_req and a.resume_mode == "fresh") else 0.0
+            fixed = net - wrap_ret + saving
+            slope = ab + wrap_term
+            per["releases"].append({
+                "release_h": Th, "keepalive_net": net, "abandon": ab, "creation": create,
+                "wrap_returns": wrap_ret, "wrap_terminals": wrap_term, "fresh_saving": saving,
+                "returns_past_release": len(past),
+                "ev": {str(f): fixed - f * slope for f in a.open_frac},
+                "keepalive_ev": {str(f): net - f * ab for f in a.open_frac},
+                "f_star": (fixed / slope) if slope else None,
+            })
+        worst = str(max(a.open_frac))
+        best = max(per["releases"], key=lambda r: r["ev"][worst]) if per["releases"] else None
+        if best is None or best["ev"][worst] <= 0:
+            per["verdict"] = "opt-out (EV_worst<=0)"
+        else:
+            per["verdict"] = "keep RELEASE_AFTER_S=%d" % int(best["release_h"] * 3600)
+        out["periods"].append(per)
+    return out
+
+
+def _m(x):
+    return "%7.1fM" % (x / 1e6)
+
+
+def render(res, a):
+    lines = ["%s returns=%d terminal=%d sessions=%d | ping cc=%s out=%s read=%s" % (
+        a.cls, res["returns"], res["terminal"], res["sessions"], a.cc, a.out, a.read)]
+    for per in res["periods"]:
+        lines.append("")
+        lines.append("P=%dmin effective idle ping interval=%dmin | lines/h active=%.1f idle-pinging=%.1f" % (
+            per["period_s"] // 60, per["effective_interval_s"] // 60, per["lines_per_h_active"], per["lines_per_h_idle"]))
+        lines.append("  release | f* | keepalive_net | abandon | wrap_ret | wrap_term | fresh_saving | EV at open-frac "
+                     + " ".join("%.2f" % f for f in a.open_frac))
+        for r in per["releases"]:
+            fs = "%.2f" % r["f_star"] if r["f_star"] is not None else "n/a"
+            lines.append("  %5.1fh | %s | %s | %s | %s | %s | %s | %s" % (
+                r["release_h"], fs, _m(r["keepalive_net"]), _m(r["abandon"]), _m(r["wrap_returns"]),
+                _m(r["wrap_terminals"]), _m(r["fresh_saving"]), " ".join(_m(v) for v in r["ev"].values())))
+        lines.append("verdict P=%dmin: %s" % (per["period_s"] // 60, per["verdict"]))
+    return "\n".join(lines)
+
+
+def parse(argv):
+    ap = argparse.ArgumentParser(prog="ds-cache-keepalive-sim")
+    ap.add_argument("--data")
+    ap.add_argument("--days", type=int, default=30)
+    ap.add_argument("--period", type=int)
+    ap.add_argument("--periods", type=int, nargs="+")
+    ap.add_argument("--release-h", type=float, nargs="+", default=[CK.RELEASE_AFTER_S / 3600])
+    ap.add_argument("--smin", type=int, default=CK.MIN_PREFIX_TOKENS)
+    ap.add_argument("--cc", type=float)
+    ap.add_argument("--out", type=float)
+    ap.add_argument("--pct", type=float)
+    ap.add_argument("--read", type=float, default=CK.DERIVATION_RATES["read_max"])
+    ap.add_argument("--write", type=float, default=CK.DERIVATION_RATES["write_1h"])
+    ap.add_argument("--oratio", type=float, default=CK.DERIVATION_RATES["output"])
+    ap.add_argument("--class", dest="cls", choices=("conductor", "other", "all"), default="conductor")
+    ap.add_argument("--rule", choices=("subdir", "agenttool"), default="subdir")
+    ap.add_argument("--cost-cap", dest="cost_cap", action=argparse.BooleanOptionalAction, default=True)
+    ap.add_argument("--open-frac", type=float, nargs="+", default=[1.0, 0.5, 0.26, 0.1, 0.0])
+    ap.add_argument("--del-req", type=float, default=1.0)
+    ap.add_argument("--recreate-req", type=float, default=2.0)
+    ap.add_argument("--block-tok", type=float, default=80.0)
+    ap.add_argument("--wrap-req", type=float, default=4.0)
+    ap.add_argument("--wrap-new", type=float, default=20000.0)
+    ap.add_argument("--wrap-out", type=float, default=3000.0)
+    ap.add_argument("--fresh-prefix", type=float, default=60000.0)
+    ap.add_argument("--resume-mode", choices=("fresh", "resume"), default="fresh")
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args(argv)
+    if a.period and a.periods:
+        ap.error("--period and --periods are exclusive")
+    a.periods = a.periods or [a.period or CK.PERIOD_S]
+    if a.pct is not None and (a.cc is not None or a.out is not None):
+        ap.error("--pct is exclusive with --cc/--out")
+    return a
+
+
+def main(argv):
+    a = parse(argv)
+    if a.data:
+        try:
+            with open(a.data) as f:
+                data = json.load(f)
+        except Exception as exc:
+            print("ds-cache-keepalive-sim: cannot read --data: %s" % exc, file=sys.stderr)
+            return 2
+    else:
+        data = extract(transcript_paths(), a.days)
+    if a.pct is not None:
+        pc = sorted(c for c, o in data.get("pings", []))
+        po = sorted(o for c, o in data.get("pings", []))
+        q = lambda xs: xs[min(len(xs) - 1, int(a.pct / 100 * len(xs)))] if xs else 0
+        a.cc, a.out = q(pc), q(po)
+    a.cc = CK.PING_CC_TOKENS if a.cc is None else a.cc
+    a.out = CK.PING_OUT_TOKENS if a.out is None else a.out
+    res = simulate(data, a)
+    print(json.dumps(res, indent=1) if a.json else render(res, a))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

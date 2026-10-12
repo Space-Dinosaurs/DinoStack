@@ -18,6 +18,7 @@ Written by the installer. Controls activation and the session-wide risk profile.
 | `mode` | `"opt-out"` | `"opt-in"`, `"opt-out"` | Activation mode: `opt-out` runs everywhere unless a project opts out; `opt-in` stays dormant until a project opts in |
 | `profile` | `"default"` | `"relaxed"`, `"default"`, `"strict"` | Session-wide risk profile (see [Risk profiles](#risk-profiles)) |
 | `set_at` | n/a | ISO8601 string | Metadata timestamp written by installer; do not edit |
+| `cache_keepalive` | absent (on) | bool | Machine-wide fallback for the [cache keepalive](#cache-keepalive); a project's `.agentic/config.json` value wins. Write it with `ds-config cache_keepalive false --scope global` |
 
 Absent file resolves to `mode=opt-out`, `profile=default`.
 
@@ -55,7 +56,7 @@ a warning is printed.
 ## 3. Project: `.agentic/config.json`
 
 Committed to the repo. Seeded with defaults by `/ds-init-project`. Absent file =
-all defaults, no behavior change. The 25 behavioral toggles plus 6 tuning
+all defaults, no behavior change. The 26 behavioral toggles plus 6 tuning
 parameters are listed below. The file also carries a `scaffolding_version` key
 that is installer/migration-managed (used by `/ds-migrate-project` as the
 source-of-truth stamp for "has this project been migrated to vN") - do not edit
@@ -90,6 +91,7 @@ it manually.
 | `worktree_read_guard_exemptions` | `[]` | list of strings | Path prefixes (relative to the primary checkout root) exempted from the worktree-isolation `Read` guard (`hooks/enforce-worktree-read.py`); ships empty. Kill-switch: `AE_WORKTREE_READ_GUARD_DISABLE=1` |
 | `worktree_write_guard_exemptions` | `[]` | list of strings | Path prefixes (relative to the primary checkout root) exempted from the worktree-isolation `Write`/`Edit`/`MultiEdit` guard (`hooks/enforce-worktree-write.py`); SEPARATE key from `worktree_read_guard_exemptions`; ships empty. Kill-switch: `AE_WORKTREE_WRITE_GUARD_DISABLE=1` |
 | `memory_shard_mode` | `false` | bool | Opt-in; ships inert - the memory-shard compiler (`bin/ds-memory-shard`) exists but no writer reads this toggle yet |
+| `cache_keepalive` | `true` | bool | Prompt-cache keepalive for idle conductor sessions (`hooks/cache-keepalive.py`); see [Cache keepalive](#cache-keepalive). Only a literal `false` disables it; lookup is this file, then `~/.claude/agentic-engineering.json`, then on. Kill-switch: `AE_CACHE_KEEPALIVE_DISABLE=1` |
 
 ### Tuning parameters
 
@@ -102,6 +104,18 @@ it manually.
 | `deferred_wrap_inprogress_reclaim_minutes` | `30` | int | Time before an in-progress job is reclaimed |
 | `deferred_wrap_pending_ttl_days` | `7` | int | Days before a pending job expires |
 
+### Cache keepalive
+
+`hooks/cache-keepalive.py` (UserPromptSubmit) keeps an idle conductor session's 1-hour prompt cache warm, so the request after the operator comes back reads the prefix from cache instead of re-writing it. Claude Code only. It acts only in an interactive, attended main session that has spawned a subagent (a `subagents/` directory beside its transcript), with a 1-hour cache TTL and a prefix of at least 50,000 tokens.
+
+- **Creation.** On a prompt in an eligible session with no live keepalive cron, the hook adds a note asking the model to load the Cron tools with one ToolSearch and create one session-only cron (`7,27,47 * * * *`, durable false). That costs 2 extra requests inside that turn. The note states its origin, purpose and opt-out, and the job is never hidden: the model may add one line to its reply naming the job and `cache_keepalive: false` (measured on opus: 3 of 5 creations). The model may also decline the note (opus created the cron in 5 of 6 sessions, haiku in 3 of 6); the note is not repeated in that process, so that session simply has no keepalive.
+- **Each fire** (every 20 minutes, only while the REPL is idle) is decided from the transcript. If the last request is 38 to 58 minutes old, the fire pings: the model replies `ok`, 1 request, 3 terminal lines. If the last request is more recent, or the cache is presumed cold (58 minutes or more) or a rate limit hit, the fire is blocked before any request: 0 requests, 2 terminal lines, about 220 context tokens added to the next request. If the session is no longer eligible, or has spent its per-session cost cap, the model deletes its own cron: 2 requests, then no further fires.
+- **Wrap.** After 2h idle with no subagents in flight, a conductor session wraps itself and deletes its keepalive cron, so it prints nothing further. Its last line reads `Session wrapped (idle 2h). Run /exit, then resume with: claude 'Resume wrapped session <id>: ...'` - exit the session when you return, then paste that command to continue. The fresh session reads `.agentic/context.md`, then `.agentic/resume/<id>.md` (goal, next step, pending decisions verbatim, PRs/branches/worktrees, artifact paths, recently returned agents), and picks up from the next step. Lost the line? Run `claude` in the repo and paste: `Resume my last wrapped session: read .agentic/context.md first, then the newest file in .agentic/resume/ (not consumed/). Restate its Next step and Pending operator decisions verbatim, move it to .agentic/resume/consumed/, then continue from the Next step.` Start fresh rather than `claude --resume <id>`: the fresh session costs about 60k tokens of new prefix where a cold resume re-writes the whole old one. The wrap follows `content/commands/ds-wrap-deferred.md` §In-session mode, writes only under the project's `.agentic/`, and leaves the process running until you exit it. Measured: about 4 requests on opus, about 0.3 of one cold re-write at the median 259k-token prefix, and about 21 terminal lines. A subagent still in flight keeps the session pinging past 2h (bounded by the cost cap) and wraps after its completion notice plus 2h idle.
+- **Noise.** At most one disclosed line when the cron is created, then about 6 keepalive lines an hour while you work (blocked fires) and 7.5 an hour while idle-pinging. A 2h idle that ends in a wrap leaves about 14 lines plus the wrap turn.
+- **Economics.** Over 30 days of the operator's conductor sessions, at the median ping cost (`0.1*S + 2*854 + 5*193` input-token units), the keepalive alone is worth +15.6M to +62.3M base-input-token equivalents, depending on how many abandoned sessions stay open (positive in every case). Wrap-and-close adds +169.0M when the operator starts fresh, against 49.7M of wrap cost on returns and up to 75.0M on abandoned-open sessions. Resuming the closed session cold instead turns it negative (-109.1M with every abandoned session left open). `bin/ds-cache-keepalive-sim` re-derives every figure from your own transcripts and prints `keep RELEASE_AFTER_S=<s>` or `opt-out (EV_worst<=0)`. Re-tune by running it and changing the constants in `hooks/lib/cache_keepalive.py` in a PR; retire the hook when it prints opt-out, or when Claude Code ships its own idle-cache keepalive or a longer main-session TTL. On a subscription the real cost is usage limits, which these token figures only approximate.
+- **Bounds.** If the hook is missing (uninstalled, or its library fails to load), the next fire arrives with no note and the ping's own text makes the model delete its cron: one fire, 2 requests, then nothing until the next prompt re-creates it.
+- **Limitations.** 5-minute-TTL sessions, non-conductor sessions and other harnesses are not covered. Cron jobs expire after 7 days. A hung subagent keeps the session pinging up to the cost cap, then the cron deletes itself without a wrap. The in-session wrap skips AGENTS.md updates (it writes them as Watch Out For bullets), takes PR state as a snapshot, and lists branches only when `gh` is unavailable. Unconsumed resume files are pruned after 14 days. Ping turns run the Stop hooks' per-turn side effects (`stop-context.js`).
+
 ---
 
 ## 4. Environment kill-switches
@@ -111,6 +125,7 @@ Unset by default. Set to `1` to disable the named guard for a session.
 | Variable | Default (unset) | What it disables |
 |---|---|---|
 | `AE_ABDICATION_GUARD_DISABLE=1` | guard active | Abdication guard Stop hook (only relevant when `abdication_guard_enabled: true`) |
+| `AE_CACHE_KEEPALIVE_DISABLE=1` | keepalive active | Cache keepalive (`hooks/cache-keepalive.py`): no new keepalive cron, and a live one deletes itself at its next warm fire. Same effect as `cache_keepalive: false` |
 | `AE_BROWSER_REAPER_DISABLE=1` | reaper active | agent-browser reaper SubagentStop/SessionEnd hook (`hooks/reap-agent-browsers.py`), which closes sessions the ending agent provably opened and sweeps orphaned automation Chrome; disabled runs still log `verdict=disabled` to `~/.agentic/browser-reaper.log` |
 | `AE_NESTED_WORKTREE_GUARD_DISABLE=1` | guard active | Nested-worktree-spawn advisory hook (`hooks/enforce-nested-worktree-spawn.py`) |
 | `AE_PLANNING_GUARD_DISABLE=1` | guard active | Planning-artifact spawn advisory hook (`hooks/enforce-planning-artifact-spawn.py`) |
@@ -228,6 +243,9 @@ Key points:
   Read it in full when small, else grep on demand and Read bounded windows) to
   the main session's context at startup, resume, compact and clear.
   It has no config key or kill switch; a repo without the marker is untouched.
+- The installer wires `hooks/cache-keepalive.py` on UserPromptSubmit (default
+  on; see [Cache keepalive](#cache-keepalive)). It never writes; `cache_keepalive:
+  false` or `AE_CACHE_KEEPALIVE_DISABLE=1` turns it off.
 - The installer also offers to set `env.AGENT_BROWSER_IDLE_TIMEOUT_MS` to
   `"600000"` (10 minutes), so an `agent-browser` daemon a run leaves behind
   shuts itself and its browser down once no command has arrived for that long.

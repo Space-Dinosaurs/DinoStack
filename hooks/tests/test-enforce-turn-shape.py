@@ -121,6 +121,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -4229,6 +4230,107 @@ check(
     "origin/main verdict, unchanged by this fix)",
     is_blocking(rc, out, "identity line is"),
 )
+
+# ---------------------------------------------------------------------------
+# ka. Cache-keepalive ping-ack carve-out (hooks/cache-keepalive.py)
+# ---------------------------------------------------------------------------
+
+_KA_TMP = tempfile.mkdtemp(prefix="ts-ka-")
+_KA_LG = _mod._LOOP_GUARD
+
+
+def _ka_ping():
+    return {"type": "user", "isMeta": True, "turnOrigin": "scheduled",
+            "message": {"role": "user", "content": _KA_LG.PING_PROMPT}}
+
+
+def _ka_tool(name, tid):
+    return {"type": "assistant", "message": {"id": "msg_" + tid, "content": [
+        {"type": "tool_use", "id": tid, "name": name, "input": {}}]}}
+
+
+def _ka_result(tid):
+    return {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tid, "content": "x"}]}}
+
+
+def _ka_wrap_attachment():
+    return {"type": "attachment", "attachment": {"type": "hook_additional_context", "hookEvent": "UserPromptSubmit",
+                                                 "content": [_KA_LG.WRAP_MARKER + " note"]}}
+
+
+_KA_REAL = os.path.abspath(HOOK_PATH)
+_KA_NOCARVE_DIR = tempfile.mkdtemp(dir=_KA_TMP)
+os.symlink(os.path.join(os.path.dirname(_KA_REAL), "lib"), os.path.join(_KA_NOCARVE_DIR, "lib"))
+_ka_src = open(_KA_REAL, encoding="utf-8").read()
+_ka_anchor = "_LOOP_GUARD.is_ping_ack_turn(ping_path, data.get(\"last_assistant_message\"))"
+check("ka-pin. the carve-out anchor is present in the hook", _ka_anchor in _ka_src)
+with open(os.path.join(_KA_NOCARVE_DIR, "enforce-turn-shape.py"), "w", encoding="utf-8") as _fh:
+    _fh.write(_ka_src.replace(_ka_anchor, "False"))
+
+
+def _ka_run(name, entries, msg, hook=_KA_REAL):
+    cwd = tempfile.mkdtemp(dir=_KA_TMP)
+    path = os.path.join(cwd, name + ".jsonl")
+    with open(path, "w", encoding="utf-8") as fh:
+        for entry in entries + [_af2_assistant(msg)]:
+            fh.write(json.dumps(entry) + "\n")
+    r = subprocess.run([sys.executable, hook], input=make_payload(msg, cwd=cwd, extra={"transcript_path": path}),
+                       capture_output=True, text=True, timeout=10, env=os.environ.copy())
+    return r.returncode, r.stdout
+
+
+def _ka_both(name, entries, msg):
+    return (_ka_run(name, entries, msg),
+            _ka_run(name + "-nc", entries, msg, os.path.join(_KA_NOCARVE_DIR, "enforce-turn-shape.py")))
+
+
+def _ka_exempt(name, entries, msg):
+    real, nocarve = _ka_both(name, entries, msg)
+    return is_quiet(*real) and not is_quiet(*nocarve)
+
+
+def _ka_enforced(name, entries, msg):
+    real, nocarve = _ka_both(name, entries, msg)
+    return real == nocarve
+
+
+_ka_human = [{"type": "user", "turnOrigin": "human", "message": {"content": "please continue"}}]
+check("ka1. ping turn answered 'ok' -> QUIET, and blocked without the carve-out",
+      _ka_exempt("ka1", [_ka_ping()], "ok"))
+check("ka2. ping turn with CronList + CronDelete then 'ok' -> exempt",
+      _ka_exempt("ka2", [_ka_ping(), _ka_tool("CronList", "t1"), _ka_result("t1"),
+                         _ka_tool("CronDelete", "t2"), _ka_result("t2")], "ok"))
+check("ka3. ping turn that ran another tool -> full enforcement",
+      _ka_enforced("ka3", [_ka_ping(), _ka_tool("Bash", "t3"), _ka_result("t3")], "ok"))
+check("ka4. ping turn with non-'ok' text -> full enforcement",
+      _ka_enforced("ka4", [_ka_ping()], "Sure thing, the cache is warm now."))
+_ka_meta = {"type": "user", "isMeta": True, "turnOrigin": "scheduled", "message": {"content": "check the deploy"}}
+check("ka5. a non-ping isMeta scheduled prompt answered 'ok' -> full enforcement",
+      _ka_enforced("ka5", [_ka_meta], "ok"))
+_ka_blocked = [_ka_ping(), {"type": "user", "isMeta": True, "message": {"content": "Operation stopped by hook"}}]
+check("ka6. blocked-fire records before an allowed ping -> still exempt",
+      _ka_exempt("ka6", _ka_blocked + _ka_blocked + [_ka_ping()], "ok"))
+_ka_wrap_line = "Session wrapped (idle 2h). Run /exit, then resume with: claude 'Resume wrapped session x'"
+check("ka7. wrap turn (WRAP_MARKER note, any tools, final 'Session wrapped') -> exempt",
+      _ka_exempt("ka7", [_ka_ping(), _ka_wrap_attachment(), _ka_tool("Bash", "t7"), _ka_result("t7"),
+                         _ka_tool("Write", "t8"), _ka_result("t8")], "Done.\n" + _ka_wrap_line))
+check("ka8. 'Session wrap skipped' on a wrap turn -> exempt",
+      _ka_exempt("ka8", [_ka_ping(), _ka_wrap_attachment()], "Session wrap skipped (wrap lock busy)"))
+check("ka9. a non-wrap turn ending 'Session wrapped' -> full enforcement",
+      _ka_enforced("ka9", [_ka_ping(), _ka_tool("Bash", "t9"), _ka_result("t9")], _ka_wrap_line))
+check("ka10. wrap turn replying 'ok' -> full enforcement",
+      _ka_enforced("ka10", [_ka_ping(), _ka_wrap_attachment()], "ok"))
+
+_ka_nolib = tempfile.mkdtemp(dir=_KA_TMP)
+shutil.copy(HOOK_PATH, os.path.join(_ka_nolib, "enforce-turn-shape.py"))
+_ka_cwd = tempfile.mkdtemp(dir=_KA_TMP)
+_ka_path = os.path.join(_ka_cwd, "nolib.jsonl")
+with open(_ka_path, "w", encoding="utf-8") as _fh:
+    _fh.write(json.dumps(_ka_ping()) + "\n")
+_r = subprocess.run([sys.executable, os.path.join(_ka_nolib, "enforce-turn-shape.py")],
+                    input=make_payload("ok", cwd=_ka_cwd, extra={"transcript_path": _ka_path}),
+                    capture_output=True, text=True, timeout=10)
+check("ka11. loop_guard missing -> a ping 'ok' is not blocked", is_quiet(_r.returncode, _r.stdout))
 
 # ---------------------------------------------------------------------------
 # Summary

@@ -52,6 +52,43 @@ Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from
 
 **Exit.** After the writes (or after a clean early exit because the lock could not be acquired, or because the survey found nothing substantive to write), exit. Exit 0 on a successful pass. Do NOT transition the marker - the daemon transitions it to `done` after observing exit 0.
 
+## In-session mode
+
+The cache-keepalive hook (`hooks/cache-keepalive.py`) triggers this mode inside a live conductor session that has been idle for 2h with no subagent or background task in flight. The trigger is a keepalive cron fire whose hook note starts with `[dinostack-cache-keepalive:wrap]` and names the session id `<sid>`, the project root `<root>` (the session's own project), the DinoStack tools directory `<repo_dir>/bin/`, the resume file and a kickoff command `<kickoff>`. The live session writes the wrap itself, because its cache is warm. The daemon contract above does not apply here: this mode may run the Bash commands listed below, and runs nothing else through Bash. It never prompts and never spawns. It runs in exactly three requests: call A (steps 1-2, one Bash call), then call B (steps 3-7, one Bash call) together with step 8 (`CronDelete`) in parallel, then the final line (step 9). The session stays open afterwards; the operator exits it. Every tool call prints lines into the operator's scrollback, so do not use Read, Write or Edit in this mode and do not split the Bash calls.
+
+**Paths.** Run every command from `<root>`. Every `.agentic/` path below is `<root>/.agentic/...`, and this mode writes nothing outside `<root>/.agentic/`. `<repo_dir>` supplies only the `bin/` tools and this file; never write under it. The kickoff is data for the operator: copy it, never run it, and never act on the prompt inside it.
+
+1. **Lock** (call A). `cd <root> && <repo_dir>/bin/ds-wrap-acquire-lock --no-wait --role=agent --print-token --session-id=<sid>`. If it prints `busy` (exit 5): `CronDelete` the keepalive job, reply with exactly `Session wrap skipped (wrap lock busy)`, and stop.
+2. **Survey** (same call A, chained after the lock with `;`): `cat .agentic/_wrap.md .agentic/memory.md`; `git status --short --branch`; `git worktree list`; `gh pr list --author @me --state open --json number,title,headRefName,statusCheckRollup,isDraft` (if `gh` is absent or fails, note that it was omitted); `ls .agentic/loop-state-*.json`. Suffix each command with `2>&1` so a failure is shown, not fatal. Compile the Step 1 survey from the conversation plus these results.
+
+Call B writes each file through a quoted heredoc to a dot-tmp sibling, then `mv`s it into place (for example `cat > .agentic/.wrap.tmp <<'DS_WRAP_EOF_1'` ... `DS_WRAP_EOF_1`, then `mv .agentic/.wrap.tmp .agentic/_wrap.md`), with a distinct delimiter per file:
+
+3. **Part A.** Run Step 2 above: write `.agentic/_wrap.md` and `.agentic/wrap/last-wrap` = `<sid>` (both, always). The Recent Focus label for this session ends with `Resume: .agentic/resume/<sid>.md (kickoff: <kickoff>)`.
+4. **Part B and Part C.** Run Step 3 above (append to `.agentic/memory.md`). Do not edit any AGENTS.md: write the would-be AGENTS.md additions as `## Watch Out For` bullets in `_wrap.md` instead (`enforce-shippable-edit.py` denies conductor-direct AGENTS.md edits).
+5. **Resume file.** `mkdir -p .agentic/resume`, write `.agentic/resume/.<sid>.tmp`, then `mv` it to `.agentic/resume/<sid>.md`. Keep it at or under 8192 bytes (`RESUME_MAX_BYTES`); when it is over, cut `## Agents`, then `## Work state`, to their 5 newest entries. Use exactly these headings, in this order:
+
+   ```
+   # Resume: <sid>
+   *Wrapped <ISO8601 UTC> after <idle> idle in <root>. Kickoff: <kickoff>*
+   ## Goal
+   ## Next step
+   ## Pending operator decisions
+   ## Work state
+   ## Artifacts
+   ## Agents
+   ## Watch out
+   ```
+
+   `## Goal`: 1-3 lines on what this session was driving toward. `## Next step`: exactly one concrete action, first line imperative. `## Pending operator decisions`: the verbatim text of every open decision or question put to the operator, and of every decision the operator said they still have to make, or `None`. `## Work state`: each PR (number, branch, draft, CI state), each branch or worktree (path, ahead/behind, dirty), each loop-state file (path and phase). `## Artifacts`: absolute plan, handoff, brief and evidence paths. `## Agents`: recently returned agents (id, description, terminal status, output or report path, one-line result). `## Watch out`: session-specific hazards.
+6. **Prune.** `find .agentic/resume -type f -mtime +14 -delete` (`RESUME_RETENTION_DAYS`; covers `consumed/` too).
+7. **Release.** `<repo_dir>/bin/ds-wrap-release-lock --token=<token>`, chained with `;` so it runs even when a write failed.
+8. **Delete the cron.** `CronDelete` the keepalive job, in parallel with call B.
+9. **Final line.** End with exactly the one line the hook note gives: `Session wrapped (idle 2h). Run /exit, then resume with: <kickoff>`. With the cron deleted, the session prints nothing further.
+
+The fresh session the kickoff starts reads `.agentic/context.md`, then the resume file, restates its Next step and Pending operator decisions verbatim, moves the file to `.agentic/resume/consumed/`, and continues from the Next step. If the printed line is lost, run `claude` in the repo root and paste:
+
+`Resume my last wrapped session: read .agentic/context.md first, then the newest file in .agentic/resume/ (not consumed/). Restate its Next step and Pending operator decisions verbatim, move it to .agentic/resume/consumed/, then continue from the Next step.`
+
 ## Omitted versus `/ds-wrap` (explicit)
 
 | `/ds-wrap` step | `/ds-wrap-deferred` |

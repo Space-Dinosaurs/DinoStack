@@ -999,6 +999,23 @@ upsert_hook(
     "UserPromptSubmit skill-auto-load-check hook",
 )
 
+# Prompt-cache keepalive for idle conductor sessions: asks the model to create
+# its session-only cron on a genuine prompt and gates every cron fire. Default
+# on; `cache_keepalive: false` or AE_CACHE_KEEPALIVE_DISABLE=1 turns it off.
+# Guarded form for the same reason as enforce-turn-shape.py below: a missing
+# script must not exit 2, which blocks every prompt on UserPromptSubmit.
+CACHE_KEEPALIVE_CMD = (
+    f"test -f {hooks_root}/hooks/cache-keepalive.py && "
+    f"python3 {hooks_root}/hooks/cache-keepalive.py || exit 0"
+)
+
+upsert_hook(
+    ups_star["hooks"],
+    "cache-keepalive.py",
+    {"type": "command", "command": CACHE_KEEPALIVE_CMD, "timeout": 5},
+    "UserPromptSubmit cache-keepalive hook",
+)
+
 # ---- Stop hook --------------------------------------------------------------
 # --cadence=turn: the Stop hook fires once per TURN (not once per session per
 # the Claude Code docs), so it only refreshes loop-state/batch-state liveness

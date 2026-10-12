@@ -755,6 +755,40 @@ fi
 rm -rf "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
+# Test 12e: check_hook_scripts_exist recognizes cache-keepalive.py (the
+# UserPromptSubmit prompt-cache keepalive) as a managed hook basename.
+# Same omission class as T12c.
+# ---------------------------------------------------------------------------
+setup_fixture
+
+mkdir -p "$FAKE_REPO/hooks"
+cat > "$TEMP_HOME/.claude/settings.json" <<EOF
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {"type": "command", "command": "test -f $FAKE_REPO/hooks/cache-keepalive.py && python3 $FAKE_REPO/hooks/cache-keepalive.py || exit 0", "timeout": 5}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+invoke_doctor
+OUT=$(cat "$TEMP_HOME/.out")
+
+if echo "$OUT" | grep -q "^FAIL hook_scripts:.*cache-keepalive.py.*does not exist on disk"; then
+  _pass "T12e hook_scripts: missing cache-keepalive.py reported as FAIL (MANAGED_HOOK_BASENAMES omission regression guard)"
+else
+  _fail "T12e hook_scripts: expected FAIL for missing cache-keepalive.py (MANAGED_HOOK_BASENAMES omission regressed)\n$OUT"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
 # Tests 13-15 (DS-54): hooks-snapshot staleness check
 # (check_hooks_snapshot_staleness / _fix_hooks_snapshot).
 #

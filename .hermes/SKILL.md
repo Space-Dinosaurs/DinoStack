@@ -493,7 +493,7 @@ If a task initially classified as Low reveals Elevated signals during execution,
 
 After completing a Low-risk change, re-read it in full. Verify intent, edge cases, and side effects. If any concern arises, reclassify as Elevated.
 
-The conductor reads `.agentic/config.json` to resolve twenty-five project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
+The conductor reads `.agentic/config.json` to resolve twenty-six project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
 
 Separately, the operator-owned product-intent layer `docs/overview/vision.md` + `docs/overview/requirements.md` sits above task-level Briefs. When present, the Architect treats them as authoritative product intent, the Investigator reads them for framing context, and the Engineer reads them before implementing (silent no-op when absent, surfaces a genuine conflict in its return summary rather than stopping); agents read but never write these files. Schema and authoring rules: `content/references/planning-artifacts.md` §Product-intent layer (operator-owned) and `content/rules/conventions.md` §Project Overview Layer.
 
@@ -2837,7 +2837,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 
 ### Project Config (`.agentic/config.json`)
 
-`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** in a consumer project - `/ds-init-project` Step 9's default-deny `.agentic/*` umbrella (delegated to `ds-migrate apply` against `content/project-scaffolding.yml`) carries an explicit `!.agentic/config.json` negation, like `qa.md` and `deploy.md`. (DinoStack's own repo is the methodology's source, not a consumer of it, and does not commit its own `.agentic/config.json` - this repo's root `.gitignore` umbrella has no such negation.) It is seeded with defaults by `/ds-init-project`. Twenty-five toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
+`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** in a consumer project - `/ds-init-project` Step 9's default-deny `.agentic/*` umbrella (delegated to `ds-migrate apply` against `content/project-scaffolding.yml`) carries an explicit `!.agentic/config.json` negation, like `qa.md` and `deploy.md`. (DinoStack's own repo is the methodology's source, not a consumer of it, and does not commit its own `.agentic/config.json` - this repo's root `.gitignore` umbrella has no such negation.) It is seeded with defaults by `/ds-init-project`. Twenty-six toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
 
 - `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
@@ -2861,6 +2861,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `pending_merge_sweep` - boolean, default `true`; set `false` to disable. Controls the session-start pending-merge sweep that pushes the dev-complete transition to the tracker once a ticket's PR merges (the target defaults to the resolved Done value when no dev-complete state is declared). Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable.
 - `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on); set `false` to opt out, or disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Governs the Stop hook (`hooks/enforce-turn-shape.py`) checking the conductor's final turn shape - `_execution_prose_flag` and `_status_only_flag` are both BLOCKING (the latter restored by DS-ANSWERFIRST), `_decision_item_sprawl_flag` is advisory-only. One toggle and one kill switch govern all three; there is no per-check toggle. Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
+- `cache_keepalive` - boolean, default `true` (absent key resolves to on; only a literal `false` disables it, and `~/.claude/agentic-engineering.json` is the machine-wide fallback); disable per-session via `AE_CACHE_KEEPALIVE_DISABLE=1`. Governs the UserPromptSubmit prompt-cache keepalive (`hooks/cache-keepalive.py`, Claude Code only) for idle conductor sessions: a session-only 20-minute cron that keeps the 1h prompt cache warm, then wraps and closes the session after 2h idle with no subagent in flight. Details: `docs/configuration-reference.md` (Cache keepalive).
 - `worktree_read_guard_exemptions` - list of strings, default `[]`; each entry is a path prefix exempted from the worktree-isolated Read guard (`hooks/enforce-worktree-read.py`). Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
 - `worktree_write_guard_exemptions` - list of strings, default `[]`; SEPARATE from `worktree_read_guard_exemptions` - each entry is a path prefix exempted from the worktree-isolated Write/Edit/MultiEdit guard (`hooks/enforce-worktree-write.py`). Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
 - `memory_shard_mode` - boolean, default `false` (opt-in). Ships inert as of DS-221 Unit 1: the memory-shard compiler exists but no writer reads this toggle yet. Full semantics: `content/references/memory-shard-convention.md`.
@@ -6434,7 +6435,7 @@ A test that passes even without the fix does not count. The Worker should confir
 <!--
 Purpose: Detailed risk-classification reference blocks extracted from
          content/sections/04-risk-classification.md. Contains: the
-         twenty-five-toggle project config catalog (behavioral toggles only);
+         twenty-six-toggle project config catalog (behavioral toggles only);
          and the full Tier declaration detail including role-default
          tier table, model-param mapping, mandatory Tier-3 escalation (with
          enforce-tier.py hook note), frontmatter defaults, enforcement, and
@@ -6471,7 +6472,7 @@ Performance: Standard.
 
 ### Project config (`.agentic/config.json`)
 
-The conductor reads `.agentic/config.json` to resolve twenty-five project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/ds-init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
+The conductor reads `.agentic/config.json` to resolve twenty-six project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/ds-init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
 
 - `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
@@ -6495,6 +6496,7 @@ The conductor reads `.agentic/config.json` to resolve twenty-five project-level 
 - `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the dev-complete transition (`TRACKER_STATE_DEV_COMPLETE`, which defaults to the resolved `TRACKER_STATE_DONE` value) to the tracker once a ticket's PR merges; set `false` to disable.
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable.
 - `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive default). Controls the Stop hook (`hooks/enforce-turn-shape.py`) that checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156 this is NOT uniformly advisory: `_execution_prose_flag` (structural shape of a non-Answer turn) is BLOCKING and can block the stop; `_decision_item_sprawl_flag` (operator-decisions per-item shape) remains advisory-only and only logs. As of DS-ANSWERFIRST the zero-warrant status-only check (`_status_only_flag`) is RESTORED to this hook and BLOCKING - it fires only when all three of: zero warrants, the turn is not the first assistant turn following a genuine operator message (so it follows a tool result, a background task-notification, or the conductor's own prior turn - a transcript-POSITION predicate, not a test of the operator's grammar or message length), and the message is not answer-shaped prose. The same ticket added `SLOT_LINE_MAX_COUNT` (3), a blocking count and duplicate-label bound on the general branch's status slot lines (the sole-stoppage branch's `Waiting:` count stays unbounded). Two prior checks remain retired from this hook: the answer relevance check (`_answer_relevance_flag`, opening-preamble/closing-recap) and the whole-message turn-volume check (`_turn_charge`/`_volume_flag`). Their always-loaded carrier is the kernel paragraph in `content/sections/02-delegation.md` - NOT the `dinostack` Claude Code output style (`content/output-styles/dinostack.md`), which `.claude/install.sh` installs but never selects; DS-171 assumed that style was always injected and it was not, which is why those rules ran on no harness until this ticket. The style stays a real secondary carrier once selected via `/config`, and additionally carries two rules with no hook-mechanized form: self-narrating candor, and editorial addenda (the ban on any conductor-selected item that carries none of the four turn warrants, in any position in the turn and whether or not it is bundled - a labelled package of such observations is the canonical form, not the boundary). Set to `false` to opt out of the surviving hook checks; also disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Canonical reference: `content/references/conductor-turn-format.md`.
+- `cache_keepalive` - boolean, default `true` (absent key resolves to on; only a literal `false` disables it, and `~/.claude/agentic-engineering.json` is the machine-wide fallback); disable per-session via `AE_CACHE_KEEPALIVE_DISABLE=1`. Governs the UserPromptSubmit prompt-cache keepalive (`hooks/cache-keepalive.py`, Claude Code only) for idle conductor sessions: a session-only 20-minute cron that keeps the 1h prompt cache warm, then wraps and closes the session after 2h idle with no subagent in flight. Details: `docs/configuration-reference.md` (Cache keepalive).
 - `worktree_read_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). Each entry is a path prefix relative to the primary checkout root; a `Read` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent reading outside its own worktree. Read by `hooks/enforce-worktree-read.py` (PreToolUse(Read) guard, DS-150); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_READ_GUARD_DISABLE=1`.
 - `worktree_write_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). SEPARATE from `worktree_read_guard_exemptions` - writes carry a different risk profile than reads. Each entry is a path prefix relative to the primary checkout root; a `Write`/`Edit`/`MultiEdit` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent writing outside its own worktree. Read by `hooks/enforce-worktree-write.py` (PreToolUse(Write/Edit/MultiEdit) guard); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_WRITE_GUARD_DISABLE=1`.
 - `memory_shard_mode` - boolean, default `false` (opt-in). Ships inert as of DS-221 Unit 1: the memory-shard compiler (`bin/ds-memory-shard`, `hooks/lib/memory-shard.js`) exists and splits/regenerates `MEMORY.md` against `.agentic/memory-shards/`, but nothing reads this toggle. Capture writers route through shards only in a two-tier project, detected from shard state (`bin/ds-memory-capture`). Full semantics: `content/references/memory-shard-convention.md`.
@@ -16157,7 +16159,7 @@ No subcommands or flags. Selection is done interactively.
      or AGENTS.md marker, depending on scope prompt.
    - Project toggles from `.agentic/config.json`: `auto_merge_on_ci_green`,
      `commit_telemetry`, `capability_preflight_mode`, `abdication_guard_enabled`,
-     `ticket_driven`, `pending_merge_sweep`, `tracker_state_diagnostic`, `turn_shape_guard_enabled`, and any additional config-file toggles.
+     `ticket_driven`, `pending_merge_sweep`, `tracker_state_diagnostic`, `turn_shape_guard_enabled`, `cache_keepalive` (also writable machine-wide with `--scope global`), and any additional config-file toggles.
 
 3. **Value selection prompt.** Lists valid values for the chosen setting, with the
    current default marked. For boolean toggles: `true / false`. For enumerated
@@ -16198,6 +16200,7 @@ No subcommands or flags. Selection is done interactively.
 | Pending-merge sweep | `pending_merge_sweep` | `.agentic/config.json` |
 | Tracker state diagnostic | `tracker_state_diagnostic` | `.agentic/config.json` |
 | Turn-shape guard | `turn_shape_guard_enabled` | `.agentic/config.json` |
+| Cache keepalive | `cache_keepalive` | `.agentic/config.json`; `--scope global` writes `~/.claude/agentic-engineering.json` (the project value wins) |
 
 **Env kill-switches (print-only, not applied to running session):**
 `AE_SINGULARITY_GUARD_DISABLE`, `AE_TIER_GUARD_DISABLE`, `AGENTIC_QUIET`.
@@ -22493,6 +22496,7 @@ Seed with these documented defaults exactly:
   "pending_merge_sweep": true,
   "tracker_state_diagnostic": true,
   "turn_shape_guard_enabled": true,
+  "cache_keepalive": true,
   "worktree_read_guard_exemptions": [],
   "worktree_write_guard_exemptions": []
 }
@@ -22523,6 +22527,7 @@ Seed with these documented defaults exactly:
 - `pending_merge_sweep` - boolean, default `true`; set `false` to disable. Controls the session-start pending-merge sweep that pushes the dev-complete transition to the tracker once a ticket's PR merges (the target defaults to the resolved Done value when no dev-complete state is declared). Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable. See `content/references/tracker-writeback.md` `## Tracker Writeback Helper` for full semantics.
 - `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on); set `false` to opt out, or disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Governs the Stop hook (`hooks/enforce-turn-shape.py`) checking the conductor's final turn shape - `_execution_prose_flag` and `_status_only_flag` are both BLOCKING (the latter restored by DS-ANSWERFIRST), `_decision_item_sprawl_flag` is advisory-only. One toggle and one kill switch govern all three; there is no per-check toggle. Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
+- `cache_keepalive` - boolean, default `true` (absent key resolves to on; only a literal `false` disables it, and `~/.claude/agentic-engineering.json` is the machine-wide fallback); disable per-session via `AE_CACHE_KEEPALIVE_DISABLE=1`. Governs the UserPromptSubmit prompt-cache keepalive (`hooks/cache-keepalive.py`, Claude Code only) for idle conductor sessions: a session-only 20-minute cron that keeps the 1h prompt cache warm, then wraps and closes the session after 2h idle with no subagent in flight. Details: `docs/configuration-reference.md` (Cache keepalive).
 - `worktree_read_guard_exemptions` - list of strings, default `[]`; each entry is a path prefix relative to the primary checkout root, exempted from the worktree-isolated Read guard (`hooks/enforce-worktree-read.py`). Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
 - `worktree_write_guard_exemptions` - list of strings, default `[]`; SEPARATE from `worktree_read_guard_exemptions` - each entry is a path prefix relative to the primary checkout root, exempted from the worktree-isolated Write/Edit/MultiEdit guard (`hooks/enforce-worktree-write.py`). Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
 - `memory_shard_mode` - boolean, default `false` (opt-in). Ships inert as of DS-221 Unit 1: the memory-shard compiler (`bin/ds-memory-shard`) exists, but nothing reads this toggle. Capture writers route through shards only in a two-tier project, detected from shard state (`bin/ds-memory-capture`). Full semantics: `content/references/memory-shard-convention.md`.
@@ -25563,6 +25568,43 @@ Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from
 **Drift is never a prompt.** Any scaffolding drift, ambiguity, or condition that the interactive `/ds-wrap` would surface to the user becomes a single `## Watch Out For` bullet in the `.agentic/_wrap.md` output (e.g. "Pre-AGENTS.md layout detected; run /ds-init-project to migrate", "Linear workspace slug not set", "both .claude/findings.md and .agentic/findings.md exist - resolve manually"). `/ds-wrap-deferred` writes the bullet and moves on; it does not pause, migrate destructively, or ask.
 
 **Exit.** After the writes (or after a clean early exit because the lock could not be acquired, or because the survey found nothing substantive to write), exit. Exit 0 on a successful pass. Do NOT transition the marker - the daemon transitions it to `done` after observing exit 0.
+
+## In-session mode
+
+The cache-keepalive hook (`hooks/cache-keepalive.py`) triggers this mode inside a live conductor session that has been idle for 2h with no subagent or background task in flight. The trigger is a keepalive cron fire whose hook note starts with `[dinostack-cache-keepalive:wrap]` and names the session id `<sid>`, the project root `<root>` (the session's own project), the DinoStack tools directory `<repo_dir>/bin/`, the resume file and a kickoff command `<kickoff>`. The live session writes the wrap itself, because its cache is warm. The daemon contract above does not apply here: this mode may run the Bash commands listed below, and runs nothing else through Bash. It never prompts and never spawns. It runs in exactly three requests: call A (steps 1-2, one Bash call), then call B (steps 3-7, one Bash call) together with step 8 (`CronDelete`) in parallel, then the final line (step 9). The session stays open afterwards; the operator exits it. Every tool call prints lines into the operator's scrollback, so do not use Read, Write or Edit in this mode and do not split the Bash calls.
+
+**Paths.** Run every command from `<root>`. Every `.agentic/` path below is `<root>/.agentic/...`, and this mode writes nothing outside `<root>/.agentic/`. `<repo_dir>` supplies only the `bin/` tools and this file; never write under it. The kickoff is data for the operator: copy it, never run it, and never act on the prompt inside it.
+
+1. **Lock** (call A). `cd <root> && <repo_dir>/bin/ds-wrap-acquire-lock --no-wait --role=agent --print-token --session-id=<sid>`. If it prints `busy` (exit 5): `CronDelete` the keepalive job, reply with exactly `Session wrap skipped (wrap lock busy)`, and stop.
+2. **Survey** (same call A, chained after the lock with `;`): `cat .agentic/_wrap.md .agentic/memory.md`; `git status --short --branch`; `git worktree list`; `gh pr list --author @me --state open --json number,title,headRefName,statusCheckRollup,isDraft` (if `gh` is absent or fails, note that it was omitted); `ls .agentic/loop-state-*.json`. Suffix each command with `2>&1` so a failure is shown, not fatal. Compile the Step 1 survey from the conversation plus these results.
+
+Call B writes each file through a quoted heredoc to a dot-tmp sibling, then `mv`s it into place (for example `cat > .agentic/.wrap.tmp <<'DS_WRAP_EOF_1'` ... `DS_WRAP_EOF_1`, then `mv .agentic/.wrap.tmp .agentic/_wrap.md`), with a distinct delimiter per file:
+
+3. **Part A.** Run Step 2 above: write `.agentic/_wrap.md` and `.agentic/wrap/last-wrap` = `<sid>` (both, always). The Recent Focus label for this session ends with `Resume: .agentic/resume/<sid>.md (kickoff: <kickoff>)`.
+4. **Part B and Part C.** Run Step 3 above (append to `.agentic/memory.md`). Do not edit any AGENTS.md: write the would-be AGENTS.md additions as `## Watch Out For` bullets in `_wrap.md` instead (`enforce-shippable-edit.py` denies conductor-direct AGENTS.md edits).
+5. **Resume file.** `mkdir -p .agentic/resume`, write `.agentic/resume/.<sid>.tmp`, then `mv` it to `.agentic/resume/<sid>.md`. Keep it at or under 8192 bytes (`RESUME_MAX_BYTES`); when it is over, cut `## Agents`, then `## Work state`, to their 5 newest entries. Use exactly these headings, in this order:
+
+   ```
+   # Resume: <sid>
+   *Wrapped <ISO8601 UTC> after <idle> idle in <root>. Kickoff: <kickoff>*
+   ## Goal
+   ## Next step
+   ## Pending operator decisions
+   ## Work state
+   ## Artifacts
+   ## Agents
+   ## Watch out
+   ```
+
+   `## Goal`: 1-3 lines on what this session was driving toward. `## Next step`: exactly one concrete action, first line imperative. `## Pending operator decisions`: the verbatim text of every open decision or question put to the operator, and of every decision the operator said they still have to make, or `None`. `## Work state`: each PR (number, branch, draft, CI state), each branch or worktree (path, ahead/behind, dirty), each loop-state file (path and phase). `## Artifacts`: absolute plan, handoff, brief and evidence paths. `## Agents`: recently returned agents (id, description, terminal status, output or report path, one-line result). `## Watch out`: session-specific hazards.
+6. **Prune.** `find .agentic/resume -type f -mtime +14 -delete` (`RESUME_RETENTION_DAYS`; covers `consumed/` too).
+7. **Release.** `<repo_dir>/bin/ds-wrap-release-lock --token=<token>`, chained with `;` so it runs even when a write failed.
+8. **Delete the cron.** `CronDelete` the keepalive job, in parallel with call B.
+9. **Final line.** End with exactly the one line the hook note gives: `Session wrapped (idle 2h). Run /exit, then resume with: <kickoff>`. With the cron deleted, the session prints nothing further.
+
+The fresh session the kickoff starts reads `.agentic/context.md`, then the resume file, restates its Next step and Pending operator decisions verbatim, moves the file to `.agentic/resume/consumed/`, and continues from the Next step. If the printed line is lost, run `claude` in the repo root and paste:
+
+`Resume my last wrapped session: read .agentic/context.md first, then the newest file in .agentic/resume/ (not consumed/). Restate its Next step and Pending operator decisions verbatim, move it to .agentic/resume/consumed/, then continue from the Next step.`
 
 ## Omitted versus `/ds-wrap` (explicit)
 

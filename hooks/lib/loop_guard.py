@@ -73,6 +73,26 @@ Public API (module-level functions, no class):
         arrive as `type:"user"` lines without isMeta (background task-
         completion notifications, <system-reminder>, <command-name>) and
         must not be mistaken for a genuine human turn.
+    MARKER, PING_PROMPT, GATE_NOTE, WRAP_MARKER, TAIL_BYTES
+        The cache-keepalive literals (hooks/cache-keepalive.py). Kept here
+        so the Stop-hook carve-out and the gate share one copy.
+    read_tail_records(transcript_path, max_bytes=TAIL_BYTES) -> list
+        Parsed JSONL records from at most the last max_bytes of the file
+        (the first partial line dropped). [] on any error.
+    is_tool_result_record(rec) / starts_turn(rec) -> bool
+        A user record carrying a tool_result; a user record that opens a
+        turn (not a tool_result, and carries turnOrigin or is not isMeta).
+    is_ping_record(rec) -> bool
+        True iff rec is the user record a keepalive cron fire writes: text
+        equal to PING_PROMPT, isMeta true, turnOrigin "scheduled".
+    is_ping_ack_turn(transcript_path, last_message=None) -> bool
+        True iff the current turn answers a ping: the last turn-opening
+        user record passes is_ping_record, and either every tool_use after
+        it is CronList or CronDelete and the final text (last_message when
+        given, else the transcript's) normalizes to "ok"; or a
+        UserPromptSubmit attachment after it carries WRAP_MARKER and the
+        final text's last line starts with "Session wrapped" or "Session
+        wrap skipped" (any tools). False on any error.
 
 Upstream deps: Python 3 stdlib only (json, os). Imports the sibling
                hooks/lib/repo_root.py module via an isolated
@@ -89,7 +109,10 @@ Upstream deps: Python 3 stdlib only (json, os). Imports the sibling
                Reads ONLY that file and, in count_user_messages and
                last_genuine_user_text, a transcript JSONL path.
 
-Downstream consumers: hooks/enforce-no-abdication.py (counter filename
+Downstream consumers: hooks/lib/cache_keepalive.py and
+                       hooks/cache-keepalive.py (the ping literals and
+                       read_tail_records); enforce-turn-shape.py also calls
+                       is_ping_ack_turn. hooks/enforce-no-abdication.py (counter filename
                        .abdication-guard-fire-count, cap 2) and
                        hooks/enforce-turn-shape.py (counter filename
                        .turn-shape-guard-fire-count, cap 2). Both load this
@@ -115,6 +138,8 @@ Failure modes: Fully fail-open and silent, matching every enforce-*.py
     - count_user_messages: any error returns 0 - never raises.
     - last_genuine_user_text: any error (missing file, unparseable JSON on
       every line, no genuine turn found) returns "" - never raises.
+    - read_tail_records / is_ping_ack_turn: any error returns [] / False,
+      so a turn that cannot be proven a ping-ack gets full enforcement.
     - Concurrent hook invocations: each write uses a pid-suffixed tmp name
       (`<counter>.tmp.<os.getpid()>`) so two concurrent processes never
       share a staging path; os.replace makes the final rename atomic. A
@@ -423,3 +448,133 @@ def last_genuine_user_text(transcript_path: str) -> str:
         return ""
     except Exception:
         return ""
+
+
+# ---------------------------------------------------------------------------
+# Cache-keepalive ping predicates (hooks/cache-keepalive.py)
+# ---------------------------------------------------------------------------
+
+MARKER = "[dinostack-cache-keepalive]"
+# Must not match hooks/skill-auto-load-check.sh's applicability regex (its
+# keyword list includes "hook"), or every ping would carry the skill banner.
+PING_PROMPT = (
+    MARKER + " If a DinoStack note in THIS turn says the keepalive gate passed, "
+    "reply with exactly: ok. If not, delete this recurring cron job with "
+    "CronDelete (CronList first if its id is not in context), then reply with "
+    "exactly: ok."
+)
+GATE_NOTE = "DinoStack keepalive gate passed for this ping."
+WRAP_MARKER = "[dinostack-cache-keepalive:wrap]"
+TAIL_BYTES = 4194304
+_PING_ACK_TOOLS = frozenset(("CronList", "CronDelete"))
+_WRAP_FINAL_PREFIXES = ("Session wrapped", "Session wrap skipped")
+
+
+def read_tail_records(transcript_path: str, max_bytes: int = TAIL_BYTES) -> list:
+    try:
+        with open(transcript_path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            start = max(0, size - max_bytes)
+            f.seek(start)
+            raw = f.read()
+        lines = raw.split(b"\n")
+        if start > 0:
+            lines = lines[1:]
+        records = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line.decode("utf-8", errors="replace"))
+            except Exception:
+                continue
+            if isinstance(obj, dict):
+                records.append(obj)
+        return records
+    except Exception:
+        return []
+
+
+def _content_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            b.get("text", "") for b in content
+            if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str)
+        )
+    return ""
+
+
+def is_tool_result_record(rec: dict) -> bool:
+    msg = rec.get("message")
+    content = msg.get("content") if isinstance(msg, dict) else None
+    return isinstance(content, list) and any(
+        isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+    )
+
+
+def starts_turn(rec: dict) -> bool:
+    """A user record that opens a turn: not a tool_result, and either carries
+    turnOrigin (human, sdk, scheduled, task_notification) or is not isMeta."""
+    return not is_tool_result_record(rec) and ("turnOrigin" in rec or rec.get("isMeta") is not True)
+
+
+def is_ping_record(rec) -> bool:
+    if not isinstance(rec, dict) or rec.get("type") != "user":
+        return False
+    if rec.get("isMeta") is not True or rec.get("turnOrigin") != "scheduled":
+        return False
+    msg = rec.get("message")
+    if not isinstance(msg, dict):
+        return False
+    return _content_text(msg.get("content")) == PING_PROMPT
+
+
+def _normalize_ack(text: str) -> str:
+    return text.strip().strip("\"'`*").strip().rstrip(".!").strip().lower()
+
+
+def is_ping_ack_turn(transcript_path: str, last_message=None) -> bool:
+    try:
+        records = [r for r in read_tail_records(transcript_path) if not r.get("isSidechain")]
+        ping_idx = None
+        for i in range(len(records) - 1, -1, -1):
+            rec = records[i]
+            if rec.get("type") == "user" and starts_turn(rec):
+                ping_idx = i
+                break
+        if ping_idx is None or not is_ping_record(records[ping_idx]):
+            return False
+        final_text = ""
+        wrap_turn = False
+        other_tool = False
+        for rec in records[ping_idx + 1:]:
+            if rec.get("type") == "attachment":
+                att = rec.get("attachment") or {}
+                if att.get("hookEvent") == "UserPromptSubmit" and WRAP_MARKER in json.dumps(att):
+                    wrap_turn = True
+                continue
+            if rec.get("type") != "assistant":
+                continue
+            msg = rec.get("message")
+            content = msg.get("content") if isinstance(msg, dict) else None
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "tool_use" and block.get("name") not in _PING_ACK_TOOLS:
+                    other_tool = True
+                if block.get("type") == "text" and isinstance(block.get("text"), str) and block["text"].strip():
+                    final_text = block["text"]
+        if isinstance(last_message, str) and last_message.strip():
+            final_text = last_message
+        if wrap_turn:
+            lines = [ln.strip() for ln in final_text.strip().splitlines() if ln.strip()]
+            return bool(lines) and lines[-1].strip("*`").startswith(_WRAP_FINAL_PREFIXES)
+        return not other_tool and _normalize_ack(final_text) == "ok"
+    except Exception:
+        return False

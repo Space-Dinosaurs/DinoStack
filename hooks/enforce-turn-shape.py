@@ -561,6 +561,10 @@ Failure modes:
       enforce-no-abdication.py's defense-in-depth pattern.
     - stop_hook_active=true: exit 0 silently (Layer 1 primary re-entrancy
       guard) - a re-invocation must never re-flag the same turn.
+    - Cache-keepalive ping acknowledgement (loop_guard.is_ping_ack_turn:
+      the turn answers a hooks/cache-keepalive.py ping, uses only CronList
+      or CronDelete, and ends with "ok"): exit 0 silently, checked right
+      after stop_hook_active. Every other turn gets full enforcement.
     - Counter >= CONSECUTIVE_BLOCK_CAP: exit 0 silently, no advisory
       (Layer 2 backstop for CC bug #54360) - the loop is bounded.
     - Counter write fails (unwritable .agentic/, full disk, corrupt tmp,
@@ -2594,6 +2598,17 @@ def main() -> None:
         # when this Stop event itself was triggered by a prior Stop-hook
         # action. A re-invocation must never re-flag the same turn.
         if data.get("stop_hook_active") is True:
+            sys.exit(0)
+
+        # Cache-keepalive ping acknowledgement (hooks/cache-keepalive.py):
+        # a block here would turn a one-request ping into two.
+        ping_path = data.get("transcript_path")
+        if (
+            _LOOP_GUARD is not None
+            and isinstance(ping_path, str)
+            and ping_path
+            and _LOOP_GUARD.is_ping_ack_turn(ping_path, data.get("last_assistant_message"))
+        ):
             sys.exit(0)
 
         cwd = data.get("cwd", "")

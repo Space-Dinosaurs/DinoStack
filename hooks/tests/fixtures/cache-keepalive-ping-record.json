@@ -1,0 +1,19 @@
+{
+ "type": "user",
+ "isMeta": true,
+ "isSidechain": false,
+ "turnOrigin": "scheduled",
+ "promptSource": "system",
+ "queueSkipAttachments": true,
+ "userType": "external",
+ "entrypoint": "cli",
+ "version": "2.1.287",
+ "timestamp": "2026-10-12T12:16:20.809Z",
+ "message": {
+  "role": "user",
+  "content": "[dinostack-cache-keepalive] If a DinoStack note in THIS turn says the keepalive gate passed, reply with exactly: ok. If not, delete this recurring cron job with CronDelete (CronList first if its id is not in context), then reply with exactly: ok."
+ },
+ "uuid": "00000000-0000-4000-8000-000000000001",
+ "sessionId": "00000000-0000-4000-8000-000000000000",
+ "cwd": "/tmp/fixture-project"
+}
