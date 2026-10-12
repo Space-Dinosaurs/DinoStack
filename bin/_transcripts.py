@@ -9,8 +9,8 @@ Purpose: Shared read-only reader over Claude Code session transcripts across
          Retire this module when the harness ships a cost export that
          covers all profiles (per-session cost and per-agent usage); the
          transcript shapes it parses are undocumented harness internals.
-         Further consumers in the ds-eval telemetry program (bin/_eval.py /
-         ds-eval, ds-cost, ds-change-delta) are added by later units.
+         bin/_eval.py (ds-eval) consumes it; ds-cost and ds-change-delta
+         are wired by later units of the ds-eval telemetry program.
 
 Public API:
     stores(extra=None, include_default=True) -> list[Path]
@@ -105,7 +105,8 @@ Upstream deps: Python 3 stdlib; bin/_lib.py (CONFIG_DIR_ENV), loaded by
 
 Downstream consumers: bin/ds-skill-load-rate, bin/ds-learnings-retrieval-rate,
     bin/ds-measure-conductor-tool-calls (store set and repo-to-dir mapping);
-    bin/tests/test_transcripts.py.
+    bin/_eval.py (ds-eval: resolve_stores, store_entry, project_dirs_checked,
+    sessions); bin/tests/test_transcripts.py.
 
 Failure modes: never raises on a missing store, an unreadable file, a
     malformed line or a missing or wrongly-typed field - such a record is

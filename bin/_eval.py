@@ -24,8 +24,13 @@ Public API:
              stores=None, rates=None) -> dict
         Keys: meta, agents, skeptic_rounds, work_items, hooks, cost, mix,
         decisions, gaps. With several repos the sections are computed over
-        the union of their inputs; decisions and gaps are computed per repo
-        and carry a `repo` key. `base=None` resolves each repo's base via
+        the union of their inputs (`hooks` pools each hook's rows across
+        repos); decisions and gaps are computed per repo and carry a `repo`
+        key, and each D2 decision carries that repo's own `hook_figures`
+        (deny, joinable_deny, repeat_share, labelled, labelled_fp_rate) and
+        `label_sample`, so a labelling step never reads pooled figures.
+        Labels match a deny by (fire_label.hook, fire_key): one tool_use_id
+        can carry denies from several hooks. `base=None` resolves each repo's base via
         _lib.resolve_base_branch. `stores` defaults to _transcripts.stores();
         `rates` defaults to _telemetry.load_rates(include_defaults=True).
     metric(status, value, coverage=None, missing=()) -> dict
@@ -46,7 +51,7 @@ Public API:
         subject).
     ROUTES: rule -> route (D1a/D1b/D1c update-agentic-engineering,
         D2 prune-harness, D3 tracker-ticket). Gaps have no route.
-    Moved from bin/ds-change-delta (step 9; it imports them): _parse_ts,
+    Moved from bin/ds-change-delta (which imports them): _parse_ts,
         _as_int, _v2_coverage, _price_runs, _run_model, _ticket_index,
         _title_matches, _branch_matches, _attribute_prs, _ticket_row,
         _ticket_summary, _per_ticket_side, REENTRY_AFTER_MERGE,
@@ -72,9 +77,9 @@ Upstream deps: Python 3 stdlib; bin/_lib.py (resolve_base_branch, _run),
     <repo>/.agentic/.enforcement-fires.jsonl (primary copy only),
     <repo>/.agentic/tasks.jsonl and ticket-ledger.jsonl (ticket prefixes),
     `git log --first-parent <base>`, `git remote get-url origin`, and,
-    unless use_gh is False, `gh pr list` (open/closed state of engineer PRs
-    git does not show merged) and `ds-feedback list --status triaged`
-    (operator fire labels).
+    `ds-feedback list --status triaged --repo <repo>` (operator fire labels,
+    always read), and, unless use_gh is False, `gh pr list` (open/closed
+    state of engineer PRs not shown merged on the base ref).
 
 Downstream consumers: bin/ds-eval (CLI); bin/ds-change-delta (moved
     helpers); bin/tests/test_ds_eval.py. Planned: /ds-evaluate (U7) and the
@@ -142,10 +147,11 @@ _REVERT_SUBJECT_RE = re.compile(r'^Revert "(.*)"\s*$')
 _REVERTS_BODY_RE = re.compile(r"This reverts commit ([0-9a-f]{7,40})")
 _SLUG_RE = re.compile(r"github\.com[:/]+([^/\s]+/[^/\s]+?)(?:\.git)?/?$")
 _PREFIX_RE = re.compile(r"^([A-Z][A-Z0-9]+)-\d+")
+_CONTEXT_TAG_RE = re.compile(r"\[[^\]]*\]$")
 
 
 # ---------------------------------------------------------------------------
-# Helpers moved from bin/ds-change-delta (step 9).
+# Helpers moved from bin/ds-change-delta, which imports them.
 # ---------------------------------------------------------------------------
 
 
@@ -489,6 +495,12 @@ def _ordered_sum(values) -> float:
     for v in values:
         total += v
     return total
+
+
+def _model_base(model) -> str:
+    """Model id without a trailing context-window tag: cost-state keys read
+    `claude-opus-5-5[1m]` where transcripts record `claude-opus-5-5`."""
+    return _CONTEXT_TAG_RE.sub("", str(model))
 
 
 def _usd(value):
@@ -1238,14 +1250,15 @@ def _cost_section(inputs, rates, start, end) -> dict:
         usd, unpriced = visible(s)
         attributed.append(usd)
         unpriced_all |= unpriced
-        seen = {key[0] for usage in [s.conductor] + [sub.usage for sub in s.subagents] for key in usage}
+        seen = {_model_base(key[0]) for usage in [s.conductor] + [sub.usage for sub in s.subagents]
+                for key in usage}
         state_tokens = 0
         for model, mu in (s.model_usage or {}).items():
             if not isinstance(mu, dict):
                 continue
             state_tokens += sum(_as_int(mu.get(k)) or 0 for k in
                                 ("inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens"))
-            if model not in seen and isinstance(mu.get("costUSD"), (int, float)):
+            if _model_base(model) not in seen and isinstance(mu.get("costUSD"), (int, float)):
                 absent_models[model] = absent_models.get(model, 0.0) + float(mu["costUSD"])
         vis_tokens = sum(t["input"] + t["output"] + t["cache_read"] + t["cache_creation"]
                          for usage in [s.conductor] + [sub.usage for sub in s.subagents] for t in usage.values())
@@ -1303,7 +1316,7 @@ def _hooks_section(inputs, start, end) -> tuple[dict, dict]:
     present = [inp for inp in inputs if inp["fires"] is not None]
     if not present:
         reason = "no .agentic/.enforcement-fires.jsonl"
-        return {}, {"deny": _absent(reason)}
+        return {}, {"deny": _absent(reason), "fire_log": _absent(reason)}
     earliest = None
     denies: dict = {}
     prev_cap = 0
@@ -1332,9 +1345,9 @@ def _hooks_section(inputs, start, end) -> tuple[dict, dict]:
             fl = item.get("fire_label")
             if not isinstance(fl, dict) or fl.get("verdict") not in ("true_positive", "false_positive"):
                 continue
-            key = fl.get("fire_key")
-            if not isinstance(key, str):
+            if not isinstance(fl.get("fire_key"), str) or not isinstance(fl.get("hook"), str):
                 continue
+            key = (fl["hook"], fl["fire_key"])
             rank = (str(item.get("ts") or ""), i)
             if key not in labels or rank >= labels[key][0]:
                 labels[key] = (rank, fl["verdict"])
@@ -1355,7 +1368,7 @@ def _hooks_section(inputs, start, end) -> tuple[dict, dict]:
         labelled = {"n": 0, "fp": 0, "tp": 0}
         unlabelled = []
         for ts, row in joinable:
-            hit = labels.get(fire_key(row))
+            hit = labels.get((hook, fire_key(row)))
             if hit is None:
                 unlabelled.append((ts, row))
                 continue
@@ -1383,7 +1396,8 @@ def _hooks_section(inputs, start, end) -> tuple[dict, dict]:
         cap_status = PARTIAL
         cap_missing.append("fire log does not cover the preceding window")
     cap = {"deny": metric(cap_status, {"current": len(denies.get(ROUND_CAP_HOOK, [])), "previous": prev_cap},
-                          None, cap_missing)}
+                          None, cap_missing),
+           "fire_log": metric(OK, len(present), _ratio(len(present), len(inputs)))}
     if ROUND_CAP_HOOK in hooks:
         hooks[ROUND_CAP_HOOK]["deny_previous_window"] = metric(cap_status, prev_cap, None, cap_missing)
     return hooks, cap
@@ -1441,6 +1455,9 @@ def _decide(repo, sections, spawns, returns, pricing_ok) -> tuple[list, list]:
                                    "skeptic_rounds.late_fix_verification_share",
                                    m["value"]["share"], m["value"]["n"], d1_rank, repo))
 
+    fire_log = sections["_round_cap"]["fire_log"]
+    if fire_log["status"] != OK:
+        gaps.append(_gap("hooks.fire_log", fire_log, ["D2"], repo))
     for hook, h in sections["hooks"].items():
         fired = None
         if h["repeat_share"]["status"] == OK and h["joinable_deny"] >= 10 and h["repeat_share"]["value"] >= 0.5:
@@ -1449,11 +1466,14 @@ def _decide(repo, sections, spawns, returns, pricing_ok) -> tuple[list, list]:
               and h["labelled_fp_rate"]["value"] >= 0.5):
             fired = ("labelled_fp_rate", h["labelled_fp_rate"]["value"])
         if fired:
-            decisions.append(_decision("D2", hook, f"hooks[{hook}].{fired[0]}", fired[1],
-                                       h["joinable_deny"], None, repo))
             h["label_sample"] = [{"fire_key": fire_key(row), "ts": row.get("ts"), "reason": row.get("reason")}
                                  for _ts, row in sorted(h["_unlabelled"], key=lambda x: x[0], reverse=True)
                                  [:LABEL_SAMPLE_SIZE]]
+            d = _decision("D2", hook, f"hooks[{hook}].{fired[0]}", fired[1], h["joinable_deny"], None, repo)
+            d["hook_figures"] = {k: h[k] for k in ("deny", "joinable_deny", "repeat_share", "labelled",
+                                                   "labelled_fp_rate")}
+            d["label_sample"] = h["label_sample"]
+            decisions.append(d)
         if h["repeat_share"]["status"] != OK:
             gaps.append(_gap(f"hooks[{hook}].repeat_share", h["repeat_share"], ["D2"], repo))
         if h["labelled_fp_rate"]["status"] != OK and h["joinable_deny"] > 0:

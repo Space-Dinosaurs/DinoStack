@@ -326,7 +326,7 @@ def _cap_rows(current, previous):
     return rows
 
 
-@pytest.mark.parametrize("c,p,fires", [(5, 3, True), (4, 0, False), (6, 4, True), (5, 4, False)])
+@pytest.mark.parametrize("c,p,fires", [(5, 3, True), (5, 0, True), (4, 0, False), (6, 4, True), (5, 4, False)])
 def test_d1b_threshold(c, p, fires):
     sections, _sp, decisions, _g = run([inp(fires=_cap_rows(c, p))])
     assert ("D1b" in rules(decisions)) is fires
@@ -400,6 +400,89 @@ def test_d2_repeat_share_at_and_below_half(repeats, fires):
     assert ("D2" in rules(decisions)) is fires
 
 
+def test_d2_repeat_arm_needs_ten_joinable_denies():
+    rows = _paired_denies(5, n=9)
+    sections, _sp, decisions, _g = run([inp(fires=rows)])
+    assert sections["hooks"]["enforce-x"]["repeat_share"]["value"] == round(5 / 9, 4)
+    assert "D2" not in rules(decisions)
+
+
+@pytest.mark.parametrize("gap,repeat", [(timedelta(minutes=15), True),
+                                        (timedelta(minutes=15, seconds=1), False)])
+def test_repeat_window_is_inclusive_at_fifteen_minutes(gap, repeat):
+    rows = [{"ts": iso(T(2) + gap * i), "hook": "enforce-x", "decision": "deny", "session_id": "s",
+             "tool_use_id": f"tu{i}"} for i in range(2)]
+    sections, *_ = run([inp(fires=rows)])
+    assert sections["hooks"]["enforce-x"]["repeat_share"]["value"] == (0.5 if repeat else 0.0)
+
+
+def test_labels_are_keyed_by_hook_and_fire_key():
+    rows = []
+    for i in range(6):
+        for hook in ("hA", "hB"):
+            rows.append({"ts": iso(T(2, i)), "hook": hook, "decision": "deny", "session_id": "s",
+                         "tool_use_id": f"tu{i}"})
+    labels = [_label(f"tu{i}", "false_positive", hook="hA") for i in range(5)]
+    sections, _sp, decisions, _g = run([inp(fires=rows, labels=labels)])
+    assert sections["hooks"]["hA"]["labelled"] == {"n": 5, "fp": 5, "tp": 0}
+    assert sections["hooks"]["hB"]["labelled"] == {"n": 0, "fp": 0, "tp": 0}
+    assert [d["subject"] for d in decisions if d["rule"] == "D2"] == ["hA"]
+
+
+def test_missing_fire_log_is_a_gap_blocking_d2_and_d1b():
+    _s, _sp, decisions, gaps = run([inp(fires=None)])
+    by_input = {g["input"]: g for g in gaps}
+    assert by_input["hooks.fire_log"]["status"] == "ABSENT" and by_input["hooks.fire_log"]["blocks"] == ["D2"]
+    assert by_input[f"hooks.{ev.ROUND_CAP_HOOK}.deny"]["blocks"] == ["D1b"]
+    _s, _sp, _d, gaps = run([inp(fires=[])])
+    assert "hooks.fire_log" not in {g["input"] for g in gaps}
+
+
+def test_multi_repo_d2_carries_its_own_repo_figures_and_sample(monkeypatch):
+    def denies(prefix, spacing):
+        return [{"ts": iso(T(2) + timedelta(minutes=spacing * i)), "hook": "enforce-x", "decision": "deny",
+                 "session_id": f"{prefix}s", "tool_use_id": f"{prefix}{i}"} for i in range(10)]
+
+    inputs = {"/r1": inp(repo="/r1", fires=denies("a", 5), prs=None),
+              "/r2": inp(repo="/r2", fires=denies("b", 60), prs=None)}
+    monkeypatch.setattr(ev, "_load_repo", lambda r, *a: inputs[str(r)])
+    report = ev.evaluate(["/r1", "/r2"], START, END, use_gh=False, stores=[], rates=RATES)
+    (d2,) = [d for d in report["decisions"] if d["rule"] == "D2"]
+    assert d2["repo"] == "/r1"
+    assert d2["hook_figures"]["joinable_deny"] == 10 and d2["hook_figures"]["repeat_share"]["value"] == 0.9
+    assert [x["fire_key"] for x in d2["label_sample"]] == ["a9", "a8", "a7", "a6", "a5"]
+    assert report["hooks"]["enforce-x"]["joinable_deny"] == 20
+    assert all("_unlabelled" not in h for h in report["hooks"].values())
+    json.dumps(report, default=str)
+
+
+def test_models_absent_from_transcripts_ignores_context_window_tag(tmp_path):
+    s = session(tmp_path, "a", cost=4.0)
+    s.model_usage = {"claude-opus-5-5[1m]": {"costUSD": 3.0}, "claude-haiku-4-5": {"costUSD": 1.0}}
+    sections, *_ = run([inp([s])])
+    assert sections["cost"]["models_absent_from_transcripts"] == {"claude-haiku-4-5": 1.0}
+
+
+def _ticket_entry(findings):
+    runs = [{"findings_count": f, "iteration": i + 1, "qa_result": None, "end_ts": iso(T(2, i)),
+             "model": "claude-opus-5-5", "run_tokens": None} for i, f in enumerate(findings)]
+    rec = type("Rec", (), {"agent": "skeptic", "runs": runs, "start_ts": iso(T(2)), "model": None})()
+    return {"recs": [rec], "ledger": [], "first_spawn_ts": T(2), "repos": {"/r"}}
+
+
+def test_ticket_row_counts_every_skeptic_run_and_reports_findings_coverage():
+    entry = _ticket_entry([{"critical": 0, "major": 1, "minor": 0}, None, None])
+    row = ev._ticket_row("AUT-1", entry, [], [], "NOT_FETCHED", END, RATES)
+    assert row["skeptic_reviews"] == 3 and row["skeptic_reviews_source"] == "telemetry"
+    assert row["skeptic_reviews_with_findings"] == 1
+    assert row["findings"] == {"critical": 0, "major": 1, "minor": 0}
+    entry = _ticket_entry([])
+    entry["ledger"] = [{"skeptic_rounds": 4}]
+    row = ev._ticket_row("AUT-1", entry, [], [], "NOT_FETCHED", END, RATES)
+    assert (row["skeptic_reviews"], row["skeptic_reviews_source"], row["skeptic_reviews_with_findings"]) == (
+        4, "ledger", 0)
+
+
 def test_repeat_needs_same_session():
     rows = _denies(10, spacing=10, sessions=2)
     sections, *_ = run([inp(fires=rows)])
@@ -425,8 +508,9 @@ def test_labelled_fp_rate_latest_label_wins_and_unmatched_ignored():
     assert (m["status"], m["value"], m["coverage"]) == ("PARTIAL", 1.0, round(2 / 6, 4))
 
 
-@pytest.mark.parametrize("labelled,fp,status,fires", [(5, 3, "OK", True), (4, 4, "PARTIAL", False),
-                                                      (5, 2, "OK", False), (0, 0, "ABSENT", False)])
+@pytest.mark.parametrize("labelled,fp,status,fires", [
+    (5, 3, "OK", True), (4, 4, "PARTIAL", False), (1, 1, "PARTIAL", False), (5, 2, "OK", False),
+    (6, 3, "OK", True), (6, 2, "OK", False), (0, 0, "ABSENT", False)])
 def test_d2_labelled_threshold_and_status(labelled, fp, status, fires):
     rows = _denies(6, spacing=30)
     labels = [_label(f"tu{i}", "false_positive" if i < fp else "true_positive") for i in range(labelled)]
@@ -633,6 +717,11 @@ def _write_store(tmp_path, repo):
 
 
 def test_evaluate_end_to_end_and_cli_no_gh(tmp_path, monkeypatch, capsys):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    for var in tr._lib.CONFIG_DIR_ENV:
+        monkeypatch.delenv(var, raising=False)
     repo = _repo_with_history(tmp_path)
     store = _write_store(tmp_path, repo)
     agentic = repo / ".agentic"
@@ -663,6 +752,7 @@ def test_evaluate_end_to_end_and_cli_no_gh(tmp_path, monkeypatch, capsys):
     assert rc == 0 and calls == []
     out = json.loads(capsys.readouterr().out)
     assert out["meta"]["gh"][str(repo)] == "disabled (--no-gh)"
+    assert out["meta"]["stores"] == [os.path.realpath(store)]
     rc = cli.main(["--repo", str(repo), "--since", "7d", "--until", "2026-10-08", "--no-gh", "--store", str(store)])
     table = capsys.readouterr().out
     assert rc == 0

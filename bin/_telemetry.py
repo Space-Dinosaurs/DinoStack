@@ -41,7 +41,7 @@ Upstream deps: Python 3 stdlib; optional pyyaml for pricing.yml;
     resolved path (DS-66 symlink-invocation class). Row schema: see
     content/references/events-log.md (hook spawn rows, telemetry_v 2).
 
-Downstream consumers: bin/ds-cost, bin/ds-calibrate, bin/ds-change-delta,
+Downstream consumers: bin/ds-cost, bin/ds-calibrate, bin/ds-change-delta, bin/_eval.py,
     bin/tests/test_telemetry.py. Loaded via SourceFileLoader.
 
 Failure modes: never raises on malformed rows, a missing or unparseable
