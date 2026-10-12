@@ -75,7 +75,9 @@ Public API:
   _run(args, cwd=None, timeout=None, env=None)
     Private-by-convention subprocess wrapper shared with the resolver
     helpers (see its own docstring for the `env=` REPLACEMENT semantics and
-    the synthetic rc=124 timeout result). Exported because
+    the synthetic rc=124 timeout result). An OSError from the launch (the
+    executable or cwd missing, e.g. `gh` not installed) also returns a
+    synthetic failure, rc=127 with the error text as stderr, never raises. Exported because
     bin/ds-cleanup-worktrees routes every one of its own subprocess calls
     through it. bin/ds-branch-prune does NOT import this function at all,
     under an alias or otherwise: it keeps its own same-named,
@@ -382,6 +384,11 @@ def _run(
         # "could not determine", never as proof of anything. rc=124 mirrors
         # the shell convention for a timed-out command.
         return subprocess.CompletedProcess(args, returncode=124, stdout="", stderr=f"timeout after {timeout}s")
+    except OSError as exc:
+        # The executable or cwd is missing (an optional tool like gh not on
+        # PATH): the same "could not determine" failure, rc=127 as a shell
+        # reports for a command not found.
+        return subprocess.CompletedProcess(args, returncode=127, stdout="", stderr=str(exc))
 
 
 
