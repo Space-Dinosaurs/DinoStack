@@ -633,7 +633,7 @@ def wrap_note(repo: str, session_id: str, root: str) -> str:
     return (
         WRAP_MARKER + " " + LG.GATE_NOTE + " Do not reply ok. This session "
         "has been idle for 2h: wrap it now by following "
-        + wrap_command_path(repo) + " §In-session mode (read it once), steps 1-9, for "
+        + wrap_command_path(repo) + " §In-session mode (read it once), steps 1-8, for "
         "session " + session_id + ". Project root: " + root + " - run every "
         "command there and write only under " + os.path.join(root, ".agentic")
         + "/; never write anywhere else. DinoStack tools: "

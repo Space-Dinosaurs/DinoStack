@@ -46,7 +46,7 @@ def test_constants_match_library():
     assert "Session wrapped (idle 2h). Run /exit, then resume with: <kickoff>" in sec
     assert "ds-session-close" not in sec
     assert "DS_WRAP_EOF" not in sec, "a fixed heredoc delimiter can be ended early by conversation text"
-    assert "DSW_<first 12 characters of the token>_<n>" in sec
+    assert "`DSW_<nonce>_<n>`" in sec and "tr -dc 'a-f0-9'" in sec
     assert "four requests" in sec and "one Read of this file" in sec
 
 
