@@ -23,12 +23,16 @@
 #          ~/.agentic/cleanup-worktrees.json, that names the single worst
 #          project for stale worktrees across every configured repo when it
 #          differs from the current one and clears the same threshold.
+#          Both worktree nudges (g, h) are skipped when the payload's
+#          `source` is `compact`, so compaction does not repeat them; a
+#          missing or unreadable `source` keeps them.
 #          It is the first of the two SessionStart registrations install.sh
 #          makes (the second is hooks/session-start-memory.py); the
 #          version-check script is no longer wired directly - it is invoked
 #          from here.
 # Public API: bash hooks/session-start-wrap.sh
-#             (reads the SessionStart JSON payload on stdin, extracts `cwd`;
+#             (reads the SessionStart JSON payload on stdin, extracts `cwd`
+#              and `source`;
 #              writes a single JSON object to stdout; always exits 0.)
 # Upstream deps: hooks/session-start-version-check.sh (version notice),
 #                hooks/lib/hooks-staleness-core.sh (hooks-snapshot staleness
@@ -38,7 +42,8 @@
 #                  raw payload cwd; empty output on resolution failure and
 #                  every guarded block SKIPS its write rather than falling
 #                  back to $cwd),
-#                jq OR a grep/sed fallback (extract `cwd` from stdin),
+#                jq OR a grep/sed fallback (extract `cwd` and `source` from
+#                  stdin),
 #                node + hooks/wrap-daemon.js (detached daemon launch),
 #                .agentic/config.json (`deferred_wrap_daemon` toggle),
 #                AGENTIC_WRAP_DAEMON env var (loop-guard),
@@ -154,7 +159,9 @@
 #              below the nudge threshold or with the reap disabled. Measured
 #              7ms per call (5 consecutive runs, all 7ms) against this repo's
 #              own checkout - negligible next to the `--count-only` call it
-#              is gated behind.
+#              is gated behind. When `source` is `compact`, none of the
+#              worktree subprocesses above (`--count-only`, the machine-wide
+#              `--multi-repo` call, the reap-log `rev-parse`) run at all.
 
 set -euo pipefail
 
@@ -191,6 +198,29 @@ cwd="$(extract_cwd "$payload")"
 if [[ -z "$cwd" ]]; then
   cwd="${PWD:-.}"
 fi
+
+# --- Extract `source` (startup / resume / clear / compact) the same way ---
+# The fallback pattern requires an unescaped `"source"` key, so a `\"source\"`
+# inside another string value cannot match it.
+extract_source() {
+  local json="$1"
+  local val=""
+  if [[ -z "$json" ]]; then
+    return 0
+  fi
+  if command -v jq >/dev/null 2>&1; then
+    val="$(printf '%s' "$json" | jq -r '.source // empty' 2>/dev/null || true)"
+  fi
+  if [[ -z "$val" ]]; then
+    val="$(printf '%s' "$json" \
+      | grep -o '"source"[[:space:]]*:[[:space:]]*"[^"]*"' \
+      | head -n1 \
+      | sed -E 's/.*:[[:space:]]*"([^"]*)"/\1/' 2>/dev/null || true)"
+  fi
+  printf '%s' "$val"
+}
+
+session_source="$(extract_source "$payload")"
 
 # --- Resolve the repo root ONCE, immediately after cwd is known ---
 # Anchors every .agentic/ read/write below to the repo root instead of the
@@ -430,55 +460,57 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
   # any nonzero exit, and a `$?` check on the FOLLOWING line is unreachable
   # once `set -e` has already exited the script on the substitution itself.
   worktree_msg=""
-  WORKTREE_NUDGE_THRESHOLD=5
-  if [[ -n "${AE_REPO_DIR:-}" ]] && [[ -x "$AE_REPO_DIR/bin/ds-cleanup-worktrees" ]]; then
-    DS_CLEANUP_BIN="$AE_REPO_DIR/bin/ds-cleanup-worktrees"
-  fi
-  if [[ -z "${DS_CLEANUP_BIN:-}" ]] && command -v ds-cleanup-worktrees >/dev/null 2>&1; then
-    DS_CLEANUP_BIN="$(command -v ds-cleanup-worktrees)"
-  fi
-  if [[ -n "${DS_CLEANUP_BIN:-}" ]]; then
-    if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-      # `--count-only` (round-2 Skeptic Major 4): only the `entries=N` count
-      # is needed here (N includes the main worktree, so the non-root count
-      # is N-1) - zero network calls, zero per-entry `git` calls beyond the
-      # single `git worktree list --porcelain` --count-only itself needs.
-      # v1's `--dry-run --no-gh` full-mode invocation measured 14.94s against
-      # the live checkout because --no-gh suppressed `gh` but NOT `git
-      # ls-remote`, one network round-trip per entry - this call site never
-      # needed anything beyond a count, so it never needed that cost.
-      cleanup_rc=0
-      cleanup_summary="$(python3 "$DS_CLEANUP_BIN" --repo "$cwd" --count-only 2>/dev/null)" || cleanup_rc=$?
-      if [[ $cleanup_rc -ne 0 ]] || [[ ! "$cleanup_summary" =~ entries=([0-9]+) ]]; then
-        worktree_msg="worktree-count check failed unexpectedly (ds-cleanup-worktrees exited ${cleanup_rc}) - see \`ds-cleanup-worktrees --repo . --count-only\` directly to diagnose."
-      else
-        total_entries="${BASH_REMATCH[1]}"
-        nonroot_count=$((total_entries - 1))
-        if [[ "$nonroot_count" -ge "$WORKTREE_NUDGE_THRESHOLD" ]]; then
-          worktree_msg="${nonroot_count} non-root git worktrees in this project - consider running \`/ds-cleanup-worktrees\` (removes eligible worktrees by default; pass \`--dry-run --explain\` to \`ds-cleanup-worktrees\` first for a dry-run report)."
-          # Report-only observability signal (round-4 step 8): same repo-root
-          # idiom already proven above (`git -C "$cwd" rev-parse
-          # --show-toplevel`), scoped to THIS variable name so it cannot be
-          # confused with the worst-project block's own `cwd_toplevel`. Log
-          # existence only, not recency (see Deferred defaults) - and scoped
-          # to whichever worktree this preflight runs from, which is a known,
-          # self-clearing false-positive source when that differs from where
-          # the log actually lives (see Trade-offs in the DS-196 plan). This
-          # adds no removal logic - report-only, per the unchanged PR #707
-          # constraint. Suppressed entirely when AE_WORKTREE_REAP_DISABLE=1
-          # is set - otherwise an operator who has deliberately disabled the
-          # reap would see this message on every session forever, the one
-          # false-positive case among the three that never self-clears.
-          if [[ -z "${AE_WORKTREE_REAP_DISABLE:-}" ]]; then
-            nudge_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
-            if [[ ! -e "$nudge_root/.agentic/worktree-reap.log" ]]; then
-              worktree_msg="${worktree_msg} The session-start reap has apparently never produced a log entry in this repo."
+  if [[ "$session_source" != "compact" ]]; then
+    WORKTREE_NUDGE_THRESHOLD=5
+    if [[ -n "${AE_REPO_DIR:-}" ]] && [[ -x "$AE_REPO_DIR/bin/ds-cleanup-worktrees" ]]; then
+      DS_CLEANUP_BIN="$AE_REPO_DIR/bin/ds-cleanup-worktrees"
+    fi
+    if [[ -z "${DS_CLEANUP_BIN:-}" ]] && command -v ds-cleanup-worktrees >/dev/null 2>&1; then
+      DS_CLEANUP_BIN="$(command -v ds-cleanup-worktrees)"
+    fi
+    if [[ -n "${DS_CLEANUP_BIN:-}" ]]; then
+      if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        # `--count-only` (round-2 Skeptic Major 4): only the `entries=N` count
+        # is needed here (N includes the main worktree, so the non-root count
+        # is N-1) - zero network calls, zero per-entry `git` calls beyond the
+        # single `git worktree list --porcelain` --count-only itself needs.
+        # v1's `--dry-run --no-gh` full-mode invocation measured 14.94s against
+        # the live checkout because --no-gh suppressed `gh` but NOT `git
+        # ls-remote`, one network round-trip per entry - this call site never
+        # needed anything beyond a count, so it never needed that cost.
+        cleanup_rc=0
+        cleanup_summary="$(python3 "$DS_CLEANUP_BIN" --repo "$cwd" --count-only 2>/dev/null)" || cleanup_rc=$?
+        if [[ $cleanup_rc -ne 0 ]] || [[ ! "$cleanup_summary" =~ entries=([0-9]+) ]]; then
+          worktree_msg="worktree-count check failed unexpectedly (ds-cleanup-worktrees exited ${cleanup_rc}) - see \`ds-cleanup-worktrees --repo . --count-only\` directly to diagnose."
+        else
+          total_entries="${BASH_REMATCH[1]}"
+          nonroot_count=$((total_entries - 1))
+          if [[ "$nonroot_count" -ge "$WORKTREE_NUDGE_THRESHOLD" ]]; then
+            worktree_msg="${nonroot_count} non-root git worktrees in this project - consider running \`/ds-cleanup-worktrees\` (removes eligible worktrees by default; pass \`--dry-run --explain\` to \`ds-cleanup-worktrees\` first for a dry-run report)."
+            # Report-only observability signal (round-4 step 8): same repo-root
+            # idiom already proven above (`git -C "$cwd" rev-parse
+            # --show-toplevel`), scoped to THIS variable name so it cannot be
+            # confused with the worst-project block's own `cwd_toplevel`. Log
+            # existence only, not recency (see Deferred defaults) - and scoped
+            # to whichever worktree this preflight runs from, which is a known,
+            # self-clearing false-positive source when that differs from where
+            # the log actually lives (see Trade-offs in the DS-196 plan). This
+            # adds no removal logic - report-only, per the unchanged PR #707
+            # constraint. Suppressed entirely when AE_WORKTREE_REAP_DISABLE=1
+            # is set - otherwise an operator who has deliberately disabled the
+            # reap would see this message on every session forever, the one
+            # false-positive case among the three that never self-clears.
+            if [[ -z "${AE_WORKTREE_REAP_DISABLE:-}" ]]; then
+              nudge_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
+              if [[ ! -e "$nudge_root/.agentic/worktree-reap.log" ]]; then
+                worktree_msg="${worktree_msg} The session-start reap has apparently never produced a log entry in this repo."
+              fi
             fi
           fi
         fi
       fi
+      # else: cwd is not inside a git work tree - silently skip, not an error.
     fi
-    # else: cwd is not inside a git work tree - silently skip, not an error.
   fi
 
   # --- Machine-wide worst-project nudge (6th contributor, DS-189 Unit B).
@@ -504,20 +536,21 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
   # 126/127 (python3 missing) also go silent by construction under this
   # same rc-0-or-1 gate.
   machine_worktree_msg=""
-  if [[ -f "$HOME/.agentic/cleanup-worktrees.json" ]] && [[ -n "${DS_CLEANUP_BIN:-}" ]]; then
-    TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"
-    multi_rc=0
-    if [[ -n "$TIMEOUT_BIN" ]]; then
-      multi_summary="$("$TIMEOUT_BIN" 5 python3 "$DS_CLEANUP_BIN" --multi-repo --report --count-only --json --max-repos 20 2>/dev/null)" || multi_rc=$?
-    else
-      # No coreutils timeout (stock macOS): degrade to --max-repos-only cost
-      # bounding rather than disabling the machine-wide nudge (works without
-      # Homebrew).
-      multi_summary="$(python3 "$DS_CLEANUP_BIN" --multi-repo --report --count-only --json --max-repos 20 2>/dev/null)" || multi_rc=$?
-    fi
-    if [[ $multi_rc -eq 0 || $multi_rc -eq 1 ]] && [[ -n "$multi_summary" ]]; then
-      worst_repo_rc=0
-      worst_repo_line="$(python3 -c "
+  if [[ "$session_source" != "compact" ]]; then
+    if [[ -f "$HOME/.agentic/cleanup-worktrees.json" ]] && [[ -n "${DS_CLEANUP_BIN:-}" ]]; then
+      TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"
+      multi_rc=0
+      if [[ -n "$TIMEOUT_BIN" ]]; then
+        multi_summary="$("$TIMEOUT_BIN" 5 python3 "$DS_CLEANUP_BIN" --multi-repo --report --count-only --json --max-repos 20 2>/dev/null)" || multi_rc=$?
+      else
+        # No coreutils timeout (stock macOS): degrade to --max-repos-only cost
+        # bounding rather than disabling the machine-wide nudge (works without
+        # Homebrew).
+        multi_summary="$(python3 "$DS_CLEANUP_BIN" --multi-repo --report --count-only --json --max-repos 20 2>/dev/null)" || multi_rc=$?
+      fi
+      if [[ $multi_rc -eq 0 || $multi_rc -eq 1 ]] && [[ -n "$multi_summary" ]]; then
+        worst_repo_rc=0
+        worst_repo_line="$(python3 -c "
 import json, sys
 try:
     d = json.loads(sys.argv[1])
@@ -527,16 +560,17 @@ rows = d.get('rows') or []
 if rows:
     print(f\"{rows[0]['repo']}|{rows[0]['nonroot_worktrees']}|{1 if d.get('truncated') else 0}\")
 " "$multi_summary" 2>/dev/null)" || worst_repo_rc=$?
-      if [[ $worst_repo_rc -eq 0 ]] && [[ -n "$worst_repo_line" ]]; then
-        worst_repo_path="$(cut -d'|' -f1 <<<"$worst_repo_line")"
-        worst_repo_count="$(cut -d'|' -f2 <<<"$worst_repo_line")"
-        worst_repo_truncated="$(cut -d'|' -f3 <<<"$worst_repo_line")"
-        cwd_toplevel="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
-        if [[ "$worst_repo_count" =~ ^[0-9]+$ ]] && [[ "$worst_repo_count" -ge "$WORKTREE_NUDGE_THRESHOLD" ]] && [[ "$worst_repo_path" != "$cwd_toplevel" ]]; then
-          if [[ "$worst_repo_truncated" == "1" ]]; then
-            machine_worktree_msg="Largest stale-worktree count among the first 20 scanned repos (config lists more than 20 - machine-wide worst may be higher): ${worst_repo_path} (${worst_repo_count} non-root worktrees) - run \`ds-cleanup-worktrees --repo '${worst_repo_path}' --dry-run --explain\` there."
-          else
-            machine_worktree_msg="Worst project for stale worktrees machine-wide: ${worst_repo_path} (${worst_repo_count} non-root worktrees) - run \`ds-cleanup-worktrees --repo '${worst_repo_path}' --dry-run --explain\` there."
+        if [[ $worst_repo_rc -eq 0 ]] && [[ -n "$worst_repo_line" ]]; then
+          worst_repo_path="$(cut -d'|' -f1 <<<"$worst_repo_line")"
+          worst_repo_count="$(cut -d'|' -f2 <<<"$worst_repo_line")"
+          worst_repo_truncated="$(cut -d'|' -f3 <<<"$worst_repo_line")"
+          cwd_toplevel="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
+          if [[ "$worst_repo_count" =~ ^[0-9]+$ ]] && [[ "$worst_repo_count" -ge "$WORKTREE_NUDGE_THRESHOLD" ]] && [[ "$worst_repo_path" != "$cwd_toplevel" ]]; then
+            if [[ "$worst_repo_truncated" == "1" ]]; then
+              machine_worktree_msg="Largest stale-worktree count among the first 20 scanned repos (config lists more than 20 - machine-wide worst may be higher): ${worst_repo_path} (${worst_repo_count} non-root worktrees) - run \`ds-cleanup-worktrees --repo '${worst_repo_path}' --dry-run --explain\` there."
+            else
+              machine_worktree_msg="Worst project for stale worktrees machine-wide: ${worst_repo_path} (${worst_repo_count} non-root worktrees) - run \`ds-cleanup-worktrees --repo '${worst_repo_path}' --dry-run --explain\` there."
+            fi
           fi
         fi
       fi
