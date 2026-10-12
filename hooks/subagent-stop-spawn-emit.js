@@ -66,7 +66,9 @@
  *            `description` and `toolUseId`.
  *          - qa-engineer: `qa_result` (PASS/FAIL/PARTIAL/INCONCLUSIVE/
  *            BLOCKED) and `qa_blocking_count` from the run's last text, or
- *            `qa_result_note`. The Skeptic and QA parses read the payload's
+ *            `qa_result_note`. The result is the last unindented
+ *            `result: <VALUE>` line, bare, `#`-heading, or bold, trailing
+ *            text allowed. The Skeptic and QA parses read the payload's
  *            `last_assistant_message` first, the transcript's last text
  *            only when the payload lacks it.
  *          - Label: sidecar `agentType`, then payload `agent_type`
@@ -1349,10 +1351,14 @@ function isInternalAgent(payload, sidecar) {
 
 // qa-engineer's pointer return (content/agents/qa-engineer.md) opens with a
 // top-level `result:` line; criteria[] entries repeat `result:` indented, so
-// only an unindented line counts. BLOCKED is accepted although the pointer
-// enum omits it, because the same file's "Overall result rules" define it as
-// an overall result - dropping it would leave a real run unrecorded.
-const _QA_RESULT_RE = /^result:[ \t]*(PASS|FAIL|PARTIAL|INCONCLUSIVE|BLOCKED)[ \t]*$/gm;
+// only an unindented line counts. Real runs instead end on the written
+// report's `## Result: PASS ...` heading, often with trailing prose, so a
+// heading (up to `###`) or bold `**Result:**` prefix and trailing text are
+// accepted too; a `- **Result:**` per-criterion bullet is not. BLOCKED is
+// accepted although the pointer enum omits it, because the same file's
+// "Overall result rules" define it as an overall result - dropping it would
+// leave a real run unrecorded.
+const _QA_RESULT_RE = /^(?:#{1,3}[ \t]*)?\**result\**:\**[ \t]*(PASS|FAIL|PARTIAL|INCONCLUSIVE|BLOCKED)\b/gim;
 const _QA_BLOCKING_RE = /^blocking_count:[ \t]*(\d+)[ \t]*$/gm;
 
 /**
@@ -1366,7 +1372,7 @@ function parseQaResult(runLastText) {
   if (!results.length) return { qaResultNote: 'unavailable (no top-level result line in run)' };
   const counts = [...text.matchAll(_QA_BLOCKING_RE)];
   return {
-    qaResult: results[results.length - 1][1],
+    qaResult: results[results.length - 1][1].toUpperCase(),
     qaBlockingCount: counts.length ? Number(counts[counts.length - 1][1]) : null,
   };
 }

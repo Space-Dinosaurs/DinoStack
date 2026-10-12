@@ -474,6 +474,14 @@ console.log('\nQA result parsing and Skeptic round-state fallback');
   assert(parseQaResult('```yaml\nresult: PARTIAL\n```').qaResult === 'PARTIAL', 'PARTIAL is recorded');
   assert(parseQaResult('  result: PASS\n').qaResultNote !== undefined, 'an indented result line alone is not a run result');
   assert(parseQaResult('result: PASS\nlater:\nresult: FAIL\n').qaResult === 'FAIL', 'the last top-level result line wins');
+  assert(parseQaResult('Done.\n\n## Result: PASS on all three criteria\n\n## Acceptance Criteria Results\n').qaResult === 'PASS',
+    'a "## Result:" heading with trailing text is a run result');
+  assert(parseQaResult('**Result:** FAIL\n').qaResult === 'FAIL', 'a bold "**Result:**" line is a run result');
+  assert(parseQaResult('result: partial\n').qaResult === 'PARTIAL', 'a lowercase result line is recorded uppercased');
+  assert(parseQaResult('## Result: PARTIAL\n...\n## Result: PASS. All baselines captured\n').qaResult === 'PASS',
+    'the last heading result wins');
+  assert(parseQaResult('## Results summary\n## Result: Baseline captured\n- **Result:** PASS\n').qaResultNote !== undefined,
+    'a "Results" heading, a non-enum value, and a per-criterion bullet are not run results');
 }
 {
   const sb = sandbox('sess-rs', true);
