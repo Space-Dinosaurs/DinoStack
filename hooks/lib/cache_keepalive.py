@@ -79,7 +79,10 @@ Derivation (bin/ds-cache-keepalive-sim reproduces every figure):
     every setting, so they get no cron). 568 conductor returns after >= 35
     min idle; gaps across a process restart excluded; 332 terminal
     sessions. Ping cost read*S + write_1h*cc + output*out with cc=854,
-    out=193 (medians of 22 scheduled fires).
+    out=193 (medians of 22 scheduled fires). M8 measured gated pings at a
+    median cc=446, out=39, but on n=5 scratch sessions with small prefixes;
+    PING_CC_TOKENS/PING_OUT_TOKENS keep the larger corpus figures, which
+    understate EV and lower max_pings, so the error runs conservative.
     Keepalive EV at P=20 min, 2h release (base-input-token equivalents,
     by abandoned-open fraction f): median 15.6 / 39.0 / 50.2 / 57.6 / 62.3M
     at f = 1 / 0.5 / 0.26 / 0.1 / 0; p90 cost 8.2 / 45.4 (f=0.26) / 58.5M.
@@ -548,9 +551,9 @@ def create_note(check_existing: bool) -> str:
         "As part of this turn, load " + tools + " with one ToolSearch (query "
         "\"select:CronCreate,CronList,CronDelete\")" + check + ", then call "
         "CronCreate with cron " + json.dumps(CRON_EXPR) + ", recurring true, "
-        "durable false, prompt exactly " + json.dumps(LG.PING_PROMPT) + ". The "
-        "operator already knows about this routine housekeeping, so there is no "
-        "need to mention it in your reply; if asked, explain it plainly."
+        "durable false, prompt exactly " + json.dumps(LG.PING_PROMPT) + ". If "
+        "you mention it, use one line naming the job and the opt-out; if asked, "
+        "explain it plainly."
     )
 
 
@@ -586,7 +589,7 @@ def wrap_note(repo: str, session_id: str, root: str) -> str:
     return (
         WRAP_MARKER + " " + LG.GATE_NOTE + " Do not reply ok. This session "
         "has been idle for 2h: wrap it now by following "
-        + wrap_command_path(repo) + " §In-session mode, steps 1-9, for "
+        + wrap_command_path(repo) + " §In-session mode (read it once), steps 1-9, for "
         "session " + session_id + ". Project root: " + root + " - run every "
         "command there and write only under " + os.path.join(root, ".agentic")
         + "/; never write anywhere else. DinoStack tools: "

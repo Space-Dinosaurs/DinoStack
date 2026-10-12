@@ -252,16 +252,6 @@
       "source_token": "content/references/capture-classification.md"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "1bf365b9c97cdd7a95eeb6bda4b0ef3f9450eb747d504354ea885692838f17d0",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "content/sections/04-risk-classification.md",
       "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
@@ -1012,6 +1002,16 @@
       "source_token": "content/rules/conventions.md"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "6fad35634dd71f0c3f7f425acb5c63d8fb8eea8504b36214bba93f3473dd54e0",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": ".claude/install.sh",
       "generated_token": "$AE_REPO_DIR/.claude/install.sh",
       "kind": "operational",
@@ -1050,16 +1050,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
-    },
-    {
-      "expected_target": ".agentic/config.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
-      "kind": "operational",
-      "occurrence_hash": "7a545f65bb1e5816d680a26e155f6082304b8c71308ad5e7c8142518ba45de8b",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/config.json"
     },
     {
       "expected_target": ".agentic/events.jsonl",
@@ -1206,6 +1196,16 @@
       "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
       "kind": "operational",
       "occurrence_hash": "89e05c2644444f8b8b0a97162aa122f6bd0eb2754e9575d0be34ce9f9bb181fe",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/config.json"
+    },
+    {
+      "expected_target": ".agentic/config.json",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
+      "kind": "operational",
+      "occurrence_hash": "8a5578a75b7d197f9505e349dd8aca21a75bacd00d0510f1b692e0efbd4f0014",
       "resolution_mode": "invoked-project-path",
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
@@ -1912,16 +1912,6 @@
       "source_token": "content/agents/skeptic.md"
     },
     {
-      "expected_target": "content/references/risk-config-and-tiers.md",
-      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
-      "kind": "operational",
-      "occurrence_hash": "d6239b1b3720a02936904e891194cbc78dea57cc1f0845f470ff914b8242747e",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/risk-config-and-tiers.md"
-    },
-    {
       "expected_target": "content/references/capability-preflight.md",
       "generated_token": "$AE_REPO_DIR/content/references/capability-preflight.md",
       "kind": "operational",
@@ -2240,6 +2230,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/ds-implement-ticket"
+    },
+    {
+      "expected_target": "content/references/risk-config-and-tiers.md",
+      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
+      "kind": "operational",
+      "occurrence_hash": "efdeb8cd5a2caf1474d1e4a8a9abcd0931c49d0e2fafa665f8c5f363c30ee547",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
       "expected_target": "apply_patch",

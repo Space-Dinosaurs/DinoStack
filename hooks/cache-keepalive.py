@@ -36,8 +36,9 @@ Behavior (UserPromptSubmit only; any other event gets no output):
     prompt starts with MARKER but is not equal: BLOCK_OUTPUT.
     any other prompt: only when CLAUDE_CODE_SESSION_ATTENDED == "1" (Claude
         Code sets 0 for -p, --resume -p, the SDK, agent-teams teammates and
-        bg/daemon sessions), the payload has no agent_id, and
-        creation_due(): additionalContext create_note(). Otherwise nothing.
+        bg/daemon sessions), the payload has no agent_id, the prompt is not
+        harness-injected (a task notification), and creation_due():
+        additionalContext create_note(). Otherwise nothing.
 
 Why it fails closed: an exception after the marker matched gives
     BLOCK_OUTPUT. If this hook is absent or cannot load its library, the
@@ -161,8 +162,14 @@ def handle_ping(lib, payload, now):
         _emit(lib.BLOCK_OUTPUT)
 
 
-def handle_prompt(lib, payload, env):
+def handle_prompt(lib, payload, env, prompt):
     if env.get("CLAUDE_CODE_SESSION_ATTENDED") != "1" or payload.get("agent_id"):
+        return
+    # Genuine operator prompts only. A task-notification turn is unprompted,
+    # and enforce-turn-shape.py blocks its zero-warrant replies whether or not
+    # the cron was created there (measured), so creating on it cost extra
+    # Stop-blocked requests.
+    if lib.LG.is_harness_injected_text(prompt):
         return
     path = _str(payload, "transcript_path")
     if not lib.is_conductor(path):
@@ -203,7 +210,7 @@ def main():
             _emit(lib.BLOCK_OUTPUT)
         return
     try:
-        handle_prompt(lib, payload, env)
+        handle_prompt(lib, payload, env, prompt)
     except Exception:
         pass
 

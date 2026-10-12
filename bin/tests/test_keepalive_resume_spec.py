@@ -45,6 +45,9 @@ def test_constants_match_library():
     assert ck.RESUME_DIR == ".agentic/resume"
     assert "Session wrapped (idle 2h). Run /exit, then resume with: <kickoff>" in sec
     assert "ds-session-close" not in sec
+    assert "DS_WRAP_EOF" not in sec, "a fixed heredoc delimiter can be ended early by conversation text"
+    assert "DSW_<first 12 characters of the token>_<n>" in sec
+    assert "four requests" in sec and "one Read of this file" in sec
 
 
 def test_fallback_prompt_identical_everywhere():

@@ -4,7 +4,7 @@ Purpose: Re-derive the prompt-cache keepalive's economics from the
          operator's own Claude Code transcripts, so the retirement test and
          any re-tune of hooks/lib/cache_keepalive.py are reproducible from a
          clone. Prints, per cron period and release value, the keepalive EV,
-         the wrap-and-close terms, and a keep/opt-out verdict.
+         the in-session wrap terms, and a keep/opt-out verdict.
 
 Public API: ds-cache-keepalive-sim [--data FILE] [--days N]
               [--period S | --periods S...] [--release-h H...] [--smin N]
@@ -33,9 +33,11 @@ Model (units: base-input-token equivalents; read/write/output are
     Class: subdir = <transcript minus .jsonl>/subagents exists; agenttool =
     an Agent or Task tool_use appears in the main chain.
     Episode: fires every P at 20 averaged phases; a fire pings when the time
-    L since the last request is in [COLD-P, COLD); the ping that would be
-    last before release (or the cost cap) self-deletes (+del-req pings).
-    A return after a deletion pays recreate-req requests at read*S; each
+    L since the last request is in [COLD-P, COLD); pinging stops at the
+    last ping before release (or the cost cap), where the cron is deleted
+    (+del-req pings). At release that deletion stands for the wrap turn's
+    CronDelete; the wrap's own cost is the Wrap term below, not part of
+    the episode. A return after a deletion pays recreate-req requests at read*S; each
     blocked fire adds block-tok tokens written at write. Ping cost
     read*S + write*cc + oratio*out.
     Wrap: each return idle >= release + effective interval and each open

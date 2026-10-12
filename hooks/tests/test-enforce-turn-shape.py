@@ -4321,6 +4321,14 @@ check("ka9. a non-wrap turn ending 'Session wrapped' -> full enforcement",
 check("ka10. wrap turn replying 'ok' -> full enforcement",
       _ka_enforced("ka10", [_ka_ping(), _ka_wrap_attachment()], "ok"))
 
+_ka_answer = "notes.txt now contains alpha."
+_ka_plain = _ka_run("ka12a", _ka_human, _ka_answer)
+_ka_created = _ka_run("ka12b", _ka_human + [_ka_tool("ToolSearch", "t12"), _ka_result("t12"),
+                                            _ka_tool("CronCreate", "t13"), _ka_result("t13")], _ka_answer)
+check("ka12. a genuine-prompt turn that also created the keepalive cron gets the same verdict as without it "
+      "(QUIET), so creation adds no Stop-blocked request",
+      _ka_created == _ka_plain and is_quiet(*_ka_created))
+
 _ka_nolib = tempfile.mkdtemp(dir=_KA_TMP)
 shutil.copy(HOOK_PATH, os.path.join(_ka_nolib, "enforce-turn-shape.py"))
 _ka_cwd = tempfile.mkdtemp(dir=_KA_TMP)
