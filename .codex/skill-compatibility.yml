@@ -20872,16 +20872,6 @@
       "source_token": "<cwd>/.agentic/wrap/lock"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "0202d258bfa2039b3437338f358088382309910c5fb0fdff47a8c857050b8c44",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": ".agentic/memory.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/memory.md",
       "kind": "operational",
@@ -20890,16 +20880,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/memory.md"
-    },
-    {
-      "expected_target": "rg",
-      "generated_token": "Grep",
-      "kind": "semantic-reference",
-      "occurrence_hash": "064fe91b14f3f60def2cd48fdd54f90c15621f68c29651d9f7abed4f548bd103",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "Grep"
     },
     {
       "expected_target": "dinostack-codex-wrap",
@@ -21702,6 +21682,16 @@
       "source_token": "bin/ds-migrate"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "30692b326b4e31563f12b4e7f8de988c7a602f14a7c5fcf2ef80b59981329b0b",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": ".agentic/wrap/lock",
       "generated_token": "$AE_PROJECT_DIR/.agentic/wrap/lock",
       "kind": "operational",
@@ -21870,6 +21860,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "5. **`--session-id` is the liveness signal for an interactive hold, and it is why an abandoned lock is no longer immortal.** A `--role=agent` descriptor carries `pid: null` by construction, so there is no process to liveness-check; without a session id the helper's verdict for such a lock is `live` FOREVER. Pass `--session-id=\"$CLAUDE_CODE_SESSION_ID\"` at BOTH acquisition sites above, keeping the flag on the SAME LINE as the invocation. Use `CLAUDE_CODE_SESSION_ID` and only that variable - `AGENTIC_SESSION_ID` and `CLAUDE_SESSION_UUID` are both empty in a live session (`bin/ds-migrate` reads them and is already silently degraded as a result). The flag is soft: an unset variable expands to an empty value, the helper publishes `session_id: null`, acquisition still succeeds, and the lock falls back to a pid-blind age rule - degraded, never stealing a live hold. Nothing here is harness-specific beyond the variable name: adapters that do not export it simply get the fallback.\n\n"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "39c27e9c19116c5d662a71ce7a6048d980ed10591eee4cb5b5da0a47dfaa08fe",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
     },
     {
       "expected_target": "content/references/tracker-writeback.md",
@@ -22312,6 +22312,16 @@
       "source_token": "<cwd>/.agentic/memory"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "556896a4ace0a93761a03d75299534d0a6ac2d8b495b506db8ce571d6f24a733",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": ".claude/memory/",
       "generated_token": "$AE_PROJECT_DIR/.claude/memory/",
       "kind": "operational",
@@ -22752,6 +22762,16 @@
       "source_token": "$CLAUDE_CODE_SESSION_ID"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "6979d6b593d361825378ad58e5dd4058145f1dd0d99ade918169cfb4ed7e001e",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "dinostack-codex-wrap",
       "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
@@ -22776,6 +22796,16 @@
       "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "6d50faa47c1a5a8955a1b651ab5fa8648e35e7b2368da70bed83b7e5e539437a",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
+    },
+    {
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
+      "kind": "operational",
+      "occurrence_hash": "6d5b7b9b56d2e80155812f23bdddb58192dd84f15a993b8a6d381e9dece64845",
       "resolution_mode": "native-skill",
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
@@ -23162,16 +23192,6 @@
       "source_token": "- Do NOT write `_wrap.md` (the Stop hook already writes a raw activity shard after every turn, and the rollup already carries it - running /ds-wrap on a zero-substance session duplicates that work with a hand-curated version of nothing)"
     },
     {
-      "expected_target": ".agentic/learnings.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
-      "kind": "operational",
-      "occurrence_hash": "80eadd18d1ddb7ab909ec91fb25a2bc5308a122995636c31951a85c15adfb982",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/learnings.md"
-    },
-    {
       "expected_target": ".agentic/deploy.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/deploy.md",
       "kind": "operational",
@@ -23472,6 +23492,16 @@
       "source_token": "content/rules/conventions.md"
     },
     {
+      "expected_target": "rg",
+      "generated_token": "Grep",
+      "kind": "semantic-reference",
+      "occurrence_hash": "94aa0af519b41051e2ff1e9d1a1b64d784a607685f5132d530206bf237e1f121",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Grep"
+    },
+    {
       "expected_target": "dinostack-codex-wrap",
       "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
@@ -23570,6 +23600,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/wrap/last-wrap"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "9acc3595ce9bff8fd5b75d0edf1cf641610d90707f54e429b836a5942f0b3b81",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -23682,16 +23722,6 @@
       "source_token": "content/references/skeptic-protocol.md"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "a28bccd6a799e0a830e31ede200fee92c2b830c0ace3dc24a9e5d0d2758d8e2d",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "content/commands/ds-wrap-deferred.md",
       "generated_token": "manual workflow 'ds-wrap-deferred' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-wrap-deferred`",
       "kind": "operational",
@@ -23712,6 +23742,16 @@
       "source_token": "Write"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "a44fcde7308971a56ff0e3609b1643e464b851bcd5a66584b645d12aef28c1b1",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "dinostack-codex-implement-ticket",
       "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
@@ -23730,6 +23770,26 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/wrap/lock"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "a5c2ed89771d210b58663af6356bc71c8ebd782fc6fd9f38e4a3c44e165dd1a0",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "a69e92199ecd81c0a6e90d3a15534bc55536bc206359d9731a273b35f44d4515",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -23862,6 +23922,16 @@
       "source_token": "3. **On busy: do not read the owner file, do not classify it, and do not abort.** There is no separate unreadable-owner or stale-owner branch to evaluate here - both are progress conditions the helper itself handles, not give-up conditions for the conductor to decide. Run the acquire helper again, this time as a BACKGROUND command (`run_in_background: true`), letting it wait: `ds-wrap-acquire-lock \"$cwd\" --role=agent --session-id=\"$CLAUDE_CODE_SESSION_ID\"`. It polls in-process (jittered ~5s interval) and exits once the lock is acquired or after 20 minutes; non-blocking, so the conductor stays available until notified of completion. On the completion notification, branch on exactly three outcomes:\n   - **0** - acquired; the lock is now held by /ds-wrap. Proceed normally.\n   - **2** - timeout. Report the helper's final `timeout ...` line verbatim (it already carries role, pid, start time, and an `rm -rf` recovery command). Then abort.\n   - **1** - unexpected failure. Surface the WARNING line from stdout, then abort.\n   - **any other exit code** - surface it verbatim, then abort.\n\n   Exit codes 3 (unreadable owner) and 4 (stale-needs-manual) no longer exist, deliberately: an unreadable owner and an old-looking timestamp are progress conditions, not give-up conditions. A lock whose owner looks old may be held by a /ds-wrap that is legitimately still working - the timestamp alone cannot distinguish that from an abandoned lock, so the waiter keeps waiting and only tells the operator how to unwedge it manually (the HINT's `rm -rf` command) if the operator judges it stuck.\n"
     },
     {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "afd381dcc145ac1c95534114ed7e5d7c3f5edb54b39d3244274c9136c4959683",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/learnings.md"
+    },
+    {
       "expected_target": "content/commands/ds-init-project.md",
       "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
@@ -23902,6 +23972,16 @@
       "source_token": "--jq"
     },
     {
+      "expected_target": "shell",
+      "generated_token": "Bash",
+      "kind": "semantic-reference",
+      "occurrence_hash": "b1e9677692ff1efb6ffebff35413d8ce330fbe2571a795d863d9c6b5048bcf6e",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Bash"
+    },
+    {
       "expected_target": "else",
       "generated_token": "else",
       "kind": "operational",
@@ -23910,16 +23990,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "else"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "b2283c659ecee6abc08a8a08251dadb6f4416f33a2a982d90f6b1c356ef06271",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "Read"
     },
     {
       "expected_target": "dinostack-codex-wrap",
@@ -24192,16 +24262,6 @@
       "source_token": "bin/ds-tracker"
     },
     {
-      "expected_target": "dinostack-codex-wrap",
-      "generated_token": "$dinostack-codex-wrap",
-      "kind": "operational",
-      "occurrence_hash": "befb711c049dc98f53773337a6eb73fff90d1ae7dc7f306e651b5bc3e355b2bb",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
-    },
-    {
       "expected_target": ".agentic/",
       "generated_token": "$AE_PROJECT_DIR/.agentic/",
       "kind": "operational",
@@ -24382,16 +24442,6 @@
       "source_token": "content/references/conductor-operating-rules.md"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "c6f3130bc61b04c527c05cfb294f62427143f1da009c046780d2ea6c219f00cd",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "true",
       "generated_token": "true",
       "kind": "operational",
@@ -24470,6 +24520,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
       "source_token": "`/ds-wrap-deferred`"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "cbe345ac97664fa9cb6c899bb145c04ff87055738fc660c778751044d3468de4",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
     },
     {
       "expected_target": ".agentic/_wrap.md",
@@ -24762,6 +24822,16 @@
       "source_token": "$CLAUDE_CODE_SESSION_ID"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "dd28e9446e4d7aa9c6c4b267d9751edfa9352917b8ddc54c6627a0c8a726f343",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/decisions",
       "kind": "display-only",
@@ -24800,16 +24870,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".claude/"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "e1a1176aea34b69915e264d62a56d688e6a4a48d12cf5c0ba5644966e4eca27c",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "Read"
     },
     {
       "expected_target": ".agentic/wrap/last-wrap",
@@ -24920,16 +24980,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "if"
-    },
-    {
-      "expected_target": "shell",
-      "generated_token": "Bash",
-      "kind": "semantic-reference",
-      "occurrence_hash": "e93b6d8caa22ab974fb49c37354cbe19d62a12b75f2fa6d4613a94ef3f3ddc6f",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "Bash"
     },
     {
       "expected_target": "dinostack-codex-wrap",
