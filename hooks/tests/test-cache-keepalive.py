@@ -386,6 +386,8 @@ def _home(wrap_file=True, global_cfg=None):
     os.makedirs(os.path.join(repo, "content", "commands"))
     if wrap_file:
         open(os.path.join(repo, "content", "commands", "ds-wrap-deferred.md"), "w").write("x")
+    os.makedirs(os.path.join(repo, "bin"))
+    os.symlink(os.path.join(REPO, "bin", "ds-status"), os.path.join(repo, "bin", "ds-status"))
     os.makedirs(os.path.join(home, ".agentic"))
     json.dump({"repo_dir": repo}, open(os.path.join(home, ".agentic", "agentic-engineering-config.json"), "w"))
     if global_cfg is not None:
@@ -450,6 +452,32 @@ def t_hook_disabled(h):
     assert run_hook(h, "next", fresh, home, env=dict(att, AE_CACHE_KEEPALIVE_DISABLE="1")) is None
 
 
+def t_activation(h):
+    """No-op projects (preflight step 4) get neither pings nor the create
+    note; every active combination does. A missing resolver fails closed."""
+    ck = load(h)
+    path = write_transcript(warm_idle(ck, 3000))
+    att = {"CLAUDE_CODE_SESSION_ATTENDED": "1"}
+    fresh = write_transcript([session_start(NOW - 100), user(NOW - 90), asst(NOW - 89)])
+    for mode, marker, active in (("opt-out", None, True), ("opt-out", "opt-in", True), ("opt-out", "opt-out", False),
+                                 ("opt-in", None, False), ("opt-in", "opt-out", False), ("opt-in", "opt-in", True)):
+        home, _ = _home(global_cfg={"mode": mode})
+        proj = tempfile.mkdtemp(dir=SCRATCH)
+        if marker:
+            open(os.path.join(proj, "AGENTS.md"), "w").write("# p\n\nagentic-engineering: %s\n" % marker)
+        ping_out = run_hook(h, ck.LG.PING_PROMPT, path, home, cwd=proj)
+        create_out = run_hook(h, "please continue", fresh, home, env=att, cwd=proj)
+        label = (mode, marker)
+        if active:
+            assert _ctx(ping_out) == ck.LG.GATE_NOTE, label
+            assert _ctx(create_out) == ck.create_note(False), label
+        else:
+            assert ping_out is None and create_out is None, (label, ping_out, create_out)
+    home, repo = _home()
+    os.remove(os.path.join(repo, "bin", "ds-status"))
+    assert run_hook(h, ck.LG.PING_PROMPT, path, home) is None
+
+
 def t_hook_create(h):
     ck = load(h)
     home, _ = _home()
@@ -477,7 +505,7 @@ def t_hook_create(h):
 
 CASES = [t_constants, t_decide_actions, t_release_wrap, t_no_repeat_wrap, t_session_state, t_blocked_fire_records, t_rate_limit,
          t_is_ping_record, t_cron_status, t_creation_due, t_in_flight, t_is_conductor, t_kickoff, t_rates_parity,
-         t_skill_regex, t_hook_ping_actions, t_hook_disabled, t_hook_create]
+         t_skill_regex, t_hook_ping_actions, t_hook_disabled, t_activation, t_hook_create]
 
 # (name, file under hooks/, old, new, case it must redden)
 MUTATIONS = [
@@ -508,6 +536,7 @@ MUTATIONS = [
      "", t_hook_create),
     ("create-on-handback", "lib/cache_keepalive.py", 'NON_OPERATOR_PREFIXES = ("<agent-message", "<task-notification>")',
      'NON_OPERATOR_PREFIXES = ("<task-notification>",)', t_hook_create),
+    ("ignores-activation", "lib/cache_keepalive.py", "    if not is_active(cwd):\n        return False\n", "", t_activation),
     ("repeat-wrap", "lib/cache_keepalive.py", '    if state.get("wrapped_since_idle"):\n',
      '    if False:\n', t_no_repeat_wrap),
     ("no-cost-cap", "lib/cache_keepalive.py", 'return ("delete", "cost-capped")', 'pass', t_release_wrap),

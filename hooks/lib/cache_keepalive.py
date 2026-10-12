@@ -18,9 +18,13 @@ Public API:
     ping_cost(S) / max_pings(S): cost of one ping at prefix S in input-token
         units, and the per-idle-period cap floor((W - R) * S / ping_cost(S)),
         so pinging never costs more than the cold re-write it avoids.
-    is_enabled(cwd) -> bool: False iff AE_CACHE_KEEPALIVE_DISABLE=1, or the
-        first config carrying `cache_keepalive` sets a literal false.
-        Lookup: <resolve_agentic_cwd(cwd)>/.agentic/config.json, then
+    is_active(cwd, repo=None) -> bool: the activation preflight's step 4
+        via bin/ds-status (loaded from repo_dir); False for a no-op project
+        and when the resolver cannot load.
+    is_enabled(cwd) -> bool: False iff AE_CACHE_KEEPALIVE_DISABLE=1, the
+        project is not active (is_active), or the first config carrying
+        `cache_keepalive` sets a literal false. Lookup:
+        <resolve_agentic_cwd(cwd)>/.agentic/config.json, then
         ~/.claude/agentic-engineering.json, then the default true.
     is_conductor(transcript_path) -> bool: <transcript minus .jsonl>/subagents
         is a directory, i.e. the session has spawned a subagent.
@@ -201,8 +205,45 @@ def _config_value(path):
     return None
 
 
+def _load_status_resolver(repo):
+    """bin/ds-status from the DinoStack checkout: the canonical activation
+    resolver (global mode + AGENTS.md marker). The hooks snapshot does not
+    carry bin/ds-status, so it is loaded from repo_dir."""
+    import importlib.machinery
+    import importlib.util as _ilu
+
+    path = os.path.join(repo, "bin", "ds-status")
+    loader = importlib.machinery.SourceFileLoader("ds_status_for_keepalive", path)
+    spec = _ilu.spec_from_loader("ds_status_for_keepalive", loader)
+    mod = _ilu.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def is_active(cwd: str, repo=None) -> bool:
+    """content/sections/01-activation-preflight.md step 4, via bin/ds-status:
+    False when the project resolves to no-op (mode opt-out + marker opt-out,
+    or mode opt-in without an opt-in marker). False when the resolver cannot
+    be loaded or raises, since a ping or wrap in a no-op project writes into
+    its .agentic/."""
+    try:
+        status = _load_status_resolver(repo or repo_dir())
+        config, config_status = status._load_config()
+        prev = os.getcwd()
+        try:
+            os.chdir(LG.resolve_agentic_cwd(cwd) if cwd else prev)
+            scan = status._scan_agents_md(status._resolve_agents_md())
+        finally:
+            os.chdir(prev)
+        return bool(status._resolve(config, scan, config_status).get("active"))
+    except Exception:
+        return False
+
+
 def is_enabled(cwd: str) -> bool:
     if os.environ.get(KILL_SWITCH_ENV) == "1":
+        return False
+    if not is_active(cwd):
         return False
     paths = []
     if cwd:
