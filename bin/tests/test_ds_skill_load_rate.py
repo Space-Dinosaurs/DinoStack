@@ -179,14 +179,23 @@ def write_transcript(store: Path, project_dir_name: str, session_id: str, record
 PROJECT = "-Users-tyson-fixture-repo"
 
 
-_EMPTY_HOME = tempfile.mkdtemp(prefix="slr-home-")
+_EMPTY_HOME = None
 
 
-def _env(store=None, home=_EMPTY_HOME) -> dict:
+def setUpModule():
+    global _EMPTY_HOME
+    _EMPTY_HOME = tempfile.TemporaryDirectory(prefix="slr-home-")
+
+
+def tearDownModule():
+    _EMPTY_HOME.cleanup()
+
+
+def _env(store=None, home=None) -> dict:
     env = dict(os.environ)
     for var in slr._transcripts._lib.CONFIG_DIR_ENV:
         env.pop(var, None)
-    env["HOME"] = str(home)
+    env["HOME"] = str(home or _EMPTY_HOME.name)
     if store is not None:
         env["CLAUDE_CONFIG_DIR"] = str(store)
     return env
@@ -780,10 +789,8 @@ class TestHonestReporting(unittest.TestCase):
 
 
 class TestStores(unittest.TestCase):
-    """Two stores under a fake HOME (`.claude` and `.claude-other`). Named
-    mutation: in main(), replace `_transcripts.stores(...)` with
-    `[resolve_claude_config_dir() / "projects"]` (the active dir only) and
-    test_default_scans_every_store_under_home reddens (1 session, not 2)."""
+    """Two stores under a fake HOME (`.claude` and `.claude-other`): the
+    default run reads both, not only the active config dir."""
 
     def _two_stores(self, tmp: Path):
         home = tmp / "home"
@@ -826,9 +833,56 @@ class TestStores(unittest.TestCase):
             self.assertEqual(got[os.path.realpath(home / ".claude-empty" / "projects")], 0)
             self.assertEqual(payload["sessions_scanned"], 2)
 
+    @unittest.skipIf(os.geteuid() == 0, "root can list a mode-000 directory")
+    def test_unreadable_store_is_absent_not_a_scanned_zero(self):
+        for scope in (["--repo-path"], ["--all-projects"]):
+            with self.subTest(scope=scope[0]), tempfile.TemporaryDirectory() as tmp:
+                home, a, b, repo = self._two_stores(Path(tmp))
+                bad = home / ".claude-bad" / "projects"
+                bad.mkdir(parents=True)
+                bad_real = os.path.realpath(bad)
+                args = scope + ([str(repo)] if scope == ["--repo-path"] else [])
+                env = _env(home=home)
+                bad.chmod(0)
+                try:
+                    payload = _collect_json(None, args, env=env)
+                    out = subprocess.run([sys.executable, str(CLI_PATH), *args],
+                                         capture_output=True, text=True, env=env).stdout
+                finally:
+                    bad.chmod(0o755)
+                entry = {s["path"]: s for s in payload["stores"]}[bad_real]
+                self.assertEqual(entry["status"], "unreadable")
+                self.assertIsNone(entry["sessions"])
+                self.assertEqual(payload["sessions_scanned"], 2)
+                self.assertIn(f"{bad_real}: ABSENT (unreadable:", out)
+                self.assertNotIn(f"{bad_real}: 0 sessions", out)
+
+    def test_missing_store_path_is_named(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, a, b, repo = self._two_stores(Path(tmp))
+            missing = str(Path(tmp) / "no-such-store")
+            args = ["--repo-path", str(repo), "--store", str(b), "--store", missing]
+            env = _env(home=home)
+            payload = _collect_json(None, args, env=env)
+            entry = {s["path"]: s for s in payload["stores"]}[missing]
+            self.assertEqual((entry["status"], entry["sessions"]), ("missing", None))
+            self.assertEqual(payload["sessions_scanned"], 1)
+            out = subprocess.run([sys.executable, str(CLI_PATH), *args],
+                                 capture_output=True, text=True, env=env).stdout
+            self.assertIn(f"{missing}: ABSENT (missing:", out)
+
+    def test_project_dirs_are_listed_under_their_store(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, a, b, repo = self._two_stores(Path(tmp))
+            out = subprocess.run([sys.executable, str(CLI_PATH), "--repo-path", str(repo)],
+                                 capture_output=True, text=True, env=_env(home=home)).stdout
+            name = slr._transcripts.project_dir_prefix(str(repo))
+            for store in (a, b):
+                self.assertIn(f"    {os.path.realpath(store / 'projects')}: {name}", out)
+
     def test_no_store_yields_a_session_is_absent_not_zero(self):
-        """P-R4. Mutation: drop the `if not transcripts` early return in
-        collect() and this reddens (error is None)."""
+        """When no store yields a session the rate is reported absent, not
+        as a measured zero."""
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "home"
             for name in (".claude", ".claude-other"):

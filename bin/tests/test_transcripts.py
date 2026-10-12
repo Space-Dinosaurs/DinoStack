@@ -107,6 +107,26 @@ def test_stores_without_default_keeps_only_extra(isolated_env, tmp_path, monkeyp
     assert got == [Path(os.path.realpath(only))]
 
 
+def test_resolve_stores_splits_unreadable_and_missing(isolated_env, tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root can list a mode-000 directory")
+    good = tmp_path / "good" / "projects"
+    bad = tmp_path / "bad" / "projects"
+    good.mkdir(parents=True)
+    bad.mkdir(parents=True)
+    missing = str(tmp_path / "missing")
+    bad.chmod(0)
+    try:
+        got = tr.resolve_stores([tmp_path / "good", tmp_path / "bad", missing])
+    finally:
+        bad.chmod(0o755)
+    assert got.readable == [Path(os.path.realpath(good))]
+    assert [p for p, _reason in got.unreadable] == [Path(os.path.realpath(bad))]
+    assert got.missing == [missing]
+    assert [(e["status"], e["sessions"]) for e in got.problem_entries()] == [
+        ("unreadable", None), ("missing", None)]
+
+
 def _session_dir(store: Path, repo: Path, suffix: str = "") -> Path:
     return store / (tr.project_dir_prefix(repo) + suffix)
 

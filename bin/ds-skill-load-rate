@@ -23,9 +23,13 @@ Public API: ds-skill-load-rate [--json] [--project-dir NAME]
             set. Prints a human report (a header naming every store
             scanned with its session count, headline unprompted-load rate,
             per-session-mode counts, the nudge-fired-with-no-load count,
-            and the exact scope used) or, with --json, the same data as one
-            JSON object (`stores`: one {path, project_dirs, sessions} entry
-            per store, a store with no matching project dir listed with 0) -
+            and the exact scope used, each project dir under its store) or,
+            with --json, the same data as one JSON object (`stores`: one
+            {path, status: "scanned", project_dirs, sessions} entry per
+            store, a store with no matching project dir listed with 0; a
+            store that exists but cannot be read, or a --store path that
+            does not exist, is listed with status "unreadable"/"missing",
+            sessions null and a reason, printed as ABSENT - never 0) -
             including the headline figure itself, as
             `unprompted_load_rate` (float 0..1, or JSON null on no-data)
             and `unprompted_load_rate_display` (the literal string
@@ -137,10 +141,12 @@ Failure modes: collect()/classify_transcript() never raise and main() never
                (exit 1, traceback) if _KNOWN_OPTION_TOKENS ever drifts from
                the parser's real option strings; this guards against a
                source edit, not a runtime input, and is unreachable in the
-               shipped state. No store at all, no store holding the scoped
+               shipped state. An unreadable store is skipped and listed as
+               status "unreadable" (ABSENT), never counted as a scanned
+               zero. No readable store at all, no store holding the scoped
                project directory, or zero discovered transcripts within
                scope across every store exits 0 with error="no_transcripts"
-               (each store still listed, with 0 sessions) and the headline
+               (each store still listed) and the headline
                rate rendered
                as the literal string "ABSENT" (never "0" - a zero-initialized
                accumulator silently reporting "nothing happened" as "the
@@ -430,8 +436,8 @@ def resolve_scope(stores: list[Path], args) -> tuple[dict, dict]:
 # ---------------------------------------------------------------------------
 
 
-def collect(stores: list[Path], args) -> dict:
-    by_store, scope_meta = resolve_scope(stores, args)
+def collect(store_set, args) -> dict:
+    by_store, scope_meta = resolve_scope(store_set.readable, args)
 
     payload = {
         "stores": [],
@@ -453,10 +459,12 @@ def collect(stores: list[Path], args) -> dict:
             found.extend(sorted(Path(p) for p in glob.glob(str(project_dir / "*.jsonl"))))
         payload["stores"].append({
             "path": str(store),
+            "status": "scanned",
             "project_dirs": [d.name for d in project_dirs],
             "sessions": len(found),
         })
         transcripts.extend(found)
+    payload["stores"].extend(store_set.problem_entries())
 
     if not transcripts:
         payload["error"] = "no_transcripts"
@@ -536,7 +544,7 @@ def format_rate(value) -> str:
     return ABSENT if value is None else f"{value * 100:.1f}%"
 
 
-def format_scope(scope: dict) -> list[str]:
+def format_scope(scope: dict, stores: list[dict]) -> list[str]:
     lines = [f"  scope mode: {scope['mode']}"]
     if scope["mode"] == "cwd-default" or scope["mode"] == "repo-path":
         lines.append(f"  repo_path: {scope['repo_path']}")
@@ -544,21 +552,26 @@ def format_scope(scope: dict) -> list[str]:
     elif scope["mode"] == "explicit-project-dir":
         lines.append(f"  requested project dir: {scope['requested']}")
     project_dirs = scope["project_dirs"]
-    lines.append(f"  project directories scanned ({len(project_dirs)}): "
-                 + (", ".join(project_dirs) if project_dirs else "(none found)"))
+    lines.append(f"  project directories scanned ({len(project_dirs)}):"
+                 + ("" if project_dirs else " (none found)"))
+    lines.extend(f"    {s['path']}: {', '.join(s['project_dirs'])}"
+                 for s in stores if s.get("project_dirs"))
     return lines
 
 
 def format_stores(stores: list[dict]) -> list[str]:
-    lines = [f"stores scanned ({len(stores)}):" + ("" if stores else " (none found)")]
-    lines.extend(f"  {s['path']}: {s['sessions']} sessions" for s in stores)
+    scanned = [s for s in stores if s["status"] == "scanned"]
+    lines = [f"stores scanned ({len(scanned)}):" + ("" if stores else " (none found)")]
+    lines.extend(f"  {s['path']}: {s['sessions']} sessions" if s["status"] == "scanned"
+                 else f"  {s['path']}: {ABSENT} ({s['status']}: {s['reason']})"
+                 for s in stores)
     return lines
 
 
 def render(payload: dict) -> str:
     lines: list[str] = []
     lines.extend(format_stores(payload["stores"]))
-    lines.extend(format_scope(payload["scope"]))
+    lines.extend(format_scope(payload["scope"], payload["stores"]))
     target_names = ", ".join(sorted(f"\"{n}\"" for n in TARGET_SKILL_NAMES))
     lines.append(f"  filter: model-initiated load matched on tool_use name==\"Skill\" AND "
                  f"input.skill in {{{target_names}}} - counts the current name and the "
@@ -731,8 +744,7 @@ def main(argv=None) -> int:
     argv = _normalize_argv(list(argv))
     args = parser.parse_args(argv)
 
-    stores = _transcripts.stores(args.store, include_default=not args.store)
-    payload = collect(stores, args)
+    payload = collect(_transcripts.resolve_stores(args.store), args)
 
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))

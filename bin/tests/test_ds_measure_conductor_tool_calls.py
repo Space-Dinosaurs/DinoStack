@@ -155,9 +155,8 @@ def test_resolve_transcript_dirs_maps_the_cwd_in_each_store(tmp_path, monkeypatc
 
 
 def test_default_scans_every_store_under_home(tmp_path):
-    """Named mutation: in main(), replace `_transcripts.stores(...)` with
-    `[_transcripts._lib.resolve_claude_config_dir() / "projects"]` (the
-    active dir only) and this reddens (sample_size 1, not 2)."""
+    """The default run reads every store under HOME, not only the active
+    config dir."""
     home, repo, a, b = _two_stores(tmp_path)
     payload = json.loads(_run(home, repo, "--json").stdout)
     assert payload["sample_size"] == 2
@@ -178,9 +177,39 @@ def test_store_flag_replaces_the_default_set(tmp_path):
     assert [s["path"] for s in payload["stores"]] == [os.path.realpath(b / "projects")]
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can list a mode-000 directory")
+def test_unreadable_store_is_absent_not_a_scanned_zero(tmp_path):
+    home, repo, a, b = _two_stores(tmp_path)
+    bad = home / ".claude-bad" / "projects"
+    bad.mkdir(parents=True)
+    bad_real = os.path.realpath(bad)
+    bad.chmod(0)
+    try:
+        payload = json.loads(_run(home, repo, "--json").stdout)
+        out = _run(home, repo).stdout
+    finally:
+        bad.chmod(0o755)
+    entry = {s["path"]: s for s in payload["stores"]}[bad_real]
+    assert (entry["status"], entry["sessions"], entry["found"]) == ("unreadable", None, None)
+    assert payload["sample_size"] == 2
+    assert f"{bad_real}: ABSENT (unreadable:" in out
+    assert f"{bad_real}: 0 sessions" not in out
+
+
+def test_missing_store_path_is_named(tmp_path):
+    home, repo, a, b = _two_stores(tmp_path)
+    missing = str(tmp_path / "no-such-store")
+    payload = json.loads(_run(home, repo, "--json", "--store", str(b), "--store", missing).stdout)
+    entry = {s["path"]: s for s in payload["stores"]}[missing]
+    assert (entry["status"], entry["sessions"]) == ("missing", None)
+    assert payload["sample_size"] == 1
+    out = _run(home, repo, "--store", str(b), "--store", missing).stdout
+    assert f"{missing}: ABSENT (missing:" in out
+
+
 def test_no_store_yields_a_session_is_absent_not_a_zero_sample(tmp_path):
-    """P-R4. Mutation: drop the `if not files` early return in main() and
-    this reddens (recommended_threshold 12 and no error)."""
+    """When no store yields a session the input is reported absent, with
+    no threshold recommended from an empty sample."""
     home = tmp_path / "home"
     repo = tmp_path / "repo"
     repo.mkdir()

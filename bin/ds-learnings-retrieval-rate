@@ -21,8 +21,11 @@ Public API: ds-learnings-retrieval-rate [--json] [--store DIR ...]
             pooled wired line, a pooled unwired-control line, and a footer
             stating the measurement's scope and its two-sided error. --json
             emits the same data as a single JSON object (`stores`: one
-            {path, transcripts} entry per store, 0 for a store holding
-            none). Exit 0 on EVERY
+            {path, status: "scanned", transcripts} entry per store, 0 for a
+            store holding none; a store that exists but cannot be read, or
+            a --store path that does not exist, is listed with status
+            "unreadable"/"missing", transcripts null and a reason, printed
+            as ABSENT - never 0). Exit 0 on EVERY
             path, including no-data; errors are reported in the envelope's
             `error` field and never raised.
 
@@ -81,10 +84,12 @@ Downstream consumers: the operator or conductor, on demand. No hook, no
                       loads it via importlib and drives its classifier
                       against the DS-223 plan's normative case table.
 
-Failure modes: never raises, never exits nonzero. No store at all, or zero
+Failure modes: never raises, never exits nonzero. An unreadable store is
+               skipped and listed as status "unreadable" (ABSENT), never
+               counted as a scanned zero. No readable store at all, or zero
                discovered transcripts across every store, exits 0 with
-               error="no_transcripts" (each store still listed, with 0
-               transcripts) and one human line naming the
+               error="no_transcripts" (each store still listed) and one
+               human line naming the
                harness limitation. A transcript that parses to zero records,
                or is >= 20 MiB (bin/_lib.py MAX_TRANSCRIPT_BYTES), counts as `unreadable`:
                a run the tool could not read. `unreadable` is excluded from
@@ -101,8 +106,9 @@ Failure modes: never raises, never exits nonzero. No store at all, or zero
                "n/a" and says so in the footer.
 
 Performance: O(total transcript bytes), single streaming pass per file with
-             an early exit on the first satisfying call in a run. ~900
-             transcripts / ~35k tool calls measured at a few seconds.
+             an early exit on the first satisfying call in a run. The default
+             every-store scan read 6,452 transcripts across 4 stores in
+             ~100 s (2026-10-12); --store narrows it.
 
 R2 (Pillar 8 simplicity test), stated verbatim as the DS-223 outcome rubric
 requires it, so the retirement condition ships with the mechanism:
@@ -575,17 +581,17 @@ def rate_of(fired: int, runs: int, unreadable: int):
     return rate_or_none(fired, runs - unreadable)
 
 
-def collect(stores: list[Path], agents_dir: Path) -> dict:
+def collect(store_set, agents_dir: Path) -> dict:
     transcripts: list[str] = []
     per_store: list[dict] = []
-    for store in stores:
+    for store in store_set.readable:
         found = sorted(glob.glob(str(store / "*" / "*" / "subagents" / "agent-*.jsonl")))
-        per_store.append({"path": str(store), "transcripts": len(found)})
+        per_store.append({"path": str(store), "status": "scanned", "transcripts": len(found)})
         transcripts.extend(found)
 
     payload = {
         "harness": "claude-code",
-        "stores": per_store,
+        "stores": per_store + store_set.problem_entries("transcripts"),
         "transcripts_scanned": 0,
         "by_role": {},
         "pooled": {
@@ -713,9 +719,12 @@ def format_rate(value) -> str:
 def render(payload: dict, agents_dir_present: bool) -> str:
     lines: list[str] = []
     stores = payload["stores"]
-    lines.append(f"harness: {payload['harness']}   stores scanned ({len(stores)}):"
+    scanned = [s for s in stores if s["status"] == "scanned"]
+    lines.append(f"harness: {payload['harness']}   stores scanned ({len(scanned)}):"
                  + ("" if stores else " (none found)"))
-    lines.extend(f"  {s['path']}: {s['transcripts']} transcripts" for s in stores)
+    lines.extend(f"  {s['path']}: {s['transcripts']} transcripts" if s["status"] == "scanned"
+                 else f"  {s['path']}: ABSENT ({s['status']}: {s['reason']})"
+                 for s in stores)
 
     if payload["error"] == "no_transcripts":
         lines.append("")
@@ -780,9 +789,8 @@ def main(argv=None) -> int:
     )
     args = parser.parse_args(argv)
 
-    stores = _transcripts.stores(args.store, include_default=not args.store)
     agents_dir = AGENTS_DIR
-    payload = collect(stores, agents_dir)
+    payload = collect(_transcripts.resolve_stores(args.store), agents_dir)
 
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))

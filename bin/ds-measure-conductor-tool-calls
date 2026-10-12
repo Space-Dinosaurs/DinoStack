@@ -28,7 +28,9 @@ Public API: ds-measure-conductor-tool-calls [--limit N] [--json]
             replaces that set. --limit applies to the newest N transcripts
             across all stores. Prints a header naming every store scanned
             (its sessions in the sample, and how many it holds in all - 0
-            for a store with no matching project dir), then a per-session
+            for a store with no matching project dir; a store that exists
+            but cannot be read, or a --store path that does not exist, is
+            printed as ABSENT with a reason, never 0), then a per-session
             table to stdout (session_id[:8],
             conductor_tool_calls, spawns, whitelisted_excluded, or "n/a
             (unreadable)" for a transcript that yielded zero parsed
@@ -40,8 +42,10 @@ Public API: ds-measure-conductor-tool-calls [--limit N] [--json]
             available/transcript_note split, so a session that could not be
             measured is never folded into the zero-spawn population used to
             recommend a threshold. --json emits the same data (plus
-            unreadable_count, `stores`: one {path, sessions, found} entry
-            per store, and `error`) as a JSON object instead. When no store
+            unreadable_count, `stores`: one {path, status, sessions, found}
+            entry per store - status "unreadable"/"missing" with null
+            counts and a reason for a store that could not be scanned - and
+            `error`) as a JSON object instead. When no store
             yields a transcript the input is reported absent ("No
             transcripts found." / error="no_transcripts",
             recommended_threshold null), never as a zero sample. Exit 0
@@ -70,8 +74,10 @@ Downstream consumers: Operators calibrating conductor_overreach_threshold in
                        hooks/conductor-overreach-nudge.js. Not imported by
                        any other module - standalone CLI.
 
-Failure modes: never raises. No store, or no matching project directory
-               or transcript in any store, prints "No transcripts found."
+Failure modes: never raises. An unreadable store is skipped and listed as
+               ABSENT (status "unreadable"), never as a scanned zero. No
+               readable store, or no matching project directory or
+               transcript in any store, prints "No transcripts found."
                (--json: error="no_transcripts") and exits 0. Malformed
                JSONL lines within an otherwise-readable transcript are skipped
                individually. A transcript file that is missing, empty, or
@@ -336,9 +342,13 @@ def _measure_session(transcript_path: Path) -> dict:
 
 
 def _print_stores(stores_out: list[dict]) -> None:
-    print(f"stores scanned ({len(stores_out)}):" + ("" if stores_out else " (none found)"))
+    scanned = [s for s in stores_out if s["status"] == "scanned"]
+    print(f"stores scanned ({len(scanned)}):" + ("" if stores_out else " (none found)"))
     for s in stores_out:
-        print(f"  {s['path']}: {s['sessions']} sessions (of {s['found']} found)")
+        if s["status"] == "scanned":
+            print(f"  {s['path']}: {s['sessions']} sessions (of {s['found']} found)")
+        else:
+            print(f"  {s['path']}: ABSENT ({s['status']}: {s['reason']})")
     print()
 
 
@@ -353,10 +363,10 @@ def main(argv: list[str]) -> int:
                              "every store (repeatable).")
     args = parser.parse_args(argv)
 
-    stores = _transcripts.stores(args.store, include_default=not args.store)
+    store_set = _transcripts.resolve_stores(args.store)
     found = {
         store: [p for d in dirs for p in d.glob("*.jsonl")]
-        for store, dirs in _resolve_transcript_dirs(stores).items()
+        for store, dirs in _resolve_transcript_dirs(store_set.readable).items()
     }
     files = sorted(
         [(store, p) for store, paths in found.items() for p in paths],
@@ -364,10 +374,10 @@ def main(argv: list[str]) -> int:
         reverse=True,
     )[: args.limit]
     stores_out = [
-        {"path": str(store), "sessions": sum(1 for s, _ in files if s == store),
-         "found": len(paths)}
+        {"path": str(store), "status": "scanned",
+         "sessions": sum(1 for s, _ in files if s == store), "found": len(paths)}
         for store, paths in found.items()
-    ]
+    ] + [{**entry, "found": None} for entry in store_set.problem_entries()]
 
     if not files:
         if args.json:

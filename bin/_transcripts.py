@@ -19,6 +19,13 @@ Public API:
         `extra` path (a config dir with a `projects` child, or a projects dir).
         include_default=False keeps only the `extra` paths (a `--store` flag
         that replaces the default set).
+    resolve_stores(requested=None) -> StoreSet
+        stores(requested, include_default=not requested), split into
+        `readable`, `unreadable` ((path, reason) for a store that exists but
+        cannot be listed or traversed - never to be reported as an empty
+        store) and `missing` (each requested path that is not a directory).
+        problem_entries(count_key="sessions") renders the last two as
+        {path, status "unreadable"|"missing", <count_key> None, reason}.
     project_dir_prefix(repo) -> str
         Claude Code's project-dir name for an absolute path: every
         non-alphanumeric character becomes "-" (`/Users/x/r` -> `-Users-x-r`,
@@ -250,6 +257,44 @@ def stores(extra: Optional[Iterable] = None, include_default: bool = True) -> Li
             seen.add(real)
             out.append(Path(real))
     return out
+
+
+@dataclass
+class StoreSet:
+    readable: List[Path]
+    unreadable: List[Tuple[Path, str]]
+    missing: List[str]
+
+    def problem_entries(self, count_key: str = "sessions") -> List[dict]:
+        return ([{"path": str(p), "status": "unreadable", count_key: None, "reason": r}
+                 for p, r in self.unreadable]
+                + [{"path": p, "status": "missing", count_key: None, "reason": "does not exist"}
+                   for p in self.missing])
+
+
+def _unreadable_reason(store: Path) -> Optional[str]:
+    if not os.access(store, os.R_OK | os.X_OK):
+        return "permission denied"
+    try:
+        os.listdir(store)
+    except OSError as exc:
+        return exc.strerror or type(exc).__name__
+    return None
+
+
+def resolve_stores(requested: Optional[Iterable] = None) -> StoreSet:
+    requested = list(requested or ())
+    readable: List[Path] = []
+    unreadable: List[Tuple[Path, str]] = []
+    for store in stores(requested, include_default=not requested):
+        reason = _unreadable_reason(store)
+        if reason is None:
+            readable.append(store)
+        else:
+            unreadable.append((store, reason))
+    missing = [str(p) for p in requested
+               if not Path(os.path.abspath(os.path.expanduser(str(p)))).is_dir()]
+    return StoreSet(readable, unreadable, missing)
 
 
 def project_dir_prefix(repo) -> str:
