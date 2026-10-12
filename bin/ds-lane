@@ -12,7 +12,7 @@
 #
 # Public API:
 #   ds-lane <start|send|close|reap|resume|list|tail|watch|open|open-all|
-#            stop|resume-hint|count|help> [args]   (see `ds-lane help`)
+#            stop|resume-hint|count|path|help> [args]   (see `ds-lane help`)
 #   Exit 0 on success, 1 on any refusal or error (message on stderr).
 #   `start` prepends the marker contract (MARKER_CONTRACT below, the only
 #   canonical copy) to the prompt. `reap` closes stdin of every running lane
@@ -20,12 +20,14 @@
 #   State: <primary>/.agentic/lanes/{.gitignore,prompts/,run/}, where
 #   <primary> is the first entry of `git worktree list --porcelain` for the
 #   cwd, so a call from any linked worktree lands in the primary checkout.
+#   `ds-lane path` prints that state dir, so callers never rebuild it.
 #   run/<name>.{in,jsonl,err,meta,pid,tailpid,tab.log}.
 #   Env: DS_LANE_MAX (default 5, per repo), DS_LANE_RUN_DIR (overrides
 #   run/, propagated into the watch tab), DS_LANE_CLAUDE_BIN,
 #   DS_LANE_PERMISSION_MODE, DS_LANE_BG_CEILING_MS (default 0 = wait
 #   indefinitely; "default" leaves the CLI default), DS_LANE_NO_TAB=1,
-#   DS_LANE_TAB_LOCK_WAIT_S (default 30).
+#   DS_LANE_TAB_LOCK_WAIT_S (default 30), DS_LANE_TAB_LOCK (lock file path,
+#   for tests; not propagated into the watch tab).
 #   Internal subcommands (not for callers): `__open-tab <name> <conductor-tty>`
 #   (the detached opener `start`/`resume` fork) and `__close-tab <own-tty>
 #   <conductor-tty> <tab-log>` (the detached closer a watch tab forks).
@@ -36,7 +38,8 @@
 #   left open); ` when stray new tabs remain (never closed: they cannot be
 #   proven ours), else `tab misplaced (new window, no new tab found); ` on
 #   the window path; otherwise one of `tab skipped: <no conductor tty|no
-#   osascript|no matching tab|lock busy|lock unavailable>` or `tab error:
+#   osascript|no matching tab|lock busy|lock unavailable>` (no matching tab
+#   also when Terminal is not running: it is never launched) or `tab error:
 #   <first stderr line>; focus: unknown`. When the watch tab closes itself:
 #   `close: ok`, `close skipped: <no osascript|lock busy|lock unavailable|tab
 #   busy|no matching tab|Terminal not frontmost>` or `close error: <first
@@ -64,8 +67,9 @@
 #   until `reap`/`close`) dies after .agentic/lanes/{.gitignore,prompts/,run/}
 #   exist but before any run/<name>.* file of that lane is written; the
 #   liveness sweep may already have pruned other lanes' dead .pid files. A
-#   pid is a live lane only while it runs the claude path recorded at launch
-#   (directly or under a shebang interpreter) or an argv[0] that is the CLI.
+#   pid is a live lane only while its start time equals the one recorded at
+#   launch and it runs the claude path recorded at launch (directly or under
+#   a shebang interpreter), so a reused pid never matches.
 #   Lanes run in the conductor's live permission mode: a lane in default,
 #   manual or acceptEdits mode has nobody to answer its prompts, so its tool
 #   calls are denied. DS_LANE_PERMISSION_MODE can exceed the conductor's own
@@ -91,7 +95,7 @@ MAX_LANES="${DS_LANE_MAX:-5}"
 # ends, then exits. 0 = wait indefinitely. DS_LANE_BG_CEILING_MS=default leaves the CLI default.
 BG_CEILING="${DS_LANE_BG_CEILING_MS:-0}"
 
-TAB_LOCK="/tmp/ds-lane-tab-$(id -u).lock"
+TAB_LOCK="${DS_LANE_TAB_LOCK:-/tmp/ds-lane-tab-$(id -u).lock}"
 
 die() { echo "ds-lane: $*" >&2; exit 1; }
 
@@ -116,18 +120,18 @@ valid_name() { [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid lane name '$1' (u
 
 file_mtime() { python3 -c 'import os, sys; print(int(os.path.getmtime(sys.argv[1])))' "$1" 2>/dev/null; }
 
-# True only if pid is alive AND runs the claude CLI (guards against PID reuse): the lane's
-# recorded claude path followed by the `-p` launch() passes, as argv[0] or after an interpreter
-# (a shebang install runs as `node <path> -p ...`), or an argv[0] that is itself the CLI.
-is_live_claude() { # is_live_claude <pid> [claude-bin]
-  local pid="$1" bin="${2:-}" args argv0
-  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+proc_start() { ps -p "$1" -o lstart= 2>/dev/null | tr -s ' ' || true; }
+
+# True only if pid is alive, started at the time recorded at launch, AND runs the lane's recorded
+# claude path followed by the `-p` launch() passes, as argv[0] or after an interpreter (a shebang
+# install runs as `node <path> -p ...`). The start time is what rules out a reused pid.
+is_live_claude() { # is_live_claude <pid> <claude-bin> <start-time>
+  local pid="$1" bin="${2:-}" start="${3:-}" args
+  [[ "$pid" =~ ^[0-9]+$ && -n "$bin" && -n "$start" ]] || return 1
   kill -0 "$pid" 2>/dev/null || return 1
+  [[ "$(proc_start "$pid")" == "$start" ]] || return 1
   args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
-  [[ -n "$args" ]] || return 1
-  if [[ -n "$bin" ]] && [[ "$args" == "$bin -p "* || "$args" == *" $bin -p "* ]]; then return 0; fi
-  argv0="${args%% *}"
-  [[ "$(basename "$argv0")" == "claude" || "$argv0" == */share/claude/versions/* ]]
+  [[ "$args" == "$bin -p "* || "$args" == *" $bin -p "* ]]
 }
 
 # True only if the lane's recorded stdin feeder is still a `tail -f` of this lane's .in file.
@@ -148,7 +152,7 @@ kill_feeder() { # closes the lane's stdin
 }
 
 is_live_lane() { # is_live_lane <name>
-  [[ -f "$RUN_DIR/$1.pid" ]] && is_live_claude "$(tr -dc '0-9' < "$RUN_DIR/$1.pid")" "$(meta_get "$1" claude_bin)"
+  [[ -f "$RUN_DIR/$1.pid" ]] && is_live_claude "$(tr -dc '0-9' < "$RUN_DIR/$1.pid")" "$(meta_get "$1" claude_bin)" "$(meta_get "$1" pid_start)"
 }
 
 meta_get() { # meta_get <name> <key>
@@ -173,7 +177,7 @@ count_live() {
     [[ -e "$f" ]] || continue
     pid="$(tr -dc '0-9' < "$f")"
     name="$(basename "$f" .pid)"
-    if is_live_claude "$pid" "$(meta_get "$name" claude_bin)"; then
+    if is_live_claude "$pid" "$(meta_get "$name" claude_bin)" "$(meta_get "$name" pid_start)"; then
       n=$((n + 1))
     else
       rm -f "$f"
@@ -345,6 +349,7 @@ os.execv(argv[0], argv)
   pid=$!
   disown "$pid" 2>/dev/null || true
 
+  meta_set "$name" pid_start "$(proc_start "$pid")"
   echo "$pid" > "$RUN_DIR/$name.pid"
   meta_set "$name" pid "$pid"
   meta_set "$name" start_epoch "$(date +%s)"
@@ -574,18 +579,40 @@ sys.exit(subprocess.call(cmd))
 ' "$TAB_LOCK" "${DS_LANE_TAB_LOCK_WAIT_S:-30}" "$@"
 }
 
-# AppleScript (argv: command, conductor tty). Selects the conductor's tab, raises its window and,
+# AppleScript handler shared by both scripts: selects the tab whose tty is t, if any (selecting a
+# tab does not raise its window).
+SELECT_TTY_OSA='on selectTty(t)
+  if t is "" then return
+  tell application "Terminal"
+    repeat with aWin in windows
+      repeat with aTab in tabs of aWin
+        if tty of aTab is t then
+          set selected of aTab to true
+          return
+        end if
+      end repeat
+    end repeat
+  end tell
+end selectTty'
+
+# AppleScript (argv: command, conductor tty). Returns "nomatch" at once when Terminal is not
+# running, so a conductor in another terminal app never launches it (Terminal's static sdef lets
+# the script compile without launching it). Records the front Terminal window, its selected tab and
+# the conductor window's selected tab, then selects the conductor's tab, raises its window and,
 # only while Terminal is frontmost, presses Cmd-T. The new tab is found by comparing every tab's
 # tty in every window before and after Cmd-T (a native-tab Terminal reports each tab as its own
 # one-tab window); the command goes to it only when exactly one new tty appeared. Otherwise
 # (Accessibility denied, Cmd-T lost or late, Terminal not frontmost, ambiguous) it goes to a new
 # window, never to a tab that existed before. Nothing is closed: a stray new tab cannot be proven
 # to be ours. Then counts orphans (new ttys other than the one running the command, e.g. a Cmd-T
-# tab that arrived after the 3 s poll), re-selects the conductor's tab and re-activates the
-# previously frontmost app by process id.
+# tab that arrived after the 3 s poll), restores the conductor window's selected tab, raises the
+# recorded front window (not the conductor's: the operator may be looking at another window),
+# re-selects its recorded tab and re-activates the previously frontmost app by process id.
 # Returns "nomatch" or "ok|<tab|window>|<orphans>|<front window id>|<selected tty>|<front app>"
 # observed afterwards, followed by the same three values recorded beforehand (9 fields).
-OPEN_TAB_OSA='on newTtys(beforeTtys)
+OPEN_TAB_OSA="$SELECT_TTY_OSA"'
+
+on newTtys(beforeTtys)
   set found to {}
   tell application "Terminal"
     repeat with aWin in windows
@@ -599,6 +626,7 @@ OPEN_TAB_OSA='on newTtys(beforeTtys)
 end newTtys
 
 on run argv
+  if application "Terminal" is not running then return "nomatch"
   set theCmd to item 1 of argv
   set condTty to item 2 of argv
   tell application "System Events"
@@ -607,19 +635,23 @@ on run argv
     set recPid to unix id of recProc
   end tell
   tell application "Terminal"
+    set recFrontId to missing value
     set recFront to ""
     set recTty to ""
     if (count of windows) > 0 then
-      set recFront to (id of front window) as text
+      set recFrontId to id of front window
+      set recFront to recFrontId as text
       set recTty to tty of selected tab of front window
     end if
     set condWinId to missing value
+    set condWinSel to ""
     set beforeTtys to {}
     repeat with aWin in windows
       repeat with aTab in tabs of aWin
         set end of beforeTtys to (tty of aTab)
         if tty of aTab is condTty then
           set condWinId to id of aWin
+          set condWinSel to tty of selected tab of aWin
           set selected of aTab to true
         end if
       end repeat
@@ -664,14 +696,15 @@ on run argv
   repeat with t in my newTtys(beforeTtys)
     if (contents of t) is not cmdTty then set orphans to orphans + 1
   end repeat
-  tell application "Terminal"
-    repeat with aWin in windows
-      repeat with aTab in tabs of aWin
-        if tty of aTab is condTty then set selected of aTab to true
-      end repeat
-    end repeat
-    set index of window id condWinId to 1
-  end tell
+  my selectTty(condWinSel)
+  if recFrontId is not missing value then
+    tell application "Terminal"
+      try
+        set index of window id recFrontId to 1
+      end try
+    end tell
+  end if
+  my selectTty(recTty)
   try
     tell application "System Events" to set frontmost of (first application process whose unix id is recPid) to true
   end try
@@ -688,15 +721,28 @@ end run'
 # window: a one-tab window is closed; a tab in a multi-tab window is selected and closed with Cmd-W
 # (Accessibility). Acts only once the tab has no processes left, so it never prompts and never
 # hits a reused tty that a new shell already owns. Cmd-W is pressed only while Terminal is
-# frontmost with this tab selected. Then re-selects the conductor's tab and re-activates the
-# previously frontmost app by process id. Returns ok, busy, nomatch or notfront.
-CLOSE_TAB_OSA='on run argv
+# frontmost with this tab selected. Then restores that window's previously selected tab (the
+# conductor's tab when that was the tab being closed), raises the recorded front window if it
+# still exists, re-selects its recorded tab and re-activates the previously frontmost app by
+# process id. Returns ok, busy, nomatch (also when Terminal is not running, so it is never
+# launched) or notfront.
+CLOSE_TAB_OSA="$SELECT_TTY_OSA"'
+
+on run argv
   set myTty to item 1 of argv
   set condTty to item 2 of argv
   delay 2
+  if application "Terminal" is not running then return "nomatch"
   tell application "System Events" to set recPid to unix id of first application process whose frontmost is true
   set outcome to "nomatch"
+  set recFrontId to missing value
+  set recTty to ""
+  set winSel to ""
   tell application "Terminal"
+    if (count of windows) > 0 then
+      set recFrontId to id of front window
+      set recTty to tty of selected tab of front window
+    end if
     repeat with aWin in windows
       repeat with aTab in tabs of aWin
         if tty of aTab is myTty then
@@ -705,6 +751,7 @@ CLOSE_TAB_OSA='on run argv
             close aWin
             set outcome to "ok"
           else
+            set winSel to tty of selected tab of aWin
             set selected of aTab to true
             set index of aWin to 1
             activate
@@ -729,18 +776,16 @@ CLOSE_TAB_OSA='on run argv
       end try
     end if
   end if
-  tell application "Terminal"
-    if condTty is not "" then
-      repeat with aWin in windows
-        repeat with aTab in tabs of aWin
-          if tty of aTab is condTty then
-            set selected of aTab to true
-            set index of aWin to 1
-          end if
-        end repeat
-      end repeat
-    end if
-  end tell
+  if winSel is myTty then set winSel to condTty
+  my selectTty(winSel)
+  if recFrontId is not missing value then
+    tell application "Terminal"
+      try
+        set index of window id recFrontId to 1
+      end try
+    end tell
+  end if
+  if recTty is not myTty then my selectTty(recTty)
   try
     tell application "System Events" to set frontmost of (first application process whose unix id is recPid) to true
   end try
@@ -887,6 +932,7 @@ usage: ds-lane <command>
   stop <name>                    SIGTERM a live lane recorded by this tool
   resume-hint <name>             print the interactive claude --resume command
   count                          print number of live lanes (prunes dead pid files)
+  path                           print the state dir; prompt and message files go in its prompts/
 State lives in <primary checkout>/.agentic/lanes; run from the conductor's repo or any of its worktrees.
 EOF
 }
@@ -911,6 +957,7 @@ case "$sub" in
   stop) cmd_stop "$@" ;;
   resume-hint) cmd_resume_hint "$@" ;;
   count) count_live ;;
+  path) echo "$STATE" ;;
   __open-tab) valid_name "$1"; open_tab "$1" "${2:-}" > /dev/null ;;
   *) usage; exit 1 ;;
 esac

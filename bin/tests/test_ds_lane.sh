@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Purpose: Regression suite for bin/ds-lane. Drives the real tool against a
 #          scratch git repo (path contains a space) with a stub `claude`
-#          (run as `exec -a claude /bin/bash claude-stub.sh` so the tool's
-#          argv[0] liveness check accepts it) and a stub `osascript` whose
-#          reply is chosen by STUB_OSA_MODE. Never launches a real claude
-#          session and never runs AppleScript against Terminal.
+#          (a bash script, so `ps` shows `/bin/bash <stub path> -p ...`, the
+#          recorded path the tool's liveness check requires) and a stub
+#          `osascript` whose reply is chosen by STUB_OSA_MODE. Never launches
+#          a real claude session and never runs AppleScript against Terminal
+#          (osacompile reads Terminal's static sdef without launching it).
 #
 # Public API: bash bin/tests/test_ds_lane.sh   (exit 0 all pass, 1 any fail)
 #
@@ -20,10 +21,9 @@
 #
 # Test hygiene: everything lives under a mktemp -d root removed on exit,
 #               after every process whose argv names that root is killed.
-#               The only path outside it is the tool's fixed tab lock file
-#               /tmp/ds-lane-tab-<uid>.lock: the lock-busy case flocks it,
-#               and the lock-unavailable case swaps it for a directory only
-#               while no one holds it, removing the directory afterwards.
+#               DS_LANE_TAB_LOCK points the tab lock inside that root, so
+#               the machine's real /tmp/ds-lane-tab-<uid>.lock is never
+#               touched.
 
 set -u
 
@@ -59,7 +59,7 @@ fi
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/ds-lane-test.XXXXXX")"
 TMP="$(cd "$TMP" && pwd -P)"
-TAB_LOCK="/tmp/ds-lane-tab-$(id -u).lock"
+TAB_LOCK="$TMP/tab.lock"
 cleanup() {
   pkill -f -- "$TMP/" 2> /dev/null
   sleep 0.3
@@ -98,9 +98,9 @@ while IFS= read -r line; do
   jq -cn --arg t "$out" '{type: "result", subtype: "success", is_error: false, result: $t}'
 done
 EOF
-printf '#!/bin/bash\nexec -a claude /bin/bash %q "$@"\n' "$STUB/claude-stub.sh" > "$STUB/claude"
+{ echo '#!/bin/bash'; cat "$STUB/claude-stub.sh"; } > "$STUB/claude"
 chmod +x "$STUB/claude"
-# A shebang install: runs as `bash <path>/claude -p ...`, so argv[0] is the interpreter.
+# A shebang install resolved through env: runs as `bash <path>/claude -p ...`.
 mkdir -p "$STUB/shebang"
 { echo '#!/usr/bin/env bash'; cat "$STUB/claude-stub.sh"; } > "$STUB/shebang/claude"
 chmod +x "$STUB/shebang/claude"
@@ -139,6 +139,7 @@ export STUB_LOG_DIR="$LOG"
 export DS_LANE_CLAUDE_BIN="$STUB/claude"
 export DS_LANE_PERMISSION_MODE=bypassPermissions
 export DS_LANE_TAB_LOCK_WAIT_S=1
+export DS_LANE_TAB_LOCK="$TAB_LOCK"
 export CLAUDE_CONFIG_DIR="$TMP/config"
 export CLAUDE_CODE_SESSION_ID="conductor-sid"
 export DS_LANE_NO_TAB=1
@@ -197,7 +198,7 @@ open_in_pty() { # open_in_pty <name> [env assignments...]
 
 # --- R1/R2: help and literal hygiene ---
 help_cmds="$("$TOOL" help | awk '/^  [a-z]/ { print $1 }' | tr '\n' ' ')"
-check "help lists all 13 commands" eq "$help_cmds" "start send close reap resume list tail watch open open-all stop resume-hint count "
+check "help lists all 14 commands" eq "$help_cmds" "start send close reap resume list tail watch open open-all stop resume-hint count path "
 check "no host-specific literal in bin/ds-lane (R2)" bash -c '! grep -nE "/Users/|claude-moment8|authentic8" "$1"' _ "$TOOL"
 
 # --- input validation and repo resolution ---
@@ -275,6 +276,35 @@ check "worktree call records state in the primary checkout" test -f "$RUN/wtl.me
 check "worktree call writes nothing in the worktree" test ! -e "$TMP/wt/.agentic"
 check "worktree-launched lane runs in the primary checkout" eq "$(init_field wtl cwd)" "$PRIMARY"
 lane stop wtl > /dev/null
+check "path from a worktree prints the primary checkout's state dir" eq "$(cd "$TMP/wt" && "$TOOL" path 2>&1)" "$PRIMARY/.agentic/lanes"
+
+# --- liveness: a reused pid is never taken for the lane (stop must not signal it) ---
+# Decoys are double-forked so they are not this shell's children: a signalled decoy is reaped at
+# once instead of lingering as a zombie that kill -0 still finds.
+args_have() { [[ "$(ps -p "$1" -o args= 2> /dev/null)" == *"$2"* ]]; }
+# Lane r's recorded pid number now belongs to <pid>, as after the OS reuses it.
+reuse_pid() { echo "$1" > "$RUN/r.pid"; echo "pid=$1" >> "$RUN/r.meta"; }
+lane start r "$PROMPT" > /dev/null 2>&1
+r_pid="$(cat "$RUN/r.pid")"
+kill -9 "$r_pid" "$(cat "$RUN/r.tailpid")" 2> /dev/null
+wait_until 5 bash -c '! kill -0 "$1" 2> /dev/null' _ "$r_pid"
+decoy="$( ( (exec -a claude sleep 60) > /dev/null 2>&1 & echo $! ) )"
+wait_until 5 args_have "$decoy" "claude 60"
+reuse_pid "$decoy"
+out="$(lane stop r)"
+check "stop leaves a reused pid running an interactive claude alone" contains "$out" "lane 'r' not running"
+sleep 0.5
+check "the interactive-claude decoy is still alive" kill -0 "$decoy"
+kill "$decoy" 2> /dev/null
+sleep 1.1
+decoy="$( (sleep 60 | "$STUB/claude" -p --input-format stream-json > /dev/null 2>&1 & echo $!) )"
+wait_until 5 args_have "$decoy" "$STUB/claude -p "
+reuse_pid "$decoy"
+out="$(lane stop r)"
+check "stop leaves a reused pid running the recorded claude path alone" contains "$out" "lane 'r' not running"
+sleep 0.5
+check "the recorded-path decoy is still alive" kill -0 "$decoy"
+kill "$decoy" 2> /dev/null
 
 # --- permission mode resolution (R6) ---
 PROJ="$CLAUDE_CONFIG_DIR/projects/-proj"
@@ -321,7 +351,8 @@ check "tab command (no run-dir override)" eq "$(cat "$LOG/osa-cmd")" "cd $(print
 
 # No AppleScript runs against Terminal here, so these pin the script's routing structure.
 osa_script="$(cat "$LOG/osa-script")"
-sed -n "/^CLOSE_TAB_OSA='/,/^end run'/p" "$TOOL" | sed -e "1s/^CLOSE_TAB_OSA='//" -e "\$s/'\$//" > "$TMP/close.applescript"
+(cd "$PRIMARY" && STUB_OSA_MODE=close-ok "$TOOL" __close-tab /dev/ttys998 /dev/ttys997 "$TMP/capture.log")
+cp "$LOG/osa-script" "$TMP/close.applescript"
 close_script="$(cat "$TMP/close.applescript")"
 osa_line() { printf '%s\n' "$1" | grep -n -F -- "$2" | head -n1 | cut -d: -f1; }
 osa_before() { # osa_before <script> <earlier> <later>: both present, earlier first
@@ -342,7 +373,22 @@ check "no single new tab -> new window" contains "$osa_script" 'if how is "windo
 check "orphans exclude the tty running the command" eq "$(osa_prev_line "$osa_script" 'set orphans to orphans + 1')" " repeat with t in my newTtys(beforeTtys)"
 check "orphan test compares against cmdTty" contains "$osa_script" 'if (contents of t) is not cmdTty then set orphans to orphans + 1'
 check "nothing is closed by the open script" bash -c '! grep -qE "close |keystroke \"w\"" <<< "$1"' _ "$osa_script"
-check "conductor tab selected before Cmd-T" osa_before "$osa_script" 'set selected of aTab to true' 'keystroke "t"'
+osa_run() { printf '%s\n' "$1" | sed -n '/^on run argv/,$p'; }
+open_run="$(osa_run "$osa_script")"
+close_run="$(osa_run "$close_script")"
+check "conductor tab selected before Cmd-T" osa_before "$open_run" 'set selected of aTab to true' 'keystroke "t"'
+# Terminal not running: return before any event that would launch it (compiling does not).
+first_app_line() { printf '%s\n' "$1" | grep -m1 -F 'application ' | tr -s ' '; }
+check "open returns nomatch before touching any app when Terminal is not running" eq "$(first_app_line "$open_run")" ' if application "Terminal" is not running then return "nomatch"'
+check "close returns nomatch before touching any app when Terminal is not running" eq "$(first_app_line "$close_run")" ' if application "Terminal" is not running then return "nomatch"'
+# Focus: afterwards the recorded front window is raised, not the conductor's window.
+check "open raises the conductor window only before Cmd-T" eq "$(printf '%s\n' "$open_run" | grep -c 'set index of window id condWinId to 1')" 1
+check "open records the conductor window's selected tab before selecting the conductor tab" osa_before "$open_run" 'set condWinSel to tty of selected tab of aWin' 'set selected of aTab to true'
+check "open restores the conductor window's selected tab after the command" osa_before "$open_run" 'set orphans to 0' 'my selectTty(condWinSel)'
+check "open then raises the recorded front window" osa_before "$open_run" 'my selectTty(condWinSel)' 'set index of window id recFrontId to 1'
+check "open then re-selects the recorded front tab" osa_before "$open_run" 'set index of window id recFrontId to 1' 'my selectTty(recTty)'
+check "close raises the recorded front window after Cmd-W" osa_before "$close_run" 'keystroke "w"' 'set index of window id recFrontId to 1'
+check "close raises no other window after Cmd-W" eq "$(printf '%s\n' "$close_run" | sed -n '/keystroke "w"/,$p' | grep -c 'set index of')" 1
 osa_encloses() { # osa_encloses <script> <if-line> <inner>: inner follows the if with no end if between
   local a b
   osa_before "$1" "$2" "$3" || return 1
@@ -386,51 +432,29 @@ done
 open_in_pty t1 PATH="$SANDBOX"
 check "tab.log: no osascript" tab_line_is t1 "tab skipped: no osascript"
 
-# Lock busy: hold the tab lock from another process, as a concurrent opener would.
+# Lock busy: hold the (scratch) tab lock from another process, as a concurrent opener would.
 python3 - "$TAB_LOCK" "$TMP/locked" << 'PY' &
 import fcntl, os, sys, time
-try:
-    fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except OSError:
-    sys.exit(1)
+fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 open(sys.argv[2], "w").close()
 time.sleep(8)
 PY
 holder=$!
-if wait_until 5 test -e "$TMP/locked"; then
-  open_in_pty t1 DS_LANE_TAB_LOCK_WAIT_S=1
-  check "tab.log: lock busy" tab_line_is t1 "tab skipped: lock busy"
-  kill "$holder" 2> /dev/null
-  wait "$holder" 2> /dev/null
-  open_in_pty t1
-  check "lock is free again once its holder is gone" tab_line_is t1 "focus: kept"
-else
-  echo "SKIP: $TAB_LOCK is held or unusable; lock-busy case not run"
-fi
+check "scratch tab lock held by the test" wait_until 5 test -e "$TMP/locked"
+open_in_pty t1 DS_LANE_TAB_LOCK_WAIT_S=1
+check "tab.log: lock busy" tab_line_is t1 "tab skipped: lock busy"
+kill "$holder" 2> /dev/null
+wait "$holder" 2> /dev/null
+open_in_pty t1
+check "lock is free again once its holder is gone" tab_line_is t1 "focus: kept"
 
-# Lock unavailable: the lock path is a directory. Only when no one holds the lock file.
-if python3 - "$TAB_LOCK" << 'PY'
-import fcntl, os, sys
-p = sys.argv[1]
-if os.path.lexists(p):
-    if os.path.islink(p) or not os.path.isfile(p):
-        sys.exit(1)
-    fd = os.open(p, os.O_WRONLY)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        sys.exit(1)
-    os.unlink(p)
-os.mkdir(p)
-PY
-then
-  open_in_pty t1
-  check "tab.log: lock unavailable" tab_line_is t1 "tab skipped: lock unavailable"
-  rmdir "$TAB_LOCK"
-else
-  echo "SKIP: $TAB_LOCK is held or not a plain file; lock-unavailable case not run"
-fi
+# Lock unavailable: the lock path is a directory.
+rm -f "$TAB_LOCK"
+mkdir "$TAB_LOCK"
+open_in_pty t1
+check "tab.log: lock unavailable" tab_line_is t1 "tab skipped: lock unavailable"
+rmdir "$TAB_LOCK"
 lane stop t1 > /dev/null
 
 # Tab close outcomes, recorded in the lane's tab.log.

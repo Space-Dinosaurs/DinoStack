@@ -7,7 +7,8 @@
 #          post-"conduct" chat output, so runs without cross-session tools
 #          keep today's artifact). Also asserts the "launch" wiring: item 8
 #          names ds-lane, ## Launched lanes names ds-lane start and ds-lane
-#          reap and has no per-lane "open a new session" print, the State
+#          reap, takes lane file paths from ds-lane path, states the queue
+#          rebuild rule and has no per-lane "open a new session" print, the State
 #          file Fields line names launched, and bin/ds-lane exists.
 #
 # Public API: ./bin/tests/test_runbook_conductor_wiring.sh
@@ -112,6 +113,16 @@ else
     _pass "## Launched lanes Delivery names done lanes"
   else
     _fail "## Launched lanes Delivery does not exclude done lanes"
+  fi
+  if grep -qF 'ds-lane path' <<<"$launched" && ! grep -qF '<repo>/.agentic/lanes' <<<"$launched"; then
+    _pass "## Launched lanes takes lane file paths from ds-lane path"
+  else
+    _fail "## Launched lanes builds lane file paths from <repo> instead of ds-lane path (a linked-worktree conductor misses _rules.md)"
+  fi
+  if grep -qF 'The queue is not stored' <<<"$launched" && grep -qF 'rebuild it' <<<"$launched"; then
+    _pass "## Launched lanes states how the lane queue is rebuilt"
+  else
+    _fail "## Launched lanes does not say how queued lanes are rebuilt after compaction"
   fi
   if grep -qF 'open a new session' <<<"$launched"; then
     _fail "## Launched lanes contains a per-lane 'open a new session' print"
