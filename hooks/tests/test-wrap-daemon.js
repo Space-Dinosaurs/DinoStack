@@ -255,6 +255,8 @@ const SID = {
   c: 'cccccccc-cccc-4ccc-cccc-cccccccccccc',
 };
 
+const TEST_POLL_MS = '100';
+
 /**
  * Run the daemon to completion (it self-exits on idle) and capture stdout. A
  * hard watchdog kills it if it overruns. Returns { code, stdout }.
@@ -269,7 +271,8 @@ function runDaemonToExit(projectDir, env, watchdogMs) {
     encoding: 'utf8',
     timeout: watchdogMs || 30000,
     killSignal: 'SIGKILL',
-    env: Object.assign({}, process.env, { PATH: mockPathEnv() }, env || {},
+    env: Object.assign({}, process.env,
+      { PATH: mockPathEnv(), AE_TEST_WRAP_DAEMON_POLL_MS: TEST_POLL_MS }, env || {},
       // The guard must never leak in from a parent run.
       { AGENTIC_WRAP_DAEMON: undefined }),
   });
@@ -277,8 +280,9 @@ function runDaemonToExit(projectDir, env, watchdogMs) {
 }
 
 // Fast idle config so the daemon self-exits quickly once the queue is empty.
-// idle_minutes is multiplied by 60*1000; 0.02 min = 1200 ms. The poll is a fixed
-// 5 s, so a no-marker daemon exits after ~1 poll (~5 s + a bit).
+// idle_minutes is multiplied by 60*1000; 0.02 min = 1200 ms. runDaemonToExit sets
+// the poll to TEST_POLL_MS (production default 5 s), so a no-marker daemon exits
+// ~1.2 s after its last activity.
 const FAST_IDLE = { deferred_wrap_idle_minutes: 0.02 };
 
 // ---------------------------------------------------------------------------
@@ -386,7 +390,7 @@ console.log('\n[14] heartbeat-fresh -> defer: a live session keeps its ready mar
   // FRESH heartbeat -> within the 3600 s window -> defer.
   fs.writeFileSync(path.join(heartbeatDir, SID.a), '', 'utf8');
 
-  // Short watchdog: let the daemon run a couple of poll ticks (>5 s) deferring,
+  // Short watchdog: let the daemon run many poll ticks deferring,
   // then SIGKILL it. We assert on the marker state, not on a clean exit.
   const { signal } = runDaemonToExit(projectDir, {
     MOCK_CLAUDE_AUTH: 'ok', MOCK_CLAUDE_WRAP: 'ok', MOCK_CLAUDE_LOG: logPath,

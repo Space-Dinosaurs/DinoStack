@@ -24,7 +24,7 @@
 #
 #          Scenarios run against a scratch FIXTURE repo - a miniature of this
 #          repo's layout with stub gates - so a scenario costs a second
-#          instead of the ~40 minutes a real full run costs, and so a gate
+#          instead of the ~15 minutes a real full run costs, and so a gate
 #          can be made to fail on purpose without breaking anything real.
 #
 # Public API: bash bin/tests/test_check_local.sh
@@ -493,7 +493,7 @@ printf '#!/bin/sh\nexit 1\n' > "$SP/python3"
 chmod +x "$SP/python3"
 out="$(run_preflight "$FX" "$SP")"
 rc=$?
-if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q "pip install pytest pytest-timeout pyyaml" && [ ! -e "$FX/GATE_RAN" ]; then
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q "pip install pytest pytest-timeout pytest-xdist pyyaml" && [ ! -e "$FX/GATE_RAN" ]; then
   _pass "preflight miss [python modules] exits 2, says the pip command, and runs no gate"
 else
   _fail "expected exit 2 naming the pip install command, got $rc:

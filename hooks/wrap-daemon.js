@@ -156,8 +156,15 @@ const MAX_ATTEMPTS = 3;
 // refreshes nothing, so this only bites a genuinely abandoned pid file.
 const PID_STALE_MS = 30 * 60 * 1000;
 // Poll interval for the drain loop (ms). Small enough to feel responsive, large
-// enough that a near-idle daemon costs almost nothing.
-const POLL_INTERVAL_MS = 5 * 1000;
+// enough that a near-idle daemon costs almost nothing. AE_TEST_WRAP_DAEMON_POLL_MS
+// is a test-only override (hooks/tests/test-wrap-daemon.js); anything other than a
+// positive integer falls back to the default.
+const DEFAULT_POLL_INTERVAL_MS = 5 * 1000;
+const POLL_INTERVAL_MS = (() => {
+  const raw = process.env.AE_TEST_WRAP_DAEMON_POLL_MS;
+  const n = /^[0-9]+$/.test(raw || '') ? parseInt(raw, 10) : 0;
+  return n > 0 ? n : DEFAULT_POLL_INTERVAL_MS;
+})();
 // A plausible Claude session id is a v4-ish UUID. We validate against this before
 // passing it to `claude --resume` so a corrupt/hostile marker filename can never
 // inject an argument. (The lib also sanitizes path separators; this is the

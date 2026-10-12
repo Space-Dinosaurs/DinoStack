@@ -1119,7 +1119,9 @@ _n_claude_md_run1="$(cat "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
 
 printf '\n<!-- case-n-canary -->\n' >> "$CONVENTIONS_PATH"
 
-_run_install "$FAKE_HOME" || true
+# This run's assertions need install.sh's own build, so the harness opt-out
+# (AE_INSTALL_SKIP_BUILD, set by scripts/check-local.sh) must not reach it.
+( unset AE_INSTALL_SKIP_BUILD; _run_install "$FAKE_HOME" ) || true
 _n_claude_md_run2="$(cat "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
 _n_skill_md_run2="$(cat "$FAKE_HOME/.claude/skills/dinostack/SKILL.md" 2>/dev/null)"
 _n_install_out_run2="$(cat "$FAKE_HOME/.install_out" 2>/dev/null)"
