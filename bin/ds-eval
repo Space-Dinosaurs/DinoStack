@@ -27,7 +27,9 @@ Upstream deps: bin/_eval.py (loaded by resolved path), which reads each
             repo's .agentic/events.jsonl and .agentic/.enforcement-fires.jsonl,
             the transcript stores, git, gh and ds-feedback; Python 3 stdlib.
 
-Downstream consumers: operator-invoked; bin/tests/test_ds_eval.py.
+Downstream consumers: operator-invoked; bin/ds-evaluate (loads this file for
+            _parse_when, print_header, print_sections, decision_line and
+            gap_lines); bin/tests/test_ds_eval.py.
 
 Failure modes: never raises on missing telemetry; missing inputs are
             ABSENT/PARTIAL metrics with a reason. Read-only.
@@ -80,19 +82,21 @@ def _fmt_metric(m) -> str:
     return " | ".join(parts)
 
 
-def _print_table(r: dict) -> None:
+def _tag(r: dict, entry: dict) -> str:
+    return f"[{entry.get('repo')}] " if len(r["meta"]["repos"]) > 1 else ""
+
+
+def print_header(r: dict, prog: str) -> None:
     meta = r["meta"]
-    multi = len(meta["repos"]) > 1
-
-    def tag(entry) -> str:
-        return f"[{entry.get('repo')}] " if multi else ""
-
-    print(f"ds-eval  {', '.join(meta['repos'])}")
+    print(f"{prog}  {', '.join(meta['repos'])}")
     print(f"window   {meta['start']} .. {meta['end']}   sessions {meta['sessions']}")
     print("stores")
     for entry in meta["stores"]:
         print(_EVAL._TRANSCRIPTS.store_line(entry))
 
+
+def print_sections(r: dict) -> None:
+    """The measured sections, [cost] through [mix]."""
     print("\n[cost]")
     c = r["cost"]
     rec = c["reconciled"]
@@ -146,27 +150,45 @@ def _print_table(r: dict) -> None:
         shares = ", ".join(f"{k} {v['share']:.0%}" for k, v in m["value"].items())
         print(f"  {key}: {m['status']}  {shares}")
 
+
+def decision_line(r: dict, d: dict) -> str:
+    """One proposal: rule, subject, evidence figure/value/count, rank_usd or unpriced, route."""
+    rank = f"${d['rank_usd']:,.2f}" if d["rank_usd"] is not None else "unpriced"
+    ev = d["evidence"]
+    return (f"{_tag(r, d)}{d['rule']:<4} {d['subject']}  [{ev['figure']} = {json.dumps(ev['value'])}, "
+            f"n={ev['count']}]  {rank}  -> {d['route']}")
+
+
+def gap_lines(r: dict) -> list[str]:
+    """The gaps, per-hook inputs grouped by input name; no route, no rank."""
+    grouped: dict = {}
+    for g in r["gaps"]:
+        m = _HOOK_INPUT_RE.match(g["input"])
+        key = (_tag(r, g), f"hooks[*].{m.group(2)}" if m else g["input"], g["status"], tuple(g["blocks"]))
+        grouped.setdefault(key, []).append(m.group(1) if m else None)
+    lines = []
+    for (prefix, name, status, blocks), hooks in grouped.items():
+        names = [h for h in hooks if h]
+        detail = f" ({len(names)} hooks: {', '.join(names)})" if names else ""
+        lines.append(f"{prefix}{name}: {status}{detail}  blocks {', '.join(blocks) or '-'}")
+    return lines
+
+
+def _print_table(r: dict) -> None:
+    print_header(r, "ds-eval")
+    print_sections(r)
+
     print("\n[decisions]")
     if not r["decisions"]:
         print("  none")
     for d in r["decisions"]:
-        rank = f"${d['rank_usd']:,.2f}" if d["rank_usd"] is not None else "unpriced"
-        ev = d["evidence"]
-        print(f"  {tag(d)}{d['rule']:<4} {d['subject']}  [{ev['figure']} = {json.dumps(ev['value'])}, n={ev['count']}]"
-              f"  {rank}  -> {d['route']}")
+        print(f"  {decision_line(r, d)}")
 
     print("\n[gaps]")
     if not r["gaps"]:
         print("  none")
-    grouped: dict = {}
-    for g in r["gaps"]:
-        m = _HOOK_INPUT_RE.match(g["input"])
-        key = (tag(g), f"hooks[*].{m.group(2)}" if m else g["input"], g["status"], tuple(g["blocks"]))
-        grouped.setdefault(key, []).append(m.group(1) if m else None)
-    for (prefix, name, status, blocks), hooks in grouped.items():
-        names = [h for h in hooks if h]
-        detail = f" ({len(names)} hooks: {', '.join(names)})" if names else ""
-        print(f"  {prefix}{name}: {status}{detail}  blocks {', '.join(blocks) or '-'}")
+    for line in gap_lines(r):
+        print(f"  {line}")
 
 
 def main(argv: list[str] | None = None) -> int:

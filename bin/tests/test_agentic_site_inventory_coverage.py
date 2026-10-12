@@ -249,9 +249,11 @@ EXCLUDED_FILES = {
     # Round-3 rework (Major 3 audit): bin/ds-evaluate is a slash-command-
     # driven signal collector (`/ds-evaluate`, `content/commands/
     # ds-evaluate.md`), never shelled out to from any hooks/*.js or
-    # hooks/*.py call site. Its `.agentic`-reading sites (session-log,
-    # events.jsonl, enforcement-fires.jsonl) all derive from `repo`, which
-    # comes from an explicit `--repo` argument (default "." - the
+    # hooks/*.py call site. Its own `.agentic`-reading site (the resident
+    # floor's .agentic/memory/MEMORY.md) derives from `repo`, and its
+    # telemetry reads go through bin/_eval.py (exempted below) with
+    # `--telemetry-repo` paths; `repo` comes from an explicit `--repo`
+    # argument (default "." - the
     # conductor's OWN cwd, not a harness-payload cwd handed across a
     # Bash-tool boundary) - same explicit-argument exemption rationale as
     # bin/ds-doctor/bin/ds-update above.
@@ -319,9 +321,11 @@ EXCLUDED_FILES = {
     # bin/ds-hook-fire-report above, which reads the identical fires-log
     # file the same way.
     "bin/ds-change-delta",
-    # bin/_eval.py (library behind the operator-invoked bin/ds-eval): every
-    # `.agentic`-reading site derives from a repo path passed to evaluate()
-    # from ds-eval's REQUIRED `--repo` argument; read-only, never called
+    # bin/_eval.py (library behind the operator-invoked bin/ds-eval and
+    # bin/ds-evaluate): every `.agentic`-reading site derives from a repo
+    # path passed to evaluate() from ds-eval's REQUIRED `--repo` argument or
+    # ds-evaluate's `--telemetry-repo` (default: the invoking cwd's git
+    # toplevel, else its explicit `--repo`); read-only, never called
     # from a hooks/*.js or hooks/*.py call site - same rationale as
     # bin/ds-change-delta above.
     "bin/_eval.py",

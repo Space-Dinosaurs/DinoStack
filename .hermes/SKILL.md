@@ -4288,9 +4288,9 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       session log to .agentic/session-log/);
                       /ds-wrap command (reads events.jsonl for structural session skeleton,
                       and .agentic/.enforcement-fires.jsonl for Part D.5 signal 3(b));
-                      bin/ds-evaluate (reads .agentic/.enforcement-fires.jsonl for its
-                      signal 3 per-hook deny/allow_advisory tallies and its
-                      newest_ts/last_10_days figures);
+                      bin/ds-evaluate (reads .agentic/.enforcement-fires.jsonl and
+                      events.jsonl through bin/_eval.py's evaluate(), the same
+                      reader as bin/ds-eval below);
                       /ds-failure-audit (reads .agentic/.enforcement-fires.jsonl as an
                       OPTIONAL supplementary source - item 4 of its "What the audit
                       reads" list, and item 4 of the "Audit brief (verbatim - the
@@ -4443,7 +4443,7 @@ Two callers populate it. `enforce-guarded-rm.py` writes `{"agent_self_corrects":
 
 **Retention:** not auto-rotated. Same operating posture as `events.jsonl` above - manual `mv` if it grows past concern. Project-local; gitignored. Note that in a repo with `abdication_guard_enabled: true`, `enforce-no-abdication.py`'s every-verdict posture makes this file grow with conductor turns rather than only with enforcement actions, so it fills faster than the action-only era's rate.
 
-**Consumer:** `/ds-wrap` Part D.5 signal 3(b) (Session-feedback capture signal, "Enforcement fire-log") tallies per `hook` value, counting only rows whose `decision` is not `"allow"`, as a `guardrail-fire` feedback candidate. Its read stays bounded but bounds on the FILTERED count - the last ~500 surviving rows, found within at most ~5000 raw tail lines - so every-verdict `"allow"` rows cannot crowd genuine fires out of the window. `bin/ds-evaluate` signal 3 tallies `"deny"` and `"allow_advisory"` per hook and, by design, counts any other `decision` value under neither total - so `"allow"` rows never reached those two totals. Its `newest_ts` and `last_10_days` figures are a separate matter: they originally counted every parsed row regardless of `decision`, which would have turned the per-day histogram into a conductor-turn histogram once `"allow"` rows existed, so `bin/ds-evaluate` now skips `decision == "allow"` rows before the timestamp is taken. A hook that logs only `"allow"` rows still appears under `by_hook` with both counts at 0 (ran, never fired). Any OTHER free-form `decision` value remains a fire and still feeds `newest_ts`/`last_10_days` - the exclusion is specific to `"allow"`, not a general "unrecognized value" filter. `/ds-failure-audit` is the third consumer (OPTIONAL supplementary source - item 4 of its "What the audit reads" list, and item 4 of the "Audit brief (verbatim - the binding contract)" under Step 3): it excludes `"allow"` rows from every guardrail-fire count and may use them only as a denominator when judging whether a guard is inert. `bin/ds-eval` (via `bin/_eval.py`) counts only `"deny"` rows per hook, joins each to operator labels by `fire_key` (`tool_use_id`, else `session_id@ts`), and reports a row with neither as not joinable rather than sampling it.
+**Consumer:** `/ds-wrap` Part D.5 signal 3(b) (Session-feedback capture signal, "Enforcement fire-log") tallies per `hook` value, counting only rows whose `decision` is not `"allow"`, as a `guardrail-fire` feedback candidate. Its read stays bounded but bounds on the FILTERED count - the last ~500 surviving rows, found within at most ~5000 raw tail lines - so every-verdict `"allow"` rows cannot crowd genuine fires out of the window. `/ds-failure-audit` is another consumer (OPTIONAL supplementary source - item 4 of its "What the audit reads" list, and item 4 of the "Audit brief (verbatim - the binding contract)" under Step 3): it excludes `"allow"` rows from every guardrail-fire count and may use them only as a denominator when judging whether a guard is inert. `bin/ds-eval` and `bin/ds-evaluate` (both via `bin/_eval.py`) count only `"deny"` rows per hook within the evaluated window, joins each to operator labels by `fire_key` (`tool_use_id`, else `session_id@ts`), and report a row with neither as not joinable rather than sampling it.
 
 ## Learnings-retrieval firing rate (transcript-derived, read-side only)
 
@@ -16662,32 +16662,38 @@ The command is direct-action eligible - no extra confirmation prompt.
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
 <!--
-Purpose: Evaluate the methodology's effectiveness against the North Star pillars. Reads the pillar
-         text LIVE from docs/overview/vision.md at runtime (never hardcoded), runs bin/ds-evaluate
-         (the deterministic signal collector) for measured telemetry, spawns parallel per-pillar
-         scoring subagents, and writes a date-stamped report.
+Purpose: Evaluate the methodology's effectiveness against the North Star pillars over a time
+         window, and end with ranked methodology-refinement proposals, each naming its evidence
+         figure and the route it goes to. Reads the pillar text LIVE from the DinoStack checkout's
+         docs/overview/vision.md at runtime (never hardcoded), runs bin/ds-evaluate (the
+         deterministic signal collector, over bin/_eval.py) for measured telemetry, spawns parallel
+         per-pillar scoring subagents, writes a date-stamped report, and offers the operator up to
+         5 samples per D2-flagged hook to label via ds-feedback.
 
-Public API: /ds-evaluate (conductor-invoked; no flags, no subcommands). Reads docs/overview/vision.md
-            and the bin/ds-evaluate JSON rollup; writes docs/planning/ds-evaluate-YYYY-MM-DD.md.
+Public API: /ds-evaluate [window] (conductor-invoked). One optional window argument: `Nd` (e.g.
+            `14d`) or an ISO8601 date; default `30d`. Reads vision.md and the bin/ds-evaluate
+            report; writes docs/planning/ds-evaluate-YYYY-MM-DD.md and, only for operator-labelled
+            samples, ds-feedback items carrying a fire_label.
 
-Upstream deps: docs/overview/vision.md (North Star pillar text); bin/ds-evaluate (signal collector,
-               sibling unit); METHODOLOGY.md (activation preflight); the operator's telemetry files
-               (read by the collector).
+Upstream deps: docs/overview/vision.md (North Star pillar text); bin/ds-evaluate (signal collector);
+               scripts/lib/repo-dir.sh (resolve_repo_dir); bin/ds-feedback (fire labels);
+               METHODOLOGY.md (activation preflight); the operator's telemetry files (read by the
+               collector).
 
 Downstream consumers: build-all.sh (regenerates this command into all 11 adapter dirs); the operator,
                       who reads the conductor-presented digest and docs/planning/ds-evaluate-YYYY-MM-DD.md.
 
-Failure modes: scores are advisory, never a gate. Sparse telemetry degrades to a finding, never a
-               false 0. Self-report bias when a scoring model evaluates the methodology it runs under
+Failure modes: scores and proposals are advisory, never a gate. Sparse telemetry degrades to a
+               finding or a telemetry gap, never a false 0. Self-report bias when a scoring model evaluates the methodology it runs under
                is mitigated by Step 3's non-dominant-model guidance.
 
 Performance: one deterministic collector run plus N parallel lens spawns (N = number of pillars),
              each ~15 tool calls. Negligible at the intended cadence.
 -->
 
-Evaluates the methodology's effectiveness against the North Star pillars. The conductor runs a deterministic signal collector (`bin/ds-evaluate --repo <repo>`) to gather measured telemetry, spawns one parallel scoring subagent per pillar, and merges the verdicts into a per-pillar scorecard. The pillar text is read LIVE from `docs/overview/vision.md` at runtime - it is never hardcoded here, so a pillar edit needs no command change.
+Evaluates the methodology's effectiveness against the North Star pillars over a time window, and ends with ranked refinement proposals the operator can route. The conductor runs a deterministic signal collector (`bin/ds-evaluate`) over the current project's telemetry, spawns one parallel scoring subagent per pillar, merges the verdicts into a per-pillar scorecard, and closes with the proposals, the telemetry gaps, and an optional labelling pass over flagged hook denies. The pillar text is read LIVE from the DinoStack checkout's `docs/overview/vision.md` at runtime - it is never hardcoded here, so a pillar edit needs no command change.
 
-**When to use:** periodically (quarterly), after a methodology change, or when the operator wants a pillar-by-pillar effectiveness snapshot grounded in measured signals rather than impression.
+**When to use:** periodically, after a methodology change, or when the operator wants to see what is working and what to refine, grounded in measured signals rather than impression. Run it from the project whose telemetry should be evaluated (its primary checkout - hook spawn rows land there, not in a linked worktree).
 
 **Do not use to:** categorize failure modes per model/harness (use `/ds-failure-audit`), count tokens (use `/ds-cost`), or gate a merge - the scores are advisory by design.
 
@@ -16710,26 +16716,28 @@ Run the Activation preflight from `METHODOLOGY.md`. If inactive, no-op and exit.
 
 ## Step 2 - Signal collection
 
-The conductor runs the deterministic collector and reads its JSON rollup (stdout):
+Write the window into the command below in place of `<window>`: the command's argument when one was given (`14d`, `30d`, or an ISO8601 date), else `30d`. `REPO_DIR` is the DinoStack checkout, resolved by `resolve_repo_dir` from `scripts/lib/repo-dir.sh`; the first line only locates that library through the same config file the resolver reads. The telemetry repo is the current project's git toplevel.
 
+```bash
+AE_BOOT="$(python3 -c 'import json, os; print(json.load(open(os.path.expanduser("~/.agentic/agentic-engineering-config.json"))).get("repo_dir", ""))' 2>/dev/null)"
+. "${AE_BOOT:-$HOME/DinoStack}/scripts/lib/repo-dir.sh" && resolve_repo_dir --quiet && REPO_DIR="$AE_REPO_DIR" \
+  && "$REPO_DIR/bin/ds-evaluate" --repo "$REPO_DIR" --telemetry-repo "$(git rev-parse --show-toplevel)" --since <window>
 ```
-bin/ds-evaluate --repo <repo>
-```
 
-The rollup is the single measured-signal input to every pillar lens. Pass it verbatim to each lens. Per-signal data-quality caveats - all documented facts; state them in the report rather than "fixing" the numbers:
+The report (stdout) is the single measured-signal input to every pillar lens; pass it verbatim to each lens. It opens with the proposal and gap counts, then the window and one line per transcript store, the measured sections (`[cost]`, `[agents]`, `[skeptic_rounds]`, `[work_items]`, `[hooks]`, `[mix]`), the DinoStack checkout's `[methodology]` signals (budget gates, resident floor, vision pillars), and ends with `Refinement proposals` and `Telemetry gaps` (Steps 5-6). Data-quality rules - state them in the report rather than "fixing" the numbers:
 
-- **Tokens zero-filled:** token fields are zero when token attribution is unavailable (e.g. no opt-in pricing configured for `/ds-cost`). A 0 tokens signal is an absence of data, not a measurement of 0 - the report must say so.
-- **Enforcement-fires is repo-cumulative, not session-scoped:** the enforcement-fires tally the collector reads (`.agentic/.enforcement-fires.jsonl`) is a repo-wide cumulative count. Never present an enforcement-fires figure as a per-session count.
-- **Enforcement-fires figures count fires, not hook invocations:** `enforce-no-abdication.py` logs every verdict path it reaches, including plain `"allow"` rows for turns it evaluated and declined to fire. The collector excludes those rows from `newest_ts` and `last_10_days` (and they were never in `deny_total`/`allow_advisory_total`), so all four figures mean fires. A hook that logged only `"allow"` rows still appears under `by_hook` with its counts at 0 - read that as "ran, never fired", never as "absent". Do not re-derive a fire rate from raw line counts of that file; it also grows with conductor turns.
+- **Every metric carries a status:** `OK`, `PARTIAL` (a named source or sample is incomplete, with its coverage) or `ABSENT` (no input, value null). An ABSENT figure is an absence of data, never a measurement of 0 - the report must say so.
+- **Every figure is window-scoped:** sessions, spawns, hook denies and dollars count only the window; never present one as an all-time or per-session figure.
+- **Dollars are reconciled, not summed tokens:** `[cost]` reconciles against the harness's own cost-state; sessions with no cost-state are a separate group, reported PARTIAL rather than folded into the total.
 
-If the collector fails or returns an empty rollup, treat the invocation as a sparsity finding (see Edge cases) - never proceed with an invented signal baseline.
+If the collector fails or prints no report, treat the invocation as a sparsity finding (see Edge cases) - never proceed with an invented signal baseline.
 
 ## Step 3 - Pillar-lens scoring
 
-Extract the North Star pillar list from `docs/overview/vision.md` (the "North Star" section) at runtime. Spawn ONE `investigator` subagent per pillar, in parallel (background), each briefed with:
+Extract the North Star pillar list from the DinoStack checkout's `docs/overview/vision.md` (the "North Star" section; the report's `[methodology]` line names that checkout) at runtime. Spawn ONE `investigator` subagent per pillar, in parallel (background), each briefed with:
 
 - the pillar's verbatim text (from the live vision.md read in this invocation - never from memory)
-- the signal JSON rollup verbatim
+- the Step 2 report verbatim
 - the compact verdict contract below
 - every section of that brief that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
 
@@ -16738,13 +16746,13 @@ Prefer a non-dominant model for at least one lens (self-report bias mitigation, 
 Keep the brief contract compact - this command's output is a report, not a PR. Each lens returns a structured verdict:
 
 - **score:** 1-5 (5 = the methodology fully serves this pillar)
-- **evidence:** file:line references where the signal rollup / telemetry grounds the score
+- **evidence:** the report figures (section and metric) that ground the score
 - **gaps:** concrete weaknesses against this pillar
 - **action:** ONE candidate action that would most improve this pillar's score
 
 ## Lens brief (verbatim - compact contract)
 
-"Score the dinostack methodology against this North Star pillar. Read the pillar text and the signal JSON rollup provided, and return a structured verdict: score (1-5), evidence with file:line references, gaps, and ONE action candidate. Ground every score in the signals; where the signal rollup does not cover a pillar, say 'insufficient data' instead of inventing a score. You are producing a report input, not a PR - keep the verdict to a few paragraphs."
+"Score the dinostack methodology against this North Star pillar. Read the pillar text and the signal report provided, and return a structured verdict: score (1-5), evidence naming the report figures used, gaps, and ONE action candidate. Ground every score in the signals; an ABSENT figure is missing data, not a 0, and where the report does not cover a pillar, say 'insufficient data' instead of inventing a score. You are producing a report input, not a PR - keep the verdict to a few paragraphs."
 
 ## Step 4 - Synthesis
 
@@ -16752,8 +16760,47 @@ After the lenses return, the conductor:
 
 1. Merges the verdicts into a per-pillar scorecard.
 2. Writes the report to `docs/planning/ds-evaluate-YYYY-MM-DD.md` (gitignored - never committed).
-3. Returns a compact digest inline: per-pillar scores, the top gap, and the top action candidate.
-4. Flags gaps as actionable findings - optionally filed via the tracker helper, mirroring `/ds-feedback-triage` (only operator-approved items are filed).
+3. Returns a compact digest inline that leads with the refinement proposals (Step 5), then the per-pillar scores and the top action candidate.
+
+## Step 5 - Refinement proposals
+
+Present the report's `Refinement proposals` verbatim and in its order - it is `bin/_eval.py`'s Decision rules order (priced proposals by `rank_usd` descending, then unpriced ones by evidence count descending); never re-rank or drop one. Each line names the rule (D1a-D3), subject, evidence figure, value and count, `rank_usd` (or `unpriced`), and route. Name the route as the operator acts on it:
+
+| Route | Where it goes |
+|---|---|
+| `update-agentic-engineering` | `/ds-update-agentic-engineering` (a methodology change: Skeptic round shape, D1a-D1c) |
+| `prune-harness` | `/ds-prune-harness`, which applies its own floor-vs-dial pre-filter, so a floor hook is excluded there (D2) |
+| `tracker-ticket` | a ticket in the project tracker, filed only on operator approval, as in `/ds-feedback-triage` (D3) |
+
+No route is taken without the operator. `none` means no rule fired in the window.
+
+## Step 6 - Telemetry gaps
+
+Then list the report's `Telemetry gaps`: each input metric that was ABSENT or PARTIAL and the rules it disables (`blocks`). A gap has no route and no rank and is never a proposal; it says which rule could not be evaluated, not that the rule passed.
+
+## Step 7 - Label flagged hook denies
+
+For each D2 proposal that lists label samples, ask the operator ONE question per hook showing its samples (up to 5, each with its `ts` and reason), to be answered per sample with FP (false positive), TP (true positive) or skip, plus an optional note. A hook with no samples gets no question.
+
+Write every FP or TP answer from this run in ONE `ds-feedback append` batch; a skipped sample writes nothing, and when every answer is skip, do not call `ds-feedback` at all. One draft per labelled sample:
+
+- `category` `guardrail-fire`, `scope` `methodology`, `severity` `low`
+- `evidence`: the sample's reason (`-` when the reason is empty)
+- `suggested_title`: `fire label <hook> <verdict>`, where `<verdict>` is `false_positive` or `true_positive`
+- `suggested_body`: the operator's note, or `-`
+- `fire_label`: `{"hook": "<hook>", "fire_key": "<fire_key>", "fire_ts": "<ts>", "verdict": "<verdict>"}`
+
+Use the repo printed on the samples line as `--repo` - `ds-eval` matches a label to its deny by that exact path. Write the drafts array into the heredoc in place of the placeholder:
+
+```bash
+LABELS_TMP="$(mktemp "${TMPDIR:-/tmp}/eval-labels.XXXXXX")"
+cat > "$LABELS_TMP" << '__EVAL_LABELS_JSON__'
+[...the drafts array...]
+__EVAL_LABELS_JSON__
+ds-feedback append --repo "<repo from the samples line>" --session-uuid "${CLAUDE_CODE_SESSION_ID:-unknown}" --file "$LABELS_TMP"
+```
+
+A labelled item is born `triaged`, so `/ds-feedback-triage` never lists it; the next `ds-eval` or `/ds-evaluate` run counts it in `hooks[<hook>].labelled`.
 
 ## Report template
 
@@ -16761,22 +16808,26 @@ After the lenses return, the conductor:
 # /ds-evaluate - YYYY-MM-DD
 
 ## Signals
-- Collector rollup: [signals present, coverage]
-- Caveats: [tokens zero-filled / enforcement-fires repo-cumulative / enforcement-fires count fires not invocations - stated if used]
+- Window: [start .. end], telemetry repo, stores
+- Caveats: [ABSENT/PARTIAL figures used, stated if used]
 
 ## Per-pillar scorecard
 
 | Pillar | Score (1-5) | Evidence | Top gap | Action candidate |
 |---|---|---|---|---|
 
-## Gaps and actionable findings
-[one per gap; optionally filed via the tracker helper]
+## Refinement proposals
+[the report's proposals verbatim, in order: rule, subject, evidence figure = value, n, rank_usd or unpriced, route]
+
+## Telemetry gaps
+[the report's gaps verbatim: input, status, blocks - no route, no rank]
 ```
 
 ## Edge cases
 
 - **Signal sparsity:** insufficient data is a finding ("not enough telemetry to score this pillar"), never a false 0. A lens that cannot ground its score in the signal rollup says so, and the scorecard marks the pillar unrated.
-- **Collector failure:** if `bin/ds-evaluate` errors or returns an empty rollup, the report records the failure as a finding and stops - it does not proceed with fabricated signals.
+- **Collector failure:** if `bin/ds-evaluate` errors or prints no report, the report records the failure as a finding and stops - it does not proceed with fabricated signals.
+- **Not inside a git checkout:** `git rev-parse --show-toplevel` prints nothing, and `bin/ds-evaluate` exits 2 on the empty `--telemetry-repo`; run the command from the project's checkout.
 
 ## Non-goals
 
