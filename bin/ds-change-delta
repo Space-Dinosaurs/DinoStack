@@ -28,14 +28,44 @@ Purpose: DS-241 one-shot before/after telemetry delta tool. Resolves a
          escaped-defect signals). The per-ticket, PR-attribution and
          pricing helpers live in bin/_eval.py, shared with bin/ds-eval.
 
+         The `eval` side (ds-eval program U8) answers "before/after effect
+         of a methodology change" from _eval.evaluate() figures, with two
+         mechanisms, each with its own failure caught and retirement:
+         - confounders + per-entrypoint deltas + mix_shifted: catches an
+           entrypoint mix flip reversing the sign of a pooled delta (a
+           cli-heavy window against an sdk-cli-heavy one). Retires once
+           the compared repos run a single entrypoint for 2 consecutive
+           windows, when there is no mix left to shift.
+         - prefix_test (K = 5, 25, 100): catches a one-time prompt-prefix
+           removal read as a rate change (a step shows the same delta at
+           every K, a trend grows with K). Retires when 3 consecutive cuts
+           need no step-vs-trend call.
+
 Public API: ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH]
             [--window-days N] [--pr-lookahead-days N]
             --repo PATH [--repo PATH ...] [--json]
             Default output: a fixed-width table. --json emits the full
             {"meta":..., "metrics":..., "pr_history":..., "agent_model":...,
-            "per_ticket":...} object (see build_delta(), _agent_model_side()
+            "per_ticket":..., "eval":...} object (see build_delta(), _agent_model_side()
             and bin/_eval.py's _ticket_row() for the exact shape - this is the binding
-            contract the regression test asserts against).
+            contract the regression test asserts against). build_delta()
+            returns every key but `eval`, which main() adds.
+            build_eval_side(repos, cut_dt, window_days, now=None, *,
+            evaluate=None, stores=None) -> dict runs
+            _eval.evaluate(include_sessions=True) per window;
+            compare_eval(reports, base_counts, cut_dt, window_days, now)
+            builds the block: meta (figure, sessions_assigned, base),
+            before/after (sessions, cost_usd, usd_per_reconciled_session,
+            straddling_sessions), confounders.{before,after}.{entrypoint,
+            model,version,base_commits}, pooled and per_entrypoint[ep]
+            {before, after, delta}, mix_shifted (value True when any
+            entrypoint's session share moved more than MIX_SHIFT_POINTS = 10;
+            `points` per entrypoint) and prefix_test["5"|"25"|"100"]
+            {before, after, delta}. Every figure is _eval's envelope
+            {status OK|PARTIAL|ABSENT, value, coverage, missing}; ABSENT
+            carries value None and a reason, never 0. The per-entrypoint,
+            pooled and prefix figures count each session once, on the side
+            its first_ts falls in; an unelapsed after window is PARTIAL.
             Exit 0 on any well-formed run, even one where every metric
             reports a non-OK status (an absent or short-of-window store
             is informative output, not a CLI failure). Exit 1 when --cut
@@ -63,7 +93,12 @@ Read-only guarantee (AC7): every filesystem open() call in this module is
             entry is ever mutated. See
             bin/tests/test_ds_change_delta.py's R5 test for the enforced
             argv allowlist (an exact match of this list) and the fixture-repo
-            HEAD/status byte-identity assertion.
+            HEAD/status byte-identity assertion. The `eval` side's
+            subprocesses go through bin/_eval.py's own _lib._run: `git log`,
+            `git rev-list --count` (_base_commit_count), `git remote`,
+            `git show-ref`/`symbolic-ref`/`rev-parse` (base resolution),
+            `gh pr list` and `ds-feedback list`, all read-only (allowlist
+            in test_eval_side_in_cli_json_and_its_subprocesses_are_read_only).
 
 Multi-repo aggregation: session-log and fires-log ROWS from every --repo
             are merged into ONE combined row set for counting (see
@@ -122,7 +157,8 @@ Upstream deps: git, gh (optional - PR-history metrics degrade to
             bin/_eval.py is loaded by resolved path (SourceFileLoader)
             for the moved helpers and its bin/_telemetry.py instance, with
             ~/.agentic/pricing.yml overriding its built-in rates when
-            present.
+            present, and for evaluate() (the `eval` side), which also reads
+            every Claude Code config-dir transcript store.
 
 Downstream consumers: operator-invoked directly (content/commands/
             ds-change-delta.md); not called by any other DinoStack tool.
@@ -154,6 +190,10 @@ Performance: one `git show` per --cut-repo, one `gh repo view` and one
             fires-log/events/ledger/loop-state file per --repo. No caching; a wide --window-days against a busy
             repo's PR history can approach GitHub search's documented
             1,000-result cap (see content/commands/ds-change-delta.md).
+            The `eval` side adds two evaluate() runs (one transcript pass
+            each over every config-dir store; 36 s measured for authentic8,
+            ~250 sessions, 2026-10-12) and one `git rev-list` per repo per
+            window.
 """
 from __future__ import annotations
 
@@ -1254,6 +1294,214 @@ def build_delta(
 
 
 # ---------------------------------------------------------------------------
+# eval side: bin/_eval.py evaluate() per window, split by entrypoint
+# ---------------------------------------------------------------------------
+
+MIX_SHIFT_POINTS = 10
+PREFIX_KS = (5, 25, 100)
+_OK, _ABSENT, _PARTIAL = _EVAL.OK, _EVAL.ABSENT, _EVAL.PARTIAL
+_metric = _EVAL.metric
+_absent = _EVAL._absent
+
+
+def _session_rate(rows: list[dict], label: str) -> dict:
+    """Mean cost-state dollars per session over the sessions whose cost-state
+    covers them; coverage is that share of `rows`."""
+    if not rows:
+        return _absent(f"no {label} sessions")
+    known = [r["cost_usd"] for r in rows if r["cost_usd"] is not None]
+    if not known:
+        return _absent(f"none of {len(rows)} {label} sessions has cost-state covering it")
+    missing = ([f"{len(rows) - len(known)} of {len(rows)} {label} sessions without covering cost-state"]
+               if len(known) < len(rows) else [])
+    m = _metric(_PARTIAL if missing else _OK, round(sum(known) / len(known), 6),
+                round(len(known) / len(rows), 4), missing)
+    m["sessions"] = len(rows)
+    return m
+
+
+def _eval_delta(before: dict, after: dict) -> dict:
+    absent = [f"{name}: " + "; ".join(m["missing"]) for name, m in (("before", before), ("after", after))
+              if m["status"] == _ABSENT]
+    if absent:
+        return _metric(_ABSENT, None, None, absent)
+    missing = [f"{name}: {x}" for name, m in (("before", before), ("after", after)) for x in m["missing"]]
+    covs = [m["coverage"] for m in (before, after) if m.get("coverage") is not None]
+    return _metric(_PARTIAL if _PARTIAL in (before["status"], after["status"]) else _OK,
+                   round(after["value"] - before["value"], 6), min(covs) if covs else None, missing)
+
+
+def _shares(rows: list[dict], field: str) -> dict:
+    if not rows:
+        return _absent("no sessions in this window")
+    counts: dict = {}
+    for r in rows:
+        key = r.get(field) or "(none)"
+        counts[key] = counts.get(key, 0) + 1
+    return _metric(_OK, {k: {"sessions": n, "share": round(n / len(rows), 4)}
+                         for k, n in sorted(counts.items())})
+
+
+def _mix_shift(before: dict, after: dict) -> dict:
+    """Session-share movement per entrypoint, in points. mix_shifted is True
+    when any entrypoint moved MORE than MIX_SHIFT_POINTS."""
+    if _ABSENT in (before["status"], after["status"]):
+        out = _eval_delta(before, after)
+        out["points"] = None
+        out["threshold_points"] = MIX_SHIFT_POINTS
+        return out
+    points = {ep: round(abs(after["value"].get(ep, {"share": 0})["share"]
+                            - before["value"].get(ep, {"share": 0})["share"]) * 100, 6)
+              for ep in sorted(set(before["value"]) | set(after["value"]))}
+    out = _metric(after["status"] if after["status"] != _OK else before["status"],
+                  max(points.values()) > MIX_SHIFT_POINTS, None, before["missing"] + after["missing"])
+    out["points"] = points
+    out["threshold_points"] = MIX_SHIFT_POINTS
+    return out
+
+
+def _not_yet_elapsed(m: dict, after_end: datetime, now: datetime) -> dict:
+    if now >= after_end:
+        return m
+    return {**m, "status": _PARTIAL if m["status"] == _OK else m["status"],
+            "missing": m["missing"] + [f"after window not yet elapsed (ends {after_end.isoformat()})"]}
+
+
+def _base_commit_count(repo: str, base: str | None, start: datetime, end: datetime) -> int | None:
+    if not base:
+        return None
+    proc = _EVAL._LIB._run(
+        ["git", "rev-list", "--count", "--first-parent", f"--since={start.isoformat()}",
+         f"--until={end.isoformat()}", base],
+        cwd=repo, timeout=GH_CALL_TIMEOUT_SECONDS,
+    )
+    out = proc.stdout.strip() if proc.returncode == 0 else ""
+    return int(out) if out.isdigit() else None
+
+
+def _base_commits(counts: dict) -> dict:
+    missing = [f"{repo}: base ref unresolved or git rev-list failed" for repo, n in counts.items() if n is None]
+    known = {repo: n for repo, n in counts.items() if n is not None}
+    if not known:
+        return _metric(_ABSENT, None, None, missing or ["no repo"])
+    return _metric(_PARTIAL if missing else _OK, known, round(len(known) / len(counts), 4), missing)
+
+
+def _window_figures(report: dict) -> dict:
+    """Headline evaluate() figures for one window, each in its envelope."""
+    cost = report["cost"]
+    n = report["meta"]["sessions"]
+    rec = cost["reconciled"]
+    no_sessions = "no in-window sessions in any store"
+    return {
+        "sessions": _metric(_OK, n) if n else _absent(no_sessions),
+        "cost_usd": cost["window_total"],
+        "usd_per_reconciled_session": (
+            _metric(_OK, round(rec["usd"] / rec["sessions"], 6), cost["window_total"]["coverage"])
+            if rec["sessions"] else _absent("no session whose cost-state covers it")),
+        "straddling_sessions": _metric(_OK, cost["straddling_sessions"]) if n else _absent(no_sessions),
+    }
+
+
+def _assign_sessions(reports: dict, before_start: datetime, cut_dt: datetime,
+                     after_end: datetime) -> tuple[list[dict], list[dict], int]:
+    """Each session once, on the side its first_ts falls in. evaluate() lists a
+    session in every window it overlaps, so a session crossing the cut would
+    otherwise count on both sides."""
+    seen: dict = {}
+    for report in reports.values():
+        for row in report.get("session_rows", []):
+            seen.setdefault((row["repo"], row["session_id"]), row)
+    before, after, outside = [], [], 0
+    for row in seen.values():
+        ts = _parse_ts(row["first_ts"])
+        if ts is not None and before_start <= ts < cut_dt:
+            before.append(row)
+        elif ts is not None and cut_dt <= ts < after_end:
+            after.append(row)
+        else:
+            outside += 1
+    before.sort(key=lambda r: (_parse_ts(r["first_ts"]), r["session_id"]))
+    after.sort(key=lambda r: (_parse_ts(r["first_ts"]), r["session_id"]))
+    return before, after, outside
+
+
+def compare_eval(reports: dict, base_counts: dict, cut_dt: datetime, window_days: int,
+                 now: datetime) -> dict:
+    """The `eval` block from two evaluate(include_sessions=True) reports
+    (keys before/after) and per-window base commit counts {side: {repo: n}}."""
+    before_start, _, _, after_end = _windows(cut_dt, window_days)
+    before_rows, after_rows, outside = _assign_sessions(reports, before_start, cut_dt, after_end)
+
+    def elapsed(m):
+        return _not_yet_elapsed(m, after_end, now)
+
+    def ep_of(row):
+        return row.get("entrypoint") or "(none)"
+
+    confounders = {}
+    for side, side_rows in (("before", before_rows), ("after", after_rows)):
+        conf = {"entrypoint": _shares(side_rows, "entrypoint"), "model": _shares(side_rows, "model"),
+                "version": _shares(side_rows, "version"), "base_commits": _base_commits(base_counts[side])}
+        confounders[side] = {k: elapsed(v) for k, v in conf.items()} if side == "after" else conf
+
+    pooled_before = _session_rate(before_rows, "before")
+    pooled_after = elapsed(_session_rate(after_rows, "after"))
+    per_entrypoint = {}
+    for ep in sorted({ep_of(r) for r in before_rows + after_rows}):
+        b = _session_rate([r for r in before_rows if ep_of(r) == ep], f"{ep} before")
+        a = elapsed(_session_rate([r for r in after_rows if ep_of(r) == ep], f"{ep} after"))
+        per_entrypoint[ep] = {"before": b, "after": a, "delta": _eval_delta(b, a)}
+
+    prefix_test = {}
+    for k in PREFIX_KS:
+        b = _session_rate(before_rows[-k:], f"last {k} before-cut")
+        a = _session_rate(after_rows[:k], f"first {k} after-cut")
+        for m, n in ((b, len(before_rows)), (a, len(after_rows))):
+            if 0 < n < k:
+                m["status"] = _PARTIAL if m["status"] == _OK else m["status"]
+                m["missing"] = m["missing"] + [f"only {n} of {k} sessions in the window"]
+        if len(after_rows) < k:
+            a = elapsed(a)
+        prefix_test[str(k)] = {"before": b, "after": a, "delta": _eval_delta(b, a)}
+
+    return {
+        "meta": {"figure": "usd_per_session: cost-state dollars per session it covers",
+                 "sessions_assigned": {"before": len(before_rows), "after": len(after_rows),
+                                       "first_ts_outside_windows": outside},
+                 "base": {side: reports[side]["meta"].get("base") for side in ("before", "after")}},
+        "before": _window_figures(reports["before"]),
+        "after": {k: elapsed(v) for k, v in _window_figures(reports["after"]).items()},
+        "confounders": confounders,
+        "pooled": {"before": pooled_before, "after": pooled_after,
+                   "delta": _eval_delta(pooled_before, pooled_after)},
+        "per_entrypoint": per_entrypoint,
+        "mix_shifted": _mix_shift(confounders["before"]["entrypoint"], confounders["after"]["entrypoint"]),
+        "prefix_test": prefix_test,
+    }
+
+
+def build_eval_side(repos: list[Path], cut_dt: datetime, window_days: int, now: datetime | None = None,
+                    *, evaluate=None, stores=None) -> dict:
+    """evaluate() over each window, compared by compare_eval. `evaluate` is
+    injectable for tests (defaults to bin/_eval.py's)."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+    evaluate = evaluate or _EVAL.evaluate
+    before_start, before_end, after_start, after_end = _windows(cut_dt, window_days)
+    windows = {"before": (before_start, before_end), "after": (after_start, after_end)}
+    reports = {side: evaluate(repos, start, end, stores=stores, include_sessions=True)
+               for side, (start, end) in windows.items()}
+    base_counts = {
+        side: {repo: _base_commit_count(repo, ((reports[side]["meta"].get("base") or {}).get(repo) or {}).get("ref"),
+                                        start, end)
+               for repo in reports[side]["meta"]["repos"]}
+        for side, (start, end) in windows.items()
+    }
+    return compare_eval(reports, base_counts, cut_dt, window_days, now)
+
+
+# ---------------------------------------------------------------------------
 # Output rendering
 # ---------------------------------------------------------------------------
 
@@ -1319,6 +1567,34 @@ def _print_table(report: dict) -> None:
             f"loops_mean={_fmt_val(summary.get('loops_mean'))} "
             f"e2e_wall_median={_fmt_val(summary.get('e2e_wall_seconds_median'))}"
         )
+    ev = report.get("eval")
+    if ev is None:
+        return
+
+    def env(m) -> str:
+        if m["status"] == _ABSENT:
+            return f"ABSENT ({'; '.join(m['missing'])})"
+        return f"{_fmt_val(m['value'])} ({m['status']})"
+
+    print()
+    print(f"eval ({ev['meta']['figure']}):")
+    for name in ev["before"]:
+        print(f"  {name:<28}before={env(ev['before'][name])}  after={env(ev['after'][name])}")
+    for side in ("before", "after"):
+        conf = ev["confounders"][side]
+        parts = []
+        for name in ("entrypoint", "model", "version"):
+            m = conf[name]
+            parts.append(f"{name}=" + (", ".join(f"{k} {v['share']:.0%}" for k, v in m["value"].items())
+                                       if m["status"] != _ABSENT else env(m)))
+        parts.append(f"base_commits={env(conf['base_commits'])}")
+        print(f"  confounders {side}: " + "; ".join(parts))
+    ms = ev["mix_shifted"]
+    print(f"  mix_shifted: {env(ms)} points={ms['points']}")
+    rows = [("pooled", ev["pooled"])] + list(ev["per_entrypoint"].items()) + \
+        [(f"prefix K={k}", v) for k, v in ev["prefix_test"].items()]
+    for name, m in rows:
+        print(f"  {name:<16}before={env(m['before'])}  after={env(m['after'])}  delta={env(m['delta'])}")
 
 
 # ---------------------------------------------------------------------------
@@ -1381,6 +1657,7 @@ def main(argv: list[str] | None = None) -> int:
 
     report = build_delta(valid_repos, cut_dt, args.window_days, cut_source=cut_source,
                          pr_lookahead_days=args.pr_lookahead_days)
+    report["eval"] = build_eval_side(valid_repos, cut_dt, args.window_days)
 
     if args.json:
         print(json.dumps(report, indent=2, default=str))

@@ -15770,7 +15770,10 @@ per session, hook denies per session, tokens per session, wall time per
 session, and (for a git-checkout `--repo` with a resolvable `gh` remote)
 commits per merged PR, for two equal-length windows either side of the
 cut point, from the same live telemetry stores `ds-cost`, `ds-evaluate`,
-`ds-hook-fire-report`, and `ds-branch-prune` already read.
+`ds-hook-fire-report`, and `ds-branch-prune` already read. The `eval`
+block adds the same comparison over `ds-eval`'s figures (cost-state
+dollars per session), split by entrypoint and stated with its
+confounders.
 
 Implementation: `bin/ds-change-delta` (Python 3 stdlib).
 
@@ -15847,6 +15850,40 @@ a store with no v2 rows is `ABSENT`, both with `null` values.
   `ambiguous_prs`. When `gh` is unavailable, only the PR-derived fields
   (and `loops`) are `null`.
 
+## Evaluation side: `eval`
+
+`bin/_eval.py`'s `evaluate()` (the `ds-eval` engine) runs once per window
+over every Claude Code profile's transcript store. Every figure uses its
+envelope `{status: OK|PARTIAL|ABSENT, value, coverage, missing}`: a
+missing input is `ABSENT` with `value: null` and a reason, never 0, and an
+after window still running is `PARTIAL` with "after window not yet
+elapsed".
+
+- `before` / `after`: `ds-eval`'s own window figures - `sessions`,
+  `cost_usd` (cost reconciled to the harness cost-state),
+  `usd_per_reconciled_session`, `straddling_sessions`. `evaluate()` lists a
+  session in every window it overlaps.
+- The figures below count each session once, on the side its first
+  timestamp falls in (`meta.sessions_assigned`). The figure is cost-state
+  dollars per session, over the sessions whose cost-state covers them.
+- `confounders.before` / `confounders.after`: session shares by
+  entrypoint, model and Claude Code version (the usage key with the most
+  conductor messages), and `base_commits`, the first-parent commits on
+  each repo's base ref in the window.
+- `pooled` and `per_entrypoint` (`cli`, `sdk-cli`, ...): before, after and
+  delta. A pooled delta can carry the opposite sign of every entrypoint's
+  own delta when the mix moves, so read `per_entrypoint` first.
+- `mix_shifted`: `true` when any entrypoint's session share moved more
+  than 10 points (exactly 10 is not a shift); `points` gives each
+  entrypoint's movement.
+- `prefix_test` at K = 5, 25 and 100: the first K sessions after the cut
+  against the last K before it. A step change (for example a one-time
+  prompt-prefix removal) shows the same delta at every K; a trend grows
+  with K. Fewer than K sessions on a side is `PARTIAL`.
+
+The `eval` side adds about 30-40 s per run on a repo with ~250 sessions
+in the two windows.
+
 ## Coverage and status
 
 Every metric's `--json` output names the file(s) or query it read and
@@ -15913,7 +15950,10 @@ state. Every subprocess call is one of `git rev-parse --verify`,
 `git show`, `git remote get-url`, `gh repo view`, or `gh api graphql`
 (all read-only). See `bin/tests/test_ds_change_delta.py`'s R5 test for
 the enforced argv allowlist and a fixture-repo HEAD/status
-byte-identity assertion.
+byte-identity assertion. The `eval` side runs through `bin/_eval.py`'s
+own reads: `git log`, `git rev-list --count`, `git remote`, the base-ref
+lookups (`git show-ref`, `git symbolic-ref`, `git rev-parse`),
+`gh pr list` and `ds-feedback list`, all read-only.
 
 ## Known limitation: PR-history window granularity
 
