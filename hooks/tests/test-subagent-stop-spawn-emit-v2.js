@@ -7,8 +7,8 @@
  *
  *   QA 1  worktree cwd -> spawn_complete lands in the primary checkout's
  *         events.jsonl, nothing in the worktree's.
- *   QA 2  agent_type '' / absent with no sidecar -> subagent_stop_internal
- *         only (no start consumed); an unresolvable real stop still emits a
+ *   QA 2  agent_type '' / absent with no sidecar -> no row, exit 0
+ *         (no start consumed); an unresolvable real stop still emits a
  *         spawn_complete whose tokens_note names the tiers tried; a
  *         following engineer stop pairs by tool_use_id.
  *   QA 3  tokens == an independent python per-message.id dedupe with the
@@ -214,23 +214,24 @@ console.log('\nQA 2: internal agents, unresolvable stops, then a real pairing');
 {
   const sb = sandbox('sess-qa2', false);
   seed(sb.main, [hookStart(sb.sessionId, 'spE', 'engineer', 60, 'toolu_eng')]);
-  runStop(sb, 'internal1', { agent_type: '' });
-  runStop(sb, 'internal2', { agent_type: undefined });
+  const before = eventsAt(sb.main).length;
+  const int1 = runStop(sb, 'internal1', { agent_type: '' });
+  const afterInt1 = eventsAt(sb.main).length;
+  const int2 = runStop(sb, 'internal2', { agent_type: undefined });
+  const afterInt2 = eventsAt(sb.main).length;
+  assert(int1.status === 0 && afterInt1 === before, `agent_type '' with no sidecar -> exit 0, no row (status ${int1.status}, lines ${before} -> ${afterInt1})`);
+  assert(int2.status === 0 && afterInt2 === before, `absent agent_type with no sidecar -> exit 0, no row (status ${int2.status}, lines ${before} -> ${afterInt2})`);
   runStop(sb, 'lost1', { agent_type: 'investigator' });
   writeSub(sb, 'eng1', [asst(10, 'm1', { text: 'ok', stop: 'end_turn' })], { agentType: 'engineer', toolUseId: 'toolu_eng' });
   runStop(sb, 'eng1', { agent_type: 'engineer' });
   const rows = eventsAt(sb.main).slice(1);
   console.log(`    evidence: ${JSON.stringify(rows.map((r) => [r.event, r.agent, r.data.reason || r.data.tokens_note || r.data.paired_spawn_id]))}`);
-  assert(rows.length === 4, `four rows appended (got ${rows.length})`);
-  assert(rows[0].event === 'subagent_stop_internal' && rows[0].data.reason === 'agent_type empty, no sidecar'
-    && rows[0].data.agent_id === 'internal1', "agent_type '' with no sidecar -> subagent_stop_internal only");
-  assert(rows[1].event === 'subagent_stop_internal' && rows[1].data.reason === 'agent_type absent, no sidecar',
-    'absent agent_type with no sidecar -> subagent_stop_internal only');
-  assert(rows[2].event === 'spawn_complete' && rows[2].agent === 'investigator' && rows[2].data.paired_spawn_id === null
-    && /transcript not found; tried: parent_session, cwd_hash, scan/.test(rows[2].data.tokens_note)
-    && /tried:/.test(rows[2].data.model_note),
-  `unresolvable real stop still emits spawn_complete with the tiers tried (got ${rows[2].data.tokens_note})`);
-  assert(rows[3].event === 'spawn_complete' && rows[3].data.paired_spawn_id === 'spE' && rows[3].data.pair_method === 'tool_use_id',
+  assert(rows.length === 2, `two rows appended (got ${rows.length})`);
+  assert(rows[0].event === 'spawn_complete' && rows[0].agent === 'investigator' && rows[0].data.paired_spawn_id === null
+    && /transcript not found; tried: parent_session, cwd_hash, scan/.test(rows[0].data.tokens_note)
+    && /tried:/.test(rows[0].data.model_note),
+  `unresolvable real stop still emits spawn_complete with the tiers tried (got ${rows[0].data.tokens_note})`);
+  assert(rows[1].event === 'spawn_complete' && rows[1].data.paired_spawn_id === 'spE' && rows[1].data.pair_method === 'tool_use_id',
     'the following engineer stop pairs by tool_use_id - the internal stops consumed no start');
   cleanup(sb.tmp);
 }

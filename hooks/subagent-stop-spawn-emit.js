@@ -37,10 +37,10 @@
  *            isolation worktree is not lost with the worktree.
  *          - Internal agents: a stop with an empty or absent payload
  *            `agent_type` and no sidecar file is a harness-internal agent;
- *            it writes one `subagent_stop_internal` row and never consumes
- *            a spawn_start. Every other stop yields a spawn_complete, with
- *            `tokens_note` naming the tiers tried when no transcript
- *            resolves (resolveSubagentFiles()).
+ *            it writes nothing and never consumes a spawn_start (the former
+ *            `subagent_stop_internal` row had no reader). Every other stop
+ *            yields a spawn_complete, with `tokens_note` naming the tiers
+ *            tried when no transcript resolves (resolveSubagentFiles()).
  *          - Pairing (findMatch()): exact tool_use_id over ALL this
  *            session's hook starts, paired or not, then FIFO over unpaired
  *            starts of the SAME agent type; no FIFO without a type.
@@ -1391,8 +1391,8 @@ const MAX_SANE_WALL_SECONDS = 86400;
 
 /**
  * Main entry point. Reads SubagentStop payload from stdin, emits a best-effort
- * spawn_complete (or, for a harness-internal agent, subagent_stop_internal)
- * event to the primary checkout's events.jsonl, always exits 0.
+ * spawn_complete event to the primary checkout's events.jsonl (nothing for a
+ * harness-internal agent), always exits 0.
  */
 async function run() {
   try {
@@ -1426,16 +1426,7 @@ async function run() {
       sidecar = null;
     }
 
-    if (isInternalAgent(payload, files.sidecarPath)) {
-      append({
-        ts: nowIso, phase: 'hook', event: 'subagent_stop_internal', agent: null, task_id: null,
-        data: {
-          source: 'hook', telemetry_v: 2, session_uuid: sessionId, agent_id: agentId,
-          reason: payload.agent_type === '' ? 'agent_type empty, no sidecar' : 'agent_type absent, no sidecar',
-        },
-      });
-      process.exit(0);
-    }
+    if (isInternalAgent(payload, files.sidecarPath)) process.exit(0);
 
     const payloadAgentType = nonBlank(payload.agent_type);
     const matchToolUseId = (sidecar && sidecar.toolUseId) || payloadToolUseId;

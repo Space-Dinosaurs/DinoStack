@@ -20,16 +20,14 @@
  *          Provisional records carry identity_scope from the winning identity;
  *          no identity also appends a one-time nudge to this session's shard.
  *          Runs a capture-gap backstop that detects learning-worthy sessions with
- *          no captured learnings and appends a nudge to the shard. ALWAYS creates
- *          [cwd]/.agentic/events.jsonl on every TURN (zero-aggregate
- *          fallback) so the telemetry substrate is present even in ad-hoc sessions
- *          that produce no conductor spawn_complete events.
+ *          no captured learnings and appends a nudge to the shard. Never
+ *          appends to .agentic/events.jsonl; it only reads it.
  *
  * Public API: run() — invoked immediately at module load via run() call at
  *             bottom of file. Not imported; executed as a CLI script by the
  *             Claude Code Stop hook. Internal helpers:
  *             scanSessionAggregate(eventsPath, sessionId[, cachedRaw]),
- *             writeSessionTotal(cwd, sessionId[, cachedRaw]), computeSessionTotals(cwd, sessionId[, cachedRaw]),
+ *             computeSessionTotals(cwd, sessionId[, cachedRaw]),
  *             getIdentity(cwd),
  *             writeTelemetrySafely(cwd, identity, sessionId[, cachedRaw]),
  *             appendIdentityNudgeToContextMd(repoRoot, sessionId),
@@ -50,12 +48,9 @@
  *
  * Upstream deps: Node built-ins (fs, path, os, child_process), the bounded
  *                descriptor-safe bin/ds-identity resolve-hook/write-hook
- *                helper, hooks/lib/repo-root.js (resolveAgenticCwd /
- *                resolveAgenticCwdWithDiagnostics - anchors every .agentic/
- *                write to the repo root instead of the raw payload cwd;
- *                writeSessionTotal's session_total event also emits
- *                agentic_root_drift_levels/agentic_root_found_git from its
- *                diagnostics form), plus six
+ *                helper, hooks/lib/repo-root.js (resolveAgenticCwd - anchors every .agentic/
+ *                write to the repo root instead of the raw payload cwd),
+ *                plus six
  *                local CommonJS modules: hooks/lib/wrap-marker.js (the deferred-/ds-wrap
  *                marker single source of truth - lock gate, per-session staging,
  *                heartbeat), hooks/lib/capture-gap.js (the shared capture-gap
@@ -155,13 +150,11 @@
  *                never sets status:"interrupted" (see hooks/lib/state-mark.js).
  *                On --cadence=session (or an absent/unrecognized flag) it is
  *                the terminal interrupted-mark, preserved for callers that
- *                invoke this script directly without the flag. (3) events.jsonl write is best-effort; writeSessionTotal
- *                now ALWAYS creates events.jsonl (zero-aggregate fallback when no
- *                qualifying events exist) after ensuring .agentic/ dir exists via
- *                mkdirSync({recursive:true}). Any fs error is swallowed independently
- *                of paths (1) and (2). The append failure model is identical to
- *                context.md - the next session can re-derive totals from per-spawn
- *                events if needed.
+ *                invoke this script directly without the flag. (3) RETIRED -
+ *                writeSessionTotal no longer exists. Its per-turn session_total
+ *                row in events.jsonl printed a zero aggregate whenever no spawn
+ *                rows existed; historical rows stay in old logs and readers
+ *                ignore them. Session totals reach the session log via path (5).
  *                (4) the same --cadence dispatch also writes
  *                .agentic/batch-state.json (hooks/lib/state-mark.js
  *                refreshLiveness/markInterrupted); on --cadence=turn this
@@ -170,7 +163,7 @@
  *                flag) this is the terminal interrupted-status write - aborts
  *                silently on a positively-differing session_id, on missing
  *                file, or on parse error. Best-effort silent-fail; failure of
- *                this path does not block writeSessionTotal.
+ *                this path does not block the session-log write.
  *                (5) writeTelemetrySafely asks the bundled helper to append to
  *                .agentic/session-log/<dev>.jsonl through validated directory
  *                and file descriptors; refusal is swallowed independently.
@@ -273,7 +266,7 @@
  *              (5 s timeout, soft-fail). Synchronous I/O throughout; runs as a
  *              short-lived CLI process. events.jsonl is read ONCE at the top of
  *              run() and the raw string is threaded to all consumers
- *              (scanSessionAggregate, computeSessionTotals, writeSessionTotal,
+ *              (scanSessionAggregate, computeSessionTotals,
  *              writeTelemetrySafely, detectCaptureGap) so no
  *              consumer re-reads the file. On large projects (5-10 MB events
  *              files) this eliminates 3-4 redundant full-file reads per exit.
@@ -311,7 +304,7 @@ const { execSync, spawnSync } = require('child_process');
 
 // Anchors .agentic/ writes to the repo root instead of the raw payload cwd
 // (see hooks/lib/repo-root.js manifest for full rationale).
-const { resolveAgenticCwd, resolveAgenticCwdWithDiagnostics } = require('./lib/repo-root.js');
+const { resolveAgenticCwd } = require('./lib/repo-root.js');
 const { readSessionEventsRaw } = require('./lib/spawn-events.js');
 
 // Single source of truth for the deferred-/ds-wrap marker state machine, lock,
@@ -621,8 +614,8 @@ function skillCandidateDetectionEnabled(cwd) {
  *     only (available for forensic inspection directly in events.jsonl) and
  *     contribute nothing to spawn_count/wall_seconds/by_agent here.
  *
- * The returned by_agent map uses the rich token structure (4 bands) needed by
- * writeSessionTotal. writeSessionLog re-shapes it to its own output format.
+ * The returned by_agent map uses the rich token structure (4 bands);
+ * writeSessionLog re-shapes it to its own output format.
  *
  * @param {string} eventsPath - Absolute path to events.jsonl.
  * @param {string|null} sessionId - Current session uuid (null = include all).
@@ -790,67 +783,6 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
 }
 
 /**
- * Append a single session_total event to .agentic/events.jsonl summing
- * spawn activity for the current session (conductor_direct is a retired
- * event name and is no longer counted - see scanSessionAggregate above). In
- * a ticketed session with no telemetry v2 hook rows (any conductor-emitted
- * spawn_complete present), only those conductor-emitted spawn_complete
- * events are summed - all hook-emitted telemetry is excluded as a
- * double-count guard. In a pure ad-hoc session, or any session with a v2
- * hook spawn row, hook-emitted spawn_start events are deduped by spawn_id
- * and counted instead, so spawn_count can be nonzero with zero
- * spawn_complete events present. See scanSessionAggregate for the full
- * branch logic.
- * Best-effort: any fs / parse failure is swallowed silently.
- *
- * @param {string} cwd - Verified project directory.
- * @param {string|null} sessionId - Current session uuid from the Stop payload.
- * @param {string|null} [cachedRaw] - Pre-read events.jsonl contents from run()'s
- *   single read. When provided (non-undefined), no additional file read occurs.
- *   null means file was absent/unreadable; undefined triggers back-compat read.
- */
-function writeSessionTotal(cwd, sessionId, cachedRaw) {
-  try {
-    const rootDiag = resolveAgenticCwdWithDiagnostics(cwd);
-    const agenticDir = path.join(rootDiag.root, '.agentic');
-    const eventsPath = path.join(agenticDir, 'events.jsonl');
-    // Ensure .agentic/ exists so the append below always works, even in
-    // ad-hoc sessions where no other hook has created the directory yet.
-    fs.mkdirSync(agenticDir, { recursive: true });
-    // Bootstrap: when no qualifying events exist, write a zero-aggregate
-    // session_total so events.jsonl is ALWAYS created on every TURN.
-    const agg = scanSessionAggregate(eventsPath, sessionId, cachedRaw) || {
-      wall_seconds: 0,
-      tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
-      spawn_count: 0,
-      by_agent: {},
-    };
-
-    const totalLine = JSON.stringify({
-      ts: new Date().toISOString(),
-      phase: 'session_end',
-      event: 'session_total',
-      agent: null,
-      task_id: null,
-      data: {
-        wall_seconds: agg.wall_seconds,
-        tokens: agg.tokens,
-        spawn_count: agg.spawn_count,
-        by_agent: agg.by_agent,
-        session_uuid: sessionId || null,
-        agentic_root_drift_levels: rootDiag.driftLevels,
-        agentic_root_found_git: rootDiag.foundGitAncestor,
-      },
-    });
-    fs.appendFileSync(eventsPath, totalLine + '\n');
-    recordHealth('writeSessionTotal', true, null);
-  } catch (_) {
-    recordHealth('writeSessionTotal', false, _ && _.message);
-    // Silent failure - consistent with context.md / loop-state.json paths.
-  }
-}
-
-/**
  * Remove the learnings-agent session marker if it belongs to the current session.
  * Silent failure: any error is swallowed.
  *
@@ -958,7 +890,7 @@ function appendIdentityNudgeToContextMd(repoRoot, sessionId) {
 /**
  * Compute session totals by scanning events.jsonl, shaped for writeSessionLog.
  * The by_agent map uses a flat tokens_total (sum of 4 bands) for the session-log
- * format, distinct from the 4-band structure used in writeSessionTotal.
+ * format, distinct from the 4-band structure scanSessionAggregate returns.
  * Returns null on failure.
  *
  * @param {string} cwd - Verified project directory.
@@ -1371,7 +1303,7 @@ async function run() {
   const stateMarkFn = cadence === 'turn' ? stateMark.refreshLiveness : stateMark.markInterrupted;
 
   // --- 3b-pre. Single events.jsonl read for the entire run() ---
-  // All consumers (writeSessionTotal, computeSessionTotals, writeSessionLog,
+  // All consumers (computeSessionTotals, writeSessionLog,
   // writePendingBuffer, detectCaptureGap) receive this string instead of
   // re-reading the file. null = file absent or unreadable (consumers treat it
   // identically to a missing file). This eliminates 3-4 redundant full reads
@@ -1591,10 +1523,6 @@ ${toolsLine}
   // Dispatched by --cadence per hooks/lib/state-mark.js. There is now exactly
   // ONE exit path (section 9's duplicate was deleted), so this simply runs.
   stateMarkFn(cwd, sessionId, recordHealth);
-
-  // --- 12. Append session_total event to .agentic/events.jsonl if present ---
-  // Independent best-effort write; any failure swallowed.
-  writeSessionTotal(cwd, sessionId, cachedEventsRaw);
 
   // --- 13. Three-branch identity gate: session log, global mirror, or pending buffer ---
   // Independent best-effort write; any failure swallowed. Never blocks exit.

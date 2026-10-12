@@ -9,7 +9,8 @@
  *      throwing; session-log file NOT written; identity nudge appended to
  *      .agentic/context.md; sentinel ~/.agentic/.identity-nudged created.
  *   3. Empty events.jsonl: identity present but events.jsonl empty -> session-log
- *      line written with by_agent: {} and spawn_count: 0.
+ *      line written with by_agent: {} and spawn_count: 0; nothing appended to
+ *      events.jsonl (no session_total row).
  *   4. Write failure (silent-fail): session-log dir is a file (unwriteable) ->
  *      hook does NOT throw; other writes (context.md) still complete.
  *
@@ -193,6 +194,9 @@ console.log('\n[3] Empty events.jsonl: identity present, events.jsonl empty');
     cleanup(tmpDir);
     process.exit(1);
   }
+
+  const eventsAfter = fs.readFileSync(path.join(agenticDir, 'events.jsonl'), 'utf8');
+  assert(eventsAfter === '', `events.jsonl gains no row, no session_total (got: ${JSON.stringify(eventsAfter.slice(0, 120))})`);
 
   const logFile = path.join(sessionLogDir, 'testdev.jsonl');
   assert(fs.existsSync(logFile), 'session-log written even when events.jsonl is empty');

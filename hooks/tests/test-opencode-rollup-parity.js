@@ -28,11 +28,11 @@
  * the actual regression, and it fails loudly when either side gains a constant
  * the other lacks.
  *
- * This file ALSO carries one narrow telemetry-filter pin (see "retired
- * conductor_direct event filter" below): a structural regex check that the
- * plugin's writeSessionTotal event filter has no conductor_direct special
- * case, since that event name is retired and re-adding a filter arm for it
- * is the exact class of silent regression this suite exists to catch.
+ * This file ALSO carries one narrow telemetry pin (see "retired
+ * conductor_direct event name" below): the plugin file must contain no
+ * occurrence of the retired conductor_direct event name, since re-adding a
+ * filter arm for it is the exact class of silent regression this suite
+ * exists to catch.
  *
  * Run with: node hooks/tests/test-opencode-rollup-parity.js
  * Argument-free invocation runs everything (auto-discovered by the

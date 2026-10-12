@@ -6,16 +6,12 @@
  *   - scanSessionAggregate(): hook spawn_start counting (ad-hoc guard),
  *     double-count guard (skip hook starts when spawn_complete present),
  *     conductor_direct no longer counted.
- *   - writeSessionTotal() bootstrap: always creates events.jsonl even when no
- *     qualifying events exist (zero-aggregate fallback).
  *
  * Also tests capture-gap revival via hook spawn_start:
  *   - hooks/lib/capture-gap.js detectCaptureGap() fires for debugger/investigator
  *     hook spawn_start (revives trigger in ad-hoc sessions).
  *
  * Test cases:
- *   1. bootstrap-creates-events-jsonl:     Stop hook run on empty project ->
- *                                           events.jsonl created with session_total
  *   2. hook-spawn-start-counted-ad-hoc:   ad-hoc session (no spawn_complete) ->
  *                                           hook spawn_start counted in aggregate
  *   3. double-count-guard:                 session WITH spawn_complete ->
@@ -45,10 +41,10 @@
  *      NOT create a new spawn count.
  *  13. post-ds160-hook-only-session-wall-seconds-flows-into-session-total:
  *      a hook-only ad-hoc session with a real paired wall_seconds ->
- *      writeSessionTotal's own session_total event carries that real
- *      duration, not 0. Exercises writeSessionTotal end-to-end (Tests
- *      2/9/10/11/12 call scanSessionAggregate directly); does not modify
- *      or duplicate any of them.
+ *      computeSessionTotals (the session-log totals) carries that real
+ *      duration, not 0. Exercises the consumer path (Tests 2/9/10/11/12
+ *      call scanSessionAggregate directly); does not modify or duplicate
+ *      any of them.
  *  16. uuidless-conductor-row-not-admitted: a conductor spawn_complete with
  *      no session_uuid is not counted in a spawn-less session.
  *  17. v2-hook-rows-survive-stray-conductor-rows: v2 hook spawn rows plus
@@ -101,7 +97,7 @@ try {
 if (typeof module !== 'undefined') {
   module.exports = {
     scanSessionAggregate,
-    writeSessionTotal,
+    computeSessionTotals,
     detectCaptureGap: require(${JSON.stringify(libCaptureGapAbs)}).detectCaptureGap,
   };
 }
@@ -120,7 +116,7 @@ try {
   try { fs.unlinkSync(tmpShimPath); } catch (_) { /* ignore */ }
 }
 
-const { scanSessionAggregate, writeSessionTotal, detectCaptureGap } = helpers;
+const { scanSessionAggregate, computeSessionTotals, detectCaptureGap } = helpers;
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -223,41 +219,6 @@ function makeConductorDirect(sessionId) {
       tokens: { input: 200, output: 100, cache_creation: 0, cache_read: 0 },
     },
   });
-}
-
-// ---------------------------------------------------------------------------
-// Test 1: bootstrap-creates-events-jsonl
-// ---------------------------------------------------------------------------
-console.log('\nTest 1: bootstrap-creates-events-jsonl');
-{
-  const tmpDir = makeTmpProject();
-  const projectDir = tmpDir;
-  const eventsPath = path.join(projectDir, '.agentic', 'events.jsonl');
-
-  // Remove the .agentic/ dir so the bootstrap must create it.
-  fs.rmSync(path.join(projectDir, '.agentic'), { recursive: true, force: true });
-
-  // Run writeSessionTotal with no existing events.jsonl.
-  try {
-    writeSessionTotal(projectDir, 'test-bootstrap-sess');
-  } catch (err) {
-    assert(false, `writeSessionTotal must not throw: ${err.message}`);
-  }
-
-  assert(fs.existsSync(eventsPath), 'events.jsonl created by bootstrap');
-  if (fs.existsSync(eventsPath)) {
-    const lines = fs.readFileSync(eventsPath, 'utf8').split('\n').filter(Boolean);
-    assert(lines.length === 1, `exactly one line appended (got: ${lines.length})`);
-    if (lines.length >= 1) {
-      let ev;
-      try { ev = JSON.parse(lines[0]); } catch (_) {}
-      assert(ev && ev.event === 'session_total',
-        `event === "session_total" (got: ${ev && ev.event})`);
-      assert(ev && ev.data && ev.data.spawn_count === 0,
-        `spawn_count === 0 on zero-aggregate (got: ${ev && ev.data && ev.data.spawn_count})`);
-    }
-  }
-  cleanup(tmpDir);
 }
 
 // ---------------------------------------------------------------------------
@@ -609,9 +570,9 @@ console.log('\nTest 12: paired-complete-resolves-to-nothing-not-double-counted')
 console.log('\nTest 13: post-ds160-hook-only-session-wall-seconds-flows-into-session-total');
 {
   // Locks in that a post-DS-160 hook-only session's real wall_seconds (from
-  // a paired hook spawn_start + spawn_complete) reaches session_total via
-  // writeSessionTotal's own scanSessionAggregate call - not just via a
-  // direct scanSessionAggregate() call as Tests 2/9/10/11/12 already
+  // a paired hook spawn_start + spawn_complete) reaches the session-log
+  // totals via computeSessionTotals' own scanSessionAggregate call - not just
+  // via a direct scanSessionAggregate() call as Tests 2/9/10/11/12 already
   // exercise. Does NOT touch or duplicate the double-count guard those
   // tests already pin.
   const tmpDir = makeTmpProject();
@@ -624,22 +585,13 @@ console.log('\nTest 13: post-ds160-hook-only-session-wall-seconds-flows-into-ses
     'utf8'
   );
 
-  try {
-    writeSessionTotal(tmpDir, sessionId);
-  } catch (err) {
-    assert(false, `writeSessionTotal must not throw: ${err.message}`);
-  }
-
-  const lines = fs.readFileSync(eventsPath, 'utf8').split('\n').filter(Boolean);
-  const totalLine = lines[lines.length - 1];
-  let ev;
-  try { ev = JSON.parse(totalLine); } catch (_) {}
-  assert(ev && ev.event === 'session_total', `last line is session_total (got: ${ev && ev.event})`);
-  if (ev) {
-    assert(ev.data && ev.data.spawn_count === 1,
-      `session_total.spawn_count === 1 (got: ${ev.data && ev.data.spawn_count})`);
-    assert(ev.data && ev.data.wall_seconds === 17,
-      `session_total.wall_seconds === 17, the real paired duration - not 0/n-a (got: ${ev.data && ev.data.wall_seconds})`);
+  const totals = computeSessionTotals(tmpDir, sessionId);
+  assert(totals !== null, 'computeSessionTotals returns totals');
+  if (totals) {
+    assert(totals.spawn_count === 1,
+      `spawn_count === 1 (got: ${totals.spawn_count})`);
+    assert(totals.wall_seconds === 17,
+      `wall_seconds === 17, the real paired duration - not 0/n-a (got: ${totals.wall_seconds})`);
   }
   cleanup(tmpDir);
 }
@@ -692,13 +644,13 @@ console.log('\nTest 14: hook-spawn-complete-tokens-flow-into-scanSessionAggregat
 }
 
 // ---------------------------------------------------------------------------
-// Test 15: hook-spawn-complete-tokens-flow-into-writeSessionTotal
+// Test 15: hook-spawn-complete-tokens-flow-into-computeSessionTotals
 // ---------------------------------------------------------------------------
-console.log('\nTest 15: hook-spawn-complete-tokens-flow-into-writeSessionTotal');
+console.log('\nTest 15: hook-spawn-complete-tokens-flow-into-computeSessionTotals');
 {
-  // Same regression as Test 14, exercised through writeSessionTotal (the
+  // Same regression as Test 14, exercised through computeSessionTotals (the
   // actual consumer path, mirroring how Test 13 exercises wall_seconds
-  // through writeSessionTotal rather than only via a direct
+  // through computeSessionTotals rather than only via a direct
   // scanSessionAggregate() call).
   const tmpDir = makeTmpProject();
   const sessionId = 'sess-adhoc-015';
@@ -711,22 +663,13 @@ console.log('\nTest 15: hook-spawn-complete-tokens-flow-into-writeSessionTotal')
     'utf8'
   );
 
-  try {
-    writeSessionTotal(tmpDir, sessionId);
-  } catch (err) {
-    assert(false, `writeSessionTotal must not throw: ${err.message}`);
-  }
-
-  const lines = fs.readFileSync(eventsPath, 'utf8').split('\n').filter(Boolean);
-  const totalLine = lines[lines.length - 1];
-  let ev;
-  try { ev = JSON.parse(totalLine); } catch (_) {}
-  assert(ev && ev.event === 'session_total', `last line is session_total (got: ${ev && ev.event})`);
-  if (ev) {
-    assert(ev.data && ev.data.tokens && ev.data.tokens.input === 77,
-      `session_total.tokens.input === 77, the real hook-resolved value (got: ${ev.data && ev.data.tokens && ev.data.tokens.input})`);
-    assert(ev.data && ev.data.tokens && ev.data.tokens.output === 33,
-      `session_total.tokens.output === 33 (got: ${ev.data && ev.data.tokens && ev.data.tokens.output})`);
+  const totals = computeSessionTotals(tmpDir, sessionId);
+  assert(totals !== null, 'computeSessionTotals returns totals');
+  if (totals) {
+    assert(totals.tokens && totals.tokens.input === 77,
+      `tokens.input === 77, the real hook-resolved value (got: ${totals.tokens && totals.tokens.input})`);
+    assert(totals.tokens && totals.tokens.output === 33,
+      `tokens.output === 33 (got: ${totals.tokens && totals.tokens.output})`);
   }
   cleanup(tmpDir);
 }
