@@ -68,7 +68,9 @@ decide order (first that holds wins):
         was skipped or failed) -> delete on the first fire after the wrap,
         block on every later one; a session never wraps twice per idle.
     release-wrap (now - idle_since >= RELEASE_AFTER_S, nothing in flight)
-        -> wrap; delete when the wrap command file is missing.
+        -> wrap; delete when the session's permission_mode is not in
+        WRAP_PERMISSION_MODES (release-no-wrap-mode: the wrap's Bash calls
+        would wait at a prompt) or the wrap command file is missing.
     cost-capped (pings_since_idle >= max_pings(prefix)) -> delete.
     recently-active (L < ACTIVE_WINDOW_S) -> block.  Otherwise pass -> ping.
 
@@ -153,6 +155,12 @@ PING_CC_TOKENS = 854
 PING_OUT_TOKENS = 193
 
 CREATE_NOTE_MARKER = "[dinostack-cache-keepalive:create]"
+# Permission modes in which every in-session wrap tool call ran without a
+# prompt in a project with no allow rules (measured on 2.1.287: Read of the
+# command file, call A, call B). In default and acceptEdits both Bash calls
+# prompted, so an unattended wrap would wait at a prompt; there, release
+# deletes the cron instead. CronCreate/CronDelete prompted in no mode.
+WRAP_PERMISSION_MODES = frozenset(("auto", "bypassPermissions"))
 # Prompts the harness submits on a subagent's behalf (measured: a subagent
 # hand-back arrives as a UserPromptSubmit starting "<agent-message from=").
 NON_OPERATOR_PREFIXES = ("<agent-message", "<task-notification>")
@@ -424,7 +432,11 @@ def in_flight(transcript_path) -> bool:
         return True
 
 
-def decide(state, now, enabled=True, conductor=True, in_flight=lambda: True, wrap_ok=True):
+def wrap_allowed(permission_mode) -> bool:
+    return permission_mode in WRAP_PERMISSION_MODES
+
+
+def decide(state, now, enabled=True, conductor=True, in_flight=lambda: True, wrap_ok=True, wrap_mode_ok=True):
     last = state.get("last_request_start")
     L = float("inf") if last is None else now - last
     warm = L < COLD_AFTER_S
@@ -451,6 +463,8 @@ def decide(state, now, enabled=True, conductor=True, in_flight=lambda: True, wra
         return ("block" if state.get("fires_since_wrap") else "delete", "already-wrapped")
     idle_since = state.get("idle_since")
     if (idle_since is None or now - idle_since >= RELEASE_AFTER_S) and not in_flight():
+        if not wrap_mode_ok:
+            return ("delete", "release-no-wrap-mode")
         return ("wrap", "release-wrap") if wrap_ok else ("delete", "release-wrap-unavailable")
     if (state.get("pings_since_idle") or 0) >= max_pings(state.get("prefix_tokens") or 0):
         return ("delete", "cost-capped")
@@ -567,8 +581,11 @@ def creation_due(records, state, enabled, conductor, started_at=None, complete=F
     process_start, creates, deletions, injections = _scan_crons(records, started_at, complete)
     anchors = [i for i, _ in deletions] + ([process_start] if process_start is not None else [])
     anchor = max(anchors) if anchors else -1
+    # Declined means no CronCreate that returned a job id followed the note:
+    # a create denied by a permission rule or the auto-mode classifier
+    # (measured: "Unauthorized Persistence") is a decline, not a retry cue.
     for inj in injections:
-        if inj > anchor and not any(c[0] > inj for c in creates):
+        if inj > anchor and not any(c[0] > inj and c[1] for c in creates):
             return (False, False)
     return (True, status == "unknown")
 
@@ -586,8 +603,8 @@ def create_note(check_existing: bool) -> str:
     check = (", call CronList and stop if a job with the prompt below already exists"
              if check_existing else "")
     return (
-        CREATE_NOTE_MARKER + " DinoStack cache keepalive, enabled by the operator "
-        "(config key " + CONFIG_KEY + ", on by default; off with `" + CONFIG_KEY
+        CREATE_NOTE_MARKER + " DinoStack cache keepalive, a DinoStack default the operator "
+        "can turn off (config key " + CONFIG_KEY + "; off with `" + CONFIG_KEY
         + ": false` or " + KILL_SWITCH_ENV + "=1). It keeps this session's 1h "
         "prompt cache warm while the operator is away by re-submitting a short "
         "prompt every " + _every(PERIOD_S) + "; a DinoStack hook drops every fire that would "

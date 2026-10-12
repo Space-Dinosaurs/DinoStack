@@ -185,6 +185,10 @@ def t_release_wrap(h):
     assert d(at, True) == ("block", "recently-active")
     assert d(dict(at, last_request_start=NOW - ck.ACTIVE_WINDOW_S), True) == ("ping", "pass")
     assert d(at, False, ok=False) == ("delete", "release-wrap-unavailable")
+    assert ck.decide(at, NOW, True, True, lambda: False, True, False) == ("delete", "release-no-wrap-mode")
+    assert ck.WRAP_PERMISSION_MODES == frozenset(("auto", "bypassPermissions"))
+    for m in ("default", "acceptEdits", "plan", "dontAsk", None):
+        assert not ck.wrap_allowed(m), m
     capped = dict(at, pings_since_idle=ck.max_pings(100000))
     assert d(capped, True) == ("delete", "cost-capped")
     assert d(dict(capped, pings_since_idle=ck.max_pings(100000) - 1, last_request_start=NOW - ck.ACTIVE_WINDOW_S),
@@ -289,6 +293,13 @@ def t_creation_due(h):
     assert ck.creation_due(small, ck.session_state(small), True, True) == (False, False)
     declined = base + [injection(t + 3, ck), user(t + 3), asst(t + 4)]
     assert ck.creation_due(declined, st, True, True) == (False, False)
+    tid = "toolu_denied"
+    denied = base + [injection(t + 3, ck), user(t + 3),
+                     tool_use(t + 4, "CronCreate", {"cron": ck.CRON_EXPR, "recurring": True, "durable": False,
+                                                    "prompt": ck.LG.PING_PROMPT}, tid),
+                     tool_result(t + 5, tid, "Permission for this action has been denied. Reason: Denied by auto mode "
+                                             "classifier [Unauthorized Persistence]")]
+    assert ck.creation_due(denied, st, True, True) == (False, False)
     accepted = base + [injection(t + 3, ck), user(t + 3)] + create(t + 4, ck)
     assert ck.creation_due(accepted, st, True, True) == (False, False)
     deleted = accepted + delete(t + 60)
@@ -424,11 +435,15 @@ def t_hook_ping_actions(h):
     assert run_hook(h, ck.LG.PING_PROMPT, not_cond, home) is None
     wrap = write_transcript(warm_idle(ck, ck.RELEASE_AFTER_S + 100, last_s=1200))
     proj = tempfile.mkdtemp(dir=SCRATCH)
-    note = _ctx(run_hook(h, ck.LG.PING_PROMPT, wrap, home, cwd=proj))
-    assert note and note.startswith(ck.WRAP_MARKER) and repo in note, note
-    assert "Project root: " + os.path.realpath(proj) + " " in note, note
+    for mode in ("auto", "bypassPermissions"):
+        note = _ctx(run_hook(h, ck.LG.PING_PROMPT, wrap, home, cwd=proj, extra={"permission_mode": mode}))
+        assert note and note.startswith(ck.WRAP_MARKER) and repo in note, (mode, note)
+        assert "Project root: " + os.path.realpath(proj) + " " in note, note
+    for mode in ("default", "acceptEdits", None):
+        extra = {"permission_mode": mode} if mode else None
+        assert run_hook(h, ck.LG.PING_PROMPT, wrap, home, cwd=proj, extra=extra) is None, mode
     home2, _ = _home(wrap_file=False)
-    assert run_hook(h, ck.LG.PING_PROMPT, wrap, home2) is None
+    assert run_hook(h, ck.LG.PING_PROMPT, wrap, home2, extra={"permission_mode": "auto"}) is None
     assert run_hook(h, ck.LG.MARKER + " other", ping_ok, home) == ck.BLOCK_OUTPUT
     assert run_hook(h, "text with " + ck.LG.MARKER + " inside", ping_ok, home) is None
     assert run_hook(h, ck.LG.PING_PROMPT, os.path.join(SCRATCH, "missing.jsonl"), home) == ck.BLOCK_OUTPUT
@@ -536,6 +551,10 @@ MUTATIONS = [
      "", t_hook_create),
     ("create-on-handback", "lib/cache_keepalive.py", 'NON_OPERATOR_PREFIXES = ("<agent-message", "<task-notification>")',
      'NON_OPERATOR_PREFIXES = ("<task-notification>",)', t_hook_create),
+    ("denied-create-repeats", "lib/cache_keepalive.py", "if inj > anchor and not any(c[0] > inj and c[1] for c in creates):",
+     "if inj > anchor and not any(c[0] > inj for c in creates):", t_creation_due),
+    ("wrap-in-any-mode", "cache-keepalive.py", 'wrap_mode_ok=lib.wrap_allowed(payload.get("permission_mode")),',
+     "wrap_mode_ok=True,", t_hook_ping_actions),
     ("ignores-activation", "lib/cache_keepalive.py", "    if not is_active(cwd):\n        return False\n", "", t_activation),
     ("repeat-wrap", "lib/cache_keepalive.py", '    if state.get("wrapped_since_idle"):\n',
      '    if False:\n', t_no_repeat_wrap),

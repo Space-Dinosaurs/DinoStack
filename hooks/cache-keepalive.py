@@ -30,7 +30,9 @@ Public API: python3 hooks/cache-keepalive.py
 Behavior (UserPromptSubmit only; any other event gets no output):
     prompt == PING_PROMPT: decide() -> ping: additionalContext GATE_NOTE;
         wrap: additionalContext WRAP_NOTE (with the hook-built kickoff
-        command `claude '<resume prompt naming this session id>'`);
+        command `claude '<resume prompt naming this session id>'`), only
+        when the payload's permission_mode is in WRAP_PERMISSION_MODES
+        (auto, bypassPermissions); otherwise release is a delete;
         delete: no output, so PING_PROMPT's self-delete branch runs;
         block: BLOCK_OUTPUT.
     prompt starts with MARKER but is not equal: BLOCK_OUTPUT.
@@ -49,8 +51,28 @@ Why it fails closed: an exception after the marker matched gives
     cron until the next genuine prompt re-creates it.
 
 Measurements (Claude Code 2.1.287, haiku 4.5 and opus 5.5 scratch sessions,
-    2026-10-12; evidence file names are from the engineer's scratch
-    evidence dir, listed in the PR):
+    2026-10-12). Surviving evidence: the scratch session transcripts under
+    the operator's ~/.claude-spacedinosaurs/projects/*scratchpad-ka-<name>
+    and *cache-keepalive-evidence-proj-<name>, and the files in
+    ~/.agentic/audits/cache-keepalive-evidence/ (harness, perm-*, e2e-*,
+    wrapeval-*). Pane captures named below for M1-M16 were in a session
+    scratch dir that was later deleted; their transcripts remain.
+    M17 (permission modes, no allow rules unless stated; perm-*.json,
+        e2e-*.json). Direct probes: ToolSearch, CronCreate and CronDelete
+        prompted in none of default, acceptEdits, auto, bypassPermissions;
+        the wrap's Read of the command file, call A and call B prompted in
+        default and acceptEdits and in neither auto nor bypassPermissions,
+        hence WRAP_PERMISSION_MODES. End to end on the shipped hook, opus:
+        default (e3) - creation by the note and the self-delete ran with no
+        prompt; auto (e1, e2) - the auto-mode classifier DENIED the
+        note-requested CronCreate as "Unauthorized Persistence" 2/2, so an
+        auto-mode session has no keepalive unless CronCreate, CronList and
+        CronDelete are allow-listed (the model reports the denial in one
+        line; creation_due treats a denied create as a decline and never
+        repeats the note in that process); auto with those three tools
+        allow-listed (e4) - creation, then the full wrap with zero prompts
+        (call B "Allowed by auto mode classifier"), 21 wrap-turn lines,
+        lock released, cron deleted, final line correct, /exit clean.
     M1 PASS: BLOCK_OUTPUT fires print 2 lines (Running scheduled task,
         Operation stopped by hook), make 0 requests, fire no Stop hook, and
         add ~220 context tokens to the next request (t2-transcript-924ea557);
@@ -163,6 +185,7 @@ def handle_ping(lib, payload, now):
         conductor=lib.is_conductor(path),
         in_flight=lambda: lib.in_flight(path),
         wrap_ok=bool(session_id) and os.path.isfile(lib.wrap_command_path(repo)),
+        wrap_mode_ok=lib.wrap_allowed(payload.get("permission_mode")),
     )
     if action == "ping":
         _context(lib.LG.GATE_NOTE)
