@@ -11,7 +11,7 @@ Purpose: Read-only measurement tool. Answers one question per agent run,
          detector - the metric is observed read-access.
 
 Public API: ds-learnings-retrieval-rate [--json] [--store DIR ...]
-            Scans every store bin/_transcripts.py's stores() finds (each
+            Scans every store bin/_transcripts.py's resolve_stores() finds (each
             `~/.claude*/projects` dir plus the active config dir's), not
             only the active CLAUDE_CONFIG_DIR; a repeatable `--store DIR`
             (a config dir or a projects dir) replaces that set. Prints a
@@ -21,11 +21,16 @@ Public API: ds-learnings-retrieval-rate [--json] [--store DIR ...]
             pooled wired line, a pooled unwired-control line, and a footer
             stating the measurement's scope and its two-sided error. --json
             emits the same data as a single JSON object (`stores`: one
-            {path, status: "scanned", transcripts} entry per store, 0 for a
-            store holding none; a store that exists but cannot be read, or
-            a --store path that does not exist, is listed with status
-            "unreadable"/"missing", transcripts null and a reason, printed
-            as ABSENT - never 0). Exit 0 on EVERY
+            {path, status, transcripts, reason, unreadable_dirs,
+            unreadable_dir_paths} entry per store). status "scanned": every
+            dir on the way was read, 0 for a store holding none. status
+            "partial": some project, session or subagents dir could not be
+            read; transcripts is a floor (">= N" in text), or null (ABSENT)
+            when nothing readable was counted. status "unreadable" (the
+            store itself), "missing" or "invalid" (a --store path that does
+            not exist or is not a directory): transcripts null, a reason,
+            printed as ABSENT. A store or dir the tool could not read is
+            never reported as 0. Exit 0 on EVERY
             path, including no-data; errors are reported in the envelope's
             `error` field and never raised.
 
@@ -58,8 +63,11 @@ Public API: ds-learnings-retrieval-rate [--json] [--store DIR ...]
             hand composition dressed as a measurement (DS-223 J3).
 
 Upstream deps: Python 3 stdlib only (argparse, json, os, re, shlex, sys,
-               glob, pathlib). bin/_transcripts.py's stores() for the store
-               set - store discovery is not re-implemented here. Imports
+               pathlib). bin/_transcripts.py for the store set
+               (resolve_stores()), checked directory listing
+               (listdir_checked()) and the per-store report (store_entry(),
+               store_line()) - store discovery and unreadable-dir handling
+               are not re-implemented here. Imports
                three names from bin/_lib.py (DS-227 round 2):
                MAX_TRANSCRIPT_BYTES and
                iter_jsonl_dict_records - the streaming scan skeleton shared
@@ -85,8 +93,9 @@ Downstream consumers: the operator or conductor, on demand. No hook, no
                       against the DS-223 plan's normative case table.
 
 Failure modes: never raises, never exits nonzero. An unreadable store is
-               skipped and listed as status "unreadable" (ABSENT), never
-               counted as a scanned zero. No readable store at all, or zero
+               skipped and listed as status "unreadable" (ABSENT); an
+               unreadable dir inside a store makes it "partial" with a floor
+               count or ABSENT; neither is counted as a scanned zero. No readable store at all, or zero
                discovered transcripts across every store, exits 0 with
                error="no_transcripts" (each store still listed) and one
                human line naming the
@@ -107,8 +116,8 @@ Failure modes: never raises, never exits nonzero. An unreadable store is
 
 Performance: O(total transcript bytes), single streaming pass per file with
              an early exit on the first satisfying call in a run. The default
-             every-store scan read 6,452 transcripts across 4 stores in
-             ~100 s (2026-10-12); --store narrows it.
+             every-store scan read about 6,450 transcripts across 4 stores
+             in 53-102 s on 2026-10-12 (two runs); --store narrows it.
 
 R2 (Pillar 8 simplicity test), stated verbatim as the DS-223 outcome rubric
 requires it, so the retirement condition ships with the mechanism:
@@ -151,7 +160,6 @@ requires it, so the retirement condition ships with the mechanism:
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import os
 import re
@@ -581,12 +589,44 @@ def rate_of(fired: int, runs: int, unreadable: int):
     return rate_or_none(fired, runs - unreadable)
 
 
+def subagent_transcripts(store: Path) -> tuple[list[str], list]:
+    """<store>/*/*/subagents/agent-*.jsonl, plus (dir, reason) for every
+    project, session or subagents dir on the way that cannot be read."""
+    found: list[str] = []
+    unreadable: list = []
+    for pname in _transcripts.listdir_checked(store)[0]:
+        pdir = store / pname
+        if pname.startswith(".") or not pdir.is_dir():
+            continue
+        snames, reason = _transcripts.listdir_checked(pdir)
+        if reason is not None:
+            unreadable.append((pdir, reason))
+            continue
+        for sname in snames:
+            sdir = pdir / sname
+            if sname.startswith(".") or not sdir.is_dir():
+                continue
+            if not os.access(sdir, os.X_OK):
+                unreadable.append((sdir, "permission denied"))
+                continue
+            subdir = sdir / "subagents"
+            if not subdir.is_dir():
+                continue
+            names, reason = _transcripts.listdir_checked(subdir)
+            if reason is not None:
+                unreadable.append((subdir, reason))
+                continue
+            found.extend(str(subdir / n) for n in names
+                         if n.startswith("agent-") and n.endswith(".jsonl"))
+    return sorted(found), unreadable
+
+
 def collect(store_set, agents_dir: Path) -> dict:
     transcripts: list[str] = []
     per_store: list[dict] = []
     for store in store_set.readable:
-        found = sorted(glob.glob(str(store / "*" / "*" / "subagents" / "agent-*.jsonl")))
-        per_store.append({"path": str(store), "status": "scanned", "transcripts": len(found)})
+        found, unreadable_dirs = subagent_transcripts(store)
+        per_store.append(_transcripts.store_entry(store, len(found), unreadable_dirs, "transcripts"))
         transcripts.extend(found)
 
     payload = {
@@ -719,12 +759,10 @@ def format_rate(value) -> str:
 def render(payload: dict, agents_dir_present: bool) -> str:
     lines: list[str] = []
     stores = payload["stores"]
-    scanned = [s for s in stores if s["status"] == "scanned"]
+    scanned = [s for s in stores if s["status"] in ("scanned", "partial")]
     lines.append(f"harness: {payload['harness']}   stores scanned ({len(scanned)}):"
                  + ("" if stores else " (none found)"))
-    lines.extend(f"  {s['path']}: {s['transcripts']} transcripts" if s["status"] == "scanned"
-                 else f"  {s['path']}: ABSENT ({s['status']}: {s['reason']})"
-                 for s in stores)
+    lines.extend(_transcripts.store_line(s, "transcripts", "transcripts") for s in stores)
 
     if payload["error"] == "no_transcripts":
         lines.append("")

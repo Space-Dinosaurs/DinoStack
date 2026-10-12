@@ -122,9 +122,60 @@ def test_resolve_stores_splits_unreadable_and_missing(isolated_env, tmp_path):
         bad.chmod(0o755)
     assert got.readable == [Path(os.path.realpath(good))]
     assert [p for p, _reason in got.unreadable] == [Path(os.path.realpath(bad))]
-    assert got.missing == [missing]
+    assert got.missing == [(missing, "does not exist")]
     assert [(e["status"], e["sessions"]) for e in got.problem_entries()] == [
         ("unreadable", None), ("missing", None)]
+
+
+def test_store_given_as_a_regular_file_is_not_a_directory(isolated_env, tmp_path):
+    f = tmp_path / "file"
+    f.write_text("x")
+    got = tr.resolve_stores([f])
+    assert got.missing == [(str(f), "not a directory")]
+    assert [(e["status"], e["reason"]) for e in got.problem_entries()] == [
+        ("invalid", "not a directory")]
+
+
+def test_listdir_checked_decides_existence_before_permission(tmp_path):
+    assert tr.listdir_checked(tmp_path / "gone") == ([], "does not exist")
+    (tmp_path / "f").write_text("x")
+    assert tr.listdir_checked(tmp_path / "f") == ([], "not a directory")
+
+
+def test_store_entry_partial_count_is_a_floor_or_absent(tmp_path):
+    bad = [(tmp_path / "d", "permission denied")]
+    assert tr.store_entry(tmp_path, 3, [])["status"] == "scanned"
+    floor = tr.store_entry(tmp_path, 3, bad)
+    assert (floor["status"], floor["sessions"], floor["unreadable_dirs"]) == ("partial", 3, 1)
+    assert ">= 3 sessions" in tr.store_line(floor)
+    absent = tr.store_entry(tmp_path, 0, bad)
+    assert absent["sessions"] is None
+    assert "ABSENT (partial: 1 unreadable dirs)" in tr.store_line(absent)
+
+
+def test_project_dirs_checked_reports_an_unreadable_matching_dir(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root can list a mode-000 directory")
+    repo = tmp_path / "r"
+    store = tmp_path / "store"
+    bad = _write(_session_dir(store, repo) / "s1.jsonl",
+                 [_user("2026-10-01T10:00:00Z", str(repo))]).parent
+    bad.chmod(0)
+    try:
+        dirs, unreadable = tr.project_dirs_checked(str(repo), store)
+    finally:
+        bad.chmod(0o755)
+    assert dirs == []
+    assert unreadable == [(bad, "permission denied")]
+
+
+def test_project_dirs_finds_a_legacy_dot_keeping_dir(tmp_path):
+    repo = tmp_path / "my.repo"
+    store = tmp_path / "store"
+    legacy = store / str(repo).replace("/", "-")
+    assert legacy.name != tr.project_dir_prefix(repo)
+    _write(legacy / "s1.jsonl", [_user("2026-10-01T10:00:00Z", str(repo))])
+    assert tr.project_dirs(str(repo), [store]) == [legacy]
 
 
 def _session_dir(store: Path, repo: Path, suffix: str = "") -> Path:

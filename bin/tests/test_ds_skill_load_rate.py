@@ -857,6 +857,39 @@ class TestStores(unittest.TestCase):
                 self.assertIn(f"{bad_real}: ABSENT (unreadable:", out)
                 self.assertNotIn(f"{bad_real}: 0 sessions", out)
 
+    @unittest.skipIf(os.geteuid() == 0, "root can list a mode-000 directory")
+    def test_unreadable_project_dir_makes_the_store_partial_not_zero(self):
+        for with_readable_worktree in (False, True):
+            with self.subTest(with_readable_worktree=with_readable_worktree), \
+                    tempfile.TemporaryDirectory() as tmp:
+                home, a, b, repo = self._two_stores(Path(tmp))
+                name = slr._transcripts.project_dir_prefix(str(repo))
+                if with_readable_worktree:
+                    wt = repo / ".claude" / "worktrees" / "w"
+                    write_transcript(b, slr._transcripts.project_dir_prefix(str(wt)), "s3",
+                                     [cwd_record(wt), model_load_record()])
+                bad = b / "projects" / name
+                bad_store = os.path.realpath(b / "projects")
+                args = ["--repo-path", str(repo)]
+                env = _env(home=home)
+                bad.chmod(0)
+                try:
+                    payload = _collect_json(None, args, env=env)
+                    out = subprocess.run([sys.executable, str(CLI_PATH), *args],
+                                         capture_output=True, text=True, env=env).stdout
+                finally:
+                    bad.chmod(0o755)
+                entry = {s["path"]: s for s in payload["stores"]}[bad_store]
+                self.assertEqual((entry["status"], entry["unreadable_dirs"]), ("partial", 1))
+                self.assertNotIn(f"{bad_store}: 0 sessions", out)
+                if with_readable_worktree:
+                    self.assertEqual(entry["sessions"], 1)
+                    self.assertIn(f"{bad_store}: >= 1 sessions (partial: 1 unreadable dirs, "
+                                  "count is a floor)", out)
+                else:
+                    self.assertIsNone(entry["sessions"])
+                    self.assertIn(f"{bad_store}: ABSENT (partial: 1 unreadable dirs)", out)
+
     def test_missing_store_path_is_named(self):
         with tempfile.TemporaryDirectory() as tmp:
             home, a, b, repo = self._two_stores(Path(tmp))

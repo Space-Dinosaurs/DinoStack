@@ -144,14 +144,14 @@ def _run(home: Path, repo: Path, *args: str) -> subprocess.CompletedProcess:
     return result
 
 
-def test_resolve_transcript_dirs_maps_the_cwd_in_each_store(tmp_path, monkeypatch):
+def test_store_transcripts_maps_the_cwd_in_each_store(tmp_path, monkeypatch):
     home, repo, a, b = _two_stores(tmp_path)
     monkeypatch.chdir(repo)
-    got = _mod._resolve_transcript_dirs([a / "projects", b / "projects", home])
+    got = _mod._store_transcripts([a / "projects", b / "projects", home])
     prefix = _mod._transcripts.project_dir_prefix(repo)
-    assert got == {a / "projects": [a / "projects" / prefix],
-                   b / "projects": [b / "projects" / prefix],
-                   home: []}
+    assert got == {a / "projects": ([a / "projects" / prefix / "aaaaaaaa-1.jsonl"], []),
+                   b / "projects": ([b / "projects" / prefix / "bbbbbbbb-2.jsonl"], []),
+                   home: ([], [])}
 
 
 def test_default_scans_every_store_under_home(tmp_path):
@@ -194,6 +194,35 @@ def test_unreadable_store_is_absent_not_a_scanned_zero(tmp_path):
     assert payload["sample_size"] == 2
     assert f"{bad_real}: ABSENT (unreadable:" in out
     assert f"{bad_real}: 0 sessions" not in out
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can list a mode-000 directory")
+def test_unreadable_project_dir_makes_the_store_partial_not_zero(tmp_path):
+    home, repo, a, b = _two_stores(tmp_path)
+    bad = b / "projects" / _mod._transcripts.project_dir_prefix(repo)
+    bad_store = os.path.realpath(b / "projects")
+    bad.chmod(0)
+    try:
+        payload = json.loads(_run(home, repo, "--json").stdout)
+        out = _run(home, repo).stdout
+    finally:
+        bad.chmod(0o755)
+    entry = {s["path"]: s for s in payload["stores"]}[bad_store]
+    assert (entry["status"], entry["found"], entry["sessions"], entry["unreadable_dirs"]) == (
+        "partial", None, None, 1)
+    assert payload["sample_size"] == 1
+    assert f"{bad_store}: ABSENT (partial: 1 unreadable dirs)" in out
+    assert f"{bad_store}: 0 sessions" not in out
+
+
+def test_no_data_and_data_json_carry_the_same_keys(tmp_path):
+    home, repo, a, b = _two_stores(tmp_path)
+    data = json.loads(_run(home, repo, "--json").stdout)
+    empty_repo = tmp_path / "empty"
+    empty_repo.mkdir()
+    no_data = json.loads(_run(home, empty_repo, "--json").stdout)
+    assert no_data["error"] == "no_transcripts"
+    assert set(no_data) == set(data)
 
 
 def test_missing_store_path_is_named(tmp_path):

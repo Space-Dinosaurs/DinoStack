@@ -22,15 +22,19 @@ Purpose: Read-only calibration tool. Walks recent Claude Code session
 Public API: ds-measure-conductor-tool-calls [--limit N] [--json]
                                             [--store DIR ...]
             Scans the cwd's sessions in every store bin/_transcripts.py's
-            stores() finds (each `~/.claude*/projects` dir plus the active
+            resolve_stores() finds (each `~/.claude*/projects` dir plus the active
             config dir's), not only the active CLAUDE_CONFIG_DIR; a
             repeatable `--store DIR` (a config dir or a projects dir)
             replaces that set. --limit applies to the newest N transcripts
             across all stores. Prints a header naming every store scanned
-            (its sessions in the sample, and how many it holds in all - 0
-            for a store with no matching project dir; a store that exists
-            but cannot be read, or a --store path that does not exist, is
-            printed as ABSENT with a reason, never 0), then a per-session
+            (how many sessions it holds and how many are in the sample - 0
+            for a store with no matching project dir; ">= N ... (partial:
+            K unreadable dirs, count is a floor)", or ABSENT when nothing
+            readable was counted, for a store with a matching project dir
+            it could not read; ABSENT with a reason for a store that
+            cannot be read or a --store path that does not exist or is not
+            a directory - a store or dir it could not read is never
+            reported as 0), then a per-session
             table to stdout (session_id[:8],
             conductor_tool_calls, spawns, whitelisted_excluded, or "n/a
             (unreadable)" for a transcript that yielded zero parsed
@@ -42,21 +46,26 @@ Public API: ds-measure-conductor-tool-calls [--limit N] [--json]
             available/transcript_note split, so a session that could not be
             measured is never folded into the zero-spawn population used to
             recommend a threshold. --json emits the same data (plus
-            unreadable_count, `stores`: one {path, status, sessions, found}
-            entry per store - status "unreadable"/"missing" with null
-            counts and a reason for a store that could not be scanned - and
-            `error`) as a JSON object instead. When no store
+            unreadable_count, `stores`: one {path, status, found,
+            sessions, reason, unreadable_dirs, unreadable_dir_paths} entry
+            per store - status "scanned", "partial" (found is a floor, or
+            null), or "unreadable"/"missing"/"invalid" with null counts and
+            a reason - and `error`) as a JSON object instead; the no-data
+            and data envelopes carry the same keys. When no store
             yields a transcript the input is reported absent ("No
             transcripts found." / error="no_transcripts",
             recommended_threshold null), never as a zero sample. Exit 0
             always (advisory tool).
 
 Upstream deps: Python 3 stdlib (json, sys, os, argparse, pathlib, re);
-               bin/_transcripts.py for the store set (stores()) and the
-               cwd-to-project-dir mapping (project_dirs(): dirs named with
-               the cwd's prefix, i.e. the repo and its worktrees, holding a
-               session whose first cwd is the cwd or under it) - store
-               discovery and dir naming are not re-implemented here.
+               bin/_transcripts.py for the store set (resolve_stores()),
+               the cwd-to-project-dir mapping (project_dirs_checked(): dirs
+               named with the cwd's current or legacy prefix, i.e. the repo
+               and its worktrees, holding a session whose first cwd is the
+               cwd or under it, plus the matching dirs it cannot read),
+               jsonl_files() and the per-store report (store_entry(),
+               store_line()) - store discovery, dir naming and
+               unreadable-dir handling are not re-implemented here.
                Reads top-level *.jsonl session transcripts under
                <store>/<project-dir>/ in every store (main-session records
                only - subagent turns live in a separate subagents/*.jsonl
@@ -75,7 +84,9 @@ Downstream consumers: Operators calibrating conductor_overreach_threshold in
                        any other module - standalone CLI.
 
 Failure modes: never raises. An unreadable store is skipped and listed as
-               ABSENT (status "unreadable"), never as a scanned zero. No
+               ABSENT (status "unreadable"); an unreadable matching project
+               dir makes its store "partial" with a floor count or ABSENT;
+               neither is reported as a scanned zero. No
                readable store, or no matching project directory or
                transcript in any store, prints "No transcripts found."
                (--json: error="no_transcripts") and exits 0. Malformed
@@ -152,9 +163,22 @@ POST_SPAWN_SPOTCHECK_WINDOW = 2
 DEFAULT_THRESHOLD = 12
 
 
-def _resolve_transcript_dirs(stores: list[Path]) -> dict[Path, list[Path]]:
+def _store_transcripts(stores: list[Path]) -> dict[Path, tuple[list[Path], list]]:
+    """{store: (the cwd's session transcripts, [(dir, reason)] for each
+    matching project dir that cannot be read)}."""
     cwd = os.getcwd()
-    return {store: _transcripts.project_dirs(cwd, [store]) for store in stores}
+    out: dict[Path, tuple[list[Path], list]] = {}
+    for store in stores:
+        dirs, unreadable = _transcripts.project_dirs_checked(cwd, store)
+        files: list[Path] = []
+        for d in dirs:
+            found, reason = _transcripts.jsonl_files(d)
+            if reason is None:
+                files.extend(found)
+            else:
+                unreadable.append((d, reason))
+        out[store] = (files, unreadable)
+    return out
 
 
 def _is_whitelisted_path(value: str) -> bool:
@@ -342,13 +366,11 @@ def _measure_session(transcript_path: Path) -> dict:
 
 
 def _print_stores(stores_out: list[dict]) -> None:
-    scanned = [s for s in stores_out if s["status"] == "scanned"]
+    scanned = [s for s in stores_out if s["status"] in ("scanned", "partial")]
     print(f"stores scanned ({len(scanned)}):" + ("" if stores_out else " (none found)"))
     for s in stores_out:
-        if s["status"] == "scanned":
-            print(f"  {s['path']}: {s['sessions']} sessions (of {s['found']} found)")
-        else:
-            print(f"  {s['path']}: ABSENT ({s['status']}: {s['reason']})")
+        line = _transcripts.store_line(s, "found", "sessions found")
+        print(line if s["sessions"] is None else f"{line}, {s['sessions']} in sample")
     print()
 
 
@@ -364,29 +386,30 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     store_set = _transcripts.resolve_stores(args.store)
-    found = {
-        store: [p for d in dirs for p in d.glob("*.jsonl")]
-        for store, dirs in _resolve_transcript_dirs(store_set.readable).items()
-    }
+    found = _store_transcripts(store_set.readable)
     files = sorted(
-        [(store, p) for store, paths in found.items() for p in paths],
+        [(store, p) for store, (paths, _unreadable) in found.items() for p in paths],
         key=lambda item: item[1].stat().st_mtime,
         reverse=True,
     )[: args.limit]
-    stores_out = [
-        {"path": str(store), "status": "scanned",
-         "sessions": sum(1 for s, _ in files if s == store), "found": len(paths)}
-        for store, paths in found.items()
-    ] + [{**entry, "found": None} for entry in store_set.problem_entries()]
+    stores_out = []
+    for store, (paths, unreadable) in found.items():
+        entry = _transcripts.store_entry(store, len(paths), unreadable, "found")
+        entry["sessions"] = (None if entry["found"] is None
+                             else sum(1 for s, _ in files if s == store))
+        stores_out.append(entry)
+    stores_out += [{**entry, "found": None} for entry in store_set.problem_entries()]
 
     if not files:
         if args.json:
             print(json.dumps({
                 "stores": stores_out,
+                "error": "no_transcripts",
                 "rows": [],
                 "sample_size": 0,
+                "unreadable_count": 0,
+                "zero_spawn_sample_size": 0,
                 "recommended_threshold": None,
-                "error": "no_transcripts",
             }, indent=2))
         else:
             _print_stores(stores_out)

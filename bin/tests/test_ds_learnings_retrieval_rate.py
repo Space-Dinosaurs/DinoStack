@@ -804,7 +804,7 @@ class TestEndToEnd(unittest.TestCase):
             payload = json.loads(_run_cli(store).stdout)
             self.assertEqual(payload["stores"],
                              [{"path": os.path.realpath(store / "projects"), "status": "scanned",
-                               "transcripts": 1}])
+                               "transcripts": 1, "reason": None, "unreadable_dirs": 0, "unreadable_dir_paths": [],}])
             self.assertEqual(payload["transcripts_scanned"], 1)
 
     def test_alias_behaves_identically(self):
@@ -912,7 +912,7 @@ class TestStores(unittest.TestCase):
             self.assertEqual(payload["by_role"]["architect"]["fired"], 0)
             self.assertEqual(payload["stores"],
                              [{"path": os.path.realpath(b / "projects"), "status": "scanned",
-                               "transcripts": 1}])
+                               "transcripts": 1, "reason": None, "unreadable_dirs": 0, "unreadable_dir_paths": [],}])
 
     @unittest.skipIf(os.geteuid() == 0, "root can list a mode-000 directory")
     def test_unreadable_store_is_absent_not_a_scanned_zero(self):
@@ -934,6 +934,28 @@ class TestStores(unittest.TestCase):
             self.assertEqual(payload["transcripts_scanned"], 2)
             self.assertIn(f"{bad_real}: ABSENT (unreadable:", out)
             self.assertNotIn(f"{bad_real}: 0 transcripts", out)
+
+    @unittest.skipIf(os.geteuid() == 0, "root can list a mode-000 directory")
+    def test_unreadable_project_dir_makes_the_store_partial_not_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, a, b = self._two_stores(Path(tmp))
+            bad = b / "projects" / "hash1"
+            bad_store = os.path.realpath(b / "projects")
+            env = _env(home=home)
+            bad.chmod(0)
+            try:
+                payload = json.loads(_run_cli(None, env=env).stdout)
+                out = _run_cli(None, env=env, json_flag=False).stdout
+            finally:
+                bad.chmod(0o755)
+            entry = {s["path"]: s for s in payload["stores"]}[bad_store]
+            self.assertEqual((entry["status"], entry["transcripts"], entry["unreadable_dirs"]),
+                             ("partial", None, 1))
+            self.assertEqual([d["path"] for d in entry["unreadable_dir_paths"]],
+                             [os.path.realpath(bad)])
+            self.assertEqual(payload["transcripts_scanned"], 1)
+            self.assertIn(f"{bad_store}: ABSENT (partial: 1 unreadable dirs)", out)
+            self.assertNotIn(f"{bad_store}: 0 transcripts", out)
 
     def test_missing_store_path_is_named(self):
         with tempfile.TemporaryDirectory() as tmp:

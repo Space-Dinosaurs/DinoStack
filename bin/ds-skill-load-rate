@@ -16,8 +16,9 @@ Public API: ds-skill-load-rate [--json] [--project-dir NAME]
                                 [--store DIR ...]
             Exactly one of --project-dir, --repo-path, --all-projects may be
             given; with none, the default is --repo-path <cwd>. Every scope
-            is applied in every store bin/_transcripts.py's stores() finds
-            (each `~/.claude*/projects` dir plus the active config dir's),
+            is applied in every store bin/_transcripts.py's
+            resolve_stores() finds (each `~/.claude*/projects` dir plus the
+            active config dir's),
             not only the active CLAUDE_CONFIG_DIR; a repeatable
             `--store DIR` (a config dir or a projects dir) replaces that
             set. Prints a human report (a header naming every store
@@ -25,11 +26,16 @@ Public API: ds-skill-load-rate [--json] [--project-dir NAME]
             per-session-mode counts, the nudge-fired-with-no-load count,
             and the exact scope used, each project dir under its store) or,
             with --json, the same data as one JSON object (`stores`: one
-            {path, status: "scanned", project_dirs, sessions} entry per
-            store, a store with no matching project dir listed with 0; a
-            store that exists but cannot be read, or a --store path that
-            does not exist, is listed with status "unreadable"/"missing",
-            sessions null and a reason, printed as ABSENT - never 0) -
+            {path, status, project_dirs, sessions, reason, unreadable_dirs,
+            unreadable_dir_paths} entry per store). status "scanned": every
+            in-scope dir was read, and a store with no matching project dir
+            is listed with 0. status "partial": some in-scope project dir
+            could not be read; sessions is a floor (">= N" in text), or null
+            (ABSENT) when nothing readable was counted. status
+            "unreadable" (the store itself), "missing" or "invalid" (a
+            --store path that does not exist or is not a directory):
+            sessions null, a reason, printed as ABSENT. A store or project
+            dir the tool could not read is never reported as 0 -
             including the headline figure itself, as
             `unprompted_load_rate` (float 0..1, or JSON null on no-data)
             and `unprompted_load_rate_display` (the literal string
@@ -55,7 +61,9 @@ Public API: ds-skill-load-rate [--json] [--project-dir NAME]
                                     Claude Code's project-directory naming
                                     form (an absolute path with every
                                     non-alphanumeric character replaced by
-                                    `-` - every real NAME therefore begins
+                                    `-`, or, for dirs written by older
+                                    Claude Code, with only `/` replaced -
+                                    either way every real NAME begins
                                     with `-`; both `--project-dir NAME` and
                                     `--project-dir=NAME` accept a
                                     single-leading-dash value, see
@@ -64,9 +72,10 @@ Public API: ds-skill-load-rate [--json] [--project-dir NAME]
             --repo-path PATH       scan the project dirs
                                     _transcripts.project_dirs(PATH, ...)
                                     maps PATH to in each store: dirs named
-                                    with PATH's prefix (the repo and its
-                                    worktrees) holding a session whose
-                                    first cwd is PATH or under it.
+                                    with PATH's current or legacy prefix
+                                    (the repo and its worktrees) holding a
+                                    session whose first cwd is PATH or
+                                    under it.
                                     Default PATH is the current working
                                     directory (Claude Code keys a session's
                                     project directory off the cwd the
@@ -80,11 +89,13 @@ Public API: ds-skill-load-rate [--json] [--project-dir NAME]
                                     same-host default must not fold in
                                     unrelated repos' sessions.
 
-Upstream deps: Python 3 stdlib only (argparse, glob, json, os, sys, pathlib).
-               bin/_transcripts.py for the store set (stores()) and the
-               repo-to-project-dir mapping (project_dirs(),
-               project_dir_prefix()) - store discovery and dir naming are
-               not re-implemented here.
+Upstream deps: Python 3 stdlib only (argparse, json, os, sys, pathlib).
+               bin/_transcripts.py for the store set (resolve_stores()),
+               the repo-to-project-dir mapping (project_dirs_checked(),
+               project_dir_prefix()), checked directory listing
+               (listdir_checked(), jsonl_files()) and the per-store report
+               (store_entry(), store_line()) - store discovery, dir naming
+               and unreadable-dir handling are not re-implemented here.
                Imports four names from bin/_lib.py (DS-227 round 2):
                MAX_TRANSCRIPT_BYTES, iter_jsonl_dict_records,
                and rate_or_none - the streaming scan skeleton and the
@@ -142,8 +153,9 @@ Failure modes: collect()/classify_transcript() never raise and main() never
                the parser's real option strings; this guards against a
                source edit, not a runtime input, and is unreachable in the
                shipped state. An unreadable store is skipped and listed as
-               status "unreadable" (ABSENT), never counted as a scanned
-               zero. No readable store at all, no store holding the scoped
+               status "unreadable" (ABSENT); an unreadable in-scope project
+               dir makes its store "partial" with a floor count or ABSENT;
+               neither is counted as a scanned zero. No readable store at all, no store holding the scoped
                project directory, or zero discovered transcripts within
                scope across every store exits 0 with error="no_transcripts"
                (each store still listed) and the headline
@@ -219,7 +231,6 @@ requires it, so the retirement condition ships with the mechanism:
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import os
 import sys
@@ -396,21 +407,37 @@ def classify_transcript(path: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _store_project_dirs(store: Path, args) -> list[Path]:
+def _readable_or_not(dirs: list[Path]) -> tuple[list[Path], list]:
+    readable, unreadable = [], []
+    for d in dirs:
+        reason = _transcripts.listdir_checked(d)[1]
+        if reason is None:
+            readable.append(d)
+        else:
+            unreadable.append((d, reason))
+    return readable, unreadable
+
+
+def _store_project_dirs(store: Path, args) -> tuple[list[Path], list]:
+    """(readable project dirs in scope, [(dir, reason)] for in-scope dirs
+    that cannot be read)."""
     if args.all_projects:
-        return sorted(p for p in store.glob("*") if p.is_dir())
+        names = _transcripts.listdir_checked(store)[0]
+        return _readable_or_not([store / n for n in names
+                                 if not n.startswith(".") and (store / n).is_dir()])
     if args.project_dir:
         target = store / args.project_dir
-        return [target] if target.is_dir() else []
-    return _transcripts.project_dirs(args.repo_path or os.getcwd(), [store])
+        return _readable_or_not([target] if target.is_dir() else [])
+    return _transcripts.project_dirs_checked(args.repo_path or os.getcwd(), store)
 
 
 def resolve_scope(stores: list[Path], args) -> tuple[dict, dict]:
-    """Returns ({store: project_dirs}, scope_meta). scope_meta always carries
-    enough detail to reconstruct the filter without re-running the tool
-    (AC2: a rate without its scope is not a verified claim)."""
+    """Returns ({store: (project_dirs, unreadable_dirs)}, scope_meta).
+    scope_meta always carries enough detail to reconstruct the filter
+    without re-running the tool (AC2: a rate without its scope is not a
+    verified claim)."""
     by_store = {store: _store_project_dirs(store, args) for store in stores}
-    names = [d.name for dirs in by_store.values() for d in dirs]
+    names = [d.name for dirs, _unreadable in by_store.values() for d in dirs]
 
     if args.all_projects:
         return by_store, {"mode": "all-projects", "project_dirs": names}
@@ -453,16 +480,18 @@ def collect(store_set, args) -> dict:
     }
 
     transcripts: list[Path] = []
-    for store, project_dirs in by_store.items():
+    for store, (project_dirs, unreadable_dirs) in by_store.items():
         found: list[Path] = []
+        unreadable_dirs = list(unreadable_dirs)
         for project_dir in project_dirs:
-            found.extend(sorted(Path(p) for p in glob.glob(str(project_dir / "*.jsonl"))))
-        payload["stores"].append({
-            "path": str(store),
-            "status": "scanned",
-            "project_dirs": [d.name for d in project_dirs],
-            "sessions": len(found),
-        })
+            files, reason = _transcripts.jsonl_files(project_dir)
+            if reason is None:
+                found.extend(files)
+            else:
+                unreadable_dirs.append((project_dir, reason))
+        entry = _transcripts.store_entry(store, len(found), unreadable_dirs)
+        entry["project_dirs"] = [d.name for d in project_dirs]
+        payload["stores"].append(entry)
         transcripts.extend(found)
     payload["stores"].extend(store_set.problem_entries())
 
@@ -560,11 +589,9 @@ def format_scope(scope: dict, stores: list[dict]) -> list[str]:
 
 
 def format_stores(stores: list[dict]) -> list[str]:
-    scanned = [s for s in stores if s["status"] == "scanned"]
+    scanned = [s for s in stores if s["status"] in ("scanned", "partial")]
     lines = [f"stores scanned ({len(scanned)}):" + ("" if stores else " (none found)")]
-    lines.extend(f"  {s['path']}: {s['sessions']} sessions" if s["status"] == "scanned"
-                 else f"  {s['path']}: {ABSENT} ({s['status']}: {s['reason']})"
-                 for s in stores)
+    lines.extend(_transcripts.store_line(s) for s in stores)
     return lines
 
 
