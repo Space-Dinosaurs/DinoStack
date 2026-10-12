@@ -60,8 +60,8 @@
  *   W16 - `startup`, `resume`, `clear` -> the worktree nudge is present.
  *   W17 - jq stubbed to fail, `compact` -> the grep fallback reads `source`
  *        and the nudge is skipped.
- *   W18 - jq stubbed to fail, `startup`, and an earlier `session_title` holding
- *        the escaped text `\"source\": \"compact\"` -> the nudge is present.
+ *   W18 - jq stubbed to fail, `startup`, and an earlier `"event_source":
+ *        "compact"` key -> the nudge is present.
  *
  * Run with: node hooks/tests/test-session-start-wrap-worktree-nudge.js
  */
@@ -757,20 +757,20 @@ console.log('\n[W17] jq stubbed to fail, source=compact -> nudge skipped via the
 }
 
 // ---------------------------------------------------------------------------
-// (W18) jq fails, source=startup, and an earlier string value holds the
-// escaped text \"source\": \"compact\" -> the fallback must not read it.
+// (W18) jq fails, source=startup, and an earlier key ending in "source"
+// holds "compact" -> the fallback must anchor on the exact "source" key.
 // ---------------------------------------------------------------------------
-console.log('\n[W18] jq stubbed to fail, source=startup, decoy escaped "source": "compact" in session_title -> nudge present');
+console.log('\n[W18] jq stubbed to fail, source=startup, decoy "event_source": "compact" before it -> nudge present');
 {
   const cwdRepo = buildBareRepoWithWorktrees(6, 'ae-wt-nudge-w18-');
   const fakeHome = seedFakeHome(REPO_ROOT);
   const { path: noJqPath, dir: noJqDir } = pathWithFailingJq();
   const { code, systemMessage, parsedOk } = runHook(SCRIPT, cwdRepo, fakeHome, noJqPath, null, 'startup',
-    { session_title: 'notes "source": "compact" here' });
+    { event_source: 'compact' });
   assert(code === 0, 'W18: hook exits 0');
   assert(parsedOk, 'W18: stdout parses as valid JSON');
   assert(systemMessage.includes('6 non-root git worktrees in this project'),
-    `W18: nudge present - the escaped decoy is not read as source (got: ${JSON.stringify(systemMessage)})`);
+    `W18: nudge present - the event_source decoy is not read as source (got: ${JSON.stringify(systemMessage)})`);
   cleanup(fakeHome);
   cleanup(cwdRepo);
   cleanup(noJqDir);
