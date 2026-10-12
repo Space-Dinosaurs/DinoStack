@@ -185,7 +185,8 @@ installed separately:
   - SessionStart; never blocks and writes nothing. Reads root `CLAUDE.md`
   and `MEMORY.md` and, only when root `CLAUDE.md` carries the line
   `<!-- dinostack:memory-main-only -->`, adds `MEMORY.md` (or its head plus
-  a directive to Read the rest) to the main session's context. Prints `{}`
+  a directive to Read the rest in full when small, else grep on demand) to the
+  main session's context. Prints `{}`
   otherwise, including when any `CLAUDE.md` still imports `MEMORY.md`.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.

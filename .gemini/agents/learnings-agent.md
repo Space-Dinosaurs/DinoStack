@@ -1,7 +1,7 @@
 ---
 name: learnings-agent
 description: "Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md (in a compiled two-tier project, to the .agentic/memory-capture-inbox.md capture inbox instead). Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, context.md, _wrap.md, context.d/, or any source/config files."
-tools: [read_file, replace, write_file]
+tools: [read_file, grep_search, replace, write_file]
 kind: local
 ---
 
@@ -230,7 +230,7 @@ Only when the event has no `.agentic/learnings.md` counterpart (e.g. a standing 
 
 Append under the `# Memory` heading (create the heading if absent).
 
-**Dedup:** read the existing file, lowercase + collapse whitespace runs to single space + substring match. If any existing entry contains the candidate's case-insensitive whitespace-collapsed text as a substring, skip the append and record `"skipped (duplicate): MEMORY.md"` in `writer_actions[]`.
+**Dedup:** never Read the file whole. Grep it (case-insensitive, with line numbers) for a distinctive fragment of the candidate - an id, path, or key phrase - and Read only a window around each hit (offset/limit, at most 100 lines per Read, halving `limit` on a too-large error); then lowercase + collapse whitespace runs to single space + substring match against the entries in those windows. If any such entry contains the candidate's case-insensitive whitespace-collapsed text as a substring, skip the append and record `"skipped (duplicate): MEMORY.md"` in `writer_actions[]`.
 
 **Compiled mode (`memory_mode: compiled`).** Never write `MEMORY.md` and never create a heading. Dedup against it as above, then append the entry, verbatim in the format above, as one line of `.agentic/memory-capture-inbox.md` (create if absent); the next `ds-memory-capture flush` (run by `/ds-wrap`, Phase 11b or `/ds-memory-update`) turns it into a shard. Return `memory_md_appended: false` and record `".agentic/memory-capture-inbox.md: queued 1 entry"` in `writer_actions[]`. See `content/references/memory-shard-convention.md` §Two-tier capture.
 

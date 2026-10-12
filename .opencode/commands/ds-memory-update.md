@@ -47,7 +47,7 @@ Before drafting, verify any factual claims the entry will make:
 
 ### Part 3 - Draft the entry
 
-1. Read the current MEMORY.md (create it with just `# Memory\n\n` if it does not exist).
+1. Grep the current MEMORY.md for the decision's key terms (`grep -n -i '<term>' $MEMORY_PATH`) and Read only a window around each hit (offset/limit, at most 100 lines per Read, halving `limit` on a too-large error); never Read it whole (create it with just `# Memory\n\n` if it does not exist).
 2. Assess against what is already there:
    - **Update existing**: decision clarifies or supersedes a prior entry - update that entry in place, adjusting the date (compiled mode: never in place - write a new entry citing the old entry's shard id, see Part 4)
    - **New entry**: decision is not yet captured - draft a new date-stamped bullet

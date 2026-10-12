@@ -434,13 +434,13 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 12. **Root `CLAUDE.md` memory main-only migration** - root `MEMORY.md` reaches only the main session (Claude Code: DinoStack's `session-start-memory` SessionStart hook), never subagents. Write these two lines byte-exact:
     ```
     <!-- dinostack:memory-main-only -->
-    MEMORY.md (durable facts, operator rulings) is not auto-loaded. Main session: a DinoStack SessionStart hook delivers it; if it is absent or truncated, Read all of it before any other tool call, whatever the task. Subagents: grep on demand (`grep -n -i '<topic>' MEMORY.md`); if your worktree lacks it, grep the primary checkout's copy, never Read it (Read is denied there).
+    MEMORY.md (durable facts, operator rulings) is not auto-loaded. Main session: a DinoStack SessionStart hook delivers it whole, or its head plus a directive for the rest - follow that directive; if neither is in context, grep on demand and Read only bounded windows around hits, never the whole file at once. Subagents: grep on demand (`grep -n -i '<topic>' MEMORY.md`); if your worktree lacks it, grep the primary checkout's copy, never Read it (Read is denied there).
     ```
     - **IMPORT** = a line equal, after trimming whitespace, to `@MEMORY.md` or `@./MEMORY.md`, in root `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md`. **MARKER present** = root `CLAUDE.md` has a line equal, after trimming, to the first line above.
     - **Host guard (first):** if `CLAUDECODE=1` and `session-start-memory.py` does not appear in `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json`, plan no change and report "Memory main-only migration skipped: run the DinoStack installer or ds-update, then re-run /ds-init-project." If `CLAUDECODE` is unset, add the report line "Claude Code teammates without the DinoStack installer fall back to the pointer line."
     - **(a) IMPORT present, MARKER absent:** replace the first root `CLAUDE.md` IMPORT line with the two lines (if root `CLAUDE.md` has no IMPORT, append a blank line plus the two lines, creating the file with `@AGENTS.md` first if absent); delete every other IMPORT line in all three files; then run the audience triage below.
-    - **(b) MARKER present, no IMPORT:** no action.
-    - **(c) MARKER and IMPORT present:** delete every IMPORT line in all three files; no triage.
+    - **(b) MARKER present, no IMPORT:** if the line after the MARKER starts with `MEMORY.md (durable facts, operator rulings) is not auto-loaded.` but differs from the second line above (a stale pointer from an earlier template), replace that one line with the second line above; otherwise no action.
+    - **(c) MARKER and IMPORT present:** delete every IMPORT line in all three files and refresh a stale pointer as in (b); no triage.
     - **(d) Neither, root `CLAUDE.md` exists:** append a blank line plus the two lines; no triage.
     - **(e) Neither, no root `CLAUDE.md`:** create it with `@AGENTS.md`, then the two lines; no triage.
     - Preserve every other byte of every file. **Dangling guard:** if root `MEMORY.md` is absent, seed the Step 8 stub; never overwrite an existing `MEMORY.md`.

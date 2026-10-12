@@ -3,14 +3,15 @@
 Tests for hooks/session-start-memory.py.
 
 Every case runs the hook as a subprocess against a scratch git repo, the
-way the Claude Code hook runner does. After the T1-T11 pass against the
-real hook, each named mutation (a)-(g) is applied to a copy of the hook and
+way the Claude Code hook runner does. After the T1-T16 pass against the
+real hook, each named mutation (a)-(q) is applied to a copy of the hook and
 the test it targets is run against that copy; the suite fails if the
 mutation does not redden it.
 """
 
 import json
 import os
+import shlex
 import shutil
 import stat
 import subprocess
@@ -23,6 +24,9 @@ REAL_HOOK = os.path.join(
 )
 HOOK = REAL_HOOK
 CAP = 8500
+READ_BUDGET = 30000
+WINDOW_MIN = 1
+WINDOW_MAX = 200
 MARKER = "<!-- dinostack:memory-main-only -->"
 SCRATCH = tempfile.mkdtemp(prefix="ssm-test-")
 DIRECTIVE = (
@@ -33,7 +37,35 @@ DIRECTIVE = (
 )
 
 
-def directive(n, n_lines, last, path):
+GREP_DIRECTIVE = (
+    "MEMORY.md is %d bytes, %d lines; %s. Do not Read lines %d-%d whole: those %d bytes are more than "
+    "one Read returns (the Read tool caps a call at 25,000 tokens, and dense Markdown runs near 2 bytes "
+    "per token). Instead, before any decision that may depend on a recorded fact or operator ruling, grep "
+    "for it with `grep -n -i '<topic>' %s` and Read only a window around each hit: offset a few lines "
+    "above the hit, limit at most %d (the heaviest %d-line span in this file is %d bytes). This holds "
+    "for the whole session, including after a compact or clear."
+)
+
+
+def spans(memory, k):
+    """Byte size of every k-line window of memory, by brute force."""
+    sizes = [len(l.encode("utf-8")) for l in split_lines(memory)]
+    return [sum(sizes[i:i + k]) for i in range(max(1, len(sizes) - k + 1))]
+
+
+def window_limit(memory):
+    n_lines = len(split_lines(memory))
+    fits = [k for k in range(WINDOW_MIN, min(WINDOW_MAX, n_lines) + 1)
+            if max(spans(memory, k)) <= READ_BUDGET]
+    k = max(fits) if fits else WINDOW_MIN
+    return k, max(spans(memory, k))
+
+
+def directive(n, n_lines, last, path, rest=0, memory=None):
+    if rest > READ_BUDGET:
+        shown = "only lines 1-%d are shown" % last if last else "its first line exceeds the cap, so none is shown"
+        k, span = window_limit(memory)
+        return GREP_DIRECTIVE % (n, n_lines, shown, last + 1, n_lines, rest, shlex.quote(path), k, k, span)
     return DIRECTIVE % (n, n_lines, last, path, last + 1, n_lines, n_lines, last + 1, n_lines)
 
 
@@ -103,7 +135,7 @@ def split_lines(text):
 
 
 def check_head_cut(root, memory):
-    """Shared T2/T11 assertions; returns the CTX."""
+    """Shared T2/T11/T12/T13 assertions; returns (stdout, last, rest bytes)."""
     stdout = run_payload(root)
     ctx = ctx_of(stdout)
     assert len(json.dumps(ctx, ensure_ascii=True)) <= CAP, len(json.dumps(ctx, ensure_ascii=True))
@@ -115,14 +147,17 @@ def check_head_cut(root, memory):
     last = int(ctx.split(marker, 1)[1].split(" ", 1)[0])
     assert last >= 1, last
     head = "".join(lines[:last])
+    rest = n - len(head.encode("utf-8"))
     assert head in ctx, "shown text is not exactly lines 1-%d" % last
     after_head = ctx.split(head, 1)[1]
     assert after_head.startswith("\nMEMORY.md is "), repr(after_head[:80])
-    assert after_head[1:] == directive(n, len(lines), last, path), after_head[-600:]
+    assert after_head[1:] == directive(n, len(lines), last, path, rest, memory), after_head[-600:]
     assert os.path.isabs(path)
-    grown = ctx.split(head, 1)[0] + head + lines[last] + "\n" + directive(n, len(lines), last + 1, path)
+    grown_rest = rest - len(lines[last].encode("utf-8"))
+    grown = (ctx.split(head, 1)[0] + head + lines[last] + "\n"
+             + directive(n, len(lines), last + 1, path, grown_rest, memory))
     assert len(json.dumps(grown, ensure_ascii=True)) > CAP, "L is not the longest prefix that fits"
-    return stdout
+    return stdout, last, rest
 
 
 # ---------------------------------------------------------------------------
@@ -138,9 +173,20 @@ def t1_small_file_full():
 
 
 def t2_large_file_head():
-    memory = big_memory(300 * 1024, "x" * 60)
-    root = make_repo("t2", migrated(), memory)
-    check_head_cut(root, memory)
+    # Shaped like the measured authentic8 MEMORY.md: ~309 KB, ~1,126 lines, ~275 B/line.
+    memory = big_memory(309 * 1024, "x" * 260)
+    root = make_repo("t2 it's", migrated(), memory)
+    _, _, rest = check_head_cut(root, memory)
+    assert rest > READ_BUDGET, rest
+    tail = ctx_of(run_payload(root)).rsplit("\nMEMORY.md is ", 1)[1]
+    assert "in full" not in tail, tail
+    path = os.path.join(root, "MEMORY.md")
+    assert " " in path and "'" in path
+    assert "grep -n -i '<topic>' " + shlex.quote(path) + "`" in tail, tail
+    limit = int(tail.split("limit at most ", 1)[1].split(" ", 1)[0])
+    assert WINDOW_MIN < limit < WINDOW_MAX, limit
+    assert max(spans(memory, limit)) <= READ_BUDGET, limit
+    assert max(spans(memory, limit + 1)) > READ_BUDGET, "limit is not the largest that fits"
 
 
 def t3_import_line_suppresses():
@@ -202,7 +248,7 @@ def t9_first_line_too_long():
 
 
 def t10_unreadable_memory():
-    root = make_repo("t10", migrated(), "CANARY_T10\n")
+    root = make_repo("t10 x", migrated(), "CANARY_T10\n")
     path = os.path.join(root, "MEMORY.md")
     os.chmod(path, 0)
     try:
@@ -213,7 +259,12 @@ def t10_unreadable_memory():
             return
         ctx = ctx_of(run_payload(root))
         assert ctx.startswith("DinoStack memory hook error ("), ctx
-        assert ("): MEMORY.md was not delivered. Read %s in full before your first decision." % path) in ctx, ctx
+        want = ("): MEMORY.md was not delivered. Before any decision that may depend on a recorded fact "
+                "or operator ruling, grep %s for it (`grep -n -i '<topic>' %s`) and Read only a window "
+                "around each hit; Read the whole file only if it is at most %d bytes."
+                % (path, shlex.quote(path), READ_BUDGET))
+        assert want in ctx, ctx
+        assert "in full" not in ctx, ctx
         assert "CANARY_T10" not in ctx
     finally:
         os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
@@ -222,8 +273,82 @@ def t10_unreadable_memory():
 def t11_multibyte_filler():
     memory = big_memory(120 * 1024, "é漢" * 20)
     root = make_repo("t11", migrated(), memory)
-    stdout = check_head_cut(root, memory)
+    stdout, _, _ = check_head_cut(root, memory)
     stdout.decode("ascii")
+
+
+def t12_small_remainder_reads_in_full():
+    memory = big_memory(24 * 1024, "w" * 60)
+    root = make_repo("t12", migrated(), memory)
+    _, last, rest = check_head_cut(root, memory)
+    assert 0 < rest <= READ_BUDGET, rest
+    want = directive(len(memory.encode("utf-8")), len(split_lines(memory)), last,
+                     os.path.join(root, "MEMORY.md"))
+    assert ctx_of(run_payload(root)).endswith(want)
+
+
+def boundary_memory(target_rest, name):
+    """A MEMORY.md whose head fits CAP and whose one unshown line is exactly target_rest bytes."""
+    head = big_memory(5 * 1024, "b" * 60)
+    memory = head + "- tail " + "p" * (target_rest - len("- tail \n")) + "\n"
+    root = make_repo(name, migrated(), memory)
+    _, last, rest = check_head_cut(root, memory)
+    assert last == len(split_lines(head)) and rest == target_rest, (last, rest, target_rest)
+    return root
+
+
+def t13_threshold_boundary():
+    root = boundary_memory(READ_BUDGET, "t13a")
+    ctx = ctx_of(run_payload(root))
+    assert ctx.rsplit("\nMEMORY.md is ", 1)[1].count(" in full") == 1, ctx[-400:]
+    root = boundary_memory(READ_BUDGET + 1, "t13b")
+    ctx = ctx_of(run_payload(root))
+    tail = ctx.rsplit("\nMEMORY.md is ", 1)[1]
+    assert "in full" not in tail and "Do not Read lines" in tail, tail
+
+
+def t14_first_line_too_long_large_file():
+    memory = ("z" * (10 * 1024)) + "\n" + "- line %s\n" % ("q" * 100) * 300
+    root = make_repo("t14", migrated(), memory)
+    ctx = ctx_of(run_payload(root))
+    n = len(memory.encode("utf-8"))
+    want = directive(n, len(split_lines(memory)), 0, os.path.join(root, "MEMORY.md"), n, memory)
+    assert ctx.endswith(want), ctx[-600:]
+    assert "in full" not in ctx and "zzzz" not in ctx
+
+
+def t15_long_line_cluster():
+    # Short lines plus one contiguous run of ~5 KB lines: the average-based
+    # limit would let a window over the run exceed READ_BUDGET.
+    memory = big_memory(200 * 1024, "s" * 60)
+    lines = split_lines(memory)
+    cluster = ["- long %02d %s\n" % (i, "L" * 5000) for i in range(8)]
+    memory = "".join(lines[:600] + cluster + lines[600:])
+    root = make_repo("t15", migrated(), memory)
+    check_head_cut(root, memory)
+    tail = ctx_of(run_payload(root)).rsplit("\nMEMORY.md is ", 1)[1]
+    limit = int(tail.split("limit at most ", 1)[1].split(" ", 1)[0])
+    assert max(spans(memory, limit)) <= READ_BUDGET, (limit, max(spans(memory, limit)))
+    avg_limit = int(READ_BUDGET // (len(memory.encode("utf-8")) / len(split_lines(memory))))
+    assert limit < avg_limit, (limit, avg_limit)
+
+
+def t16_invalid_utf8_counts_raw_bytes():
+    # 200 invalid bytes in the shown head decode to U+FFFD (3 bytes each when
+    # re-encoded); counting that way would shrink a 30001-byte remainder under
+    # READ_BUDGET and pick the read-in-full branch.
+    head = big_memory(5 * 1024, "b" * 60).encode("utf-8") + b"- bad " + b"\xff" * 200 + b"\n"
+    tail = b"- tail " + b"p" * (READ_BUDGET + 1 - len(b"- tail \n")) + b"\n"
+    root = make_repo("t16", migrated())
+    with open(os.path.join(root, "MEMORY.md"), "wb") as f:
+        f.write(head + tail)
+    ctx = ctx_of(run_payload(root))
+    rest = ctx.rsplit("\nMEMORY.md is ", 1)[1]
+    n_head = head.count(b"\n")
+    assert rest.startswith("%d bytes, %d lines; only lines 1-%d are shown. Do not Read lines %d-%d whole: "
+                           "those %d bytes" % (len(head + tail), n_head + 1, n_head, n_head + 1,
+                                               n_head + 1, READ_BUDGET + 1)), rest[:300]
+    assert "in full" not in rest, rest[:300]
 
 
 TESTS = [
@@ -232,7 +357,9 @@ TESTS = [
     ("T5", t5_no_memory), ("T6", t6_garbage_stdin),
     ("T7", t7_source_invariant), ("T8", t8_subdirectory_cwd),
     ("T9", t9_first_line_too_long), ("T10", t10_unreadable_memory),
-    ("T11", t11_multibyte_filler),
+    ("T11", t11_multibyte_filler), ("T12", t12_small_remainder_reads_in_full),
+    ("T13", t13_threshold_boundary), ("T14", t14_first_line_too_long_large_file),
+    ("T15", t15_long_line_cluster), ("T16", t16_invalid_utf8_counts_raw_bytes),
 ]
 
 # (tag, old, new, test that must redden)
@@ -249,8 +376,31 @@ MUTATIONS = [
      "    return len(json.dumps(s, ensure_ascii=True)) - 2\n",
      '    return len(s.encode("utf-8"))\n', "T11"),
     ("(g) EOF line number dropped from the directive",
-     '_tail_directive(len(raw), len(lines), last, path)\n',
-     '_tail_directive(len(raw), last + 1, last, path)\n', "T2"),
+     "    return _tail_directive(n_bytes, n_lines, last, path)\n",
+     "    return _tail_directive(n_bytes, last + 1, last, path)\n", "T12"),
+    ("(h) threshold compared with >=", "    if rest_bytes > READ_BUDGET:\n",
+     "    if rest_bytes >= READ_BUDGET:\n", "T13"),
+    ("(i) grep branch never taken", "\nREAD_BUDGET = 30000\n", "\nREAD_BUDGET = 10 ** 9\n", "T2"),
+    ("(p) grep command path unquoted", "rest_bytes, shlex.quote(path),\n", "rest_bytes, path,\n", "T2"),
+    ("(q) fallback grep command path unquoted", "path, shlex.quote(path), READ_BUDGET)", "path, path, READ_BUDGET)",
+     "T10"),
+    ("(j) window limit hardcoded", "    return lo, _max_span(sizes, lo)\n",
+     "    return WINDOW_MAX, _max_span(sizes, WINDOW_MAX)\n", "T2"),
+    ("(k) none-shown keeps the read-in-full text for a large file",
+     "    if rest_bytes > READ_BUDGET:\n", "    if rest_bytes > READ_BUDGET and last:\n", "T14"),
+    ("(l) fallback mandates a full Read",
+     '"Before any decision that may depend on a recorded fact or operator "\n',
+     '"Read it in full. Before any decision that may depend on a recorded fact or operator "\n',
+     "T10"),
+    ("(m) remainder measured as the whole file",
+     '    directive = _rest_directive(len(raw), len(lines), last, len(raw) - shown_bytes, path, window)\n',
+     '    directive = _rest_directive(len(raw), len(lines), last, len(raw), path, window)\n', "T13"),
+    ("(n) window limit from the average line length",
+     "    window = _window_limit(sizes)\n",
+     "    window = (max(WINDOW_MIN, min(WINDOW_MAX, READ_BUDGET * len(sizes) // len(raw))), 0)\n", "T15"),
+    ("(o) remainder counted from re-encoded text",
+     "    sizes = _line_bytes(raw)\n",
+     '    sizes = [len(l.encode("utf-8")) for l in lines]\n', "T16"),
 ]
 
 

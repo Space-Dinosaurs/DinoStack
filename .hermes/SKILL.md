@@ -12583,7 +12583,7 @@ The only file you may write is:
 name: learnings-agent
 model: sonnet
 description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md (in a compiled two-tier project, to the .agentic/memory-capture-inbox.md capture inbox instead). Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, context.md, _wrap.md, context.d/, or any source/config files.
-tools: Read, Edit, Write
+tools: Read, Grep, Edit, Write
 ---
 **Required reading before acting.** Read `content/references/conductor-operating-rules.md` §learnings-agent background capture for the mandatory trigger list, session-tracking file behavior (`.agentic/learnings-agent.session`), first-event spawn semantics, dedup and cap discipline, and Stop hook cleanup expectations.
 
@@ -12808,7 +12808,7 @@ Only when the event has no `.agentic/learnings.md` counterpart (e.g. a standing 
 
 Append under the `# Memory` heading (create the heading if absent).
 
-**Dedup:** read the existing file, lowercase + collapse whitespace runs to single space + substring match. If any existing entry contains the candidate's case-insensitive whitespace-collapsed text as a substring, skip the append and record `"skipped (duplicate): MEMORY.md"` in `writer_actions[]`.
+**Dedup:** never Read the file whole. Grep it (case-insensitive, with line numbers) for a distinctive fragment of the candidate - an id, path, or key phrase - and Read only a window around each hit (offset/limit, at most 100 lines per Read, halving `limit` on a too-large error); then lowercase + collapse whitespace runs to single space + substring match against the entries in those windows. If any such entry contains the candidate's case-insensitive whitespace-collapsed text as a substring, skip the append and record `"skipped (duplicate): MEMORY.md"` in `writer_actions[]`.
 
 **Compiled mode (`memory_mode: compiled`).** Never write `MEMORY.md` and never create a heading. Dedup against it as above, then append the entry, verbatim in the format above, as one line of `.agentic/memory-capture-inbox.md` (create if absent); the next `ds-memory-capture flush` (run by `/ds-wrap`, Phase 11b or `/ds-memory-update`) turns it into a shard. Return `memory_md_appended: false` and record `".agentic/memory-capture-inbox.md: queued 1 entry"` in `writer_actions[]`. See `content/references/memory-shard-convention.md` §Two-tier capture.
 
@@ -15000,7 +15000,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 name: wrap-ticket
 model: haiku
 description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md (in a compiled two-tier project, to the .agentic/memory-capture-inbox.md capture inbox instead), decisions.md, and .agentic/_wrap.md (## Recent Focus only). After it returns, the conductor runs a cheap Part E curation-gate check on root MEMORY.md - skipped entirely on a wrap-lock-contention skipped_reason or a held wrap lock - and spawns the /ds-wrap Part E curation Worker when the gate trips (invisible, no operator-facing output); on Worker completion the conductor spawns the Skeptic and, on sign-off, the conductor itself performs the write under the wrap lock, the same as it does on the synchronous /ds-wrap path - see the "Post-return Part E curation gate check" step in content/commands/ds-implement-ticket.md Phase 11b. Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
-tools: Read, Edit, Write
+tools: Read, Grep, Edit, Write
 ---
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
 **Required reading before acting.** Read `content/references/conductor-operating-rules.md` §wrap-ticket writer carve-out for the exact write-permission boundaries, file ownership rules, and soft-fail discipline. The carve-out lists every file you are authorized to write and every file you are forbidden from touching. Operating outside that boundary is a protocol violation.
@@ -15201,7 +15201,7 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
   - **YYYY-MM-DD:** [fact and why, one sentence] (ticket: TICKET_ID)
   ```
 - Append under the `# Memory` heading (create the heading if absent).
-- **Dedup before each append:** read the existing file, lowercase + collapse whitespace runs to single space + substring match. If any existing entry contains the candidate's case-insensitive whitespace-collapsed text as a substring, skip the append and record `"skipped (duplicate): <one-line summary>"` in `writer_actions[]`.
+- **Dedup before each append:** never Read the file whole. Grep it (case-insensitive, with line numbers) for a distinctive fragment of the candidate - an id, path, or key phrase - and Read only a window around each hit (offset/limit, at most 100 lines per Read, halving `limit` on a too-large error); then lowercase + collapse whitespace runs to single space + substring match against the entries in those windows. If any such entry contains the candidate's case-insensitive whitespace-collapsed text as a substring, skip the append and record `"skipped (duplicate): <one-line summary>"` in `writer_actions[]`.
 - **Cap at 3 appends per run.** If more candidates exist, prioritize by likely future-ticket impact and drop the rest.
 - **DinoStack-repo exception:** root `MEMORY.md` is committed for consumer projects scaffolded by `/ds-init-project`, but in the DinoStack repo itself it is intentionally gitignored (DS-129). The append still happens exactly as above - it is local to this operator's checkout and never reaches a PR, so it stays durable across this operator's own sessions but is never shared with other operators or machines when running inside this repo.
 - **Compiled mode (`memory_mode: compiled`).** Never write `MEMORY.md` and never create a heading. Dedup against it as above, then append each entry, verbatim in the format above, as one line of `.agentic/memory-capture-inbox.md` (create if absent); the conductor's `ds-memory-capture flush` turns the inbox into shards. Record `".agentic/memory-capture-inbox.md: queued <N> entries"` in `writer_actions[]` and keep `resolved_paths.memory_md` null. See `content/references/memory-shard-convention.md` §Two-tier capture.
@@ -15339,7 +15339,7 @@ Upstream deps: content/references/planning-artifacts.md (Brief template and fiel
                content/sections/02-delegation.md (surface-and-proceed protocol);
                content/rules/conventions.md (git worktree conventions, base-branch resolution);
                .agentic/brief-session.json (resume state, includes rubric array);
-               MEMORY.md (prior-decisions scan, delivered to the main session at start; Read it in full if not in context);
+               MEMORY.md (prior-decisions scan, delivered to the main session at start; else grep on demand);
                docs/overview/_proposed/outcome-rubric.md (when product-discovery was run first).
 
 Downstream consumers: content/commands/ds-implement-ticket.md Phase 0b (brief_path check);
@@ -15649,7 +15649,7 @@ Full framing review is in scope.
 
 Runs after intent capture, before the gray-area menu.
 
-**MEMORY.md:** in the main session's context (SessionStart hook); if absent or truncated, Read it in full first.
+**MEMORY.md:** in the main session's context (SessionStart hook); for any part not shown, follow the hook's directive (grep the intent keywords, Read bounded windows around hits).
 Scan in-context content for keyword overlap with intent (substring match on
 space-separated keywords from the intent statement).
 
@@ -18782,7 +18782,7 @@ Read:
 - Files mentioned in the ticket description
 - Sibling files to understand existing patterns
 - `$REPO/AGENTS.md` for conventions
-- The project's `MEMORY.md` (delivered to the main session at start; Read it in full if it is not in context) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
+- The project's `MEMORY.md` (delivered to the main session at start; follow the session-start-memory hook's directive for any unshown part, else grep it on demand and Read bounded windows around hits) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
 - Any `[track]/AGENTS.md` files for tracks touched by this ticket - track-specific conventions, stack, and gotchas
 
 Focus on understanding enough to make a solid plan - don't over-read.
@@ -22028,13 +22028,13 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 12. **Root `CLAUDE.md` memory main-only migration** - root `MEMORY.md` reaches only the main session (Claude Code: DinoStack's `session-start-memory` SessionStart hook), never subagents. Write these two lines byte-exact:
     ```
     <!-- dinostack:memory-main-only -->
-    MEMORY.md (durable facts, operator rulings) is not auto-loaded. Main session: a DinoStack SessionStart hook delivers it; if it is absent or truncated, Read all of it before any other tool call, whatever the task. Subagents: grep on demand (`grep -n -i '<topic>' MEMORY.md`); if your worktree lacks it, grep the primary checkout's copy, never Read it (Read is denied there).
+    MEMORY.md (durable facts, operator rulings) is not auto-loaded. Main session: a DinoStack SessionStart hook delivers it whole, or its head plus a directive for the rest - follow that directive; if neither is in context, grep on demand and Read only bounded windows around hits, never the whole file at once. Subagents: grep on demand (`grep -n -i '<topic>' MEMORY.md`); if your worktree lacks it, grep the primary checkout's copy, never Read it (Read is denied there).
     ```
     - **IMPORT** = a line equal, after trimming whitespace, to `@MEMORY.md` or `@./MEMORY.md`, in root `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md`. **MARKER present** = root `CLAUDE.md` has a line equal, after trimming, to the first line above.
     - **Host guard (first):** if `CLAUDECODE=1` and `session-start-memory.py` does not appear in `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json`, plan no change and report "Memory main-only migration skipped: run the DinoStack installer or ds-update, then re-run /ds-init-project." If `CLAUDECODE` is unset, add the report line "Claude Code teammates without the DinoStack installer fall back to the pointer line."
     - **(a) IMPORT present, MARKER absent:** replace the first root `CLAUDE.md` IMPORT line with the two lines (if root `CLAUDE.md` has no IMPORT, append a blank line plus the two lines, creating the file with `@AGENTS.md` first if absent); delete every other IMPORT line in all three files; then run the audience triage below.
-    - **(b) MARKER present, no IMPORT:** no action.
-    - **(c) MARKER and IMPORT present:** delete every IMPORT line in all three files; no triage.
+    - **(b) MARKER present, no IMPORT:** if the line after the MARKER starts with `MEMORY.md (durable facts, operator rulings) is not auto-loaded.` but differs from the second line above (a stale pointer from an earlier template), replace that one line with the second line above; otherwise no action.
+    - **(c) MARKER and IMPORT present:** delete every IMPORT line in all three files and refresh a stale pointer as in (b); no triage.
     - **(d) Neither, root `CLAUDE.md` exists:** append a blank line plus the two lines; no triage.
     - **(e) Neither, no root `CLAUDE.md`:** create it with `@AGENTS.md`, then the two lines; no triage.
     - Preserve every other byte of every file. **Dangling guard:** if root `MEMORY.md` is absent, seed the Step 8 stub; never overwrite an existing `MEMORY.md`.
@@ -22906,7 +22906,7 @@ Before drafting, verify any factual claims the entry will make:
 
 ### Part 3 - Draft the entry
 
-1. Read the current MEMORY.md (create it with just `# Memory\n\n` if it does not exist).
+1. Grep the current MEMORY.md for the decision's key terms (`grep -n -i '<term>' $MEMORY_PATH`) and Read only a window around each hit (offset/limit, at most 100 lines per Read, halving `limit` on a too-large error); never Read it whole (create it with just `# Memory\n\n` if it does not exist).
 2. Assess against what is already there:
    - **Update existing**: decision clarifies or supersedes a prior entry - update that entry in place, adjusting the date (compiled mode: never in place - write a new entry citing the old entry's shard id, see Part 4)
    - **New entry**: decision is not yet captured - draft a new date-stamped bullet
@@ -25625,10 +25625,10 @@ Manual `/ds-wrap` is synchronous: there is no in-session auto-enrichment protoco
    - `cp <dir>/CLAUDE.md <dir>/AGENTS.md` to preserve content.
    - **Root directory:** overwrite `<dir>/CLAUDE.md` with `@AGENTS.md` followed by these two lines byte-exact:
      <!-- dinostack:memory-main-only -->
-     MEMORY.md (durable facts, operator rulings) is not auto-loaded. Main session: a DinoStack SessionStart hook delivers it; if it is absent or truncated, Read all of it before any other tool call, whatever the task. Subagents: grep on demand (`grep -n -i '<topic>' MEMORY.md`); if your worktree lacks it, grep the primary checkout's copy, never Read it (Read is denied there).
+     MEMORY.md (durable facts, operator rulings) is not auto-loaded. Main session: a DinoStack SessionStart hook delivers it whole, or its head plus a directive for the rest - follow that directive; if neither is in context, grep on demand and Read only bounded windows around hits, never the whole file at once. Subagents: grep on demand (`grep -n -i '<topic>' MEMORY.md`); if your worktree lacks it, grep the primary checkout's copy, never Read it (Read is denied there).
      so Claude Code loads the migrated file while `MEMORY.md` reaches only the main session via DinoStack's SessionStart hook. Exception: when `CLAUDECODE=1` and `session-start-memory.py` is absent from `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json`, write `@AGENTS.md` then `@MEMORY.md` instead and add the Watch Out For line `Legacy @MEMORY.md import written: run the DinoStack installer, then /ds-init-project, to make MEMORY.md main-session-only.` Either way, per Atomic write discipline <!-- aw-site: claude-md-root --> (unconditional publish). Apply the dangling-import guard: if root `MEMORY.md` does not exist, seed it with the `/ds-init-project` Step 8 stub before writing the import (consistent with this preflight's existing silent-stub-creation pattern in item 4), per Atomic write discipline <!-- aw-site: memory-md-seed --> (conditional publish - never overwrite an existing `MEMORY.md`).
    - **Track directories:** overwrite `<dir>/CLAUDE.md` with the single line `@AGENTS.md` only - tracks do not have their own `MEMORY.md`, so no `@MEMORY.md` import is added, per Atomic write discipline <!-- aw-site: claude-md-track --> (unconditional publish).
-   - Skip directories where `AGENTS.md` already exists (leave `CLAUDE.md` untouched).
+   - Skip directories where `AGENTS.md` already exists (leave `CLAUDE.md` untouched), with one root exception: if root `CLAUDE.md` has the marker line above and the line after it starts with `MEMORY.md (durable facts, operator rulings) is not auto-loaded.` but differs from the pointer line above (a stale pointer from an earlier template), replace that one line with the pointer line above.
 
 2. **`.claude/` → `.agentic/` session state migration.** If `<cwd>/.claude/context.md` exists and `<cwd>/.agentic/context.md` does not:
    - `mkdir -p <cwd>/.agentic`
@@ -26088,11 +26088,11 @@ After the root write succeeds - and only after, inside the held lock - rewrite `
 
 **Open-PR deferral pass (run BEFORE the read/merge steps below).** For each proposed memory entry (fresh or drained-from-staging), cross-reference the file paths, directory paths, and feature keys cited in the entry against the Open-PR overlap set captured in Step 0. An entry is **post-merge-deferred** if any cited path or key appears in the `modified_files[]` list of any open PR, OR the Worker tagged the entry with `[defer-pr: <pr_number>]`. Strip the marker from the entry text and route the entry to `<cwd>/.agentic/memory-pending.md` (append-only; create the file if missing) under a heading `## Pending PR #<pr_number> (<head_branch>)`, per Atomic write discipline <!-- aw-site: memory-pending --> (unconditional publish - read current content if present, append, write back). Non-deferred entries continue to the steps below. The pending file is plain markdown - a follow-up doc PR after the source PRs merge can move entries from `.agentic/memory-pending.md` into root `MEMORY.md` (in compiled mode, below, into `.agentic/memory-capture-inbox.md` instead). Rationale: docs land on the conductor's branch (typically `main`) before source PRs merge; without deferral, `MEMORY.md` describes paths or keys that do not yet exist on the target branch.
 
-1. Use the Read tool to attempt to read the file at the root `MEMORY.md` path.
+1. Check whether the root `MEMORY.md` exists (`test -f`). Do not Read it whole; step 3 works from grep hits.
 
 2. **If the file does not exist**: write all non-deferred entries directly as a markdown list, per Atomic write discipline <!-- aw-site: memory-md-fresh --> (unconditional publish). Return: "Wrote fresh MEMORY.md to [path] (N entries written, M deferred to memory-pending.md)."
 
-3. **If the file exists**: read its content. For each non-deferred entry, check whether the same fact is already captured - not just as an exact string match, but semantically (same architectural decision, same gotcha, same command). Also check `.agentic/learnings.md` (read at Step 1, per that step's note): if the same fact is captured as a structured learning entry, skip the new memory entry. If an existing entry covers the same fact, skip the new entry. If the new entry supersedes an existing one (same topic but updated or corrected), replace the existing entry in place with the new one - **name every supersession** in the return line by quoting the existing entry's text beside its replacement. Otherwise append the new entry. Write the merged result, per Atomic write discipline <!-- aw-site: memory-md-merge --> (unconditional publish). Return: "Updated MEMORY.md at [path] (N entries added, M entries superseded [superseded-entry-text -> replacement-text, ...], K deferred to memory-pending.md)."
+3. **If the file exists**: for each non-deferred entry, grep `MEMORY.md` for its distinctive terms (paths, commands, identifiers: `grep -n -i '<term>' MEMORY.md`) and Read only a window around each hit (offset/limit, at most 100 lines per Read, halving `limit` on a too-large error), then check whether the same fact is already captured - not just as an exact string match, but semantically (same architectural decision, same gotcha, same command). Also check `.agentic/learnings.md` (read at Step 1, per that step's note): if the same fact is captured as a structured learning entry, skip the new memory entry. If an existing entry covers the same fact, skip the new entry. If the new entry supersedes an existing one (same topic but updated or corrected), replace the existing entry in place with the new one - **name every supersession** in the return line by quoting the existing entry's text beside its replacement. Otherwise append the new entry. Write the merged result (apply the supersessions and appends to a copy of the file, then rename the copy over `MEMORY.md`), per Atomic write discipline <!-- aw-site: memory-md-merge --> (unconditional publish). Return: "Updated MEMORY.md at [path] (N entries added, M entries superseded [superseded-entry-text -> replacement-text, ...], K deferred to memory-pending.md)."
 
 **Compiled mode** (`ds-memory-capture detect` reports `two-tier` or `two-tier-unresolved`, else the `^index:` grep fallback; see `content/references/memory-shard-convention.md` §Two-tier capture) replaces steps 2-3: dedup as in step 3, but never edit `MEMORY.md` and never replace in place. Append each surviving entry as one line of `.agentic/memory-capture-inbox.md`, citing a superseded entry's shard id in its text, then run `ds-memory-capture flush` and carry its `captured:` and `flush:` lines into the return line.
 
@@ -26273,7 +26273,7 @@ Otherwise skip that target silently.
    > **Classification report block.** List, for every entry you acted on: its classification label, the action taken, and the full citation required above (for `STALE_VERIFIED_FALSE`: both the falsity proof and the positive-match grep result or its absence; for `TRUE_DUPLICATE`: the positive-match citation; for `SUPERSEDED_MERGE`: both parts of its two-part citation - the superseding language AND the fact-by-fact mapping). Also report, once, the exact byte size and mtime of the target file you read at spawn time (the "read-time snapshot"): on the async Phase 11b path, the conductor compares this against the file's state at write time before applying your draft; on the synchronous `/ds-wrap` path nothing currently consumes it. Report it unconditionally either way - this field makes no path-specific claim.
    >
    > File content:
-   > [paste full file content]
+   > [paste full file content - this rewrite needs the whole file, so Read it in chunks (offset/limit, at most 100 lines per Read, halving `limit` on a too-large error) until EOF, never in one Read]
 
 2. When the curation Worker returns, spawn a fresh Skeptic (background, general-purpose, never resumed) with this adversarial brief verbatim, followed by the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the target file's path; field 6 is the original file content and the compressed/curated draft plus the Worker's per-entry classification report; field 7 (conductor spawn brief) is `n/a - internal scaffolding artifact (no conductor claim-bearing brief text distinct from the artifact itself)`), then the original file content and the compressed/curated draft:
 
