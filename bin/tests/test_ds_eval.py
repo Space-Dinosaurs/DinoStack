@@ -10,6 +10,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -858,3 +859,20 @@ def test_session_summary_dominant_key_and_include_sessions(tmp_path, monkeypatch
     assert "session_rows" not in plain
     report = ev.evaluate(["/r1"], START, END, use_gh=False, stores=[], rates=RATES, include_sessions=True)
     assert report["session_rows"] == [row]
+
+
+def test_gh_missing_from_path_degrades_instead_of_raising(tmp_path, monkeypatch):
+    git = shutil.which("git")
+    assert git
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "git").symlink_to(git)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for args in (["init", "-q"], ["remote", "add", "origin", "https://github.com/acme/w.git"]):
+        subprocess.run(["git", *args], cwd=repo, check=True)
+    monkeypatch.setattr(ev, "_feedback_items", lambda repo: None)
+    monkeypatch.setenv("PATH", str(bindir))
+    report = ev.evaluate([str(repo)], START, END, base="main", use_gh=True, stores=[], rates=RATES)
+    assert report["meta"]["gh"] == {str(repo): "unavailable: gh pr list failed"}
+    assert report["meta"]["repo_slug"] == {str(repo): "acme/w"}
