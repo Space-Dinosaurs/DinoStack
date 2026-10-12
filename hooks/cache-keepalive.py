@@ -121,7 +121,8 @@ Measurements (Claude Code 2.1.287, haiku 4.5 and opus 5.5 scratch sessions,
     Scenario 11 PASS: `claude --resume` loads a wrapped session (f6).
 
 Upstream deps: Python 3.9+ stdlib; hooks/lib/cache_keepalive.py and
-    hooks/lib/loop_guard.py, loaded lazily with importlib.
+    hooks/lib/loop_guard.py, loaded lazily with importlib; bin/ds-status,
+    loaded from repo_dir by cache_keepalive.is_active.
 
 Downstream consumers: Claude Code hook runner (UserPromptSubmit, matcher
     "*", timeout 5), registered by .claude/install.sh in the guarded
@@ -130,7 +131,8 @@ Downstream consumers: Claude Code hook runner (UserPromptSubmit, matcher
 
 Failure modes: always exits 0 and never writes. Disabled via
     AE_CACHE_KEEPALIVE_DISABLE=1 or `cache_keepalive: false`: no new cron,
-    and a live one deletes itself at its next warm fire.
+    and a live one deletes itself at its next warm fire; if that delete is
+    denied or ignored, later fires in the same idle stretch are blocked.
 
 Performance: a non-ping prompt in a non-conductor session costs one stat;
     otherwise one bounded transcript tail read (TAIL_BYTES), plus a

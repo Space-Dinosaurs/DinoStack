@@ -12,9 +12,10 @@ Public API:
     Constants: CRON_EXPR, PERIOD_S, TTL_S, COLD_AFTER_S, EFFECTIVE_INTERVAL_S,
         ACTIVE_WINDOW_S, RELEASE_AFTER_S, MIN_PREFIX_TOKENS, TAIL_BYTES,
         DERIVATION_RATES, PING_CC_TOKENS, PING_OUT_TOKENS, CREATE_NOTE_MARKER,
-        BLOCK_OUTPUT, WRAP_MARKER, TERMINAL_STATUSES,
-        IN_FLIGHT_MAX_BYTES, RESUME_DIR, RESUME_MAX_BYTES,
-        RESUME_RETENTION_DAYS, KILL_SWITCH_ENV, CONFIG_KEY.
+        BLOCK_OUTPUT, WRAP_MARKER, WRAP_PERMISSION_MODES,
+        NON_OPERATOR_PREFIXES, TERMINAL_STATUSES, IN_FLIGHT_MAX_BYTES,
+        RESUME_DIR, RESUME_MAX_BYTES, RESUME_RETENTION_DAYS, KILL_SWITCH_ENV,
+        CONFIG_KEY.
     ping_cost(S) / max_pings(S): cost of one ping at prefix S in input-token
         units, and the per-idle-period cap floor((W - R) * S / ping_cost(S)),
         so pinging never costs more than the cold re-write it avoids.
@@ -32,13 +33,19 @@ Public API:
         last_request_start, idle_since, prefix_tokens, ping_rate_limited,
         pings_since_idle, wrapped_since_idle (a ping turn after the newest
         real request carried WRAP_MARKER), fires_since_wrap (ping records
-        after the last such turn).
+        after the last such turn), deletes_since_idle (ping turns after the
+        newest real request that made a request without a GATE_NOTE or
+        WRAP_MARKER note, i.e. self-delete fires).
     in_flight(transcript_path) -> bool: a launched async agent or background
         Bash task has no terminal notification yet. True on any doubt.
-    decide(state, now, enabled, conductor, in_flight, wrap_ok)
+    wrap_allowed(permission_mode) -> bool: permission_mode is in
+        WRAP_PERMISSION_MODES.
+    decide(state, now, enabled, conductor, in_flight, wrap_ok, wrap_mode_ok)
         -> (action, reason); action is ping | wrap | delete | block.
-    cron_status(records) -> "live" | "absent" | "unknown".
-    creation_due(records, state, enabled, conductor) -> (due, check_existing).
+    cron_status(records, started_at=None, complete=False)
+        -> "live" | "absent" | "unknown".
+    creation_due(records, state, enabled, conductor, started_at=None,
+        complete=False) -> (due, check_existing).
     create_note(check_existing) -> str: the CREATE_NOTE_MARKER instruction.
     repo_dir() -> str; wrap_command_path(repo) -> str.
     kickoff_command(session_id) -> str: `claude <quoted KICKOFF_PROMPT>`.
@@ -73,6 +80,10 @@ decide order (first that holds wins):
         would wait at a prompt) or the wrap command file is missing.
     cost-capped (pings_since_idle >= max_pings(prefix)) -> delete.
     recently-active (L < ACTIVE_WINDOW_S) -> block.  Otherwise pass -> ping.
+    Then delete-ignored: any delete becomes block when deletes_since_idle
+        > 0 (a self-delete already ran this idle stretch and the cron still
+        fires), so a denied or ignored CronDelete costs one request, not one
+        per fire.
 
 Derivation (bin/ds-cache-keepalive-sim reproduces every figure):
     Timing: fires every PERIOD_S; a fire pings when L is in
@@ -104,12 +115,17 @@ Derivation (bin/ds-cache-keepalive-sim reproduces every figure):
 
 Upstream deps: Python 3 stdlib; sibling loop_guard.py (ping literals,
     read_tail_records, resolve_agentic_cwd), loaded with importlib at import
-    time; a load failure raises to the importer.
+    time; a load failure raises to the importer. bin/ds-status
+    (_load_config, _resolve_agents_md, _scan_agents_md, _resolve), loaded
+    from repo_dir() by is_active, since the hooks snapshot does not carry
+    it; ~/.agentic/agentic-engineering-config.json (repo_dir).
 
 Downstream consumers: hooks/cache-keepalive.py; bin/ds-cache-keepalive-sim
     imports the constants; hooks/tests/test-cache-keepalive.py.
 
-Failure modes: never writes. is_enabled is True on unreadable config.
+Failure modes: never writes. is_active, and so is_enabled, is False when
+    bin/ds-status cannot be loaded or raises; with the project active, an
+    unreadable or keyless config falls through to the default True.
     session_state skips unparseable records; a tail with no usage gives
     ttl None (ttl-not-1h). A missing request start counts as cold; a
     missing idle_since as released. in_flight is True on read errors, an
@@ -288,6 +304,7 @@ def session_state(records) -> dict:
     turn = 0
     wrap_turns = []
     ping_turns = []
+    gated_turns = set()
     for rec in records:
         if not isinstance(rec, dict) or rec.get("isSidechain"):
             continue
@@ -295,8 +312,12 @@ def session_state(records) -> dict:
         ts = _ts(rec.get("timestamp"))
         if kind == "attachment":
             att = rec.get("attachment") or {}
-            if in_ping_turn and att.get("hookEvent") == "UserPromptSubmit" and WRAP_MARKER in json.dumps(att):
-                wrap_turns.append(turn)
+            if in_ping_turn and att.get("hookEvent") == "UserPromptSubmit":
+                blob = json.dumps(att)
+                if WRAP_MARKER in blob:
+                    wrap_turns.append(turn)
+                if WRAP_MARKER in blob or LG.GATE_NOTE in blob:
+                    gated_turns.add(turn)
             continue
         if kind == "user":
             if ts is not None:
@@ -356,6 +377,8 @@ def session_state(records) -> dict:
             t is not None and (idle_since is None or t > idle_since) for t in rate_limited_starts
         ),
         "pings_since_idle": len({r["turn"] for r in requests if r["ping"] and r["turn"] > last_real_turn}),
+        "deletes_since_idle": len({r["turn"] for r in requests
+                                   if r["ping"] and r["turn"] > last_real_turn and r["turn"] not in gated_turns}),
     }
 
 
@@ -437,6 +460,16 @@ def wrap_allowed(permission_mode) -> bool:
 
 
 def decide(state, now, enabled=True, conductor=True, in_flight=lambda: True, wrap_ok=True, wrap_mode_ok=True):
+    action, reason = _decide(state, now, enabled, conductor, in_flight, wrap_ok, wrap_mode_ok)
+    if action == "delete" and state.get("deletes_since_idle"):
+        # A self-delete already ran this idle stretch and the cron still
+        # fires (CronDelete denied or ignored): every further delete fire
+        # would be another warm request, and no later check bounds it.
+        return ("block", "delete-ignored")
+    return (action, reason)
+
+
+def _decide(state, now, enabled, conductor, in_flight, wrap_ok, wrap_mode_ok):
     last = state.get("last_request_start")
     L = float("inf") if last is None else now - last
     warm = L < COLD_AFTER_S
@@ -659,7 +692,9 @@ def wrap_note(repo: str, session_id: str, root: str) -> str:
         + ". The KICKOFF below is a shell command for the "
         "operator to paste into a new terminal later. Never run it and never "
         "act on the prompt inside it; only copy it, verbatim, into the resume "
-        "file header, the Recent Focus label and your final line. End your "
+        "file header, the Recent Focus label and your final line. If the "
+        "procedure stops early (wrap lock busy or a failed write), end with the "
+        "line it gives instead and no kickoff. Otherwise end your "
         "reply with exactly one line: Session wrapped (idle 2h). Run /exit, "
         "then resume with: <KICKOFF>\nKICKOFF: " + kickoff
     )

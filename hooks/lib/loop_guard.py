@@ -467,7 +467,7 @@ GATE_NOTE = "DinoStack keepalive gate passed for this ping."
 WRAP_MARKER = "[dinostack-cache-keepalive:wrap]"
 TAIL_BYTES = 4194304
 _PING_ACK_TOOLS = frozenset(("CronList", "CronDelete"))
-_WRAP_FINAL_PREFIXES = ("Session wrapped", "Session wrap skipped")
+_WRAP_FINAL_PREFIXES = ("Session wrapped", "Session wrap skipped", "Session wrap failed")
 
 
 def read_tail_records(transcript_path: str, max_bytes: int = TAIL_BYTES) -> list:

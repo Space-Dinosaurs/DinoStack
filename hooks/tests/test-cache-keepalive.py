@@ -121,8 +121,13 @@ def warm_idle(ck, idle_s, last_s=None):
     """A real request idle_s ago; optional later ping request last_s ago."""
     recs = [user(NOW - idle_s), asst(NOW - idle_s + 1)]
     if last_s is not None:
-        recs += [ping(NOW - last_s, ck), asst(NOW - last_s + 1)]
+        recs += [ping(NOW - last_s, ck), gate_attachment(NOW - last_s, ck), asst(NOW - last_s + 1)]
     return recs
+
+
+def gate_attachment(t, ck):
+    return {"type": "attachment", "timestamp": iso(t), "attachment": {
+        "type": "hook_additional_context", "hookEvent": "UserPromptSubmit", "content": [ck.LG.GATE_NOTE]}}
 
 
 def write_transcript(records, conductor=True, name=None):
@@ -215,6 +220,26 @@ def t_no_repeat_wrap(h):
     assert d(after) == ("block", "already-wrapped"), d(after)
     back = after + [user(NOW - 600), asst(NOW - 599)]
     assert ck.session_state(back)["wrapped_since_idle"] is False
+
+
+def t_delete_once(h):
+    """A delete fire whose CronDelete was denied or ignored is not repeated in
+    the same idle stretch: later delete decisions block (0 requests)."""
+    ck = load(h)
+    d = lambda recs, **kw: ck.decide(ck.session_state(recs), NOW, **dict(
+        {"enabled": True, "conductor": True, "in_flight": lambda: False, "wrap_ok": True}, **kw))
+    idle = [user(NOW - 4 * 3600), asst(NOW - 4 * 3600 + 1)] + [ping(NOW - 3000, ck), gate_attachment(NOW - 3000, ck),
+                                                               asst(NOW - 2999)]
+    assert ck.session_state(idle)["deletes_since_idle"] == 0
+    assert d(idle, wrap_mode_ok=False) == ("delete", "release-no-wrap-mode")
+    ignored = idle + [ping(NOW - 1800, ck), asst(NOW - 1799)]
+    assert ck.session_state(ignored)["deletes_since_idle"] == 1
+    assert d(ignored, wrap_mode_ok=False) == ("block", "delete-ignored")
+    assert d(ignored, enabled=False) == ("block", "delete-ignored")
+    blocked_after = ignored + blocked_fire(NOW - 600, ck)
+    assert d(blocked_after, wrap_mode_ok=False) == ("block", "delete-ignored")
+    back = ignored + [user(NOW - 1200), asst(NOW - 1199)]
+    assert d(back, enabled=False) == ("delete", "disabled")
 
 
 def t_session_state(h):
@@ -518,7 +543,7 @@ def t_hook_create(h):
     assert _ctx(run_hook(h, "please continue", unknown, home, env=att)) == ck.create_note(True)
 
 
-CASES = [t_constants, t_decide_actions, t_release_wrap, t_no_repeat_wrap, t_session_state, t_blocked_fire_records, t_rate_limit,
+CASES = [t_constants, t_decide_actions, t_release_wrap, t_no_repeat_wrap, t_delete_once, t_session_state, t_blocked_fire_records, t_rate_limit,
          t_is_ping_record, t_cron_status, t_creation_due, t_in_flight, t_is_conductor, t_kickoff, t_rates_parity,
          t_skill_regex, t_hook_ping_actions, t_hook_disabled, t_activation, t_hook_create]
 
@@ -558,6 +583,8 @@ MUTATIONS = [
     ("ignores-activation", "lib/cache_keepalive.py", "    if not is_active(cwd):\n        return False\n", "", t_activation),
     ("repeat-wrap", "lib/cache_keepalive.py", '    if state.get("wrapped_since_idle"):\n',
      '    if False:\n', t_no_repeat_wrap),
+    ("repeat-delete", "lib/cache_keepalive.py", '    if action == "delete" and state.get("deletes_since_idle"):\n',
+     '    if False:\n', t_delete_once),
     ("no-cost-cap", "lib/cache_keepalive.py", 'return ("delete", "cost-capped")', 'pass', t_release_wrap),
     ("ping-prompt-says-hook", "lib/loop_guard.py", "If a DinoStack note in THIS turn", "If a hook note in THIS turn",
      t_skill_regex),

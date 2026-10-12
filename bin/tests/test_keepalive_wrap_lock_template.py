@@ -1,8 +1,10 @@
 """Executes the call-B template from content/commands/ds-wrap-deferred.md
 (In-session mode) against the real wrap-lock binaries, under bash and zsh,
 and asserts the lock is released on every path the shell can observe: a
-clean run, a failed write, an exit inside the braces, and SIGTERM. A busy
-lock is reported and left with its owner."""
+clean run, a failed write, an exit inside the write block, and SIGTERM. A
+failed write exits non-zero without "wrap files written"; a project with no
+.agentic/resume yet gets its resume file. A busy lock is reported and left
+with its owner."""
 
 import os
 import re
@@ -49,15 +51,12 @@ def _project(tmp_path):
     return root
 
 
+def _run(shell, root, body):
+    return subprocess.run([_shell(shell), "-c", _script(root, body)], capture_output=True, text=True, timeout=60)
+
+
 def _lock(root):
     return root / ".agentic" / "wrap" / "lock"
-
-
-def _released_msg(root, out):
-    """zsh runs the EXIT trap while the brace group's redirect is still in
-    force, so the trap's line lands in the log rather than on stdout."""
-    log = root / ".agentic" / "wrap" / ".wrap-b.log"
-    return "wrap lock released" in out or (log.exists() and "wrap lock released" in log.read_text())
 
 
 @pytest.mark.parametrize("shell", SHELLS)
@@ -65,19 +64,45 @@ def test_clean_run_writes_and_releases(tmp_path, shell):
     root = _project(tmp_path)
     body = ("cat > .agentic/.wrap.tmp <<'DSW_3fa9c07e12bd_1'\n# Session Context\nline with DSW_ and $HOME and `x`\n"
             "DSW_3fa9c07e12bd_1\nmv .agentic/.wrap.tmp .agentic/_wrap.md")
-    r = subprocess.run([_shell(shell), "-c", _script(root, body)], capture_output=True, text=True, timeout=60)
-    assert "wrap files written: 0" in r.stdout and "wrap lock released" in r.stdout, r.stdout + r.stderr
+    r = _run(shell, root, body)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "wrap files written" in r.stdout and "wrap lock released" in r.stdout, r.stdout + r.stderr
     assert (root / ".agentic" / "_wrap.md").read_text() == "# Session Context\nline with DSW_ and $HOME and `x`\n"
     assert not _lock(root).exists()
     assert len([l for l in r.stdout.splitlines() if l.strip()]) <= 5
 
 
 @pytest.mark.parametrize("shell", SHELLS)
-@pytest.mark.parametrize("body", ["cat > .agentic/no/such/dir/file <<'DSW_a_1'\nx\nDSW_a_1", "exit 3"])
-def test_failure_inside_braces_releases(tmp_path, shell, body):
+@pytest.mark.parametrize("body", ["cat > .agentic/no/such/dir/file <<'DSW_a_1'\nx\nDSW_a_1\ntouch .agentic/after",
+                                  "mv .agentic/missing.tmp .agentic/_wrap.md\ntouch .agentic/after", "exit 3"])
+def test_failure_fails_loudly_and_releases(tmp_path, shell, body):
     root = _project(tmp_path)
-    r = subprocess.run([_shell(shell), "-c", _script(root, body)], capture_output=True, text=True, timeout=60)
-    assert _released_msg(root, r.stdout), r.stdout + r.stderr
+    r = _run(shell, root, body)
+    assert r.returncode != 0 and "WRAP FAILED" in r.stdout, r.stdout + r.stderr
+    assert "wrap files written" not in r.stdout, r.stdout
+    assert not (root / ".agentic" / "after").exists(), "writes must stop at the first failure"
+    assert "wrap lock released" in r.stdout, r.stdout + r.stderr
+    assert not _lock(root).exists()
+
+
+FRESH_BODY = """cat > .agentic/resume/.{sid}.tmp <<'DSW_3fa9c07e12bd_5'
+# Resume: {sid}
+## Next step
+Continue.
+DSW_3fa9c07e12bd_5
+mv .agentic/resume/.{sid}.tmp .agentic/resume/{sid}.md
+find .agentic/resume -type f -mtime +14 -delete""".format(sid=SID)
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_fresh_project_gets_resume_file(tmp_path, shell):
+    """Steps 5-6 as documented, in a project that has never been wrapped:
+    nothing has created .agentic/resume or .agentic/wrap yet."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    r = _run(shell, root, FRESH_BODY)
+    assert r.returncode == 0 and "wrap files written" in r.stdout, r.stdout + r.stderr
+    assert (root / ".agentic" / "resume" / (SID + ".md")).read_text().startswith("# Resume: " + SID)
     assert not _lock(root).exists()
 
 
@@ -93,7 +118,7 @@ def test_sigterm_releases(tmp_path, shell):
     assert _lock(root).exists(), "lock was never acquired"
     os.killpg(p.pid, signal.SIGTERM)
     out, err = p.communicate(timeout=30)
-    assert _released_msg(root, out), out + err
+    assert "wrap lock released" in out, out + err
     assert not _lock(root).exists()
 
 
@@ -103,8 +128,7 @@ def test_busy_lock_reported_and_left_alone(tmp_path, shell):
     held = subprocess.run(["node", str(REPO / "bin" / "ds-wrap-acquire-lock"), str(root), "--no-wait", "--role=agent",
                            "--print-token"], capture_output=True, text=True, timeout=30)
     assert held.returncode == 0, held.stdout + held.stderr
-    r = subprocess.run([_shell(shell), "-c", _script(root, "touch .agentic/should-not-exist")], capture_output=True,
-                       text=True, timeout=60)
+    r = _run(shell, root, "touch .agentic/should-not-exist")
     assert r.returncode == 0 and "wrap lock not acquired" in r.stdout, r.stdout + r.stderr
     assert not (root / ".agentic" / "should-not-exist").exists()
     assert _lock(root).exists(), "a busy lock must stay with its owner"

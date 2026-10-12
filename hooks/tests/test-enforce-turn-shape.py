@@ -4316,6 +4316,9 @@ check("ka7. wrap turn (WRAP_MARKER note, any tools, final 'Session wrapped') -> 
                          _ka_tool("Write", "t8"), _ka_result("t8")], "Done.\n" + _ka_wrap_line))
 check("ka8. 'Session wrap skipped' on a wrap turn -> exempt",
       _ka_exempt("ka8", [_ka_ping(), _ka_wrap_attachment()], "Session wrap skipped (wrap lock busy)"))
+check("ka8b. 'Session wrap failed' on a wrap turn -> exempt",
+      _ka_exempt("ka8b", [_ka_ping(), _ka_wrap_attachment()],
+                 "Session wrap failed: see /proj/.agentic/wrap/.wrap-b.log"))
 check("ka9. a non-wrap turn ending 'Session wrapped' -> full enforcement",
       _ka_enforced("ka9", [_ka_ping(), _ka_tool("Bash", "t9"), _ka_result("t9")], _ka_wrap_line))
 check("ka10. wrap turn replying 'ok' -> full enforcement",
