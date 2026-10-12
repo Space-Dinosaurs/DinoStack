@@ -9,24 +9,51 @@ Purpose: Shared read-only reader over Claude Code session transcripts across
          Retire this module when the harness ships a cost export that
          covers all profiles (per-session cost and per-agent usage); the
          transcript shapes it parses are undocumented harness internals.
-         Intentionally unwired when added: later units of the ds-eval
-         telemetry program (bin/_eval.py / ds-eval, ds-cost, ds-change-delta,
-         ds-skill-load-rate) are its consumers.
+         Further consumers in the ds-eval telemetry program (bin/_eval.py /
+         ds-eval, ds-cost, ds-change-delta) are added by later units.
 
 Public API:
-    stores(extra=None) -> list[Path]
+    stores(extra=None, include_default=True) -> list[Path]
         Realpath-deduped union of existing `~/.claude*/projects` dirs, the
         `projects` dir under each dir named by `_lib.CONFIG_DIR_ENV`, and each
         `extra` path (a config dir with a `projects` child, or a projects dir).
+        include_default=False keeps only the `extra` paths (a `--store` flag
+        that replaces the default set).
+    resolve_stores(requested=None) -> StoreSet
+        stores(requested, include_default=not requested), split into
+        `readable`, `unreadable` ((path, reason) for a store that exists but
+        cannot be listed or traversed - never to be reported as an empty
+        store) and `missing` ((path, reason) for each requested path that
+        does not exist or is not a directory).
+        problem_entries(count_key="sessions") renders the last two as
+        {path, status "unreadable"|"missing"|"invalid", <count_key> None,
+        reason, unreadable_dirs None, unreadable_dir_paths []}.
+    listdir_checked(path) -> (names, reason)
+        Sorted names, or ([], reason) when the directory does not exist, is
+        not a directory, or cannot be listed or traversed (checked in that
+        order). jsonl_files(dir) -> (paths, reason) filters it to `*.jsonl`.
+    store_entry(store, count, unreadable_dirs, count_key="sessions") -> dict
+        A scanned store's report: status "scanned", or "partial" when any
+        subdirectory could not be read (`unreadable_dirs` N plus
+        `unreadable_dir_paths`); a partial count is a floor, and a partial
+        store that counted nothing reports None. store_line(entry, ...)
+        renders any entry as one text line: the count, ">= N ... (partial:
+        ..., count is a floor)", or "ABSENT (<status>: <reason>)".
     project_dir_prefix(repo) -> str
         Claude Code's project-dir name for an absolute path: every
         non-alphanumeric character becomes "-" (`/Users/x/r` -> `-Users-x-r`,
-        `/r/.agentic` -> `-r--agentic`).
+        `/r/.agentic` -> `-r--agentic`). Older Claude Code replaced only "/"
+        (`-r-.agentic`); project-dir matching accepts both prefixes.
+    project_dirs_checked(repo, store) -> (dirs, unreadable)
+        Within one store: dirs whose name starts with either prefix for the
+        repo and that hold at least one session whose first recorded `cwd`
+        is the repo or under it (rejects `/Users/x/r2` for repo
+        `/Users/x/r`), plus (dir, reason) for each prefix-matching dir that
+        cannot be read, so it can never be confirmed or rejected. The repo
+        is matched both as given and as its realpath (`/tmp/x` is
+        `/private/tmp/x` on macOS).
     project_dirs(repo, stores) -> list[Path]
-        Dirs whose name starts with project_dir_prefix(repo) and holding at
-        least one session whose first recorded `cwd` is the repo or under it
-        (rejects `/Users/x/r2` for repo `/Users/x/r`). The repo is matched both
-        as given and as its realpath (`/tmp/x` is `/private/tmp/x` on macOS).
+        project_dirs_checked's readable dirs across stores.
     sessions(repo, start, end, stores) -> list[Session]
         Sessions whose own first `cwd` is the repo or under it (checked per
         session file: `/x/r-foo` and `/x/r/foo` share one dir name; a session
@@ -76,7 +103,9 @@ Upstream deps: Python 3 stdlib; bin/_lib.py (CONFIG_DIR_ENV), loaded by
     subagents at <store>/<project-dir>/<session>/subagents/agent-<id>.jsonl
     plus agent-<id>.meta.json (agentType, description, toolUseId).
 
-Downstream consumers: none yet (see Purpose); bin/tests/test_transcripts.py.
+Downstream consumers: bin/ds-skill-load-rate, bin/ds-learnings-retrieval-rate,
+    bin/ds-measure-conductor-tool-calls (store set and repo-to-dir mapping);
+    bin/tests/test_transcripts.py.
 
 Failure modes: never raises on a missing store, an unreadable file, a
     malformed line or a missing or wrongly-typed field - such a record is
@@ -226,12 +255,14 @@ def _loads(line: str) -> Optional[dict]:
     return rec if isinstance(rec, dict) else None
 
 
-def stores(extra: Optional[Iterable] = None) -> List[Path]:
-    candidates: List[Path] = [Path(p) for p in sorted(glob.glob(os.path.expanduser("~/.claude*/projects")))]
-    for var in _lib.CONFIG_DIR_ENV:
-        raw = os.environ.get(var, "").strip()
-        if raw:
-            candidates.append(Path(os.path.abspath(os.path.expanduser(raw))) / "projects")
+def stores(extra: Optional[Iterable] = None, include_default: bool = True) -> List[Path]:
+    candidates: List[Path] = []
+    if include_default:
+        candidates.extend(Path(p) for p in sorted(glob.glob(os.path.expanduser("~/.claude*/projects"))))
+        for var in _lib.CONFIG_DIR_ENV:
+            raw = os.environ.get(var, "").strip()
+            if raw:
+                candidates.append(Path(os.path.abspath(os.path.expanduser(raw))) / "projects")
     for p in extra or ():
         p = Path(os.path.abspath(os.path.expanduser(str(p))))
         candidates.append(p / "projects" if (p / "projects").is_dir() else p)
@@ -245,6 +276,93 @@ def stores(extra: Optional[Iterable] = None) -> List[Path]:
             seen.add(real)
             out.append(Path(real))
     return out
+
+
+Unreadable = List[Tuple[Path, str]]
+
+
+def listdir_checked(path) -> Tuple[List[str], Optional[str]]:
+    """(sorted names, None) for a directory that can be listed and
+    traversed, else ([], reason). Existence is decided before permission."""
+    try:
+        names = os.listdir(path)
+    except FileNotFoundError:
+        return [], "does not exist"
+    except NotADirectoryError:
+        return [], "not a directory"
+    except OSError as exc:
+        return [], (exc.strerror or type(exc).__name__).lower()
+    if not os.access(path, os.X_OK):
+        return [], "permission denied"
+    return sorted(names), None
+
+
+def jsonl_files(directory: Path) -> Tuple[List[Path], Optional[str]]:
+    names, reason = listdir_checked(directory)
+    return [Path(directory) / n for n in names if n.endswith(".jsonl") and not n.startswith(".")], reason
+
+
+def _empty_problem(path: str, status: str, reason: str, count_key: str) -> dict:
+    return {"path": path, "status": status, count_key: None, "reason": reason,
+            "unreadable_dirs": None, "unreadable_dir_paths": []}
+
+
+@dataclass
+class StoreSet:
+    readable: List[Path]
+    unreadable: Unreadable
+    missing: List[Tuple[str, str]]
+
+    def problem_entries(self, count_key: str = "sessions") -> List[dict]:
+        return ([_empty_problem(str(p), "unreadable", r, count_key) for p, r in self.unreadable]
+                + [_empty_problem(p, "missing" if r == "does not exist" else "invalid", r, count_key)
+                   for p, r in self.missing])
+
+
+def resolve_stores(requested: Optional[Iterable] = None) -> StoreSet:
+    requested = list(requested or ())
+    readable: List[Path] = []
+    unreadable: Unreadable = []
+    for store in stores(requested, include_default=not requested):
+        reason = listdir_checked(store)[1]
+        if reason is None:
+            readable.append(store)
+        else:
+            unreadable.append((store, reason))
+    missing = []
+    for p in requested:
+        full = Path(os.path.abspath(os.path.expanduser(str(p))))
+        if not full.is_dir():
+            missing.append((str(p), "not a directory" if full.exists() else "does not exist"))
+    return StoreSet(readable, unreadable, missing)
+
+
+def store_entry(store: Path, count: int, unreadable_dirs: Unreadable,
+                count_key: str = "sessions") -> dict:
+    """A scanned store's report. With any unreadable subdirectory it is
+    `partial` and its count is a floor; a partial store that counted
+    nothing reports None (ABSENT), never 0."""
+    partial = bool(unreadable_dirs)
+    return {
+        "path": str(store),
+        "status": "partial" if partial else "scanned",
+        count_key: None if partial and count == 0 else count,
+        "reason": None,
+        "unreadable_dirs": len(unreadable_dirs),
+        "unreadable_dir_paths": [{"path": str(p), "reason": r} for p, r in unreadable_dirs],
+    }
+
+
+def store_line(entry: dict, count_key: str = "sessions", unit: str = "sessions") -> str:
+    path, count = entry["path"], entry[count_key]
+    if entry["status"] == "scanned":
+        return f"  {path}: {count} {unit}"
+    if entry["status"] == "partial":
+        note = f"partial: {entry['unreadable_dirs']} unreadable dirs"
+        if count is None:
+            return f"  {path}: ABSENT ({note})"
+        return f"  {path}: >= {count} {unit} ({note}, count is a floor)"
+    return f"  {path}: ABSENT ({entry['status']}: {entry['reason']})"
 
 
 def project_dir_prefix(repo) -> str:
@@ -286,8 +404,12 @@ def _session_in_repo(main: Path, repos: List[str]) -> bool:
     return bool(cwd) and _under(cwd, repos)
 
 
+def _legacy_prefix(repo: str) -> str:
+    return os.path.abspath(repo).replace("/", "-")
+
+
 def _candidate_dirs(repos: List[str], stores: Iterable[Path]) -> List[Path]:
-    prefixes = tuple(project_dir_prefix(r) for r in repos)
+    prefixes = tuple(dict.fromkeys(p for r in repos for p in (project_dir_prefix(r), _legacy_prefix(r))))
     out: List[Path] = []
     for store in stores:
         try:
@@ -298,10 +420,21 @@ def _candidate_dirs(repos: List[str], stores: Iterable[Path]) -> List[Path]:
     return out
 
 
-def project_dirs(repo, stores: Iterable[Path]) -> List[Path]:
+def project_dirs_checked(repo, store: Path) -> Tuple[List[Path], Unreadable]:
     repos = _repo_forms(repo)
-    return [d for d in _candidate_dirs(repos, stores)
-            if any(_session_in_repo(f, repos) for f in sorted(d.glob("*.jsonl")))]
+    readable: List[Path] = []
+    unreadable: Unreadable = []
+    for d in _candidate_dirs(repos, [store]):
+        mains, reason = jsonl_files(d)
+        if reason is not None:
+            unreadable.append((d, reason))
+        elif any(_session_in_repo(f, repos) for f in mains):
+            readable.append(d)
+    return readable, unreadable
+
+
+def project_dirs(repo, stores: Iterable[Path]) -> List[Path]:
+    return [d for store in stores for d in project_dirs_checked(repo, store)[0]]
 
 
 def _strip_wrappers(words: List[str]) -> List[str]:

@@ -3,8 +3,9 @@
 Regression spec for bin/ds-skill-load-rate (DS-227).
 
 Fixtures are synthetic transcript stores built in a tmpdir with
-CLAUDE_CONFIG_DIR pointed at them. The operator's real transcripts are
-never read by a test. For every assertion, a mutation that would redden it
+CLAUDE_CONFIG_DIR pointed at them and HOME pointed at an empty scratch dir,
+so the default every-store scan finds only the fixture store. The
+operator's real transcripts are never read by a test. For every assertion, a mutation that would redden it
 is named in the docstring or an inline comment, per the ticket's AC5.
 """
 
@@ -99,6 +100,11 @@ def plain_record(ts="2026-09-01T00:00:00.000Z"):
     return {"type": "user", "message": {"role": "user", "content": "hello"}, "timestamp": ts}
 
 
+def cwd_record(cwd, ts="2026-09-01T00:00:00.000Z"):
+    return {"type": "user", "cwd": str(cwd), "message": {"role": "user", "content": "hi"},
+            "timestamp": ts}
+
+
 def list_shaped_user_record_with_slash_text(ts="2026-09-01T00:00:00.000Z"):
     """A type:"user" record whose message.content is LIST-shaped (a
     tool_result payload) but happens to contain the slash-marker text
@@ -159,7 +165,7 @@ def write_transcript(store: Path, project_dir_name: str, session_id: str, record
     project_dir = store / "projects" / project_dir_name
     project_dir.mkdir(parents=True, exist_ok=True)
     path = project_dir / f"{session_id}.jsonl"
-    lines = [json.dumps(r) for r in records]
+    lines = [json.dumps(r, separators=(",", ":")) for r in records]
     path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
     return path
 
@@ -173,10 +179,30 @@ def write_transcript(store: Path, project_dir_name: str, session_id: str, record
 PROJECT = "-Users-tyson-fixture-repo"
 
 
-def _run_cli(store: Path, extra_args=None, executable: Path = CLI_PATH, cwd: Path = None):
+_EMPTY_HOME = None
+
+
+def setUpModule():
+    global _EMPTY_HOME
+    _EMPTY_HOME = tempfile.TemporaryDirectory(prefix="slr-home-")
+
+
+def tearDownModule():
+    _EMPTY_HOME.cleanup()
+
+
+def _env(store=None, home=None) -> dict:
     env = dict(os.environ)
-    env["CLAUDE_CONFIG_DIR"] = str(store)
-    env.pop("AGENTIC_CONFIG_DIR", None)
+    for var in slr._transcripts._lib.CONFIG_DIR_ENV:
+        env.pop(var, None)
+    env["HOME"] = str(home or _EMPTY_HOME.name)
+    if store is not None:
+        env["CLAUDE_CONFIG_DIR"] = str(store)
+    return env
+
+
+def _run_cli(store: Path, extra_args=None, executable: Path = CLI_PATH, cwd: Path = None, env=None):
+    env = env or _env(store)
     argv = [sys.executable, str(executable), "--json"]
     if extra_args:
         argv.extend(extra_args)
@@ -184,8 +210,9 @@ def _run_cli(store: Path, extra_args=None, executable: Path = CLI_PATH, cwd: Pat
     return result
 
 
-def _collect_json(store: Path, extra_args=None, executable: Path = CLI_PATH, cwd: Path = None) -> dict:
-    result = _run_cli(store, extra_args, executable=executable, cwd=cwd)
+def _collect_json(store: Path, extra_args=None, executable: Path = CLI_PATH, cwd: Path = None,
+                  env=None) -> dict:
+    result = _run_cli(store, extra_args, executable=executable, cwd=cwd, env=env)
     assert result.returncode == 0, result.stderr
     assert not result.stderr, result.stderr
     return json.loads(result.stdout)
@@ -394,19 +421,6 @@ class TestClassifyTranscript(unittest.TestCase):
 
 
 class TestScopeResolution(unittest.TestCase):
-    def test_project_dir_name_for_replaces_slash_only(self):
-        # Mutation: change the transform to also replace "." and this
-        # reddens against the real corpus naming (dot-bearing project dirs
-        # like -Users-tyson-.claude-commands exist and must not shift).
-        self.assertEqual(
-            slr.project_dir_name_for("/Users/tyson/Documents/Development/ai-tools/DinoStack"),
-            "-Users-tyson-Documents-Development-ai-tools-DinoStack",
-        )
-        self.assertEqual(
-            slr.project_dir_name_for("/Users/tyson/.claude/commands"),
-            "-Users-tyson-.claude-commands",
-        )
-
     def test_explicit_repo_path_scope_is_repo_path_mode(self):
         """Named (round 2) to match what it actually exercises: an
         EXPLICIT --repo-path flag, not the no-flag default. See
@@ -414,15 +428,10 @@ class TestScopeResolution(unittest.TestCase):
         actual default-scope (no scope flag at all) coverage."""
         with tempfile.TemporaryDirectory() as tmp:
             store = Path(tmp) / "config"
-            write_transcript(store, PROJECT, "s1", [model_load_record()])
             repo_like = Path(tmp) / "fixture-repo"
             repo_like.mkdir()
-            # Rename the project dir to match what this repo_like path would
-            # derive to, so the cwd-default path actually finds it.
-            derived = slr.project_dir_name_for(str(repo_like))
-            (store / "projects" / derived).mkdir(parents=True, exist_ok=True)
-            for f in (store / "projects" / PROJECT).glob("*.jsonl"):
-                (store / "projects" / derived / f.name).write_text(f.read_text())
+            derived = slr._transcripts.project_dir_prefix(str(repo_like))
+            write_transcript(store, derived, "s1", [cwd_record(repo_like), model_load_record()])
 
             payload = _collect_json(store, extra_args=["--repo-path", str(repo_like)])
             self.assertEqual(payload["scope"]["mode"], "repo-path")
@@ -451,8 +460,8 @@ class TestScopeResolution(unittest.TestCase):
                 [sys.executable, "-c", "import os; print(os.getcwd())"],
                 capture_output=True, text=True, cwd=str(repo_like),
             ).stdout.strip()
-            derived = slr.project_dir_name_for(actual_cwd)
-            write_transcript(store, derived, "s1", [model_load_record()])
+            derived = slr._transcripts.project_dir_prefix(actual_cwd)
+            write_transcript(store, derived, "s1", [cwd_record(actual_cwd), model_load_record()])
 
             payload = _collect_json(store, extra_args=[], cwd=repo_like)
             self.assertEqual(payload["scope"]["mode"], "cwd-default")
@@ -677,8 +686,7 @@ class TestHonestReporting(unittest.TestCase):
         # from "measured zero".
         with tempfile.TemporaryDirectory() as tmp:
             argv = [sys.executable, str(CLI_PATH), "--project-dir", "nope"]
-            env = dict(os.environ)
-            env["CLAUDE_CONFIG_DIR"] = str(tmp)
+            env = _env(tmp)
             out = subprocess.run(argv, capture_output=True, text=True, env=env).stdout
             self.assertIn("ABSENT", out)
             self.assertNotIn("0.0%", out)
@@ -711,8 +719,7 @@ class TestHonestReporting(unittest.TestCase):
             self.assertIsNone(payload["unprompted_load_rate"])
 
             argv = [sys.executable, str(CLI_PATH), "--project-dir", PROJECT]
-            env = dict(os.environ)
-            env["CLAUDE_CONFIG_DIR"] = str(store)
+            env = _env(store)
             out = subprocess.run(argv, capture_output=True, text=True, env=env).stdout
             self.assertIn("sessions with a readable transcript: ABSENT", out)
             self.assertIn("(0/ABSENT readable sessions in scope)", out)
@@ -757,8 +764,7 @@ class TestHonestReporting(unittest.TestCase):
             store = Path(tmp)
             write_transcript(store, PROJECT, "s1", [model_load_record()])
             argv = [sys.executable, str(CLI_PATH), "--project-dir", PROJECT]
-            env = dict(os.environ)
-            env["CLAUDE_CONFIG_DIR"] = str(store)
+            env = _env(store)
             out = subprocess.run(argv, capture_output=True, text=True, env=env).stdout
             self.assertIn("scope mode:", out)
             self.assertIn("project directories scanned", out)
@@ -771,11 +777,159 @@ class TestHonestReporting(unittest.TestCase):
             write_transcript(store, PROJECT, "s2", [slash_record()])
             payload = _collect_json(store, extra_args=["--project-dir", PROJECT])
             argv = [sys.executable, str(CLI_PATH), "--project-dir", PROJECT]
-            env = dict(os.environ)
-            env["CLAUDE_CONFIG_DIR"] = str(store)
+            env = _env(store)
             out = subprocess.run(argv, capture_output=True, text=True, env=env).stdout
             self.assertIn(f"{slr.format_rate(slr.unprompted_rate(payload))}", out)
             self.assertIn("(1/2 readable sessions in scope)", out)
+
+
+# ---------------------------------------------------------------------------
+# Every store, not only the active config dir
+# ---------------------------------------------------------------------------
+
+
+class TestStores(unittest.TestCase):
+    """Two stores under a fake HOME (`.claude` and `.claude-other`): the
+    default run reads both, not only the active config dir."""
+
+    def _two_stores(self, tmp: Path):
+        home = tmp / "home"
+        a = home / ".claude"
+        b = home / ".claude-other"
+        repo = tmp / "repo"
+        repo.mkdir()
+        name = slr._transcripts.project_dir_prefix(str(repo))
+        write_transcript(a, name, "s1", [cwd_record(repo), model_load_record()])
+        write_transcript(b, name, "s2", [cwd_record(repo), slash_record()])
+        return home, a, b, repo
+
+    def test_default_scans_every_store_under_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, a, b, repo = self._two_stores(Path(tmp))
+            payload = _collect_json(None, ["--repo-path", str(repo)], env=_env(home=home))
+            self.assertEqual(payload["sessions_scanned"], 2)
+            self.assertEqual(payload["sessions_model"], 1)
+            self.assertEqual(payload["sessions_operator"], 1)
+            got = {s["path"]: s["sessions"] for s in payload["stores"]}
+            self.assertEqual(got, {os.path.realpath(a / "projects"): 1,
+                                   os.path.realpath(b / "projects"): 1})
+
+    def test_store_flag_replaces_the_default_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, a, b, repo = self._two_stores(Path(tmp))
+            payload = _collect_json(None, ["--repo-path", str(repo), "--store", str(b)],
+                                    env=_env(home=home))
+            self.assertEqual(payload["sessions_scanned"], 1)
+            self.assertEqual(payload["sessions_operator"], 1)
+            self.assertEqual([s["path"] for s in payload["stores"]],
+                             [os.path.realpath(b / "projects")])
+
+    def test_store_without_a_matching_dir_is_listed_with_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, a, b, repo = self._two_stores(Path(tmp))
+            (home / ".claude-empty" / "projects").mkdir(parents=True)
+            payload = _collect_json(None, ["--repo-path", str(repo)], env=_env(home=home))
+            got = {s["path"]: s["sessions"] for s in payload["stores"]}
+            self.assertEqual(got[os.path.realpath(home / ".claude-empty" / "projects")], 0)
+            self.assertEqual(payload["sessions_scanned"], 2)
+
+    @unittest.skipIf(os.geteuid() == 0, "root can list a mode-000 directory")
+    def test_unreadable_store_is_absent_not_a_scanned_zero(self):
+        for scope in (["--repo-path"], ["--all-projects"]):
+            with self.subTest(scope=scope[0]), tempfile.TemporaryDirectory() as tmp:
+                home, a, b, repo = self._two_stores(Path(tmp))
+                bad = home / ".claude-bad" / "projects"
+                bad.mkdir(parents=True)
+                bad_real = os.path.realpath(bad)
+                args = scope + ([str(repo)] if scope == ["--repo-path"] else [])
+                env = _env(home=home)
+                bad.chmod(0)
+                try:
+                    payload = _collect_json(None, args, env=env)
+                    out = subprocess.run([sys.executable, str(CLI_PATH), *args],
+                                         capture_output=True, text=True, env=env).stdout
+                finally:
+                    bad.chmod(0o755)
+                entry = {s["path"]: s for s in payload["stores"]}[bad_real]
+                self.assertEqual(entry["status"], "unreadable")
+                self.assertIsNone(entry["sessions"])
+                self.assertEqual(payload["sessions_scanned"], 2)
+                self.assertIn(f"{bad_real}: ABSENT (unreadable:", out)
+                self.assertNotIn(f"{bad_real}: 0 sessions", out)
+
+    @unittest.skipIf(os.geteuid() == 0, "root can list a mode-000 directory")
+    def test_unreadable_project_dir_makes_the_store_partial_not_zero(self):
+        for with_readable_worktree in (False, True):
+            with self.subTest(with_readable_worktree=with_readable_worktree), \
+                    tempfile.TemporaryDirectory() as tmp:
+                home, a, b, repo = self._two_stores(Path(tmp))
+                name = slr._transcripts.project_dir_prefix(str(repo))
+                if with_readable_worktree:
+                    wt = repo / ".claude" / "worktrees" / "w"
+                    write_transcript(b, slr._transcripts.project_dir_prefix(str(wt)), "s3",
+                                     [cwd_record(wt), model_load_record()])
+                bad = b / "projects" / name
+                bad_store = os.path.realpath(b / "projects")
+                args = ["--repo-path", str(repo)]
+                env = _env(home=home)
+                bad.chmod(0)
+                try:
+                    payload = _collect_json(None, args, env=env)
+                    out = subprocess.run([sys.executable, str(CLI_PATH), *args],
+                                         capture_output=True, text=True, env=env).stdout
+                finally:
+                    bad.chmod(0o755)
+                entry = {s["path"]: s for s in payload["stores"]}[bad_store]
+                self.assertEqual((entry["status"], entry["unreadable_dirs"]), ("partial", 1))
+                self.assertNotIn(f"{bad_store}: 0 sessions", out)
+                if with_readable_worktree:
+                    self.assertEqual(entry["sessions"], 1)
+                    self.assertIn(f"{bad_store}: >= 1 sessions (partial: 1 unreadable dirs, "
+                                  "count is a floor)", out)
+                else:
+                    self.assertIsNone(entry["sessions"])
+                    self.assertIn(f"{bad_store}: ABSENT (partial: 1 unreadable dirs)", out)
+
+    def test_missing_store_path_is_named(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, a, b, repo = self._two_stores(Path(tmp))
+            missing = str(Path(tmp) / "no-such-store")
+            args = ["--repo-path", str(repo), "--store", str(b), "--store", missing]
+            env = _env(home=home)
+            payload = _collect_json(None, args, env=env)
+            entry = {s["path"]: s for s in payload["stores"]}[missing]
+            self.assertEqual((entry["status"], entry["sessions"]), ("missing", None))
+            self.assertEqual(payload["sessions_scanned"], 1)
+            out = subprocess.run([sys.executable, str(CLI_PATH), *args],
+                                 capture_output=True, text=True, env=env).stdout
+            self.assertIn(f"{missing}: ABSENT (missing:", out)
+
+    def test_project_dirs_are_listed_under_their_store(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, a, b, repo = self._two_stores(Path(tmp))
+            out = subprocess.run([sys.executable, str(CLI_PATH), "--repo-path", str(repo)],
+                                 capture_output=True, text=True, env=_env(home=home)).stdout
+            name = slr._transcripts.project_dir_prefix(str(repo))
+            for store in (a, b):
+                self.assertIn(f"    {os.path.realpath(store / 'projects')}: {name}", out)
+
+    def test_no_store_yields_a_session_is_absent_not_zero(self):
+        """When no store yields a session the rate is reported absent, not
+        as a measured zero."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            for name in (".claude", ".claude-other"):
+                (home / name / "projects").mkdir(parents=True)
+            env = _env(home=home)
+            payload = _collect_json(None, ["--repo-path", str(Path(tmp))], env=env)
+            self.assertEqual(payload["error"], "no_transcripts")
+            self.assertIsNone(payload["unprompted_load_rate"])
+            self.assertEqual([s["sessions"] for s in payload["stores"]], [0, 0])
+            out = subprocess.run([sys.executable, str(CLI_PATH), "--repo-path", str(Path(tmp))],
+                                 capture_output=True, text=True, env=env).stdout
+            self.assertIn("stores scanned (2):", out)
+            self.assertIn("unprompted_load_rate: ABSENT", out)
+            self.assertNotIn("0.0%", out)
 
 
 # ---------------------------------------------------------------------------

@@ -4,9 +4,10 @@ Tests for bin/ds-measure-conductor-tool-calls: the calibration tool for
 hooks/lib/overreach-detector.js's conductor_overreach threshold.
 
 Public API covered:
-  - _resolve_transcript_dir(): primary cwd-hash resolution AND the
-    fallback-glob path when the primary directory does not exist (Skeptic
-    Minor 3 on PR #730 - this had zero test coverage).
+  - _resolve_transcript_dirs() and the CLI's store set: every store under
+    HOME is scanned by default, --store replaces that set, and no session in
+    any store is reported absent (fixtures under a fake HOME; the operator's
+    real transcripts are never read).
   - _measure_session(): the core per-session statistic (cumulative
     whole-transcript conductor_tool_calls / spawns / whitelisted_excluded),
     cross-checked against the shared JSON fixture also exercised by
@@ -21,6 +22,8 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -57,19 +60,6 @@ def _write_fixture_case(tmp_dir: Path, fixture_case: dict) -> Path:
         )
         return transcript_path
     return _write_transcript(tmp_dir, fixture_case.get("lines", []))
-
-
-@pytest.fixture
-def restore_env():
-    """Restore CLAUDE_CONFIG_DIR and cwd after a test that mutates them."""
-    old_cwd = os.getcwd()
-    old_env = os.environ.get("CLAUDE_CONFIG_DIR")
-    yield
-    os.chdir(old_cwd)
-    if old_env is None:
-        os.environ.pop("CLAUDE_CONFIG_DIR", None)
-    else:
-        os.environ["CLAUDE_CONFIG_DIR"] = old_env
 
 
 @pytest.mark.parametrize(
@@ -119,45 +109,146 @@ def test_window_binds_to_agent_result_only(tmp_path):
     assert result["whitelisted_excluded"] == 0
 
 
-def test_resolve_transcript_dir_primary_path(tmp_path, restore_env):
-    """Primary cwd-hash resolution path."""
-    config_dir = tmp_path / "config"
-    fake_cwd = tmp_path / "cwd"
-    fake_cwd.mkdir()
-    project_hash = str(fake_cwd).replace("/", "-")
-    primary_dir = config_dir / "projects" / project_hash
-    primary_dir.mkdir(parents=True)
-
-    os.environ["CLAUDE_CONFIG_DIR"] = str(config_dir)
-    os.chdir(fake_cwd)
-
-    resolved = _mod._resolve_transcript_dir()
-    assert resolved == primary_dir
+def _session(store: Path, repo: Path, sid: str) -> Path:
+    lines = [
+        {"type": "user", "cwd": str(repo), "message": {"role": "user", "content": [
+            {"type": "text", "text": "hi"}]}},
+        {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "r1", "name": "Read", "input": {"file_path": "/x.js"}}]}},
+    ]
+    path = store / "projects" / _mod._transcripts.project_dir_prefix(repo) / f"{sid}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r, separators=(",", ":")) + "\n" for r in lines),
+                    encoding="utf-8")
+    return path
 
 
-def test_resolve_transcript_dir_fallback_glob_path(tmp_path, restore_env):
-    """Skeptic Minor 3: the fallback-glob branch had zero prior coverage.
-    Plants a project dir whose basename ENDS WITH the repo token but is not
-    a literal cwd-hash match (e.g. a worktree subdirectory scenario) -
-    exactly what the fallback glob exists to find."""
-    config_dir = tmp_path / "config"
-    real_cwd = os.getcwd()
-    repo_token = Path(real_cwd).name.replace("/", "-")
-
-    mismatched_dir = config_dir / "projects" / f"-some-other-prefix-{repo_token}"
-    mismatched_dir.mkdir(parents=True)
-
-    os.environ["CLAUDE_CONFIG_DIR"] = str(config_dir)
-
-    resolved = _mod._resolve_transcript_dir()
-    assert resolved == mismatched_dir
+def _two_stores(tmp_path: Path):
+    home = tmp_path / "home"
+    repo = Path(os.path.realpath(tmp_path)) / "repo"
+    repo.mkdir()
+    a, b = home / ".claude", home / ".claude-other"
+    _session(a, repo, "aaaaaaaa-1")
+    _session(b, repo, "bbbbbbbb-2")
+    return home, repo, a, b
 
 
-def test_resolve_transcript_dir_returns_none_when_nothing_matches(tmp_path, restore_env):
-    config_dir = tmp_path / "config"
-    (config_dir / "projects").mkdir(parents=True)
+def _run(home: Path, repo: Path, *args: str) -> subprocess.CompletedProcess:
+    env = dict(os.environ)
+    for var in _mod._transcripts._lib.CONFIG_DIR_ENV:
+        env.pop(var, None)
+    env["HOME"] = str(home)
+    result = subprocess.run([sys.executable, str(_BIN_PATH), *args], capture_output=True,
+                            text=True, env=env, cwd=str(repo))
+    assert result.returncode == 0, result.stderr
+    return result
 
-    os.environ["CLAUDE_CONFIG_DIR"] = str(config_dir)
 
-    resolved = _mod._resolve_transcript_dir()
-    assert resolved is None
+def test_store_transcripts_maps_the_cwd_in_each_store(tmp_path, monkeypatch):
+    home, repo, a, b = _two_stores(tmp_path)
+    monkeypatch.chdir(repo)
+    got = _mod._store_transcripts([a / "projects", b / "projects", home])
+    prefix = _mod._transcripts.project_dir_prefix(repo)
+    assert got == {a / "projects": ([a / "projects" / prefix / "aaaaaaaa-1.jsonl"], []),
+                   b / "projects": ([b / "projects" / prefix / "bbbbbbbb-2.jsonl"], []),
+                   home: ([], [])}
+
+
+def test_default_scans_every_store_under_home(tmp_path):
+    """The default run reads every store under HOME, not only the active
+    config dir."""
+    home, repo, a, b = _two_stores(tmp_path)
+    payload = json.loads(_run(home, repo, "--json").stdout)
+    assert payload["sample_size"] == 2
+    assert payload["error"] is None
+    assert {s["path"]: (s["sessions"], s["found"]) for s in payload["stores"]} == {
+        os.path.realpath(a / "projects"): (1, 1),
+        os.path.realpath(b / "projects"): (1, 1),
+    }
+    out = _run(home, repo).stdout
+    assert "stores scanned (2):" in out
+    assert os.path.realpath(b / "projects") in out
+
+
+def test_store_flag_replaces_the_default_set(tmp_path):
+    home, repo, a, b = _two_stores(tmp_path)
+    payload = json.loads(_run(home, repo, "--json", "--store", str(b)).stdout)
+    assert payload["sample_size"] == 1
+    assert [s["path"] for s in payload["stores"]] == [os.path.realpath(b / "projects")]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can list a mode-000 directory")
+def test_unreadable_store_is_absent_not_a_scanned_zero(tmp_path):
+    home, repo, a, b = _two_stores(tmp_path)
+    bad = home / ".claude-bad" / "projects"
+    bad.mkdir(parents=True)
+    bad_real = os.path.realpath(bad)
+    bad.chmod(0)
+    try:
+        payload = json.loads(_run(home, repo, "--json").stdout)
+        out = _run(home, repo).stdout
+    finally:
+        bad.chmod(0o755)
+    entry = {s["path"]: s for s in payload["stores"]}[bad_real]
+    assert (entry["status"], entry["sessions"], entry["found"]) == ("unreadable", None, None)
+    assert payload["sample_size"] == 2
+    assert f"{bad_real}: ABSENT (unreadable:" in out
+    assert f"{bad_real}: 0 sessions" not in out
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can list a mode-000 directory")
+def test_unreadable_project_dir_makes_the_store_partial_not_zero(tmp_path):
+    home, repo, a, b = _two_stores(tmp_path)
+    bad = b / "projects" / _mod._transcripts.project_dir_prefix(repo)
+    bad_store = os.path.realpath(b / "projects")
+    bad.chmod(0)
+    try:
+        payload = json.loads(_run(home, repo, "--json").stdout)
+        out = _run(home, repo).stdout
+    finally:
+        bad.chmod(0o755)
+    entry = {s["path"]: s for s in payload["stores"]}[bad_store]
+    assert (entry["status"], entry["found"], entry["sessions"], entry["unreadable_dirs"]) == (
+        "partial", None, None, 1)
+    assert payload["sample_size"] == 1
+    assert f"{bad_store}: ABSENT (partial: 1 unreadable dirs)" in out
+    assert f"{bad_store}: 0 sessions" not in out
+
+
+def test_no_data_and_data_json_carry_the_same_keys(tmp_path):
+    home, repo, a, b = _two_stores(tmp_path)
+    data = json.loads(_run(home, repo, "--json").stdout)
+    empty_repo = tmp_path / "empty"
+    empty_repo.mkdir()
+    no_data = json.loads(_run(home, empty_repo, "--json").stdout)
+    assert no_data["error"] == "no_transcripts"
+    assert set(no_data) == set(data)
+
+
+def test_missing_store_path_is_named(tmp_path):
+    home, repo, a, b = _two_stores(tmp_path)
+    missing = str(tmp_path / "no-such-store")
+    payload = json.loads(_run(home, repo, "--json", "--store", str(b), "--store", missing).stdout)
+    entry = {s["path"]: s for s in payload["stores"]}[missing]
+    assert (entry["status"], entry["sessions"]) == ("missing", None)
+    assert payload["sample_size"] == 1
+    out = _run(home, repo, "--store", str(b), "--store", missing).stdout
+    assert f"{missing}: ABSENT (missing:" in out
+
+
+def test_no_store_yields_a_session_is_absent_not_a_zero_sample(tmp_path):
+    """When no store yields a session the input is reported absent, with
+    no threshold recommended from an empty sample."""
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for name in (".claude", ".claude-other"):
+        (home / name / "projects").mkdir(parents=True)
+    payload = json.loads(_run(home, repo, "--json").stdout)
+    assert payload["error"] == "no_transcripts"
+    assert payload["recommended_threshold"] is None
+    assert [s["sessions"] for s in payload["stores"]] == [0, 0]
+    out = _run(home, repo).stdout
+    assert "stores scanned (2):" in out
+    assert "No transcripts found." in out
+    assert "Recommended THRESHOLD" not in out

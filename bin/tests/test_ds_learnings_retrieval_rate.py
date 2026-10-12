@@ -7,12 +7,13 @@ CASE_TABLE below and driven against the shipped predicate by a single
 parametrized test. The table is the oracle: adding a row here is how
 predicate coverage is added, and no per-case test is hand-written alongside
 it. Every other test in this module covers a contract the table cannot
-express - role resolution, the no-data envelope, config-dir resolution, the
+express - role resolution, the no-data envelope, store resolution, the
 total row identity, the derived `wiring` column, and the pooled arithmetic.
 
 Fixtures are synthetic transcript stores built in a tmpdir with
-CLAUDE_CONFIG_DIR pointed at them. The operator's real transcripts are
-never read by a test.
+CLAUDE_CONFIG_DIR pointed at them and HOME pointed at an empty scratch dir,
+so the default every-store scan finds only the fixture store. The
+operator's real transcripts are never read by a test.
 """
 
 import importlib.util
@@ -580,13 +581,35 @@ def _write_transcript(store: Path, session: str, agent_id: str, role, calls):
     return path
 
 
-def _run_cli(store: Path, executable: Path = CLI_PATH, json_flag: bool = True):
+_EMPTY_HOME = None
+
+
+def setUpModule():
+    global _EMPTY_HOME
+    _EMPTY_HOME = tempfile.TemporaryDirectory(prefix="lrr-home-")
+
+
+def tearDownModule():
+    _EMPTY_HOME.cleanup()
+
+
+def _env(store=None, home=None) -> dict:
     env = dict(os.environ)
-    env["CLAUDE_CONFIG_DIR"] = str(store)
-    env.pop("AGENTIC_CONFIG_DIR", None)
+    for var in lrr._transcripts._lib.CONFIG_DIR_ENV:
+        env.pop(var, None)
+    env["HOME"] = str(home or _EMPTY_HOME.name)
+    if store is not None:
+        env["CLAUDE_CONFIG_DIR"] = str(store)
+    return env
+
+
+def _run_cli(store: Path, executable: Path = CLI_PATH, json_flag: bool = True, env=None,
+             extra_args=()):
+    env = env or _env(store)
     argv = [sys.executable, str(executable)]
     if json_flag:
         argv.append("--json")
+    argv.extend(extra_args)
     result = subprocess.run(argv, capture_output=True, text=True, env=env)
     return result
 
@@ -665,7 +688,7 @@ class TestRender(unittest.TestCase):
     def test_missing_agents_dir_renders_a_warning(self):
         payload = {
             "harness": "claude-code",
-            "config_dir": "/x",
+            "stores": [{"path": "/x", "status": "scanned", "transcripts": 1}],
             "transcripts_scanned": 1,
             "by_role": {
                 "architect": {
@@ -701,7 +724,9 @@ class TestRender(unittest.TestCase):
         headline row invites exactly the wrong inference.
         """
         payload = {
-            "harness": "claude-code", "config_dir": "/x", "transcripts_scanned": 2,
+            "harness": "claude-code",
+            "stores": [{"path": "/x", "status": "scanned", "transcripts": 2}],
+            "transcripts_scanned": 2,
             "by_role": {
                 "engineer": {"wiring": "wired", "runs": 1, "fired": 0,
                              "not_fired": 1, "unreadable": 0, "rate": 0.0},
@@ -777,7 +802,9 @@ class TestEndToEnd(unittest.TestCase):
             store = Path(tmp)
             _write_transcript(store, "s1", "aaa", "architect", [("Read", {"file_path": "x"})])
             payload = json.loads(_run_cli(store).stdout)
-            self.assertEqual(payload["config_dir"], str(store))
+            self.assertEqual(payload["stores"],
+                             [{"path": os.path.realpath(store / "projects"), "status": "scanned",
+                               "transcripts": 1, "reason": None, "unreadable_dirs": 0, "unreadable_dir_paths": [],}])
             self.assertEqual(payload["transcripts_scanned"], 1)
 
     def test_alias_behaves_identically(self):
@@ -851,6 +878,114 @@ class TestEndToEnd(unittest.TestCase):
             payload = json.loads(_run_cli(store).stdout)
             self.assertIsNone(payload["by_role"]["architect"]["rate"])
             self.assertIsNone(payload["pooled"]["wired"]["rate"])
+
+
+class TestStores(unittest.TestCase):
+    """Two stores under a fake HOME (`.claude` and `.claude-other`): the
+    default run reads both, not only the active config dir."""
+
+    def _two_stores(self, tmp: Path):
+        home = tmp / "home"
+        a = home / ".claude"
+        b = home / ".claude-other"
+        _write_transcript(a, "s1", "aaa", "architect",
+                          [("Bash", {"command": "grep -i -E 'kw' .agentic/learnings.md"})])
+        _write_transcript(b, "s2", "bbb", "architect", [("Read", {"file_path": "x"})])
+        return home, a, b
+
+    def test_default_scans_every_store_under_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, a, b = self._two_stores(Path(tmp))
+            payload = json.loads(_run_cli(None, env=_env(home=home)).stdout)
+            self.assertEqual(payload["transcripts_scanned"], 2)
+            self.assertEqual(payload["by_role"]["architect"]["fired"], 1)
+            got = {s["path"]: s["transcripts"] for s in payload["stores"]}
+            self.assertEqual(got, {os.path.realpath(a / "projects"): 1,
+                                   os.path.realpath(b / "projects"): 1})
+
+    def test_store_flag_replaces_the_default_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, a, b = self._two_stores(Path(tmp))
+            payload = json.loads(
+                _run_cli(None, env=_env(home=home), extra_args=["--store", str(b)]).stdout)
+            self.assertEqual(payload["transcripts_scanned"], 1)
+            self.assertEqual(payload["by_role"]["architect"]["fired"], 0)
+            self.assertEqual(payload["stores"],
+                             [{"path": os.path.realpath(b / "projects"), "status": "scanned",
+                               "transcripts": 1, "reason": None, "unreadable_dirs": 0, "unreadable_dir_paths": [],}])
+
+    @unittest.skipIf(os.geteuid() == 0, "root can list a mode-000 directory")
+    def test_unreadable_store_is_absent_not_a_scanned_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, a, b = self._two_stores(Path(tmp))
+            bad = home / ".claude-bad" / "projects"
+            bad.mkdir(parents=True)
+            bad_real = os.path.realpath(bad)
+            env = _env(home=home)
+            bad.chmod(0)
+            try:
+                payload = json.loads(_run_cli(None, env=env).stdout)
+                out = _run_cli(None, env=env, json_flag=False).stdout
+            finally:
+                bad.chmod(0o755)
+            entry = {s["path"]: s for s in payload["stores"]}[bad_real]
+            self.assertEqual(entry["status"], "unreadable")
+            self.assertIsNone(entry["transcripts"])
+            self.assertEqual(payload["transcripts_scanned"], 2)
+            self.assertIn(f"{bad_real}: ABSENT (unreadable:", out)
+            self.assertNotIn(f"{bad_real}: 0 transcripts", out)
+
+    @unittest.skipIf(os.geteuid() == 0, "root can list a mode-000 directory")
+    def test_unreadable_project_dir_makes_the_store_partial_not_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, a, b = self._two_stores(Path(tmp))
+            bad = b / "projects" / "hash1"
+            bad_store = os.path.realpath(b / "projects")
+            env = _env(home=home)
+            bad.chmod(0)
+            try:
+                payload = json.loads(_run_cli(None, env=env).stdout)
+                out = _run_cli(None, env=env, json_flag=False).stdout
+            finally:
+                bad.chmod(0o755)
+            entry = {s["path"]: s for s in payload["stores"]}[bad_store]
+            self.assertEqual((entry["status"], entry["transcripts"], entry["unreadable_dirs"]),
+                             ("partial", None, 1))
+            self.assertEqual([d["path"] for d in entry["unreadable_dir_paths"]],
+                             [os.path.realpath(bad)])
+            self.assertEqual(payload["transcripts_scanned"], 1)
+            self.assertIn(f"{bad_store}: ABSENT (partial: 1 unreadable dirs)", out)
+            self.assertNotIn(f"{bad_store}: 0 transcripts", out)
+
+    def test_missing_store_path_is_named(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, a, b = self._two_stores(Path(tmp))
+            missing = str(Path(tmp) / "no-such-store")
+            env = _env(home=home)
+            extra = ["--store", str(b), "--store", missing]
+            payload = json.loads(_run_cli(None, env=env, extra_args=extra).stdout)
+            entry = {s["path"]: s for s in payload["stores"]}[missing]
+            self.assertEqual((entry["status"], entry["transcripts"]), ("missing", None))
+            self.assertEqual(payload["transcripts_scanned"], 1)
+            out = _run_cli(None, env=env, json_flag=False, extra_args=extra).stdout
+            self.assertIn(f"{missing}: ABSENT (missing:", out)
+
+    def test_no_store_yields_a_transcript_is_absent_not_zero(self):
+        """When no store yields a transcript the result is reported absent,
+        not as a measured zero."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            for name in (".claude", ".claude-other"):
+                (home / name / "projects").mkdir(parents=True)
+            env = _env(home=home)
+            payload = json.loads(_run_cli(None, env=env).stdout)
+            self.assertEqual(payload["error"], "no_transcripts")
+            self.assertEqual([s["transcripts"] for s in payload["stores"]], [0, 0])
+            self.assertIsNone(payload["pooled"]["wired"]["rate"])
+            out = _run_cli(None, env=env, json_flag=False).stdout
+            self.assertIn("stores scanned (2):", out)
+            self.assertIn("error: no_transcripts", out)
+            self.assertNotIn("0.0%", out)
 
 
 class TestWiringIsDerived(unittest.TestCase):
