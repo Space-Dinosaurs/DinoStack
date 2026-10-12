@@ -116,15 +116,22 @@ if [ "${STUB_OSA_GATE:-}" = 1 ]; then
   while [ ! -e "$STUB_LOG_DIR/osa-go" ] && [ $n -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
   [ -e "$STUB_LOG_DIR/osa-go" ] || { echo "gate never opened" >&2; exit 1; }
 fi
+# Open replies: ok|how|orphans|front window|its tab|app (observed), the same three recorded, then
+# the conductor window's selected tab observed and recorded. native-*: a native-tab Terminal, where
+# every tab is a one-tab window, so the conductor window's selected tab is always the conductor's.
 case "${STUB_OSA_MODE:-kept}" in
-  kept) echo "ok|tab|0|42|$4|Terminal|42|$4|Terminal" ;;
-  guard) echo "ok|window|0|42|$4|Terminal|42|$4|Terminal" ;;
-  orphan) echo "ok|tab|1|42|$4|Terminal|42|$4|Terminal" ;;
-  orphan-window) echo "ok|window|2|42|$4|Terminal|42|$4|Terminal" ;;
+  kept) echo "ok|tab|0|42|$4|Terminal|42|$4|Terminal|$4|$4" ;;
+  guard) echo "ok|window|0|42|$4|Terminal|42|$4|Terminal|$4|$4" ;;
+  orphan) echo "ok|tab|1|42|$4|Terminal|42|$4|Terminal|$4|$4" ;;
+  orphan-window) echo "ok|window|2|42|$4|Terminal|42|$4|Terminal|$4|$4" ;;
   eight-fields) echo "ok|window|42|$4|Terminal|42|$4|Terminal" ;;
-  notkept-window) echo "ok|tab|0|43|$4|Terminal|42|$4|Terminal" ;;
-  notkept-tty) echo "ok|tab|0|42|/dev/ttys999|Terminal|42|$4|Terminal" ;;
-  notkept-app) echo "ok|tab|0|42|$4|Safari|42|$4|Terminal" ;;
+  nine-fields) echo "ok|tab|0|42|$4|Terminal|42|$4|Terminal" ;;
+  notkept-window) echo "ok|tab|0|43|$4|Terminal|42|$4|Terminal|$4|$4" ;;
+  notkept-tty) echo "ok|tab|0|42|/dev/ttys999|Terminal|42|$4|Terminal|$4|$4" ;;
+  notkept-app) echo "ok|tab|0|42|$4|Safari|42|$4|Terminal|$4|$4" ;;
+  notkept-cond) echo "ok|tab|0|43|/dev/ttys900|Terminal|43|/dev/ttys900|Terminal|/dev/ttys999|$4" ;;
+  native-other-front) echo "ok|tab|0|51|/dev/ttys900|Terminal|51|/dev/ttys900|Terminal|$4|$4" ;;
+  native-moved) echo "ok|tab|0|52|/dev/ttys999|Terminal|51|/dev/ttys900|Terminal|$4|$4" ;;
   nomatch) echo "nomatch" ;;
   close-ok) echo "ok" ;;
   close-busy) echo "busy" ;;
@@ -384,9 +391,20 @@ check "close returns nomatch before touching any app when Terminal is not runnin
 # Focus: afterwards the recorded front window is raised, not the conductor's window.
 check "open raises the conductor window only before Cmd-T" eq "$(printf '%s\n' "$open_run" | grep -c 'set index of window id condWinId to 1')" 1
 check "open records the conductor window's selected tab before selecting the conductor tab" osa_before "$open_run" 'set condWinSel to tty of selected tab of aWin' 'set selected of aTab to true'
-check "open restores the conductor window's selected tab after the command" osa_before "$open_run" 'set orphans to 0' 'my selectTty(condWinSel)'
-check "open then raises the recorded front window" osa_before "$open_run" 'my selectTty(condWinSel)' 'set index of window id recFrontId to 1'
-check "open then re-selects the recorded front tab" osa_before "$open_run" 'set index of window id recFrontId to 1' 'my selectTty(recTty)'
+check "open restores the conductor window's selected tab after the command" osa_before "$open_run" 'set orphans to 0' 'my selectTty(condWinSel, false)'
+check "open then raises the recorded front window" osa_before "$open_run" 'my selectTty(condWinSel, false)' 'set index of window id recFrontId to 1'
+check "open then re-selects the recorded front tab" osa_before "$open_run" 'set index of window id recFrontId to 1' 'my selectTty(recTty, false)'
+# Native tabs: a one-tab window's selected tab cannot be changed, so the conductor's tab is
+# reselected in its tab group by raising its window, before the recorded front window is raised.
+select_handler="$(printf '%s\n' "$osa_script" | sed -n '/^on selectTty/,/^end selectTty/p' | tr -s ' ' | tr '\n' '|')"
+check "selectTty raises a one-tab window and selects only within multi-tab windows" contains "$select_handler" "| if tty of aTab is t then| if (count of tabs of aWin) is 1 then| set index of aWin to 1| else if not loneOnly then| set selected of aTab to true| end if| return|"
+check "open and close share the same selectTty handler" eq "$(printf '%s\n' "$close_script" | sed -n '/^on selectTty/,/^end selectTty/p' | tr -s ' ' | tr '\n' '|')" "$select_handler"
+check "open restores the conductor window's tab with one-tab windows raised" contains "$open_run" 'my selectTty(condWinSel, false)'
+check "close selects the conductor's lone tab after closing a one-tab window" contains "$(printf '%s\n' "$close_run" | grep -A3 -F 'close aWin' | tr -s ' ' | tr '\n' '|')" ' close aWin| set outcome to "ok"| set winSel to condTty| set loneOnly to true|'
+check "close restores that selection before raising the recorded front window" osa_before "$close_run" 'my selectTty(winSel, loneOnly)' 'set index of window id recFrontId to 1'
+check "close leaves loneOnly off unless a one-tab window was closed" eq "$(printf '%s\n' "$close_run" | grep -c 'set loneOnly to')" 2
+check "open observes the conductor window's selected tab after restoring the app" osa_before "$open_run" 'whose unix id is recPid) to true' 'if tty of aTab is condTty then set obsCond to tty of selected tab of aWin'
+check "open reports observed then recorded conductor window tab" contains "$open_run" '& "|" & recApp & "|" & obsCond & "|" & condWinSel'
 check "close raises the recorded front window after Cmd-W" osa_before "$close_run" 'keystroke "w"' 'set index of window id recFrontId to 1'
 check "close raises no other window after Cmd-W" eq "$(printf '%s\n' "$close_run" | sed -n '/keystroke "w"/,$p' | grep -c 'set index of')" 1
 osa_encloses() { # osa_encloses <script> <if-line> <inner>: inner follows the if with no end if between
@@ -413,12 +431,20 @@ open_in_pty t1 STUB_OSA_MODE=orphan-window
 check "tab.log: orphan on the window path" tab_line_is t1 "tab orphaned (2 other new tab(s) after Cmd-T, left open); focus: kept"
 open_in_pty t1 STUB_OSA_MODE=eight-fields
 check "tab.log: output without an orphan count is an error" contains "$(last_tab_line t1)" "tab error: unexpected osascript output 'ok|window|42|"
+open_in_pty t1 STUB_OSA_MODE=nine-fields
+check "tab.log: output without the conductor window's tab is an error" contains "$(last_tab_line t1)" "tab error: unexpected osascript output 'ok|tab|0|42|"
+open_in_pty t1 STUB_OSA_MODE=notkept-cond
+check "tab.log: focus NOT kept (conductor window's selected tab changed)" contains "$(last_tab_line t1)" "focus: NOT kept (front window 43, tab /dev/ttys900, app Terminal, conductor window tab /dev/ttys999; was 43, /dev/ttys900, Terminal, /dev/"
+open_in_pty t1 STUB_OSA_MODE=native-other-front
+check "tab.log: native tabs, another window in front, conductor reselected: focus kept" eq "$(tail -n2 "$RUN/t1.tab.log" | tr '\n' '|')" "opened: tab|focus: kept|"
+open_in_pty t1 STUB_OSA_MODE=native-moved
+check "tab.log: native tabs, front window not restored: focus NOT kept" contains "$(last_tab_line t1)" "focus: NOT kept (front window 52, tab /dev/ttys999, app Terminal, conductor window tab /dev/"
 open_in_pty t1 STUB_OSA_MODE=notkept-window
 check "tab.log: focus NOT kept (front window changed)" contains "$(last_tab_line t1)" "focus: NOT kept (front window 43, tab "
 open_in_pty t1 STUB_OSA_MODE=notkept-tty
-check "tab.log: focus NOT kept (selected tab changed)" contains "$(last_tab_line t1)" "focus: NOT kept (front window 42, tab /dev/ttys999, app Terminal; was 42, "
+check "tab.log: focus NOT kept (selected tab changed)" contains "$(last_tab_line t1)" "focus: NOT kept (front window 42, tab /dev/ttys999, app Terminal, conductor window tab "
 open_in_pty t1 STUB_OSA_MODE=notkept-app
-check "tab.log: focus NOT kept (frontmost app changed)" contains "$(last_tab_line t1)" ", app Safari; was 42, "
+check "tab.log: focus NOT kept (frontmost app changed)" contains "$(last_tab_line t1)" ", app Safari, conductor window tab "
 open_in_pty t1 STUB_OSA_MODE=nomatch
 check "tab.log: no matching tab" tab_line_is t1 "tab skipped: no matching tab"
 open_in_pty t1 STUB_OSA_MODE=fail
