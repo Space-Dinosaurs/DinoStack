@@ -2,8 +2,9 @@
 """
 Regression tests for hooks/enforce-skeptic-neutrality.py.
 
-Implements the 29 QA scenarios from the DS-187 architect plan (round 6
-FINAL, constraint-based) - `.agentic/ds-187-architect-plan.md` § QA
+Implements 26 of the 29 QA scenarios from the DS-187 architect plan (round 6
+FINAL, constraint-based; scenario 27 was removed and 28/29 run in their
+own suites, both noted in the comment blocks after scenario 26) - `.agentic/ds-187-architect-plan.md` § QA
 criteria. Scenario numbers in test names/comments below match the plan's
 `id:` field 1:1.
 
@@ -977,25 +978,14 @@ def test_scenario_26_task_and_agent_matchers_identical(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Scenario 27: hooks/tests/test-hooks-pep604-guard.py reports every check
+# Scenario 27 was removed. It ran hooks/tests/test-hooks-pep604-guard.py (which
+# re-executes every Python file under hooks/) and asserted two things: exit 0,
+# and a printed check total equal to 2*scanned-1, with scanned counted from
+# disk across hooks/, hooks/tests/ and hooks/lib/. The hooks-python-tests CI
+# job still runs the guard and checks its exit code. The total check is
+# DROPPED and nothing else makes it: it caught the guard silently skipping a
+# directory such as hooks/lib/.
 # --------------------------------------------------------------------------- #
-def test_scenario_27_pep604_guard_all_checks():
-    guard_path = _REPO_ROOT / "hooks" / "tests" / "test-hooks-pep604-guard.py"
-    result = subprocess.run(
-        [sys.executable, str(guard_path)],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    # The guard scans every *.py under hooks/, hooks/tests/ and hooks/lib/ and
-    # smoke-runs all of them but itself, so its total is derived from disk.
-    scanned = sum(
-        1
-        for d in ("hooks", "hooks/tests", "hooks/lib")
-        for p in (_REPO_ROOT / d).glob("*.py")
-        if p.is_file()
-    )
-    assert f"All {2 * scanned - 1} checks passed." in result.stdout, result.stdout
 
 
 # --------------------------------------------------------------------------- #
