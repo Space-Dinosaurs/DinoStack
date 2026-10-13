@@ -73,6 +73,19 @@ Measurements (Claude Code 2.1.287, haiku 4.5 and opus 5.5 scratch sessions,
         allow-listed (e4) - creation, then the full wrap with zero prompts
         (call B "Allowed by auto mode classifier"), 21 wrap-turn lines,
         lock released, cron deleted, final line correct, /exit clean.
+    M18 (bin/ds-keepalive-wrap, final text, opus, auto, Cron tools
+        allow-listed, real cron; e2e-g1/g2/g3). g1: call A, then
+        WRAP_COMMAND with one JSON heredoc printed "wrap files written";
+        zero prompts, 19 wrap-turn lines, open decision quoted verbatim,
+        lock released, final line correct. g3 (_wrap.md made a directory):
+        "WRAP FAILED: could not write ...", reply "Session wrap failed:
+        ..." with no kickoff, cron deleted, lock released. g2: auto mode
+        refused to evaluate call A ("could not evaluate this action"), so
+        nothing was written; the model deleted the cron and ended with
+        "Session wrap failed: no output" after four lines of explanation.
+        CLAUDE_PROJECT_DIR was set to the launch directory on every hook
+        call. M14-M16 below were measured on the earlier shell-template
+        text of the same procedure.
     M1 PASS: BLOCK_OUTPUT fires print 2 lines (Running scheduled task,
         Operation stopped by hook), make 0 requests, fire no Stop hook, and
         add ~220 context tokens to the next request (t2-transcript-924ea557);
