@@ -504,24 +504,24 @@ def test_operator_grant_preserved_when_sibling_denies(tmp_path, registered_confi
 
     # Round 4: a NEW fingerprint (new Worker output), but field 7 is untagged
     # -> neutrality denies it.
-    prompt3 = _prompt(
+    prompt4_untagged = _prompt(
         diff_key,
         what_to_review="Worker fixed issue #4, round 4.",
         field7="The retry logic still has a subtle race condition nobody caught.",
     )
-    payload3 = _payload(cwd, prompt3, tool_use_id="tuid-3")
-    payload3["transcript_path"] = str(transcript)
+    payload4_untagged = _payload(cwd, prompt4_untagged, tool_use_id="tuid-4-untagged")
+    payload4_untagged["transcript_path"] = str(transcript)
 
-    _, neut_parsed = _run_hook(_NEUTRALITY_HOOK, payload3)
+    _, neut_parsed = _run_hook(_NEUTRALITY_HOOK, payload4_untagged)
     assert _is_denied(neut_parsed), "precondition failed: neutrality did not deny round 4's untagged field-7"
 
-    rc_code, rc_parsed = _run_hook(_ROUND_CAP_HOOK, payload3, env=env)
+    rc_code, rc_parsed = _run_hook(_ROUND_CAP_HOOK, payload4_untagged, env=env)
     assert rc_code == 0
     assert not _is_denied(rc_parsed)
     assert state_path.read_bytes() == before, "a sibling-denied spawn at the cap must leave the state byte-unchanged"
 
     # The NEXT valid (clean, new-fingerprint) spawn uses the still-live grant.
-    prompt4 = _prompt(diff_key, what_to_review="Worker fixed issue #5, round 5 (clean, tagged).")
+    prompt4 = _prompt(diff_key, what_to_review="Worker fixed issue #4, round 4 (clean, tagged).")
     payload4 = _payload(cwd, prompt4, tool_use_id="tuid-4")
     payload4["transcript_path"] = str(transcript)
     rc4_code, rc4_parsed = _run_hook(_ROUND_CAP_HOOK, payload4, env=env)
@@ -530,7 +530,7 @@ def test_operator_grant_preserved_when_sibling_denies(tmp_path, registered_confi
     assert json.loads(state_path.read_text())["round_count"] == 4
 
     # The spawn after THAT needs a new grant and is denied.
-    prompt5 = _prompt(diff_key, what_to_review="Worker fixed issue #6, round 6 (clean, tagged).")
+    prompt5 = _prompt(diff_key, what_to_review="Worker fixed issue #5, round 5 (clean, tagged).")
     payload5 = _payload(cwd, prompt5, tool_use_id="tuid-5")
     payload5["transcript_path"] = str(transcript)
     rc5_code, rc5_parsed = _run_hook(_ROUND_CAP_HOOK, payload5, env=env)
