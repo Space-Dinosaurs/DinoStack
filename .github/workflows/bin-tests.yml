@@ -15,8 +15,7 @@ permissions:
 # execution, so a job-level `timeout-minutes` can be consumed entirely by queue
 # wait. That is not hypothetical here: python-bin-tests was cancelled on this
 # repo having recorded `steps: []` - no step ever ran - and bin-sh-tests was
-# cancelled the same way on main (run 31115638748, sha f81b63c0). The suites
-# themselves finish in well under a minute.
+# cancelled the same way on main (run 31115638748, sha f81b63c0).
 #
 # So: job-level `timeout-minutes` is a BACKSTOP ONLY (20; 30 on bin-sh-tests,
 # whose test step is the one long step in this file), and every network
@@ -69,7 +68,21 @@ jobs:
         timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y zsh jq
       - run: python3 -m pytest bin/tests/ -q --timeout=60 --timeout-method=thread
-        timeout-minutes: 5
+        # Measured 2026-10-13 with `bash scripts/ci-step-durations.sh` over
+        # the 95 most recent runs, all conclusions: median 209 s, p95 245 s,
+        # max 301 s. The prior 5-minute bound killed a run whose 3167 tests
+        # had all passed in 299.79 s (run 38408803038). 15 minutes is about
+        # 3x that max and stays inside the job backstop. Re-run the script
+        # before changing this value, and revisit it when the script's max
+        # for this step passes 450 s, half the bound.
+        #
+        # Serial on purpose, unlike scripts/check-local.sh's pytest-xdist run
+        # of the same suite. Under xdist, --timeout-method=thread ends the
+        # worker process, so a timed-out test is reported as "worker crashed"
+        # with no stack trace, and test_scenario_27_pep604_guard_all_checks
+        # (which runs every Python file under hooks/) reached the 60 s
+        # timeout that way in 1 of 3 local 8-worker runs.
+        timeout-minutes: 15
       - name: floor collected test_phase8_telemetry_shell.py count at 20
         # 10 test functions x 2 shells (bash, zsh) = 20 collected IDs (round
         # 12 added test_correct_block_aborts_loudly_on_defeated_negation, the
