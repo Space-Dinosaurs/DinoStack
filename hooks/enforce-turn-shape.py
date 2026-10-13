@@ -563,7 +563,8 @@ Failure modes:
       guard) - a re-invocation must never re-flag the same turn.
     - Cache-keepalive ping turn (loop_guard.is_ping_ack_turn: the turn
       answers a hooks/cache-keepalive.py ping and either uses only CronList
-      or CronDelete and ends with "ok", or carries the hook's wrap note and
+      or CronDelete and ends with "ok" or the exact reply line from the
+      gate note, or carries the hook's wrap note and
       its last line starts with "Session wrapped", "Session wrap skipped"
       or "Session wrap failed"): exit 0 silently, checked right after
       stop_hook_active. Every other turn gets full enforcement.
