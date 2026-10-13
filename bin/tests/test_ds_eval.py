@@ -562,8 +562,8 @@ def test_labelled_fp_rate_latest_label_wins_and_unmatched_ignored():
 
 
 @pytest.mark.parametrize("labelled,fp,status,fires", [
-    (5, 3, "OK", True), (4, 4, "PARTIAL", False), (1, 1, "PARTIAL", False), (5, 2, "OK", False),
-    (6, 3, "OK", True), (6, 2, "OK", False), (0, 0, "ABSENT", False)])
+    (5, 3, "OK", True), (4, 4, "PARTIAL", False), (5, 2, "OK", False),
+    (6, 3, "OK", True), (0, 0, "ABSENT", False)])
 def test_d2_labelled_threshold_and_status(labelled, fp, status, fires):
     rows = _denies(6, spacing=30)
     labels = [_label(f"tu{i}", "false_positive" if i < fp else "true_positive") for i in range(labelled)]

@@ -145,6 +145,16 @@ failed = 0
 # from the hook process's own cwd - which, run from a checkout, is that
 # checkout's (or its primary's) real .agentic/.enforcement-fires.jsonl.
 _HOOK_CWD = tempfile.mkdtemp(prefix="test-turn-shape-cwd-")
+
+
+def _fail_if_hook_cwd_left() -> None:
+    if os.path.exists(_HOOK_CWD):
+        print(f"  [FAIL] _HOOK_CWD left behind at exit: {_HOOK_CWD}", flush=True)
+        os._exit(1)
+
+
+# atexit runs handlers last-registered first, so this check runs after the rmtree.
+atexit.register(_fail_if_hook_cwd_left)
 atexit.register(shutil.rmtree, _HOOK_CWD, ignore_errors=True)
 
 

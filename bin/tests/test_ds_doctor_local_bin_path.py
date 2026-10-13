@@ -23,6 +23,8 @@ def _doctor(tmp_path, on_path, extra_args=()):
     home = tmp_path / "home"
     local_bin = home / ".local" / "bin"
     local_bin.mkdir(parents=True, exist_ok=True)
+    # A stub repo_dir, so no unrelated check FAILs and the exit code reflects this one.
+    (home / "DinoStack" / ".git").mkdir(parents=True, exist_ok=True)
     env = {k: v for k, v in os.environ.items() if k not in (
         "AGENTIC_CONFIG_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR")}
     env["HOME"] = str(home)
@@ -41,23 +43,19 @@ def _doctor(tmp_path, on_path, extra_args=()):
 
 
 def test_off_path_warns_with_the_exact_export_line(tmp_path):
-    _, finding, local_bin = _doctor(tmp_path, on_path=False)
+    rc, finding, local_bin = _doctor(tmp_path, on_path=False)
     assert finding["status"] == "WARN", finding
+    assert rc == 0
     assert f"{local_bin} is not on PATH" in finding["message"]
     assert _EXPORT_LINE in finding["message"]
     assert "~/.zshrc for zsh, the macOS default; ~/.bash_profile for bash" in finding["message"]
 
 
 def test_on_path_is_ok(tmp_path):
-    _, finding, local_bin = _doctor(tmp_path, on_path=True)
+    rc, finding, local_bin = _doctor(tmp_path, on_path=True)
     assert finding["status"] == "OK", finding
+    assert rc == 0
     assert f"{local_bin} is on PATH" in finding["message"]
-
-
-def test_warn_does_not_change_the_exit_code(tmp_path):
-    rc_off, _, _ = _doctor(tmp_path, on_path=False)
-    rc_on, _, _ = _doctor(tmp_path, on_path=True)
-    assert rc_off == rc_on
 
 
 def test_fix_does_not_touch_a_shell_profile(tmp_path):

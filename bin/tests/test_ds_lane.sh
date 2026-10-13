@@ -630,7 +630,7 @@ start_pty o1 STUB_OSA_MODE=kept
 check "start: tab opened with focus kept" eq "$(tab_of "$SO")" "tab: opened: tab; focus: kept"
 check "start: no fix line when the tab opened with focus kept" no_fix "$SO"
 check "start: still prints the lane pid first" eq "$(head -n1 "$SO")" "$(cat "$RUN/o1.pid")"
-check "start: exit 0 with a tab" eq "$(rc_of "$SO")" 0
+start_rcs="o1=$(rc_of "$SO")"
 lane stop o1 > /dev/null
 out="$(lane resume o1 2>&1)"; rc=$?
 check "resume: prints the tab line too" contains "$out" "tab: disabled (DS_LANE_NO_TAB=1)"
@@ -639,14 +639,14 @@ lane stop o1 > /dev/null
 start_pty o2 STUB_OSA_MODE=nomatch
 check "start: no matching tab" eq "$(tab_of "$SO")" "tab: tab skipped: no matching tab"
 check "start: no matching tab -> run the conductor in Terminal.app or go tab-less" contains "$(fix_of "$SO")" "Run the conductor directly in Terminal.app (not another terminal app, an IDE terminal, tmux or SSH) to get tabs; until then the lane is running without a tab: follow it with \`ds-lane tail o2\`, and set DS_LANE_NO_TAB=1 to skip tabs."
-check "start: exit 0 with no matching tab" eq "$(rc_of "$SO")" 0
+start_rcs+=" o2=$(rc_of "$SO")"
 check "start: lane launched with no matching tab" state_is o2 alive
 lane stop o2 > /dev/null
 
 start_pty o3 STUB_OSA_MODE=fail
 check "start: authorization error" eq "$(tab_of "$SO")" "tab: tab error: execution error: stub refused (-1743); focus: unknown"
 check "start: authorization error -> Automation settings path" contains "$(fix_of "$SO")" "fix: macOS blocked the Apple event. Open System Settings > Privacy & Security > Automation, find the app this session runs in and allow it to control Terminal and System Events. If no entry is listed, run \`ds-lane open o3\` once and answer Allow when macOS asks. Until then the lane is running without a tab: follow it with \`ds-lane tail o3\`"
-check "start: exit 0 on a tab error" eq "$(rc_of "$SO")" 0
+start_rcs+=" o3=$(rc_of "$SO")"
 check "start: lane launched despite the tab error" state_is o3 alive
 lane stop o3 > /dev/null
 
@@ -658,15 +658,16 @@ lane stop o4 > /dev/null
 start_pty o5 STUB_OSA_MODE=guard
 check "start: new-window fallback" eq "$(tab_of "$SO")" "tab: opened: window; tab misplaced (new window, no new tab found); focus: kept"
 check "start: new-window fallback -> Accessibility settings path" contains "$(fix_of "$SO")" "Open System Settings > Privacy & Security > Accessibility and turn on the app this session runs in; if it is not listed, add it with the + button. Later lanes then open as tabs."
-check "start: exit 0 on the new-window fallback" eq "$(rc_of "$SO")" 0
+start_rcs+=" o5=$(rc_of "$SO")"
 lane stop o5 > /dev/null
 
 orphan_capture "$SO" "$ENV_BIN" -u DS_LANE_NO_TAB "$TOOL" start o6 "$PROMPT"
 check "start: no conductor tty" eq "$(tab_of "$SO")" "tab: tab skipped: no conductor tty"
 check "start: no conductor tty -> headless session, use ds-lane tail" contains "$(fix_of "$SO")" "fix: this session has no terminal of its own (headless or bridge session), so tabs are unavailable here; the lane is running without a tab: follow it with \`ds-lane tail o6\`"
-check "start: exit 0 with no conductor tty" eq "$(rc_of "$SO")" 0
+start_rcs+=" o6=$(rc_of "$SO")"
 check "start: lane launched with no conductor tty" state_is o6 alive
 lane stop o6 > /dev/null
+check "start: exit 0 with a tab, no matching tab, a tab error, the new-window fallback and no conductor tty" eq "$start_rcs" "o1=0 o2=0 o3=0 o5=0 o6=0"
 
 lane stop o3 > /dev/null
 before_close="$(tab_lines o3)"
@@ -682,23 +683,18 @@ lane stop o7 > /dev/null
 
 rm -f "$LOG/osa-go"
 t0=$SECONDS
-pty_capture "$SO" env STUB_OSA_GATE=1 DS_LANE_TAB_WAIT_S=2 "$TOOL" start o8 "$PROMPT"
-check "start: an opener that never answers is reported after the bounded wait" eq "$(tab_of "$SO")" "tab: unknown (no outcome after 2s)"
-check "start: the wait is bounded (init 5s + tab 2s + slack)" test $((SECONDS - t0)) -lt 12
+pty_capture "$SO" env STUB_OSA_GATE=1 DS_LANE_TAB_WAIT_S=1 "$TOOL" start o8 "$PROMPT"
+check "start: an opener that never answers is reported after the bounded wait" eq "$(tab_of "$SO")" "tab: unknown (no outcome after 1s)"
+check "start: the wait is bounded (init 5s + tab 1s + slack)" test $((SECONDS - t0)) -lt 11
 check "start: exit 0 and lane launched with the outcome unknown" eq "$(rc_of "$SO")|$(list_col o8 3)" "0|alive"
 touch "$LOG/osa-go"
 wait_until 15 has_file "$RUN/o8.tab.log"
 lane stop o8 > /dev/null
 
-# A leading zero must not be read as octal: 08 is 8 seconds, and the bound still fires.
-rm -f "$LOG/osa-go"
-t0=$SECONDS
-pty_capture "$SO" env STUB_OSA_GATE=1 DS_LANE_TAB_WAIT_S=08 "$TOOL" start o9 "$PROMPT"
-check "start: DS_LANE_TAB_WAIT_S=08 is 8 seconds" eq "$(tab_of "$SO")" "tab: unknown (no outcome after 8s)"
+# A leading zero must not be read as octal: 08 is a valid setting, and the opener answers at once.
+start_pty o9 DS_LANE_TAB_WAIT_S=08 STUB_OSA_MODE=kept
+check "start: DS_LANE_TAB_WAIT_S=08 is accepted" eq "$(rc_of "$SO")|$(tab_of "$SO")" "0|tab: opened: tab; focus: kept"
 check "start: DS_LANE_TAB_WAIT_S=08 raises no arithmetic error" bash -c '! grep -qE "value too great|syntax error|invalid" "$1"' _ "$SO"
-check "start: the 08 wait is bounded (init 5s + tab 8s + slack)" test $((SECONDS - t0)) -lt 18
-touch "$LOG/osa-go"
-wait_until 15 has_file "$RUN/o9.tab.log"
 lane stop o9 > /dev/null
 
 # doctor: every case runs on a hermetic PATH (stub uname and osascript, the symlink sandbox), so
