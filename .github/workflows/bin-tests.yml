@@ -78,9 +78,7 @@ jobs:
         # Serial on purpose, unlike scripts/check-local.sh's pytest-xdist run
         # of the same suite. Under xdist, --timeout-method=thread ends the
         # worker process, so a timed-out test is reported as "worker crashed"
-        # with no stack trace, and test_scenario_27_pep604_guard_all_checks
-        # (which runs every Python file under hooks/) reached the 60 s
-        # timeout that way in 1 of 3 local 8-worker runs.
+        # with no stack trace.
         timeout-minutes: 15
       - name: floor collected test_phase8_telemetry_shell.py count at 20
         # 10 test functions x 2 shells (bash, zsh) = 20 collected IDs (round
