@@ -1531,7 +1531,9 @@ def test_eval_side_in_cli_json_and_its_subprocesses_are_read_only():
     """The real eval path (real evaluate(), real transcript-store lookup, real
     ds-feedback reader, no stub) against a scratch HOME that already holds a
     feedback store and a transcript store: the HOME is byte-for-byte unchanged
-    afterwards and every subprocess is a read-only git command."""
+    afterwards and every subprocess is a read-only git command. PATH holds
+    only git: gh, which the pr_history side would otherwise run, writes its
+    own state under HOME and is not this tool's write."""
     recorded: list[list[str]] = []
     real = _mod._EVAL._LIB._run
 
@@ -1548,10 +1550,14 @@ def test_eval_side_in_cli_json_and_its_subprocesses_are_read_only():
         (home / ".claude" / "projects").mkdir(parents=True)
         _write_jsonl(home / ".agentic" / "feedback.jsonl",
                      [{"id": "a", "repo": str(repo), "scope": "project", "status": "triaged"}])
+        bindir = Path(tmp) / "bin"
+        bindir.mkdir()
+        (bindir / "git").symlink_to(shutil.which("git"))
         before = _tree_snapshot(home)
         out = StringIO()
         saved = (sys.stdout, _mod._EVAL._LIB._run, _mod._EVAL.evaluate, _mod._EVAL._feedback_items,
-                 os.environ.get("HOME"), os.environ.pop("CLAUDE_CONFIG_DIR", None))
+                 os.environ.get("HOME"), os.environ.pop("CLAUDE_CONFIG_DIR", None), os.environ["PATH"])
+        os.environ["PATH"] = str(bindir)
         _mod._EVAL._LIB._run, _mod._EVAL.evaluate = recording, _REAL_EVALUATE
         _mod._EVAL._feedback_items = _REAL_FEEDBACK_ITEMS
         os.environ["HOME"] = str(home)
@@ -1560,7 +1566,7 @@ def test_eval_side_in_cli_json_and_its_subprocesses_are_read_only():
             rc = _mod.main(["--cut", CUT_ISO, "--repo", str(repo), "--json"])
         finally:
             sys.stdout, _mod._EVAL._LIB._run, _mod._EVAL.evaluate, _mod._EVAL._feedback_items = saved[:4]
-            os.environ["HOME"] = saved[4]
+            os.environ["HOME"], os.environ["PATH"] = saved[4], saved[6]
             if saved[5] is not None:
                 os.environ["CLAUDE_CONFIG_DIR"] = saved[5]
         after = _tree_snapshot(home)
