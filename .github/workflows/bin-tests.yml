@@ -17,7 +17,7 @@ permissions:
 # repo having recorded `steps: []` - no step ever ran - and bin-sh-tests was
 # cancelled the same way on main (run 31115638748, sha f81b63c0).
 #
-# So: job-level `timeout-minutes` is a BACKSTOP ONLY (20; 30 on bin-sh-tests,
+# So: job-level `timeout-minutes` is a BACKSTOP ONLY (20; 42 on bin-sh-tests,
 # whose test step is the one long step in this file), and every network
 # install/download step and every test-execution step carries its own
 # `timeout-minutes`, which starts when the step starts and is therefore immune
@@ -164,10 +164,12 @@ jobs:
   # across other dirs (different naming convention, previously unwired anywhere).
   bin-sh-tests:
     runs-on: ubuntu-latest
-    # 30, not the 20 the other two jobs carry: the backstop has to sit above
-    # the "run shell bin tests" step bound below, or it fires first and the
-    # step bound diagnoses nothing. Move the two together.
-    timeout-minutes: 30
+    # 42, not the 20 the other two jobs carry: the backstop has to sit above
+    # the step bounds below, or it fires first and the step bounds diagnose
+    # nothing. Those bounds sum to 41 (2 + 10 + 2 + 2 + 25), plus a minute
+    # for the unbounded checkout and setup-python steps. Move the two
+    # together.
+    timeout-minutes: 42
     env:
       PYTHONUNBUFFERED: '1'
     steps:
@@ -233,7 +235,25 @@ jobs:
           tar -xzf "$tarball" gitleaks
           sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
           gitleaks version
+      - name: build the adapters once (install.sh's own build, skipped below)
+        # The two builds .claude/install.sh runs. Run once here so the shell
+        # tests' installs can skip them; adapter-sync.yml gates the build
+        # output itself.
+        timeout-minutes: 2
+        run: bash .claude/build.sh && bash .cursor/build.sh
       - name: run shell bin tests
+        # AE_INSTALL_SKIP_BUILD=1 makes every .claude/install.sh call in
+        # these tests skip its adapter rebuild, as scripts/check-local.sh
+        # does after its own build. Measured locally on 2026-10-13 by
+        # running this step's loop over the same 81 files both ways: every
+        # file exit 0 with identical PASS-line counts (2009), 1236 s without
+        # the variable and 706 s with it (the build step above included).
+        # .claude/tests/install-converge.test.sh case (n) unsets the
+        # variable for the one install whose build it asserts on. The CI
+        # effect is not yet measured: re-run `bash
+        # scripts/ci-step-durations.sh` once runs with the variable set have
+        # accumulated.
+        #
         # Bounded so a queue-starved or hung step fails as itself rather
         # than consuming the job backstop. Re-derive the current
         # distribution with `bash scripts/ci-step-durations.sh` before
@@ -247,6 +267,8 @@ jobs:
         # the suite grows; a measurement of it has a short shelf life.
         # The job backstop above must stay above this value.
         timeout-minutes: 25
+        env:
+          AE_INSTALL_SKIP_BUILD: '1'
         run: |
           set -e
           # bin/tests/test_codex_hooks_resolve.sh is also run by adapter-sync.yml -
