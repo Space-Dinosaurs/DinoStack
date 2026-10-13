@@ -1,0 +1,1 @@
+description: "Run before upgrading your AI coding harness - checks its pending release notes against DinoStack and patches what they affect."
