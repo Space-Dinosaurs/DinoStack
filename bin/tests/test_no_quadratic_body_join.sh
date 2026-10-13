@@ -6,7 +6,7 @@
 #          concatenation loop (quadratic in the number of body lines) with a
 #          single `"${body_lines[*]}"` IFS join (linear). This test is
 #          deliberately static rather than timing-based: the `bin-sh-tests`
-#          CI job runs under a 20-minute job-level backstop with its own
+#          CI job runs under a 30-minute job-level backstop with its own
 #          test-execution step ("run shell bin tests") separately bounded
 #          (see .github/workflows/bin-tests.yml), and `.codex/build.sh`
 #          alone takes roughly 31s to run - a wall-clock timing assertion

@@ -18,7 +18,8 @@ permissions:
 # cancelled the same way on main (run 31115638748, sha f81b63c0). The suites
 # themselves finish in well under a minute.
 #
-# So: job-level `timeout-minutes` is a BACKSTOP ONLY (20), and every network
+# So: job-level `timeout-minutes` is a BACKSTOP ONLY (20; 30 on bin-sh-tests,
+# whose test step is the one long step in this file), and every network
 # install/download step and every test-execution step carries its own
 # `timeout-minutes`, which starts when the step starts and is therefore immune
 # to acquisition delay. Do not "fix" a queue-starvation cancellation by raising
@@ -160,7 +161,10 @@ jobs:
   # across other dirs (different naming convention, previously unwired anywhere).
   bin-sh-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 30, not the 20 the other two jobs carry: the backstop has to sit above
+    # the "run shell bin tests" step bound below, or it fires first and the
+    # step bound diagnoses nothing. Move the two together.
+    timeout-minutes: 30
     env:
       PYTHONUNBUFFERED: '1'
     steps:
@@ -230,13 +234,17 @@ jobs:
         # Bounded so a queue-starved or hung step fails as itself rather
         # than consuming the job backstop. Re-derive the current
         # distribution with `bash scripts/ci-step-durations.sh` before
-        # changing this value - a prior bound here (8 minutes) was derived
-        # from a single observation and gave only ~4% margin over the true
-        # measured max once a full run of completed executions (n=150,
-        # including failed/cancelled) was collected. 15 minutes keeps real
-        # margin over that measured max while staying well inside the job
-        # backstop above.
-        timeout-minutes: 15
+        # changing this value. Two prior bounds here were each overtaken:
+        # 8 minutes was derived from a single observation, and 15 minutes
+        # was derived from a real distribution that then stopped describing
+        # the step. This loop runs every file serially, so the step's
+        # duration is a sum that grows with each test file added - it
+        # roughly doubled in three weeks with no single file regressing,
+        # until healthy runs with every group passing were killed at 15.
+        # Expect to re-derive this as the suite grows; a measurement of it
+        # has a short shelf life. The job backstop above must stay above
+        # this value.
+        timeout-minutes: 25
         run: |
           set -e
           # bin/tests/test_codex_hooks_resolve.sh is also run by adapter-sync.yml -
