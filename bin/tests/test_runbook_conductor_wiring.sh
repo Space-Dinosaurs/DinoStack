@@ -6,8 +6,9 @@
 #          skeleton carries no /rename line (the rename belongs only to the
 #          post-"conduct" chat output, so runs without cross-session tools
 #          keep today's artifact). Also asserts the "launch" wiring: item 8
-#          names ds-lane, ## Launched lanes names ds-lane start and ds-lane
-#          reap, takes lane file paths from ds-lane path, states the queue
+#          names ds-lane and says so when ds-lane is not on PATH, ## Launched
+#          lanes names ds-lane doctor, ds-lane start and ds-lane reap, relays
+#          the tool's `fix:` lines, takes lane file paths from ds-lane path, states the queue
 #          rebuild rule and has no per-lane "open a new session" print, the State
 #          file Fields line names launched, and bin/ds-lane exists.
 #
@@ -92,17 +93,29 @@ else
   _fail "triage Output item 8 has no launch load-failure line"
 fi
 
+if grep -qF 'ds-lane is not on PATH' <<<"$item8"; then
+  _pass "triage Output item 8 tells the operator when ds-lane is not on PATH"
+else
+  _fail "triage Output item 8 is silent when ds-lane is not on PATH"
+fi
+
 launched="$(awk '/^## Launched lanes$/{in_l=1; next} in_l && /^## /{in_l=0} in_l{print}' "$REF")"
 if [[ -z "$launched" ]]; then
   _fail "$REF_PATH has no ## Launched lanes section"
 else
-  for cmd in 'ds-lane start' 'ds-lane reap'; do
+  for cmd in 'ds-lane doctor' 'ds-lane start' 'ds-lane reap'; do
     if grep -qF "$cmd" <<<"$launched"; then
       _pass "## Launched lanes names $cmd"
     else
       _fail "## Launched lanes does not name $cmd"
     fi
   done
+  tabs="$(grep -F '**Tabs.**' <<<"$launched")"
+  if grep -qF '`fix:`' <<<"$tabs" && grep -qF '`tab:`' <<<"$tabs" && grep -qF 'Operator decision' <<<"$tabs"; then
+    _pass "## Launched lanes Tabs relays ds-lane's fix: lines as an Operator decision"
+  else
+    _fail "## Launched lanes Tabs does not relay ds-lane's fix: lines (a tab that cannot open stays silent)"
+  fi
   firing="$(grep -F '**Firing.**' <<<"$launched")"
   if grep -qF '`dead`' <<<"$firing"; then
     _pass "## Launched lanes Firing surfaces a dead lane"
