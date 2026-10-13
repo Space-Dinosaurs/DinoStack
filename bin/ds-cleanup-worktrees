@@ -2124,10 +2124,7 @@ def _gh_configured_accounts() -> List[Tuple[str, str, bool]]:
     `_pr_state`'s retry loop treats an empty list as "no additional
     accounts to try", not as an error in its own right.
     """
-    try:
-        proc = _run(["gh", "auth", "status", "--json", "hosts"], timeout=_NETWORK_TIMEOUT_SECONDS)
-    except OSError:
-        return []
+    proc = _run(["gh", "auth", "status", "--json", "hosts"], timeout=_NETWORK_TIMEOUT_SECONDS)
     if proc.returncode != 0:
         return []
     try:
@@ -2185,10 +2182,7 @@ def _gh_token_for_login(login: str) -> Optional[str]:
     the DS-217 block above `_gh_configured_accounts` for why this is a
     documented, deliberate limitation rather than a fix candidate here.
     """
-    try:
-        proc = _run(["gh", "auth", "token", "--user", login], timeout=_NETWORK_TIMEOUT_SECONDS)
-    except OSError:
-        return None
+    proc = _run(["gh", "auth", "token", "--user", login], timeout=_NETWORK_TIMEOUT_SECONDS)
     if proc.returncode != 0:
         return None
     token = proc.stdout.strip()

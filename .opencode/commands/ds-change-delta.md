@@ -125,20 +125,28 @@ elapsed".
 - `mix_shifted`: `true` when any entrypoint's session share moved more
   than 10 points (exactly 10 is not a shift); `points` gives each
   entrypoint's movement.
-- `prefix_test` at K = 5, 25 and 100: the first K sessions after the cut
-  against the last K before it. A step change (for example a one-time
-  prompt-prefix removal) shows the same delta at every K; a trend grows
-  with K. Fewer than K sessions on a side is `PARTIAL`. The pooled
+- `prefix_test` at K = 5, 25 and 100: the mean cost per session of the
+  last K sessions before the cut against the first K after it. A step
+  change (for example a one-time prompt-prefix removal) shows the same
+  delta at every K; a trend grows with K. It cannot tell a fixed
+  per-session saving from a per-turn rate change: both lower a session's
+  cost, and the test sees only whole-session cost. Fewer than K sessions
+  on a side is `PARTIAL`. The pooled
   `prefix_test` mixes entrypoints, so when `mix_shifted` is true it
   compares mostly one entrypoint before the cut against another after
   it; `prefix_test_per_entrypoint` runs the same test within each
   entrypoint and is the one to read then.
 
-The `eval` side never calls `gh`, and any failure inside it becomes an
-`ABSENT` `eval` block naming the error, never a non-zero exit. It costs
-two transcript passes: on authentic8 (~270 sessions in the two windows,
-measured 2026-10-12) a run takes 37.5 s with it and 0.77 s with
-`--no-eval`, which skips it and omits the `eval` key.
+A window still running is `PARTIAL` on its own side: the after window of
+a recent cut, and the before window too when `--cut` is in the future.
+The default table prints `n=<before>/<after>` and the `PARTIAL` reasons
+on each `eval` row.
+
+The `eval` side never calls `gh` or `ds-feedback`, and any failure inside
+it becomes an `ABSENT` `eval` block naming the error, never a non-zero
+exit. It costs two transcript passes: tens of seconds on a repo with
+hundreds of sessions in the two windows. `--no-eval` skips it and omits
+the `eval` key.
 
 ## Coverage and status
 
@@ -208,8 +216,9 @@ state. Every subprocess call is one of `git rev-parse --verify`,
 the enforced argv allowlist and a fixture-repo HEAD/status
 byte-identity assertion. The `eval` side runs through `bin/_eval.py`'s
 own reads: `git log`, `git rev-list --count`, `git remote`, the base-ref
-lookups (`git show-ref`, `git symbolic-ref`, `git rev-parse`) and
-`ds-feedback list`, all read-only, and no `gh` call.
+lookups (`git show-ref`, `git symbolic-ref`, `git rev-parse`), all
+read-only, with no `gh` and no `ds-feedback` call. Nothing under the home
+directory is created or changed.
 
 ## Known limitation: PR-history window granularity
 

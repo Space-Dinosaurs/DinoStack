@@ -876,3 +876,20 @@ def test_gh_missing_from_path_degrades_instead_of_raising(tmp_path, monkeypatch)
     report = ev.evaluate([str(repo)], START, END, base="main", use_gh=True, stores=[], rates=RATES)
     assert report["meta"]["gh"] == {str(repo): "unavailable: gh pr list failed"}
     assert report["meta"]["repo_slug"] == {str(repo): "acme/w"}
+
+
+def test_evaluate_leaves_home_untouched_and_use_feedback_false_skips_the_read(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    report = ev.evaluate([str(repo)], START, END, base="main", use_gh=False, rates=RATES)
+    assert report["meta"]["inputs"][str(repo)]["labels"] == 0
+    assert list(home.rglob("*")) == []
+
+    calls = []
+    monkeypatch.setattr(ev, "_feedback_items", lambda r: calls.append(r) or [])
+    skipped = ev.evaluate([str(repo)], START, END, base="main", use_gh=False, rates=RATES, use_feedback=False)
+    assert calls == [] and skipped["meta"]["inputs"][str(repo)]["labels"] is None

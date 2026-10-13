@@ -19,11 +19,15 @@ Purpose: Evaluation engine for the ds-eval telemetry program. Answers "what
 
 Public API:
     evaluate(repos, start, end, *, base=None, ticket_re=None, use_gh=True,
-             stores=None, rates=None, include_sessions=False) -> dict
+             stores=None, rates=None, include_sessions=False,
+             use_feedback=True) -> dict
         Keys: meta, agents, skeptic_rounds, work_items, hooks, cost, mix,
         decisions, gaps, plus `session_rows` (one session_summary() per
         in-window session) when include_sessions is True, so ds-change-delta
         can split a window by entrypoint without a second transcript pass.
+        use_feedback=False skips the `ds-feedback list` read (labels are
+        then absent, as when ds-feedback is unavailable), for a caller that
+        reads no label-derived figure.
         With several repos the sections are computed over the union of their
         inputs (`hooks` pools each hook's rows across
         repos); decisions and gaps are computed per repo and carry a `repo`
@@ -92,13 +96,14 @@ Upstream deps: Python 3 stdlib; bin/_lib.py (resolve_base_branch, _run),
     <repo>/.agentic/tasks.jsonl and ticket-ledger.jsonl (ticket prefixes),
     `git log --first-parent <base>`, `git remote get-url origin`, and,
     `ds-feedback list --status triaged --repo <repo>` (operator fire labels,
-    always read), and, unless use_gh is False, `gh pr list` (open/closed
+    read unless use_feedback is False; a pure read that creates nothing),
+    and, unless use_gh is False, `gh pr list` (open/closed
     state of engineer PRs not shown merged on the base ref).
 
 Downstream consumers: bin/ds-eval (CLI); bin/ds-evaluate (/ds-evaluate's
     signal collection, via bin/ds-eval); bin/ds-change-delta (moved
-    helpers, and its `eval` side: evaluate(include_sessions=True) per
-    window); bin/tests/test_ds_eval.py.
+    helpers, and its `eval` side: evaluate(use_gh=False,
+    use_feedback=False, include_sessions=True) per window); bin/tests/test_ds_eval.py.
 
 Failure modes: never raises on a missing store, file, ref, gh or pricing;
     each degrades to an ABSENT or PARTIAL metric whose `missing` names the
@@ -734,7 +739,8 @@ def _hook_rows(events: list[dict]) -> list[dict]:
     return out
 
 
-def _load_repo(repo: Path, start: datetime, end: datetime, base, ticket_re, use_gh, stores) -> dict:
+def _load_repo(repo: Path, start: datetime, end: datetime, base, ticket_re, use_gh, stores,
+               use_feedback=True) -> dict:
     agentic = repo / ".agentic"
     events = _read_jsonl(agentic / "events.jsonl")
     hook_rows = _hook_rows(events or [])
@@ -764,7 +770,7 @@ def _load_repo(repo: Path, start: datetime, end: datetime, base, ticket_re, use_
         else:
             gh_states = _gh_pr_states(slug)
             gh_status = "ok" if gh_states is not None else "unavailable: gh pr list failed"
-    labels = _feedback_items(str(repo))
+    labels = _feedback_items(str(repo)) if use_feedback else None
     sessions = _TRANSCRIPTS.sessions(repo, start, end, stores)
     return {
         "repo": str(repo), "sessions": sessions, "hook_rows": hook_rows,
@@ -1560,7 +1566,7 @@ def _public(sections: dict) -> dict:
 
 
 def evaluate(repos, start: datetime, end: datetime, *, base=None, ticket_re=None, use_gh=True,
-             stores=None, rates=None, include_sessions=False) -> dict:
+             stores=None, rates=None, include_sessions=False, use_feedback=True) -> dict:
     start = start if start.tzinfo else start.replace(tzinfo=timezone.utc)
     end = end if end.tzinfo else end.replace(tzinfo=timezone.utc)
     if stores is None:
@@ -1573,7 +1579,7 @@ def evaluate(repos, start: datetime, end: datetime, *, base=None, ticket_re=None
         rates, pricing_source = _TELEMETRY.load_rates(include_defaults=True)
     pricing_ok = bool(rates)
     repos = [Path(os.path.abspath(str(r))) for r in repos]
-    inputs = [_load_repo(r, start, end, base, ticket_re, use_gh, stores) for r in repos]
+    inputs = [_load_repo(r, start, end, base, ticket_re, use_gh, stores, use_feedback) for r in repos]
 
     decisions, gaps, per_repo = [], [], []
     for inp in inputs:
