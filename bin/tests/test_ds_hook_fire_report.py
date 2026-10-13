@@ -1109,3 +1109,16 @@ def test_unattributable_rows_after_session_ids_began_are_flagged_unknown(tmp_pat
     assert (live["fire_count_window"], live["window_all_unjoinable"], live["window_predates_session_ids"]) == \
         (3, False, False)
     assert status_cell == "ACTIVE"
+
+
+def test_first_session_id_ts_is_the_earliest_id_bearing_row(tmp_path):
+    """Mutation: take the latest id-bearing row instead - a no-id row written
+    between two id-bearing rows then reads as predating session ids."""
+    no_sid = {"hook": "enforce-fake-abdication", "decision": "deny", "reason": "r"}
+    with_id = {"hook": "enforce-fake-action", "decision": "deny", "reason": "r", "session_id": "s1"}
+    earliest = _stamp(6)
+    report, row, status_cell = _unjoinable_case(
+        tmp_path, [{**with_id, "ts": _stamp(1)}, {**with_id, "ts": earliest}, {**no_sid, "ts": _stamp(3)}])
+    assert report["meta"]["first_session_id_ts"] == earliest
+    assert (row["window_all_unjoinable"], row["window_predates_session_ids"]) == (True, False)
+    assert status_cell == "ACTIVE*"

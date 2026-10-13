@@ -22,11 +22,27 @@ Public API: ds-eval --repo P [P ...] [--since S] [--until U] [--base REF]
             [work_items] lists the --top N (default 10) keyed items by
             priced cost (key, tier, priced usd, summed spawn wall, Skeptic
             rounds, PR outcome) and one summary line; a figure with no
-            input prints `n/a (<reason>)`, never 0. PR outcome reads
-            `merged #N` (in the window or its 7-day lookahead),
-            `merged #N (before window)` / `(after window)` when the base
-            ref shows the merge at another date, else `no merge found`:
-            it never asserts a PR is unmerged. In a multi-repo run an item
+            input prints `n/a (<reason>)`, never 0. PR outcome is the
+            first of these that applies, and never asserts a PR is
+            unmerged:
+              `n/a (no merged-PR history)` - the base ref is unreadable;
+              `merged #N[, K follow-up][, reverted]` - a "(#N)"
+                first-parent commit in the window or its 7-day lookahead
+                that is the item's key PR or carries its ticket id;
+              `merged #N[, merged #M ...]` - the item's own PR(s) in that
+                same set, carrying no ticket id;
+              `merged #N (before window)` / `(after window)` - such a
+                commit on the base ref at another date;
+              `landed without a PR (commit <sha7>[, before window |
+                , after window][, +K more])` - a first-parent commit on
+                the base ref whose subject or body carries the ticket id
+                and whose subject has no "(#N)";
+              `no merge found in window (wider base history unreadable)`
+                - the undated search failed;
+              `no merge found` - none of the above was found on the base
+                ref's first-parent history. A PR that is open, closed, or
+                merged to another branch reads this way too.
+            In a multi-repo run an item
             is prefixed with its repo's owner/name (else its directory
             name). --json always carries every item.
             Exit 0 on any well-formed run, including one whose metrics are
@@ -142,22 +158,39 @@ def _item_cells(r: dict, row: dict) -> tuple:
         rounds = "n/a (no iteration-tagged return)"
     else:
         rounds = "n/a (no skeptic spawn)"
+    return (f"{_item_tag(r, row)}{row['key']}", ",".join(str(t) for t in row["tiers"]), usd, wall, rounds,
+            _pr_outcome(row))
+
+
+def _pr_outcome(row: dict) -> str:
+    """Where the item landed, from the strongest evidence present. It never
+    says "not merged": absence from the base ref's first-parent history is
+    all that was measured."""
     if not row["pr_history"]:
-        outcome = "n/a (no merged-PR history)"
-    elif row["first_merged_pr"] is None and row["merged_outside_window"] is None:
-        outcome = "no merge found in window (wider base history unreadable)"
-    elif row["first_merged_pr"] is None and not row["merged_outside_window"]:
-        outcome = "no merge found"
-    elif row["first_merged_pr"] is None:
-        outcome = ", ".join(f"merged #{pr['number']} ({pr['when']} window)" for pr in row["merged_outside_window"])
-    else:
+        return "n/a (no merged-PR history)"
+    if row["first_merged_pr"] is not None:
         outcome = f"merged #{row['first_merged_pr']}"
         if row["follow_up_prs"]:
             outcome += f", {len(row['follow_up_prs'])} follow-up"
         if row["reverted"]:
             outcome += ", reverted"
-    return (f"{_item_tag(r, row)}{row['key']}", ",".join(str(t) for t in row["tiers"]), usd, wall, rounds,
-            outcome)
+        return outcome
+    if row["own_prs_merged_in_window"]:
+        return ", ".join(f"merged #{n}" for n in row["own_prs_merged_in_window"])
+    if row["merged_outside_window"]:
+        return ", ".join(f"merged #{pr['number']} ({pr['when']} window)" for pr in row["merged_outside_window"])
+    if row["direct_commits"]:
+        commits = row["direct_commits"]
+        shown = next((c for c in reversed(commits) if c["when"] == "in"), commits[-1])
+        detail = f"commit {shown['sha'][:7]}"
+        if shown["when"] != "in":
+            detail += f", {shown['when']} window"
+        if len(commits) > 1:
+            detail += f", +{len(commits) - 1} more"
+        return f"landed without a PR ({detail})"
+    if row["merged_outside_window"] is None:
+        return "no merge found in window (wider base history unreadable)"
+    return "no merge found"
 
 
 def _print_items(r: dict, top: int) -> None:

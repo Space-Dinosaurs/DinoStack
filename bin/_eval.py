@@ -67,14 +67,23 @@ Public API:
         work_items.items rows carry `tiers` (the key tiers of the item's
         spawns), `wall_spawns` (spawns with a wall time; wall_seconds is
         their sum and None when there is none) and `pr_history` (False
-        when the repo has no readable merged-PR history) and
-        `merged_outside_window`: for an item with no merge inside
-        [start, end + 7d), the PRs it names (its key PR, its spawns' own
-        PRs, or a PR carrying its ticket id) that git_pr_merges finds on
-        the base ref at any other date, as [{number, merged_at, when
-        "before"|"after"}]; [] when the search found none; None when the
-        item merged in the window (not searched) or the wider history
-        could not be read. work_items.summary is {items, usd_median,
+        when the repo has no readable merged-PR history), and three
+        fields that say where an item with no `first_merged_pr` landed
+        (none feeds first_merged_pr, pr_numbers, rework or D3):
+        `own_prs_merged_in_window`: its key PR or its spawns' own PR
+        numbers that are in the window's merge set ([start, end + 7d))
+        but are not in pr_numbers (the PR carries no ticket id);
+        `merged_outside_window`: the PRs it names (those numbers, or a
+        "(#N)" commit carrying its ticket id) that git_pr_merges finds
+        on the base ref at any other date, as [{number, merged_at, when
+        "before"|"after"}];
+        `direct_commits`: first-parent commits on the base ref, at any
+        date, whose subject or body carries its ticket id and whose
+        subject has no "(#N)", as [{sha, committed_at, when
+        "in"|"before"|"after"}].
+        The last two are [] when the search found none and None when the
+        item has a first_merged_pr (not searched) or the base ref could
+        not be read. work_items.summary is {items, usd_median,
         wall_seconds_median}, the two medians as metric envelopes.
     session_summary(session, repo) -> dict
         {session_id, repo, first_ts (ISO), entrypoint, model, version,
@@ -93,8 +102,9 @@ Public API:
     git_pr_merges(repo, base, numbers, tickets, pattern) -> list[dict] | None
         One `git log --first-parent --grep` over the whole of `base`:
         commits whose subject ends "(#N)" for an N in `numbers`, or whose
-        subject or body carries one of `tickets`: {number, merged_at, ids}.
-        None when git cannot read the ref.
+        subject or body carries one of `tickets`: {number, sha, merged_at,
+        ids}. `number` is None for a commit whose subject has no "(#N)"
+        (a direct push). None when git cannot read the ref.
     order_decisions(decisions) -> list
         Sorted by (rank_usd is None, -(rank_usd or 0), -evidence.count, rule,
         subject).
@@ -657,7 +667,7 @@ def git_merged_prs(repo, base: str, start: datetime, end: datetime) -> list[dict
 
 
 def git_pr_merges(repo, base: str, numbers, tickets, pattern: re.Pattern) -> list[dict] | None:
-    args = ["git", "log", "--first-parent", "-F", "--format=%cI%x1f%s%x1f%b%x1e"]
+    args = ["git", "log", "--first-parent", "-F", "--format=%H%x1f%cI%x1f%s%x1f%b%x1e"]
     args += [f"--grep=(#{n})" for n in sorted(numbers)] + [f"--grep={t}" for t in sorted(tickets)]
     proc = _LIB._run(args + [base], cwd=str(repo), timeout=60.0)
     if proc.returncode != 0:
@@ -665,16 +675,17 @@ def git_pr_merges(repo, base: str, numbers, tickets, pattern: re.Pattern) -> lis
     out = []
     for chunk in proc.stdout.split("\x1e"):
         parts = chunk.strip("\n").split("\x1f")
-        if len(parts) < 3:
+        if len(parts) < 4:
             continue
-        m = _PR_SUBJECT_RE.search(parts[1])
-        merged_at = _parse_ts(parts[0])
-        if not m or merged_at is None:
+        m = _PR_SUBJECT_RE.search(parts[2])
+        merged_at = _parse_ts(parts[1])
+        if merged_at is None:
             continue
-        ids = [t for t in _ids(pattern, parts[1]) + _ids(pattern, parts[2]) if t in tickets]
-        if int(m.group(1)) in numbers or ids:
-            out.append({"number": int(m.group(1)), "merged_at": merged_at, "ids": ids})
-    out.sort(key=lambda pr: (pr["merged_at"], pr["number"]))
+        number = int(m.group(1)) if m else None
+        ids = [t for t in _ids(pattern, parts[2]) + _ids(pattern, parts[3]) if t in tickets]
+        if number in numbers or ids:
+            out.append({"number": number, "sha": parts[0].strip(), "merged_at": merged_at, "ids": ids})
+    out.sort(key=lambda c: (c["merged_at"], c["sha"]))
     return out
 
 
@@ -1092,30 +1103,39 @@ def _key_spawns(spawns: list[dict], inputs: list[dict]) -> dict:
     return {"agreement": {str(t): v for t, v in agreement.items()}, "tier4_disabled": tier4_disabled}
 
 
-def _merges_outside_window(rows: list[dict], inputs: list[dict], start) -> None:
-    """Fill `merged_outside_window` on each row with no in-window merge, from
-    one git_pr_merges call per repo: an item whose PR merged before the
-    window (or after its lookahead) must not read as never merged."""
+def _landing_evidence(rows: list[dict], inputs: list[dict], start: datetime, end: datetime) -> None:
+    """Where each row with no first_merged_pr landed, so its absence from the
+    ticket-id match never reads as "not merged": its own PRs in the window's
+    merge set, then one git_pr_merges call per repo for PRs merged at another
+    date and for direct pushes carrying its ticket id."""
     for inp in inputs:
         mine = [r for r in rows if r["repo"] == inp["repo"] and r["pr_history"] and r["first_merged_pr"] is None]
         if not mine:
             continue
+        in_window = {pr["number"] for pr in inp["prs"] or []}
+        for r in mine:
+            r["own_prs_merged_in_window"] = sorted(r["_pr_candidates"] & in_window)
         numbers = {n for r in mine for n in r["_pr_candidates"]}
         tickets = {r["ticket"] for r in mine if r["ticket"]}
-        in_window = {pr["number"] for pr in inp["prs"] or []}
         found = git_pr_merges(inp["repo"], inp["base"], numbers, tickets, inp["pattern"]) if inp["base"] else None
+        if found is None:
+            continue
+
+        def when(ts):
+            return "before" if ts < start else "in" if ts < end + LOOKAHEAD else "after"
+
         for r in mine:
-            if found is None:
-                continue
+            hits = [c for c in found if c["number"] in r["_pr_candidates"] or r["ticket"] in c["ids"]]
             r["merged_outside_window"] = [
-                {"number": pr["number"], "merged_at": pr["merged_at"].isoformat(),
-                 "when": "before" if pr["merged_at"] < start else "after"}
-                for pr in found if pr["number"] not in in_window
-                and (pr["number"] in r["_pr_candidates"] or r["ticket"] in pr["ids"])]
+                {"number": c["number"], "merged_at": c["merged_at"].isoformat(), "when": when(c["merged_at"])}
+                for c in hits if c["number"] is not None and c["number"] not in in_window]
+            r["direct_commits"] = [
+                {"sha": c["sha"], "committed_at": c["merged_at"].isoformat(), "when": when(c["merged_at"])}
+                for c in hits if c["number"] is None]
 
 
 def _work_items(spawns: list[dict], inputs: list[dict], returns: list[dict], keying: dict,
-                start: datetime) -> dict:
+                start: datetime, end: datetime) -> dict:
     total = len(spawns)
     tiers = {str(t): sum(1 for sp in spawns if sp["tier"] == t) for t in (1, 2, 3, 4)}
     tiers["unkeyed"] = sum(1 for sp in spawns if sp["tier"] is None)
@@ -1189,9 +1209,10 @@ def _work_items(spawns: list[dict], inputs: list[dict], returns: list[dict], key
             "first_merged_pr": first["number"] if first else None,
             "follow_up_prs": follow_ups, "reverted": reverted,
             "repo_inferred": it["repo_inferred"], "flagged_d3": flagged,
-            "merged_outside_window": None, "_pr_candidates": it["prs"] | it["own_prs"],
+            "own_prs_merged_in_window": [], "merged_outside_window": None, "direct_commits": None,
+            "_pr_candidates": it["prs"] | it["own_prs"],
         })
-    _merges_outside_window(rows, inputs, start)
+    _landing_evidence(rows, inputs, start, end)
     for row in rows:
         del row["_pr_candidates"]
 
@@ -1670,7 +1691,7 @@ def _sections(inputs, rates, start, end) -> tuple[dict, list, list]:
     keying = _key_spawns(spawns, inputs)
     returns = _skeptic_returns(inputs, start, end)
     skeptic = _skeptic_section(returns)
-    work = _work_items(spawns, inputs, returns, keying, start)
+    work = _work_items(spawns, inputs, returns, keying, start, end)
     hooks, round_cap = _hooks_section(inputs, start, end)
     sections = {
         "agents": _agents_section(inputs, spawns, rates, skeptic, work, start, end),

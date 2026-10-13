@@ -720,8 +720,12 @@ def _repo_with_history(tmp_path):
 
 def test_git_merged_prs_reads_first_parent_pr_commits(tmp_path):
     repo = _repo_with_history(tmp_path)
-    assert [(p["number"], p["ids"]) for p in ev.git_pr_merges(repo, "main", {12}, {"AUT-1"}, PATTERN)] == [
-        (10, ["AUT-1"]), (11, ["AUT-1"]), (12, [])]
+    _git(repo, "commit", "--allow-empty", "-q", "-m", "fix(AUT-1): hot fix, direct push",
+         date="2026-10-05T00:00:00Z")
+    found = ev.git_pr_merges(repo, "main", {12}, {"AUT-1"}, PATTERN)
+    assert [(p["number"], p["ids"]) for p in found] == [
+        (10, ["AUT-1"]), (11, ["AUT-1"]), (None, ["AUT-1"]), (12, [])]
+    assert all(len(p["sha"]) == 40 for p in found)
     assert ev.git_pr_merges(repo, "main", {1}, {"AUT-9"}, PATTERN) == []
     assert ev.git_pr_merges(repo, "no-such-ref", {12}, set(), PATTERN) is None
     prs = ev.git_merged_prs(repo, "main", START, END + ev.LOOKAHEAD)
@@ -914,15 +918,19 @@ def test_evaluate_leaves_home_untouched_and_use_feedback_false_skips_the_read(tm
 # ---------------------------------------------------------------------------
 
 
-def _text(monkeypatch, capsys, inputs, top=cli.DEFAULT_TOP, wide=()):
+def _text(monkeypatch, capsys, inputs, top=None, wide=()):
     """(report, text report) for one fixture repo through evaluate() and the
     CLI printer. `wide` is what the undated base-ref search returns: a list
-    of merges, or None for unreadable history."""
+    of commits, or None for unreadable history."""
     calls = []
-    monkeypatch.setattr(ev, "git_pr_merges", lambda *a: calls.append(a) or (None if wide is None else list(wide)))
+    monkeypatch.setattr(ev, "git_pr_merges", lambda *a: calls.append(a) or (None if wide is None else list(wide)),
+                        raising=False)
     monkeypatch.setattr(ev, "_load_repo", lambda r, *a: inputs)
     report = ev.evaluate([inputs["repo"]], START, END, use_gh=False, stores=[], rates=RATES)
-    cli._print_table(report, top)
+    if top is None:
+        cli._print_table(report)
+    else:
+        cli._print_table(report, top)
     report["_wide_calls"] = calls
     return report, capsys.readouterr().out
 
@@ -1113,3 +1121,46 @@ def test_no_keyed_work_items_is_na_never_an_empty_table(monkeypatch, capsys):
     summary = report["work_items"]["summary"]
     assert summary["items"] == 0 and summary["usd_median"]["value"] is None
     assert summary["usd_median"]["status"] == "ABSENT"
+
+
+def test_own_pr_merged_in_window_without_the_ticket_id_reads_as_merged(tmp_path, monkeypatch, capsys):
+    """AUT-3's own PR #99 merges in the window under a subject that never
+    names AUT-3, so the ticket-id match misses it."""
+    prs = _ITEM_PRS + (pr(99, T(4), "feat: a title with no ticket id (#99)"),)
+    report, out = _text(monkeypatch, capsys, _items_fixture(tmp_path, prs))
+    _head, rows = _item_lines(out)
+    assert rows[2][0::5] == ["AUT-3", "merged #99"]
+    row = {r["key"]: r for r in report["work_items"]["items"]["value"]}["AUT-3"]
+    assert (row["own_prs_merged_in_window"], row["first_merged_pr"], row["merged_outside_window"]) == ([99], None, [])
+    assert report["work_items"]["rework"]["value"]["items_merged"] == 1
+
+
+def _direct(sha, when):
+    return {"number": None, "sha": sha * 8, "merged_at": when, "ids": ["AUT-2"]}
+
+
+def test_ticket_landed_by_direct_push_is_not_no_merge_found(tmp_path, monkeypatch, capsys):
+    fixture = _items_fixture(tmp_path, _ITEM_PRS)
+    report, out = _text(monkeypatch, capsys, fixture, wide=[_direct("abcde", T(3))])
+    assert _item_lines(out)[1][3][0::5] == ["AUT-2", "landed without a PR (commit abcdeab)"]
+    row = {r["key"]: r for r in report["work_items"]["items"]["value"]}["AUT-2"]
+    assert row["direct_commits"] == [{"sha": "abcde" * 8, "committed_at": T(3).isoformat(), "when": "in"}]
+    assert (row["merged_outside_window"], row["first_merged_pr"]) == ([], None)
+
+    before = _direct("12345", START - timedelta(days=3))
+    _report, out = _text(monkeypatch, capsys, fixture, wide=[before])
+    assert _item_lines(out)[1][3][5] == "landed without a PR (commit 1234512, before window)"
+    _report, out = _text(monkeypatch, capsys, fixture, wide=[before, _direct("abcde", T(3)),
+                                                              _direct("fffff", END + timedelta(days=30))])
+    assert _item_lines(out)[1][3][5] == "landed without a PR (commit abcdeab, +2 more)"
+    _report, out = _text(monkeypatch, capsys, fixture,
+                         wide=[before, {"number": 300, "merged_at": START - timedelta(days=9), "ids": ["AUT-2"]}])
+    assert _item_lines(out)[1][3][5] == "merged #300 (before window)"
+
+
+def test_a_priced_zero_dollar_item_sorts_before_an_unpriced_one(tmp_path, monkeypatch, capsys):
+    subs = [tr.Sub("u1", "architect", "AUT-1 plan", None, usage(model="no-such-model"), 5.0, []),
+            sub("z1", description="AUT-5 build", output=0)]
+    _report, out = _text(monkeypatch, capsys, inp([session(tmp_path, "s", subs, cost=1.0)], fires=[]))
+    _head, rows = _item_lines(out)
+    assert [(r[0], r[2]) for r in rows[1:]] == [("AUT-5", "$0.00"), ("AUT-1", "n/a (no priced usage)")]

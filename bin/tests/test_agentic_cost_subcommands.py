@@ -642,6 +642,23 @@ def test_agent_tables_keep_wide_token_columns_apart():
     print("PASS test_agent_tables_keep_wide_token_columns_apart")
 
 
+def test_priced_dollar_columns_sit_under_their_own_headers():
+    """Mutation: reverse the dollar columns - every figure lands under another header."""
+    import telemetry_v2_fixtures as fixtures
+    pricing = {"claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_creation": 5.0, "cache_read": 0.2}}
+    toks = fixtures.tokens(input=1000, output=2000, cache_read=1_000_000, cc_5m=100_000, cc_1h=50_000)
+    agg = {"engineer": {"spawns": 2, "wall_seconds": 7.5, "models": {"claude-opus-5-5": toks},
+                        "tokens": {"input": 1000, "output": 2000, "cache_creation": 150_000,
+                                   "cache_read": 1_000_000}}}
+    lines = _mod._render_table(agg, pricing, None, None, 0).splitlines()
+    header, row, total = (dict(zip(_table_cells(lines[0]), _table_cells(line))) for line in lines[:3])
+    for cells in (row, total):
+        assert {k: cells[k] for k in ("$in", "$out", "$cache_cr", "$cache_rd", "$total")} == {
+            "$in": "0.004", "$out": "0.040", "$cache_cr": "0.900", "$cache_rd": "0.200", "$total": "1.144"}, cells
+    assert (row["agent"], row["spawns"], row["tokens"], row["wall(s)"]) == ("engineer", "2", "1153000", "7.5")
+    print("PASS test_priced_dollar_columns_sit_under_their_own_headers")
+
+
 def test_render_table_na_for_zero_tokens():
     """_render_table renders n/a in token columns when agent has all-zero tokens."""
     agg = {
@@ -1055,6 +1072,7 @@ if __name__ == "__main__":
     test_paired_complete_resolves_to_nothing_not_double_counted()
     # post-DS-160 token resolution
     test_hook_spawn_complete_with_resolved_tokens_renders_real_numbers()
+    test_priced_dollar_columns_sit_under_their_own_headers()
     # wide values stay in their own columns
     test_team_and_operator_tables_keep_wide_token_columns_apart()
     test_agent_tables_keep_wide_token_columns_apart()
