@@ -269,8 +269,9 @@ brought you here. It is also not silent - pytest emits
 exit code instead of the summary line. Do not add new `-> int` returners;
 new hook tests should assert.
 
-**A hook test must never write to a real `.agentic/`** - a checkout's or
-`$HOME`'s. When a payload
+## Test isolation: a hook test never writes to a real `.agentic/`
+
+This covers a checkout's `.agentic/` and `$HOME`'s. When a payload
 carries no `cwd`, `log_fire()` falls back to the hook process's own cwd, and
 from a linked worktree that resolves to the PRIMARY checkout - so a test that
 spawns a hook with the caller's cwd and a `cwd`-less payload appends fixture
