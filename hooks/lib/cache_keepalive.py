@@ -126,7 +126,9 @@ Upstream deps: Python 3 stdlib; sibling loop_guard.py (ping literals,
     it; ~/.agentic/agentic-engineering-config.json (repo_dir).
 
 Downstream consumers: hooks/cache-keepalive.py; bin/ds-cache-keepalive-sim
-    imports the constants; hooks/tests/test-cache-keepalive.py.
+    imports the constants; bin/ds-keepalive-wrap imports RESUME_DIR,
+    RESUME_MAX_BYTES and RESUME_RETENTION_DAYS and is the command
+    wrap_command() names; hooks/tests/test-cache-keepalive.py.
 
 Failure modes: never writes. is_active, and so is_enabled, is False when
     bin/ds-status cannot be loaded or raises; with the project active, an

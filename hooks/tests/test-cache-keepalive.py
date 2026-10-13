@@ -309,6 +309,14 @@ def t_cron_status(h):
     assert ck.cron_status([session_start(t), user(t + 1)]) == "absent"
     assert ck.cron_status([user(t + 1)], started_at=t, complete=True) == "absent"
     assert ck.cron_status([user(t + 1)], started_at=t, complete=False) == "unknown"
+    # process_started_at trusts the pid file only when it belongs to this session (a reused pid must not).
+    cfg = tempfile.mkdtemp(dir=SCRATCH)
+    os.makedirs(os.path.join(cfg, "sessions"))
+    json.dump({"sessionId": "SID-A", "startedAt": 1700000000500}, open(os.path.join(cfg, "sessions", "4242.json"), "w"))
+    env = {"CLAUDE_PID": "4242", "CLAUDE_CONFIG_DIR": cfg}
+    assert ck.process_started_at(env, "SID-A") == 1700000000.5
+    assert ck.process_started_at(env, "SID-B") is None
+    assert ck.process_started_at(dict(env, CLAUDE_PID="4243"), "SID-A") is None
 
 
 def t_creation_due(h):
@@ -632,6 +640,8 @@ MUTATIONS = [
      t_hook_ping_actions),
     ("wrap-without-tool", "cache-keepalive.py", "\n                 and os.path.isfile(lib.wrap_tool_path(repo))", "",
      t_hook_ping_actions),
+    ("pid-file-any-session", "lib/cache_keepalive.py", '        if entry.get("sessionId") != session_id:\n',
+     "        if False:\n", t_cron_status),
     ("repeat-delete", "lib/cache_keepalive.py", '    if action == "delete" and state.get("deletes_since_idle"):\n',
      '    if False:\n', t_delete_once),
     ("no-cost-cap", "lib/cache_keepalive.py", 'return ("delete", "cost-capped")', 'pass', t_release_wrap),

@@ -91,7 +91,7 @@ Measurements (Claude Code 2.1.287, haiku 4.5 and opus 5.5 scratch sessions,
         add ~220 context tokens to the next request (t2-transcript-924ea557);
         decision:block prints 5 lines, exit 2 prints 4. A ping prints 3.
     M2 PASS: DERIVATION_RATES match the pricing page for every model
-        (m2-pricing.txt).
+        (its evidence file was lost with the session scratchpad).
     M3 PASS: fire intervals 1201 s and 1199 s at PERIOD_S 1200; the offset
         is min(frac(job id) * 0.5 * period, 30 min) after the cron's next
         match, so up to 10 min (t2-UserPromptSubmit, long1).
@@ -99,7 +99,8 @@ Measurements (Claude Code 2.1.287, haiku 4.5 and opus 5.5 scratch sessions,
         isMeta true, turnOrigin "scheduled" (m4-ping-record.json, the
         tests/fixtures copy).
     M5 PASS: REPL entrypoint cli + SESSION_ATTENDED 1; -p and --resume -p
-        sdk-cli/0; SDK sdk-ts/0; teammate cli/0 (m5-sessionstart.jsonl).
+        sdk-cli/0; SDK sdk-ts/0; teammate cli/0 (evidence file lost with the
+        session scratchpad).
     M6 PASS: a gated ping makes exactly 1 request; Stop hooks do not block.
     M7 PASS (criterion: the job is never hidden; at most one disclosed
         line naming the job and the opt-out; a model may decline). Final
@@ -113,7 +114,8 @@ Measurements (Claude Code 2.1.287, haiku 4.5 and opus 5.5 scratch sessions,
         to hide the job was refused 4/4. Gate-note and no-note branches
         PASS (m7-m7o1, m7-m7o3, t2).
     M8 PASS: gated ping median cache_creation 446, output 39 (n=5); the sim
-        verdict stays keep 7200 (m8.txt).
+        verdict stays keep 7200 (evidence file lost with the session
+        scratchpad).
     M9 PASS: gate absent -> CronDelete + ok, 2 requests, no later fire.
     M11 PASS: next genuine prompt re-creates the cron, 1 extra request.
     M13 PASS: corpus wording and statuses confirmed; in_flight True on a
@@ -130,7 +132,8 @@ Measurements (Claude Code 2.1.287, haiku 4.5 and opus 5.5 scratch sessions,
         text). Haiku failed under the original note text.
     M16 PASS on the final text (m16-f4: next step and the open decision
         restated verbatim, file moved to consumed/, old transcript never
-        read); earlier 2/2 (m16-w18, m16-w22) had "None" decisions.
+        read); earlier 2/2 (m16-w18, m16-w22) had "None" decisions. Not
+        re-run since the kickoff prompt switched to absolute paths.
     Scenario 11 PASS: `claude --resume` loads a wrapped session (f6).
 
 Upstream deps: Python 3.9+ stdlib; hooks/lib/cache_keepalive.py and
