@@ -31,17 +31,20 @@ Public API: ds-eval --repo P [P ...] [--since S] [--until U] [--base REF]
                 that is the item's key PR or carries its ticket id;
               `merged #N[, merged #M ...]` - the item's own PR(s) in that
                 same set, carrying no ticket id;
-              `merged #N (before window)` / `(after window)` - such a
-                commit on the base ref at another date;
-              `landed without a PR (commit <sha7>[, before window |
-                , after window][, +K more])` - a first-parent commit on
-                the base ref whose subject or body carries the ticket id
-                and whose subject has no "(#N)";
+              `merged #N (before window)` / `merged #N (after window)`
+                - a PR commit on the base ref at another date: "(#N)" or
+                `Merge pull request #N from ...`, never one whose subject
+                starts `Revert "`; plain `merged #N` when it is a
+                `Merge pull request #N` commit dated inside the window;
+              `no PR merge found (ticket id mentioned in K base
+                commit(s))` - no such PR commit, but K first-parent
+                commits on the base ref carry the ticket id. A mention is
+                not a landing, and no commit is named;
               `no merge found in window (wider base history unreadable)`
                 - the undated search failed;
-              `no merge found` - none of the above was found on the base
-                ref's first-parent history. A PR that is open, closed, or
-                merged to another branch reads this way too.
+              `no merge found` - the base ref's first-parent history has
+                neither. A PR that is open, closed, or merged to another
+                branch reads this way too.
             In a multi-repo run an item
             is prefixed with its repo's owner/name (else its directory
             name). --json always carries every item.
@@ -178,16 +181,10 @@ def _pr_outcome(row: dict) -> str:
     if row["own_prs_merged_in_window"]:
         return ", ".join(f"merged #{n}" for n in row["own_prs_merged_in_window"])
     if row["merged_outside_window"]:
-        return ", ".join(f"merged #{pr['number']} ({pr['when']} window)" for pr in row["merged_outside_window"])
-    if row["direct_commits"]:
-        commits = row["direct_commits"]
-        shown = next((c for c in reversed(commits) if c["when"] == "in"), commits[-1])
-        detail = f"commit {shown['sha'][:7]}"
-        if shown["when"] != "in":
-            detail += f", {shown['when']} window"
-        if len(commits) > 1:
-            detail += f", +{len(commits) - 1} more"
-        return f"landed without a PR ({detail})"
+        return ", ".join(f"merged #{pr['number']}" + ("" if pr["when"] == "in" else f" ({pr['when']} window)")
+                         for pr in row["merged_outside_window"])
+    if row["ticket_mention_commits"]:
+        return f"no PR merge found (ticket id mentioned in {row['ticket_mention_commits']} base commit(s))"
     if row["merged_outside_window"] is None:
         return "no merge found in window (wider base history unreadable)"
     return "no merge found"

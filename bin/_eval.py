@@ -73,17 +73,21 @@ Public API:
         `own_prs_merged_in_window`: its key PR or its spawns' own PR
         numbers that are in the window's merge set ([start, end + 7d))
         but are not in pr_numbers (the PR carries no ticket id);
-        `merged_outside_window`: the PRs it names (those numbers, or a
-        "(#N)" commit carrying its ticket id) that git_pr_merges finds
-        on the base ref at any other date, as [{number, merged_at, when
-        "before"|"after"}];
-        `direct_commits`: first-parent commits on the base ref, at any
-        date, whose subject or body carries its ticket id and whose
-        subject has no "(#N)", as [{sha, committed_at, when
-        "in"|"before"|"after"}].
-        The last two are [] when the search found none and None when the
-        item has a first_merged_pr (not searched) or the base ref could
-        not be read. work_items.summary is {items, usd_median,
+        `merged_outside_window`: the PR commits it names (those
+        numbers, or a PR commit carrying its ticket id) that
+        git_pr_merges finds on the base ref and that are not in the
+        window's merge set, as [{number, merged_at, when
+        "before"|"in"|"after"}]. `when` is "in" only for a
+        `Merge pull request #N from ...` commit dated inside the
+        window, a subject form the window's own merge set does not
+        parse. A commit whose subject starts `Revert "` is never
+        counted here;
+        `ticket_mention_commits`: how many other first-parent commits
+        on the base ref, at any date, carry its ticket id in subject or
+        body (a count only: a mention is not a landing).
+        The last two are [] and 0 when the search found none, and None
+        when the item has a first_merged_pr (not searched) or the base
+        ref could not be read. work_items.summary is {items, usd_median,
         wall_seconds_median}, the two medians as metric envelopes.
     session_summary(session, repo) -> dict
         {session_id, repo, first_ts (ISO), entrypoint, model, version,
@@ -101,10 +105,11 @@ Public API:
         revert_subject}. None when git cannot read the ref.
     git_pr_merges(repo, base, numbers, tickets, pattern) -> list[dict] | None
         One `git log --first-parent --grep` over the whole of `base`:
-        commits whose subject ends "(#N)" for an N in `numbers`, or whose
-        subject or body carries one of `tickets`: {number, sha, merged_at,
-        ids}. `number` is None for a commit whose subject has no "(#N)"
-        (a direct push). None when git cannot read the ref.
+        commits whose subject ends "(#N)" or reads
+        `Merge pull request #N from ...` for an N in `numbers`, or whose
+        subject or body carries one of `tickets`: {number, subject,
+        merged_at, ids}. `number` is None for any other subject. None
+        when git cannot read the ref.
     order_decisions(decisions) -> list
         Sorted by (rank_usd is None, -(rank_usd or 0), -evidence.count, rule,
         subject).
@@ -207,6 +212,7 @@ SECTIONS = ("agents", "skeptic_rounds", "work_items", "hooks", "cost", "mix", "d
 
 _PR_SUBJECT_RE = re.compile(r"\(#(\d+)\)\s*$")
 _REVERT_SUBJECT_RE = re.compile(r'^Revert "(.*)"\s*$')
+_MERGE_COMMIT_SUBJECT_RE = re.compile(r"^Merge pull request #(\d+) from ")
 _REVERTS_BODY_RE = re.compile(r"This reverts commit ([0-9a-f]{7,40})")
 _SLUG_RE = re.compile(r"github\.com[:/]+([^/\s]+/[^/\s]+?)(?:\.git)?/?$")
 _PREFIX_RE = re.compile(r"^([A-Z][A-Z0-9]+)-\d+")
@@ -667,25 +673,28 @@ def git_merged_prs(repo, base: str, start: datetime, end: datetime) -> list[dict
 
 
 def git_pr_merges(repo, base: str, numbers, tickets, pattern: re.Pattern) -> list[dict] | None:
-    args = ["git", "log", "--first-parent", "-F", "--format=%H%x1f%cI%x1f%s%x1f%b%x1e"]
-    args += [f"--grep=(#{n})" for n in sorted(numbers)] + [f"--grep={t}" for t in sorted(tickets)]
+    args = ["git", "log", "--first-parent", "-F", "--format=%cI%x1f%s%x1f%b%x1e"]
+    for n in sorted(numbers):
+        args += [f"--grep=(#{n})", f"--grep=Merge pull request #{n} from "]
+    args += [f"--grep={t}" for t in sorted(tickets)]
     proc = _LIB._run(args + [base], cwd=str(repo), timeout=60.0)
     if proc.returncode != 0:
         return None
     out = []
     for chunk in proc.stdout.split("\x1e"):
         parts = chunk.strip("\n").split("\x1f")
-        if len(parts) < 4:
+        if len(parts) < 3:
             continue
-        m = _PR_SUBJECT_RE.search(parts[2])
-        merged_at = _parse_ts(parts[1])
+        subject = parts[1]
+        m = _PR_SUBJECT_RE.search(subject) or _MERGE_COMMIT_SUBJECT_RE.match(subject)
+        merged_at = _parse_ts(parts[0])
         if merged_at is None:
             continue
         number = int(m.group(1)) if m else None
-        ids = [t for t in _ids(pattern, parts[2]) + _ids(pattern, parts[3]) if t in tickets]
+        ids = [t for t in _ids(pattern, subject) + _ids(pattern, parts[2]) if t in tickets]
         if number in numbers or ids:
-            out.append({"number": number, "sha": parts[0].strip(), "merged_at": merged_at, "ids": ids})
-    out.sort(key=lambda c: (c["merged_at"], c["sha"]))
+            out.append({"number": number, "subject": subject, "merged_at": merged_at, "ids": ids})
+    out.sort(key=lambda c: (c["merged_at"], c["subject"]))
     return out
 
 
@@ -1106,8 +1115,8 @@ def _key_spawns(spawns: list[dict], inputs: list[dict]) -> dict:
 def _landing_evidence(rows: list[dict], inputs: list[dict], start: datetime, end: datetime) -> None:
     """Where each row with no first_merged_pr landed, so its absence from the
     ticket-id match never reads as "not merged": its own PRs in the window's
-    merge set, then one git_pr_merges call per repo for PRs merged at another
-    date and for direct pushes carrying its ticket id."""
+    merge set, then one git_pr_merges call per repo for PR commits outside
+    that set and a count of other commits mentioning its ticket id."""
     for inp in inputs:
         mine = [r for r in rows if r["repo"] == inp["repo"] and r["pr_history"] and r["first_merged_pr"] is None]
         if not mine:
@@ -1126,12 +1135,12 @@ def _landing_evidence(rows: list[dict], inputs: list[dict], start: datetime, end
 
         for r in mine:
             hits = [c for c in found if c["number"] in r["_pr_candidates"] or r["ticket"] in c["ids"]]
+            merges = [c for c in hits if c["number"] is not None and c["number"] not in in_window
+                      and not c["subject"].startswith('Revert "')]
             r["merged_outside_window"] = [
                 {"number": c["number"], "merged_at": c["merged_at"].isoformat(), "when": when(c["merged_at"])}
-                for c in hits if c["number"] is not None and c["number"] not in in_window]
-            r["direct_commits"] = [
-                {"sha": c["sha"], "committed_at": c["merged_at"].isoformat(), "when": when(c["merged_at"])}
-                for c in hits if c["number"] is None]
+                for c in merges]
+            r["ticket_mention_commits"] = sum(1 for c in hits if r["ticket"] in c["ids"] and c not in merges)
 
 
 def _work_items(spawns: list[dict], inputs: list[dict], returns: list[dict], keying: dict,
@@ -1209,7 +1218,7 @@ def _work_items(spawns: list[dict], inputs: list[dict], returns: list[dict], key
             "first_merged_pr": first["number"] if first else None,
             "follow_up_prs": follow_ups, "reverted": reverted,
             "repo_inferred": it["repo_inferred"], "flagged_d3": flagged,
-            "own_prs_merged_in_window": [], "merged_outside_window": None, "direct_commits": None,
+            "own_prs_merged_in_window": [], "merged_outside_window": None, "ticket_mention_commits": None,
             "_pr_candidates": it["prs"] | it["own_prs"],
         })
     _landing_evidence(rows, inputs, start, end)

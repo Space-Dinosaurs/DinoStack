@@ -720,12 +720,11 @@ def _repo_with_history(tmp_path):
 
 def test_git_merged_prs_reads_first_parent_pr_commits(tmp_path):
     repo = _repo_with_history(tmp_path)
-    _git(repo, "commit", "--allow-empty", "-q", "-m", "fix(AUT-1): hot fix, direct push",
+    _git(repo, "commit", "--allow-empty", "-q", "-m", "Merge pull request #5 from acme/feat\n\nAUT-1 follow-up",
          date="2026-10-05T00:00:00Z")
-    found = ev.git_pr_merges(repo, "main", {12}, {"AUT-1"}, PATTERN)
+    found = ev.git_pr_merges(repo, "main", {5, 12}, {"AUT-1"}, PATTERN)
     assert [(p["number"], p["ids"]) for p in found] == [
-        (10, ["AUT-1"]), (11, ["AUT-1"]), (None, ["AUT-1"]), (12, [])]
-    assert all(len(p["sha"]) == 40 for p in found)
+        (10, ["AUT-1"]), (11, ["AUT-1"]), (5, ["AUT-1"]), (12, [])]
     assert ev.git_pr_merges(repo, "main", {1}, {"AUT-9"}, PATTERN) == []
     assert ev.git_pr_merges(repo, "no-such-ref", {12}, set(), PATTERN) is None
     prs = ev.git_merged_prs(repo, "main", START, END + ev.LOOKAHEAD)
@@ -1042,9 +1041,9 @@ def test_work_items_block_lists_top_items_with_absent_figures_as_na(tmp_path, mo
 def test_pr_merged_outside_the_window_is_reported_as_merged(tmp_path, monkeypatch, capsys):
     """One undated base-ref search covers every item with no in-window merge:
     AUT-3 by its own PR number, AUT-2 by its ticket id."""
-    wide = [{"number": 99, "merged_at": START - timedelta(days=4), "ids": []},
-            {"number": 7, "merged_at": T(3), "ids": ["AUT-2"]},
-            {"number": 300, "merged_at": END + timedelta(days=20), "ids": ["AUT-2"]}]
+    wide = [{"number": 99, "subject": "feat: x (#99)", "merged_at": START - timedelta(days=4), "ids": []},
+            {"number": 7, "subject": "feat: AUT-1 thing (#7)", "merged_at": T(3), "ids": ["AUT-2"]},
+            {"number": 300, "subject": "fix: AUT-2 y (#300)", "merged_at": END + timedelta(days=20), "ids": ["AUT-2"]}]
     report, out = _text(monkeypatch, capsys, _items_fixture(tmp_path, _ITEM_PRS), wide=wide)
     _head, rows = _item_lines(out)
     assert rows[2][0::5] == ["AUT-3", "merged #99 (before window)"]
@@ -1135,27 +1134,31 @@ def test_own_pr_merged_in_window_without_the_ticket_id_reads_as_merged(tmp_path,
     assert report["work_items"]["rework"]["value"]["items_merged"] == 1
 
 
-def _direct(sha, when):
-    return {"number": None, "sha": sha * 8, "merged_at": when, "ids": ["AUT-2"]}
-
-
-def test_ticket_landed_by_direct_push_is_not_no_merge_found(tmp_path, monkeypatch, capsys):
-    fixture = _items_fixture(tmp_path, _ITEM_PRS)
-    report, out = _text(monkeypatch, capsys, fixture, wide=[_direct("abcde", T(3))])
-    assert _item_lines(out)[1][3][0::5] == ["AUT-2", "landed without a PR (commit abcdeab)"]
+def test_ticket_mentions_without_a_pr_merge_are_counted_not_called_a_landing(tmp_path, monkeypatch, capsys):
+    wide = [{"number": None, "subject": "Follow-up to AUT-2", "merged_at": T(3), "ids": ["AUT-2"]},
+            {"number": None, "subject": "chore: tidy", "merged_at": T(4), "ids": ["AUT-2"]}]
+    report, out = _text(monkeypatch, capsys, _items_fixture(tmp_path, _ITEM_PRS), wide=wide)
+    assert _item_lines(out)[1][3][0::5] == ["AUT-2", "no PR merge found (ticket id mentioned in 2 base commit(s))"]
     row = {r["key"]: r for r in report["work_items"]["items"]["value"]}["AUT-2"]
-    assert row["direct_commits"] == [{"sha": "abcde" * 8, "committed_at": T(3).isoformat(), "when": "in"}]
-    assert (row["merged_outside_window"], row["first_merged_pr"]) == ([], None)
+    assert (row["ticket_mention_commits"], row["merged_outside_window"]) == (2, [])
+    assert "landed" not in out
 
-    before = _direct("12345", START - timedelta(days=3))
-    _report, out = _text(monkeypatch, capsys, fixture, wide=[before])
-    assert _item_lines(out)[1][3][5] == "landed without a PR (commit 1234512, before window)"
-    _report, out = _text(monkeypatch, capsys, fixture, wide=[before, _direct("abcde", T(3)),
-                                                              _direct("fffff", END + timedelta(days=30))])
-    assert _item_lines(out)[1][3][5] == "landed without a PR (commit abcdeab, +2 more)"
-    _report, out = _text(monkeypatch, capsys, fixture,
-                         wide=[before, {"number": 300, "merged_at": START - timedelta(days=9), "ids": ["AUT-2"]}])
-    assert _item_lines(out)[1][3][5] == "merged #300 (before window)"
+
+def test_a_revert_commit_is_not_merge_evidence(tmp_path, monkeypatch, capsys):
+    wide = [{"number": 8, "subject": 'Revert "feat: AUT-2 thing" (#8)', "merged_at": START - timedelta(days=2),
+             "ids": ["AUT-2"]}]
+    report, out = _text(monkeypatch, capsys, _items_fixture(tmp_path, _ITEM_PRS), wide=wide)
+    assert _item_lines(out)[1][3][5] == "no PR merge found (ticket id mentioned in 1 base commit(s))"
+    row = {r["key"]: r for r in report["work_items"]["items"]["value"]}["AUT-2"]
+    assert row["merged_outside_window"] == []
+
+
+def test_a_pr_created_in_another_repo_is_not_the_items_own(tmp_path, monkeypatch, capsys):
+    foreign = sub("f1", description="AUT-4 build", prs=[("other/repo", 99, T(2, 6))])
+    prs = _ITEM_PRS + (pr(99, T(4), "feat: a title with no ticket id (#99)"),)
+    report, _out = _text(monkeypatch, capsys, _items_fixture(tmp_path, prs, extra=[foreign]))
+    row = {r["key"]: r for r in report["work_items"]["items"]["value"]}["AUT-4"]
+    assert row["own_prs_merged_in_window"] == []
 
 
 def test_a_priced_zero_dollar_item_sorts_before_an_unpriced_one(tmp_path, monkeypatch, capsys):
