@@ -16,7 +16,8 @@ Purpose: Inspect global dinostack install health and (with --fix)
          _config_dir()'s KNOWN LIMIT paragraph.
          Checks that managed symlinks under <config_dir> resolve
          into the canonical repo_dir, that ~/.local/bin/ wrappers exist for
-         each bin/{agentic-,ds-}* script (BIN_TOOL_PREFIXES), that no stale
+         each bin/{agentic-,ds-}* script (BIN_TOOL_PREFIXES), that ~/.local/bin
+         is on PATH (WARN only, never repaired: check_local_bin_on_path), that no stale
          ~/.local/bin symlink points at a since-removed repo_dir/bin script
          (reverse direction), that hook commands in ~/.claude/settings.json
          point into repo_dir, that every managed hook script referenced in
@@ -1112,6 +1113,27 @@ def _check_bin_link(doc: Doctor, link: Path, expected_target: Path) -> None:
     else:
         t = str(resolved) if resolved else f"{raw} (broken)"
         doc.skip("local_bin", link, f"not ours - target {t} exists outside repo_dir")
+
+
+def check_local_bin_on_path(doc: Doctor) -> None:
+    """WARN when ~/.local/bin is not on PATH: every wrapper link can be correct
+    while no `ds-*` command resolves by name (a session then never offers
+    `ds-lane` launch and says nothing). Never repaired, in --fix or otherwise:
+    PATH is set in the operator's shell profile.
+    """
+    local_bin = _local_bin()
+    target = os.path.realpath(local_bin)
+    entries = [e for e in os.environ.get("PATH", "").split(os.pathsep) if e]
+    if any(os.path.realpath(e) == target for e in entries):
+        doc.ok("local_bin_path", f"{local_bin} is on PATH")
+        return
+    doc.warn(
+        "local_bin_path",
+        f"{local_bin} is not on PATH, so no ds-* command resolves by name: add "
+        'this line to your shell profile (~/.zshrc for zsh, the macOS default; ~/.bash_profile for bash) and start a new '
+        'terminal: export PATH="$HOME/.local/bin:$PATH" (ds-doctor does not edit '
+        "shell profiles, in --fix or otherwise)",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2608,6 +2630,9 @@ def main() -> int:
 
     # (e) ~/.local/bin wrappers
     check_local_bin_symlinks(doc)
+
+    # (e1) ~/.local/bin itself is on PATH
+    check_local_bin_on_path(doc)
 
     # (e2) reverse direction: stale ~/.local/bin symlinks into a now-missing
     # repo_dir/bin script

@@ -137,6 +137,9 @@ case "${STUB_OSA_MODE:-kept}" in
   close-busy) echo "busy" ;;
   close-notfront) echo "notfront" ;;
   fail) echo "execution error: stub refused (-1743)" >&2; echo "second line" >&2; exit 1 ;;
+  fail-other) echo "execution error: stub syntax error (-2741)" >&2; exit 1 ;;
+  # A previous watch tab's closer appends to the same tab log while this open is still running.
+  close-first) echo "close skipped: tab busy" >> "$STUB_TAB_LOG"; sleep 1; echo "ok|tab|0|42|$4|Terminal|42|$4|Terminal|$4|$4" ;;
 esac
 EOF
 chmod +x "$OSA_DIR/osascript"
@@ -205,7 +208,7 @@ open_in_pty() { # open_in_pty <name> [env assignments...]
 
 # --- R1/R2: help and literal hygiene ---
 help_cmds="$("$TOOL" help | awk '/^  [a-z]/ { print $1 }' | tr '\n' ' ')"
-check "help lists all 14 commands" eq "$help_cmds" "start send close reap resume list tail watch open open-all stop resume-hint count path "
+check "help lists all 15 commands" eq "$help_cmds" "start send close reap resume list tail watch open open-all stop resume-hint count path doctor "
 check "no host-specific literal in bin/ds-lane (R2)" bash -c '! grep -nE "/Users/|claude-moment8|authentic8" "$1"' _ "$TOOL"
 
 # --- input validation and repo resolution ---
@@ -346,8 +349,10 @@ check "unresolvable mode wrote no files" test ! -e "$RUN/m4.meta"
 # The tty is resolved by `start` in the foreground and handed to the detached opener; the stub
 # osascript is gated so it only answers after `start` has exited and its pty is gone.
 rm -f "$LOG"/osa-*
-run_in_pty "$TMP/pty1.out" env STUB_OSA_GATE=1 /bin/sh -c 'tty > "$1"; exec "$2" start t1 "$3"' sh "$TMP/pty1.tty" "$TOOL" "$PROMPT"
+run_in_pty "$TMP/pty1.out" env STUB_OSA_GATE=1 DS_LANE_TAB_WAIT_S=1 /bin/sh -c 'tty > "$1"; exec "$2" start t1 "$3"' sh "$TMP/pty1.tty" "$TOOL" "$PROMPT"
 check "start in a pty returned before the opener finished" test ! -e "$RUN/t1.tab.log"
+check "start gives up on the tab outcome after DS_LANE_TAB_WAIT_S" contains "$(cat "$TMP/pty1.out")" "tab: unknown (no outcome after 1s)"
+check "an unknown tab outcome names the tab log and the tab-less path" contains "$(cat "$TMP/pty1.out")" "fix: the tab opener has not finished (if macOS is showing a permission dialog, answer Allow). Its result will be the last line of $RUN/t1.tab.log, and \`ds-lane open t1\` retries it; meanwhile the lane is running without a tab: follow it with \`ds-lane tail t1\`"
 touch "$LOG/osa-go"
 check "opener recorded an outcome" wait_until 10 has_file "$RUN/t1.tab.log"
 pty_tty="$(cat "$TMP/pty1.tty")"
@@ -449,6 +454,7 @@ open_in_pty t1 STUB_OSA_MODE=nomatch
 check "tab.log: no matching tab" tab_line_is t1 "tab skipped: no matching tab"
 open_in_pty t1 STUB_OSA_MODE=fail
 check "tab.log: osascript exit 1" tab_line_is t1 "tab error: execution error: stub refused (-1743); focus: unknown"
+check "open prints the Automation fix for an authorization error" contains "$(cat "$TMP/open.out")" "fix: macOS blocked the Apple event. Open System Settings > Privacy & Security > Automation, find the app this session runs in and allow it to control Terminal and System Events. If no entry is listed, run \`ds-lane open t1\` once and answer Allow when macOS asks."
 
 SANDBOX="$TMP/sandbox-bin"
 mkdir -p "$SANDBOX"
@@ -561,6 +567,229 @@ else
   echo "SKIP: zsh not found; zsh half of the tab-command parity case not run"
 fi
 (cd "$PRIMARY" && DS_LANE_RUN_DIR="$TMP/run dir" "$TOOL" stop t2 > /dev/null)
+
+# --- tab outcome and fix printed by start/resume; doctor ---
+ENV_BIN="$(command -v env)"
+PY3="$(command -v python3)"
+# Runs <command...> in a pty; stdout+stderr go to <outfile>, the exit status to <outfile>.rc.
+pty_capture() { # pty_capture <outfile> <command...>
+  local out="$1"; shift
+  rm -f "$out" "$out.rc"
+  run_in_pty "$TMP/pty.scratch" /bin/sh -c 'out="$1"; shift; "$@" > "$out" 2>&1; echo $? > "$out.rc"' sh "$out" "$@"
+}
+# Runs <command...> with no terminal on any ancestor (an orphan in its own session), cwd the
+# primary checkout; same outputs as pty_capture.
+cat > "$TMP/orphan.py" << 'PY'
+import os, sys, time
+cwd, out = sys.argv[1:3]
+argv = sys.argv[3:]
+if os.fork():
+    os.wait()
+    sys.exit(0)
+os.setsid()
+middle = os.getpid()
+if os.fork():
+    os._exit(0)
+for _ in range(100):
+    if os.getppid() != middle:
+        break
+    time.sleep(0.05)
+os.chdir(cwd)
+fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+os.dup2(os.open(os.devnull, os.O_RDONLY), 0)
+os.dup2(fd, 1)
+os.dup2(fd, 2)
+pid = os.fork()
+if pid == 0:
+    os.execv(argv[0], argv)
+_, st = os.waitpid(pid, 0)
+with open(out + ".rc.tmp", "w") as f:
+    f.write("%d\n" % (st >> 8))
+os.rename(out + ".rc.tmp", out + ".rc")
+PY
+orphan_capture() { # orphan_capture <outfile> <absolute command...>
+  local out="$1"; shift
+  rm -f "$out" "$out.rc"
+  "$PY3" "$TMP/orphan.py" "$PRIMARY" "$out" "$@"
+  wait_until 30 test -s "$out.rc"
+}
+tab_of() { grep '^tab: ' "$1"; }
+fix_of() { grep '^fix: ' "$1"; }
+no_fix() { ! grep -q '^fix: ' "$1"; }
+rc_of() { cat "$1.rc" 2> /dev/null; }
+
+check "the test PATH resolves osascript to the stub, never the real one" eq "$(command -v osascript)" "$OSA_DIR/osascript"
+
+SO="$TMP/start.out"
+start_pty() { # start_pty <name> [env assignments...]
+  local name="$1"; shift
+  pty_capture "$SO" env DS_LANE_TAB_WAIT_S=10 "$@" "$TOOL" start "$name" "$PROMPT"
+}
+
+start_pty o1 STUB_OSA_MODE=kept
+check "start: tab opened with focus kept" eq "$(tab_of "$SO")" "tab: opened: tab; focus: kept"
+check "start: no fix line when the tab opened with focus kept" no_fix "$SO"
+check "start: still prints the lane pid first" eq "$(head -n1 "$SO")" "$(cat "$RUN/o1.pid")"
+check "start: exit 0 with a tab" eq "$(rc_of "$SO")" 0
+lane stop o1 > /dev/null
+out="$(lane resume o1 2>&1)"; rc=$?
+check "resume: prints the tab line too" contains "$out" "tab: disabled (DS_LANE_NO_TAB=1)"
+lane stop o1 > /dev/null
+
+start_pty o2 STUB_OSA_MODE=nomatch
+check "start: no matching tab" eq "$(tab_of "$SO")" "tab: tab skipped: no matching tab"
+check "start: no matching tab -> run the conductor in Terminal.app or go tab-less" contains "$(fix_of "$SO")" "Run the conductor directly in Terminal.app (not another terminal app, an IDE terminal, tmux or SSH) to get tabs; until then the lane is running without a tab: follow it with \`ds-lane tail o2\`, and set DS_LANE_NO_TAB=1 to skip tabs."
+check "start: exit 0 with no matching tab" eq "$(rc_of "$SO")" 0
+check "start: lane launched with no matching tab" state_is o2 alive
+lane stop o2 > /dev/null
+
+start_pty o3 STUB_OSA_MODE=fail
+check "start: authorization error" eq "$(tab_of "$SO")" "tab: tab error: execution error: stub refused (-1743); focus: unknown"
+check "start: authorization error -> Automation settings path" contains "$(fix_of "$SO")" "fix: macOS blocked the Apple event. Open System Settings > Privacy & Security > Automation, find the app this session runs in and allow it to control Terminal and System Events. If no entry is listed, run \`ds-lane open o3\` once and answer Allow when macOS asks. Until then the lane is running without a tab: follow it with \`ds-lane tail o3\`"
+check "start: exit 0 on a tab error" eq "$(rc_of "$SO")" 0
+check "start: lane launched despite the tab error" state_is o3 alive
+lane stop o3 > /dev/null
+
+start_pty o4 STUB_OSA_MODE=fail-other
+check "start: other osascript error" eq "$(tab_of "$SO")" "tab: tab error: execution error: stub syntax error (-2741); focus: unknown"
+check "start: other osascript error -> retry, not the consent wording" contains "$(fix_of "$SO")" "fix: the tab opener failed with the message above. Retry with \`ds-lane open o4\`"
+lane stop o4 > /dev/null
+
+start_pty o5 STUB_OSA_MODE=guard
+check "start: new-window fallback" eq "$(tab_of "$SO")" "tab: opened: window; tab misplaced (new window, no new tab found); focus: kept"
+check "start: new-window fallback -> Accessibility settings path" contains "$(fix_of "$SO")" "Open System Settings > Privacy & Security > Accessibility and turn on the app this session runs in; if it is not listed, add it with the + button. Later lanes then open as tabs."
+check "start: exit 0 on the new-window fallback" eq "$(rc_of "$SO")" 0
+lane stop o5 > /dev/null
+
+orphan_capture "$SO" "$ENV_BIN" -u DS_LANE_NO_TAB "$TOOL" start o6 "$PROMPT"
+check "start: no conductor tty" eq "$(tab_of "$SO")" "tab: tab skipped: no conductor tty"
+check "start: no conductor tty -> headless session, use ds-lane tail" contains "$(fix_of "$SO")" "fix: this session has no terminal of its own (headless or bridge session), so tabs are unavailable here; the lane is running without a tab: follow it with \`ds-lane tail o6\`"
+check "start: exit 0 with no conductor tty" eq "$(rc_of "$SO")" 0
+check "start: lane launched with no conductor tty" state_is o6 alive
+lane stop o6 > /dev/null
+
+lane stop o3 > /dev/null
+before_close="$(tab_lines o3)"
+pty_capture "$SO" env DS_LANE_TAB_WAIT_S=10 STUB_OSA_MODE=close-first STUB_TAB_LOG="$RUN/o3.tab.log" "$TOOL" resume o3
+check "the stub wrote a close line before the open outcome" eq "$(tail -n "+$((before_close + 1))" "$RUN/o3.tab.log" | head -n1)" "close skipped: tab busy"
+check "resume: a close line from the previous watch tab is not reported as the outcome" eq "$(tab_of "$SO")" "tab: opened: tab; focus: kept"
+lane stop o3 > /dev/null
+
+out="$(lane start o7 "$PROMPT" 2>&1)"; rc=$?
+check "start: DS_LANE_NO_TAB=1 says tabs are disabled" eq "$(printf '%s\n' "$out" | grep '^tab: ')" "tab: disabled (DS_LANE_NO_TAB=1)"
+check "start: DS_LANE_NO_TAB=1 prints no fix and exits 0" eq "$rc|$(printf '%s\n' "$out" | grep -c '^fix: ')" "0|0"
+lane stop o7 > /dev/null
+
+rm -f "$LOG/osa-go"
+t0=$SECONDS
+pty_capture "$SO" env STUB_OSA_GATE=1 DS_LANE_TAB_WAIT_S=2 "$TOOL" start o8 "$PROMPT"
+check "start: an opener that never answers is reported after the bounded wait" eq "$(tab_of "$SO")" "tab: unknown (no outcome after 2s)"
+check "start: the wait is bounded (init 5s + tab 2s + slack)" test $((SECONDS - t0)) -lt 12
+check "start: exit 0 and lane launched with the outcome unknown" eq "$(rc_of "$SO")|$(list_col o8 3)" "0|alive"
+touch "$LOG/osa-go"
+wait_until 15 has_file "$RUN/o8.tab.log"
+lane stop o8 > /dev/null
+
+# A leading zero must not be read as octal: 08 is 8 seconds, and the bound still fires.
+rm -f "$LOG/osa-go"
+t0=$SECONDS
+pty_capture "$SO" env STUB_OSA_GATE=1 DS_LANE_TAB_WAIT_S=08 "$TOOL" start o9 "$PROMPT"
+check "start: DS_LANE_TAB_WAIT_S=08 is 8 seconds" eq "$(tab_of "$SO")" "tab: unknown (no outcome after 8s)"
+check "start: DS_LANE_TAB_WAIT_S=08 raises no arithmetic error" bash -c '! grep -qE "value too great|syntax error|invalid" "$1"' _ "$SO"
+check "start: the 08 wait is bounded (init 5s + tab 8s + slack)" test $((SECONDS - t0)) -lt 18
+touch "$LOG/osa-go"
+wait_until 15 has_file "$RUN/o9.tab.log"
+lane stop o9 > /dev/null
+
+# doctor: every case runs on a hermetic PATH (stub uname and osascript, the symlink sandbox), so
+# neither the host's tools nor its real osascript are reachable.
+FAKEHOME="$TMP/home"
+DOCBIN="$TMP/docbin"
+mkdir -p "$FAKEHOME/.local/bin" "$TMP/home-nolink/.local/bin" "$DOCBIN"
+ln -s "$TOOL" "$FAKEHOME/.local/bin/ds-lane"
+printf '#!/bin/sh\necho "${STUB_UNAME:-Darwin}"\n' > "$DOCBIN/uname"
+chmod +x "$DOCBIN/uname"
+DOC_PATH="$FAKEHOME/.local/bin:$DOCBIN:$OSA_DIR:$SANDBOX"
+check "the doctor PATH resolves osascript to the stub" eq "$("$ENV_BIN" PATH="$DOC_PATH" /bin/sh -c 'command -v osascript')" "$OSA_DIR/osascript"
+check "the sandbox PATH has no osascript at all" eq "$("$ENV_BIN" PATH="$DOCBIN:$SANDBOX" /bin/sh -c 'command -v osascript')" ""
+DO="$TMP/doctor.out"
+doctor_env=(HOME="$FAKEHOME" PATH="$DOC_PATH" TERM_PROGRAM=Apple_Terminal STUB_UNAME=Darwin)
+doctor_pty() { # doctor_pty [env assignments...]; an empty value unsets as far as the tool can tell
+  pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" "$@" "$TOOL" doctor
+}
+doc_has() { grep -qF -- "$1" "$DO"; }
+fix_after() { # fix_after <line prefix>: the line following the first line that starts with it
+  awk -v p="$1" 'found { print; exit } index($0, p) == 1 { found = 1 }' "$DO"
+}
+TABLESS='lanes still run without tabs: start them with DS_LANE_NO_TAB=1 and follow each with `ds-lane tail <name>`'
+rm -f "$LOG"/osa-*
+
+doctor_pty
+check "doctor all-ok: exit 0" eq "$(rc_of "$DO")" 0
+check "doctor all-ok: no FAIL line" bash -c '! grep -q "^FAIL" "$1"' _ "$DO"
+check "doctor all-ok: the eight checkable lines are ok" eq "$(grep -c '^ok ' "$DO")" 8
+check "doctor all-ok: macOS" doc_has "ok         platform: macOS"
+check "doctor all-ok: claude resolved as start resolves it" doc_has "ok         claude: $STUB/claude"
+check "doctor all-ok: ds-lane found on PATH" doc_has "ok         ds-lane on PATH: $FAKEHOME/.local/bin/ds-lane"
+check "doctor all-ok: Terminal.app" doc_has "ok         Terminal.app: TERM_PROGRAM=Apple_Terminal"
+check "doctor: Automation consent is unverified, with the settings path" contains "$(fix_after 'unverified Automation consent: unverified until first tab open')" "open System Settings > Privacy & Security > Automation, find the app the conductor runs in and allow it to control Terminal and System Events; an entry appears there only after macOS has asked once."
+check "doctor: Accessibility consent is unverified, with the settings path" contains "$(fix_after 'unverified Accessibility consent: unverified until first tab open')" "open System Settings > Privacy & Security > Accessibility and turn on the app the conductor runs in; if it is not listed, add it with the + button."
+check "doctor all-ok: tabs unverified, never claimed working" doc_has "tabs: unverified (no check failed;"
+check "doctor all-ok: launch offer available" eq "$(tail -n2 "$DO" | head -n1)" "launch offer: available (ds-lane is on PATH)"
+check "doctor all-ok: last line says lanes run headless" eq "$(tail -n1 "$DO")" "headless lanes: available (claude, python3 and jq resolve; $TABLESS)"
+
+doctor_pty STUB_UNAME=Linux
+check "doctor non-macOS: exit 1" eq "$(rc_of "$DO")" 1
+check "doctor non-macOS: platform FAIL with the tab-less path" eq "$(fix_after 'FAIL       platform: Linux; watch tabs open only in macOS Terminal.app')" "           fix: Tabs cannot open on this platform; $TABLESS."
+check "doctor non-macOS: tabs unavailable, lanes still headless" eq "$(tail -n3 "$DO" | cut -c1-25 | tr '\n' '|')" "tabs: unavailable (1 chec|launch offer: available (|headless lanes: available|"
+
+doctor_pty PATH="$FAKEHOME/.local/bin:$DOCBIN:$SANDBOX"
+check "doctor no osascript: exit 1" eq "$(rc_of "$DO")" 1
+check "doctor no osascript: FAIL names where it ships" contains "$(fix_after 'FAIL       osascript: not found on PATH')" "fix: osascript ships with macOS at /usr/bin/osascript: put /usr/bin on this session's PATH; until then $TABLESS."
+
+doctor_pty DS_LANE_CLAUDE_BIN=
+check "doctor no claude: exit 1" eq "$(rc_of "$DO")" 1
+check "doctor no claude: FAIL says how to point at it" contains "$(fix_after 'FAIL       claude: not found (DS_LANE_CLAUDE_BIN, PATH, CLAUDE_CODE_EXECPATH)')" "set DS_LANE_CLAUDE_BIN to the full path of the claude executable; no lane can start without it."
+check "doctor no claude: lanes cannot run headless either" eq "$(tail -n1 "$DO")" "headless lanes: unavailable (claude, python3 and jq must all resolve)"
+
+doctor_pty PATH="$DOCBIN:$OSA_DIR:$SANDBOX"
+check "doctor ~/.local/bin off PATH: exit 1" eq "$(rc_of "$DO")" 1
+check "doctor ~/.local/bin off PATH: tabs are not called unavailable, the launch offer is" eq "$(tail -n3 "$DO" | head -n2 | sed 's/ (.*//' | tr '\n' '|')" "tabs: unverified|launch offer: unavailable: ds-lane not on PATH|"
+path_fix="$(fix_after 'FAIL       ds-lane on PATH: not found on PATH (~/.local/bin is not on PATH)')"
+check "doctor ~/.local/bin off PATH: fix names ds-doctor --fix and the export line" contains "$path_fix" "Run \`$(dirname "$TOOL_REAL")/ds-doctor --fix\`, then add this line to your shell profile (~/.zshrc for zsh, the macOS default; ~/.bash_profile for bash) and start a new terminal and session: export PATH=\"\$HOME/.local/bin:\$PATH\""
+# The printed export line is pasted into the operator's shell profile: it must work in both shells.
+export_line="export PATH=${path_fix##*export PATH=}"
+check "the printed export line puts ds-lane on PATH under bash" eq "$("$ENV_BIN" HOME="$FAKEHOME" PATH="$SANDBOX" "$SANDBOX/bash" -c "$export_line; command -v ds-lane" 2>&1)" "$FAKEHOME/.local/bin/ds-lane"
+if (( HAVE_ZSH )); then
+  check "the printed export line puts ds-lane on PATH under zsh" eq "$("$ENV_BIN" HOME="$FAKEHOME" PATH="$SANDBOX" "$(command -v zsh)" -f -c "$export_line; command -v ds-lane" 2>&1)" "$FAKEHOME/.local/bin/ds-lane"
+else
+  echo "SKIP: zsh not found; zsh half of the export-line case not run"
+fi
+doctor_pty HOME="$TMP/home-nolink" PATH="$TMP/home-nolink/.local/bin:$DOCBIN:$OSA_DIR:$SANDBOX"
+check "doctor ~/.local/bin on PATH without the link: fix is ds-doctor --fix alone" eq "$(fix_after 'FAIL       ds-lane on PATH: not found on PATH (~/.local/bin is on PATH but holds no ds-lane)')" "           fix: Run \`$(dirname "$TOOL_REAL")/ds-doctor --fix\` to create the ~/.local/bin links; a session offers to launch lanes only when ds-lane is on PATH."
+
+orphan_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" "$TOOL" doctor
+check "doctor no conductor tty: exit 1" eq "$(rc_of "$DO")" 1
+check "doctor no conductor tty: FAIL with the tab-less path" eq "$(fix_after 'FAIL       conductor terminal: no ancestor process has a terminal (headless, bridge or IDE-spawned session)')" "           fix: Tabs open only beside a conductor session running in a macOS Terminal.app tab; in this session $TABLESS."
+
+doctor_pty TERM_PROGRAM=iTerm.app
+check "doctor other terminal app: exit 1" eq "$(rc_of "$DO")" 1
+check "doctor other terminal app: FAIL names the observed app and Terminal.app" contains "$(fix_after 'FAIL       Terminal.app: TERM_PROGRAM=iTerm.app; tabs open only beside a conductor running directly in macOS Terminal.app')" "fix: Run the conductor session directly in macOS Terminal.app"
+doctor_pty TERM_PROGRAM=
+check "doctor unknown terminal app: unverified, not guessed, exit 0" eq "$(rc_of "$DO")|$(grep -c '^unverified Terminal.app: TERM_PROGRAM is not set' "$DO")" "0|1"
+
+pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" "$TOOL" doctor --json
+check "doctor --json all-ok: parses, exit 0, tabs unverified, every non-ok check carries a fix" eq "$(rc_of "$DO")|$(jq -r '[.tabs, .launch_offer, .headless, (.checks | length), (all(.checks[]; .status != "FAIL")), (all(.checks[]; (.status == "ok") == (.fix == "")))] | join(",")' "$DO" 2>&1)" "0|unverified,true,true,10,true,true"
+pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" STUB_UNAME=Linux DS_LANE_CLAUDE_BIN= "$TOOL" doctor --json
+check "doctor --json failing: parses, exit 1, tabs unavailable, not headless" eq "$(rc_of "$DO")|$(jq -r '[.tabs, .headless, ([.checks[] | select(.status == "FAIL") | .check] | join("+"))] | join(",")' "$DO" 2>&1)" "1|unavailable,false,platform+claude"
+pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" PATH="$DOCBIN:$OSA_DIR:$SANDBOX" "$TOOL" doctor --json
+check "doctor --json ds-lane off PATH: exit 1, tabs unverified, launch offer false" eq "$(rc_of "$DO")|$(jq -r '[.tabs, .launch_offer, .headless] | join(",")' "$DO" 2>&1)" "1|unverified,false,true"
+# No pty: JSON validity does not depend on a terminal, and a pty wrapper would requote the value.
+out="$("$ENV_BIN" "${doctor_env[@]}" TERM_PROGRAM=$'a\tb\001"c\\\nd' "$TOOL" doctor --json 2> /dev/null)"
+check "doctor --json stays valid with control characters, quotes and backslashes in a value" eq "$(printf '%s\n' "$out" | jq -r '.checks[] | select(.check == "Terminal.app") | .detail | startswith("TERM_PROGRAM=a\tb\"c\\\nd; tabs")' 2>&1)" "true"
+out="$(cd "$TMP/norepo" && GIT_CEILING_DIRECTORIES="$TMP" "$ENV_BIN" "${doctor_env[@]}" "$TOOL" doctor 2>&1)"
+check "doctor runs outside a git repo" contains "$out" "ok         platform: macOS"
+check "doctor never ran osascript (no Apple event, no consent prompt)" eq "$(ls "$LOG" | grep -c '^osa-')" 0
 
 echo "ds-lane tests: $PASS passed, $FAIL failed"
 (( FAIL == 0 ))
