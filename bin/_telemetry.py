@@ -11,7 +11,9 @@ Purpose: DS-246 shared spawn-telemetry reader for bin/ds-cost, bin/ds-calibrate
 
 Public API:
     DEFAULT_RATES: dict - built-in USD-per-MTok table from the DS-246 ticket
-        (platform.claude.com pricing, 2026-09-22).
+        (platform.claude.com pricing, 2026-09-22), plus the Sonnet 5.5 and
+        Haiku 5.5 entries from DS-265 (same page, 2026-10-13). Haiku 5.5 is
+        the up-to-100,000-token-prompt tier only; see the table.
     load_rates(include_defaults, pricing_path=PRICING_PATH) -> (rates, source)
         `~/.agentic/pricing.yml` `models:` entries override DEFAULT_RATES.
         include_defaults=False returns pricing.yml entries only.
@@ -62,9 +64,23 @@ from pathlib import Path
 
 PRICING_PATH = Path(os.path.expanduser("~/.agentic/pricing.yml"))
 
+# claude-sonnet-5-5 and claude-haiku-5-5 (DS-265) are from
+# https://platform.claude.com/docs/en/about-claude/pricing.md, read 2026-10-13;
+# the other four are from the same page, read 2026-09-22 (DS-246). The two
+# DS-265 entries list no cache writes because the published ones (Sonnet 5.5
+# 2.50 / 4, Haiku 5.5 0.125 / 0.20) equal the 1.25x and 2x input defaults.
+#
+# Haiku 5.5 is priced per request by prompt length (input plus cache reads
+# plus cache writes). The entry is the tier for prompts up to 100,000 tokens.
+# A request over that pays input 0.50, output 2.50, cache_read 0.05, cache
+# writes 0.625 / 1. One rate per model cannot hold both tiers, and tokens
+# summed over a spawn's requests do not say which requests crossed the
+# threshold, so those requests are priced here at a fifth of their cost.
 DEFAULT_RATES: dict[str, dict[str, float]] = {
     "claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_read": 0.20},
+    "claude-sonnet-5-5": {"input": 2.0, "output": 10.0, "cache_read": 0.10},
     "claude-sonnet-5": {"input": 2.0, "output": 10.0, "cache_read": 0.20},
+    "claude-haiku-5-5": {"input": 0.10, "output": 0.50, "cache_read": 0.01},
     "claude-haiku-4-5": {"input": 1.0, "output": 5.0, "cache_read": 0.10},
     "claude-fable-5-1": {"input": 10.0, "output": 50.0, "cache_read": 0.25},
 }
@@ -95,7 +111,7 @@ def load_rates(include_defaults: bool, pricing_path: Path | None = None) -> tupl
     pricing.yml that exists but could not be read."""
     path = PRICING_PATH if pricing_path is None else pricing_path
     rates: dict = {k: dict(v) for k, v in DEFAULT_RATES.items()} if include_defaults else {}
-    source = "built-in (DS-246, 2026-09-22)" if include_defaults else None
+    source = "built-in (DS-246 2026-09-22, DS-265 2026-10-13)" if include_defaults else None
     if not path.is_file():
         return rates, source
     try:

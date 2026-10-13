@@ -191,6 +191,15 @@ def test_agent_dollars_are_priced_and_split_by_entrypoint(tmp_path):
     assert sections["mix"]["by_entrypoint"]["value"]["cli"]["share"] == 1.0
 
 
+def test_price_runs_prices_5_5_models_exact_from_built_in_rates(tmp_path):
+    rates, _ = ev._TELEMETRY.load_rates(True, tmp_path / "absent.yml")
+    run_tokens = {"input": 1_000_000, "output": 1_000_000, "cache_read": 1_000_000}
+    priced = ev._price_runs([("claude-haiku-5-5", {"run_tokens": run_tokens}),
+                             ("claude-sonnet-5-5", {"run_tokens": run_tokens})], rates)
+    assert priced["dollars_exact"] == 12.71   # 0.10 + 0.50 + 0.01, plus 2 + 10 + 0.10
+    assert priced["dollars_family_estimated"] == 0 and priced["family_priced_models"] == []
+
+
 # ---------------------------------------------------------------------------
 # Work-item tiers and agreement
 # ---------------------------------------------------------------------------
