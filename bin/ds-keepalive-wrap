@@ -40,7 +40,14 @@ Failure modes: never writes outside <root>/.agentic/: the session id is
     that resolves elsewhere, or a symlink at a target path, is refused. The
     lock is taken before stdin is read and released in a finally block, on
     SIGTERM, SIGINT and SIGHUP too; SIGKILL leaves it for
-    ds-wrap-acquire-lock's abandoned-lock rule. A release that does not
+    ds-wrap-acquire-lock's abandoned-lock rule. A signal that arrives while
+    the acquire child runs is held until that child exits: raising earlier
+    discarded the token it prints, so a lock it had already taken was never
+    released (the same .agentic/wrap/lock /ds-wrap waits on, held until the
+    session stops heartbeating for ABANDON_MS). Release is by that token
+    only, so a lock another owner holds is never removed. An acquire child
+    that hangs past its 60 s timeout is killed, and a lock it took is again
+    left to the abandoned-lock rule. A release that does not
     report "released" is a failure even when every file was written. Each
     file is written to a sibling temp file created exclusively under a
     random name (a planted symlink or file at a guessable temp path is
@@ -209,7 +216,13 @@ def release(root, token):
     return "exit %d: %s" % (r.returncode, _first_line(r.stdout + r.stderr))
 
 
+_signals = {"defer": False, "pending": None}
+
+
 def _on_signal(signum, _frame):
+    if _signals["defer"]:
+        _signals["pending"] = signum
+        return
     raise WrapError("interrupted by signal %d" % signum)
 
 
@@ -235,7 +248,16 @@ def main(argv=None):
             dirs = prepare_dirs(root, lib)
         except OSError as exc:
             raise WrapError("could not create %s/.agentic directories: %s" % (root, exc.strerror or exc))
-        token = acquire(root, sid)
+        # A signal raised while the acquire child runs would lose the token it
+        # prints, leaving a lock it may already hold; act on it once the token
+        # is known, so the finally block releases by token.
+        _signals["defer"] = True
+        try:
+            token = acquire(root, sid)
+        finally:
+            _signals["defer"] = False
+        if _signals["pending"] is not None:
+            raise WrapError("interrupted by signal %d" % _signals["pending"])
         if token is None:
             print("wrap skipped: wrap lock busy")
             return EXIT_BUSY

@@ -220,20 +220,52 @@ def test_planted_temp_symlink_is_never_followed(tmp_path, target, planted):
     assert os.path.realpath(final) == str((Path(os.path.realpath(root)) / ".agentic" / target))
 
 
-def test_sigterm_releases_the_lock(tmp_path):
+@pytest.mark.parametrize("held_by_other", [False, True], ids=["own-lock", "other-owner"])
+def test_sigterm_releases_the_lock(tmp_path, held_by_other):
+    """SIGTERM lands while the acquire child is still running: after it has
+    taken the lock (or found it busy) but before it exits. The stub blocks on
+    a FIFO until the signal has been sent (the test holds the FIFO open, so
+    neither side can block on open), so the race is hit every time."""
+    tree = tmp_path / "ds"
+    (tree / "bin").mkdir(parents=True)
+    shutil.copy(TOOL, tree / "bin" / "ds-keepalive-wrap")
+    os.symlink(REPO / "bin" / "ds-wrap-release-lock", tree / "bin" / "ds-wrap-release-lock")
+    os.symlink(REPO / "hooks", tree / "hooks")
+    ready, gate = tmp_path / "acquired", tmp_path / "gate"
+    os.mkfifo(gate)
+    gate_fd = os.open(gate, os.O_RDWR)
+    stub = tree / "bin" / "ds-wrap-acquire-lock"
+    stub.write_text("#!/bin/sh\n%s \"$@\"\nrc=$?\n: > %s\nread _ < %s\nexit $rc\n"
+                    % (shlex.quote(str(REPO / "bin" / "ds-wrap-acquire-lock")), shlex.quote(str(ready)),
+                       shlex.quote(str(gate))))
+    stub.chmod(0o755)
     root = tmp_path / "proj"
     root.mkdir()
-    p = subprocess.Popen([str(TOOL), "--root", str(root), "--session-id", SID], stdin=subprocess.PIPE,
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    for _ in range(100):
-        if _lock(root).exists():
-            break
-        time.sleep(0.1)
-    assert _lock(root).exists(), "the lock is taken before stdin is read"
-    p.send_signal(signal.SIGTERM)
-    out, err = p.communicate(timeout=30)
+    if held_by_other:
+        held = subprocess.run([str(REPO / "bin" / "ds-wrap-acquire-lock"), str(root), "--no-wait", "--role=agent"],
+                              capture_output=True, text=True, timeout=30)
+        assert held.returncode == 0, held.stdout + held.stderr
+    owner = _lock(root).joinpath("owner.json").read_text() if held_by_other else None
+    p = subprocess.Popen([str(tree / "bin" / "ds-keepalive-wrap"), "--root", str(root), "--session-id", SID],
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        while not ready.exists():
+            assert p.poll() is None, p.communicate()
+            time.sleep(0.01)
+        assert _lock(root).exists()
+        p.send_signal(signal.SIGTERM)
+        os.write(gate_fd, b"go\n")
+        out, err = p.communicate(timeout=30)
+    finally:
+        os.close(gate_fd)
+        if p.poll() is None:
+            p.kill()
     assert p.returncode == 1 and out.startswith("WRAP FAILED: interrupted"), out + err
-    assert not _lock(root).exists() and not (root / ".agentic" / "_wrap.md").exists()
+    assert not (root / ".agentic" / "_wrap.md").exists()
+    if held_by_other:
+        assert _lock(root).joinpath("owner.json").read_text() == owner, "another owner's lock was released"
+    else:
+        assert not _lock(root).exists(), "the lock was left held"
 
 
 def test_prune_removes_only_old_resume_files(tmp_path):
