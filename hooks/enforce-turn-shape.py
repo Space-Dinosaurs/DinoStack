@@ -561,10 +561,12 @@ Failure modes:
       enforce-no-abdication.py's defense-in-depth pattern.
     - stop_hook_active=true: exit 0 silently (Layer 1 primary re-entrancy
       guard) - a re-invocation must never re-flag the same turn.
-    - Cache-keepalive ping acknowledgement (loop_guard.is_ping_ack_turn:
-      the turn answers a hooks/cache-keepalive.py ping, uses only CronList
-      or CronDelete, and ends with "ok"): exit 0 silently, checked right
-      after stop_hook_active. Every other turn gets full enforcement.
+    - Cache-keepalive ping turn (loop_guard.is_ping_ack_turn: the turn
+      answers a hooks/cache-keepalive.py ping and either uses only CronList
+      or CronDelete and ends with "ok", or carries the hook's wrap note and
+      its last line starts with "Session wrapped", "Session wrap skipped"
+      or "Session wrap failed"): exit 0 silently, checked right after
+      stop_hook_active. Every other turn gets full enforcement.
     - Counter >= CONSECUTIVE_BLOCK_CAP: exit 0 silently, no advisory
       (Layer 2 backstop for CC bug #54360) - the loop is bounded.
     - Counter write fails (unwritable .agentic/, full disk, corrupt tmp,

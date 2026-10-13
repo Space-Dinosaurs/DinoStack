@@ -40,13 +40,15 @@ def test_constants_match_library():
     ck = _ck()
     sec = _section()
     assert str(ck.RESUME_MAX_BYTES) in sec and ck.RESUME_MAX_BYTES == 8192
-    assert "-mtime +%d" % ck.RESUME_RETENTION_DAYS in sec and ck.RESUME_RETENTION_DAYS == 14
+    assert "older than %d days (`RESUME_RETENTION_DAYS`)" % ck.RESUME_RETENTION_DAYS in sec
+    assert ck.RESUME_RETENTION_DAYS == 14
     assert ".agentic/resume/consumed/" in sec
     assert ck.RESUME_DIR == ".agentic/resume"
     assert "Session wrapped (idle 2h). Run /exit, then resume with: <kickoff>" in sec
     assert "ds-session-close" not in sec
     assert "DS_WRAP_EOF" not in sec, "a fixed heredoc delimiter can be ended early by conversation text"
-    assert "`DSW_<nonce>_<n>`" in sec and "tr -dc 'a-f0-9'" in sec
+    assert "`DSW_<nonce>_1`" in sec and "tr -dc 'a-f0-9'" in sec
+    assert "trap " not in sec and "mkdir" not in sec, "shell logic belongs in bin/ds-keepalive-wrap, not the doc"
     assert "four requests" in sec and "one Read of this file" in sec
 
 

@@ -91,8 +91,9 @@ Public API (module-level functions, no class):
         it is CronList or CronDelete and the final text (last_message when
         given, else the transcript's) normalizes to "ok"; or a
         UserPromptSubmit attachment after it carries WRAP_MARKER and the
-        final text's last line starts with "Session wrapped" or "Session
-        wrap skipped" (any tools). False on any error.
+        final text's last line starts with "Session wrapped", "Session
+        wrap skipped" or "Session wrap failed" (any tools). False on any
+        error.
 
 Upstream deps: Python 3 stdlib only (json, os). Imports the sibling
                hooks/lib/repo_root.py module via an isolated

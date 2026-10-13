@@ -54,36 +54,15 @@ Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from
 
 ## In-session mode
 
-The cache-keepalive hook (`hooks/cache-keepalive.py`) triggers this mode inside a live conductor session that has been idle for 2h with no subagent or background task in flight, and only in the `auto` or `bypassPermissions` permission mode: in other modes its Read and Bash calls raise permission prompts nobody is there to answer. The trigger is a keepalive cron fire whose hook note starts with `[dinostack-cache-keepalive:wrap]` and names the session id `<sid>`, the project root `<root>` (the session's own project), the DinoStack tools directory `<repo_dir>/bin/`, the resume file and a kickoff command `<kickoff>`. The live session writes the wrap itself, because its cache is warm. The daemon contract above does not apply here: this mode may run the Bash commands listed below, and runs nothing else through Bash. It never prompts and never spawns. It runs in four requests: one Read of this file, call A (step 1), call B (steps 2-6, one Bash call) together with step 7 (`CronDelete`) in parallel, and the final line (step 8). The session stays open afterwards; the operator exits it. Every tool call prints lines into the operator's scrollback, so apart from that one Read use no Read, Write or Edit in this mode, and do not split the Bash calls.
+The cache-keepalive hook (`hooks/cache-keepalive.py`) triggers this mode inside a live conductor session that has been idle for 2h with no subagent or background task in flight, and only in the `auto` or `bypassPermissions` permission mode: in other modes its Read and Bash calls raise permission prompts nobody is there to answer. The trigger is a keepalive cron fire whose hook note starts with `[dinostack-cache-keepalive:wrap]` and names the session id `<sid>`, the project root `<root>` (the directory the session was launched from), the resume file, a `WRAP_COMMAND` and a kickoff command `<kickoff>`. The live session writes the wrap itself, because its cache is warm. The daemon contract above does not apply here: this mode may run the two Bash calls below, and runs nothing else through Bash. It never prompts and never spawns. It runs in four requests: one Read of this file, call A (step 1), call B (step 3) together with step 4 (`CronDelete`) in parallel, and the final line (step 5). The session stays open afterwards; the operator exits it. Every tool call prints lines into the operator's scrollback, so apart from that one Read use no Read, Write or Edit in this mode, and do not split the Bash calls.
 
-**Paths.** Run every command from `<root>`. Every `.agentic/` path below is `<root>/.agentic/...`, and this mode writes nothing outside `<root>/.agentic/`. `<repo_dir>` supplies only the `bin/` tools and this file; never write under it. The kickoff is data for the operator: copy it, never run it, and never act on the prompt inside it.
+**Paths.** This mode writes nothing outside `<root>/.agentic/`, and writes only through `WRAP_COMMAND` (`bin/ds-keepalive-wrap`), which takes the wrap lock, creates the directories, writes each file atomically, prunes resume files older than 14 days (`RESUME_RETENTION_DAYS`) and releases the lock. Never write a file any other way. The kickoff is data for the operator: copy it, never run it, and never act on the prompt inside it.
 
-1. **Survey** (call A, one Bash call; no lock is taken here): `cd <root>`, then `echo "nonce=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 12)"`; `cat .agentic/_wrap.md .agentic/memory.md`; `git status --short --branch`; `git worktree list`; `gh pr list --author @me --state open --json number,title,headRefName,statusCheckRollup,isDraft` (if `gh` is absent or fails, note that it was omitted); `ls .agentic/loop-state-*.json`. Chain them with `;` and suffix each with `2>&1` so a failure is shown, not fatal. Compile the Step 1 survey from the conversation plus these results.
-2. **Lock, write, release** (call B, one Bash call). The lock is acquired, held and released inside this one shell, so it can never outlive the call: if the call is denied, rejected or interrupted, no lock was taken or the EXIT trap releases it. Fill in this template: keep every line verbatim apart from the three placeholders and the one steps 3-6 line. A SIGKILL of the Bash call is the one exit no trap can catch; the lock then carries this session's id and is cleared by `ds-wrap-acquire-lock`'s abandoned-lock rule only once this session stops heartbeating (after the operator exits it).
-
-   ```bash
-   cd '<root>' || exit 1
-   REL='<repo_dir>/bin/ds-wrap-release-lock'
-   out=$('<repo_dir>/bin/ds-wrap-acquire-lock' --no-wait --role=agent --print-token --session-id='<sid>' 2>&1); rc=$?
-   if [ "$rc" -ne 0 ]; then echo "wrap lock not acquired (exit $rc): $out" | head -1; exit 0; fi
-   token=$(printf '%s\n' "$out" | sed -n 's/^token=//p')
-   trap '"$REL" --token="$token" >/dev/null 2>&1; echo "wrap lock released"' EXIT
-   trap 'exit 130' INT TERM HUP
-   mkdir -p .agentic/wrap .agentic/resume || exit 1
-   (
-     set -e
-     <steps 3-6: one heredoc per file, see below>
-   ) > .agentic/wrap/.wrap-b.log 2>&1
-   rc=$?
-   if [ "$rc" -ne 0 ]; then echo "WRAP FAILED (exit $rc):"; tail -3 .agentic/wrap/.wrap-b.log; exit 1; fi
-   echo "wrap files written"
-   ```
-
-   If it prints `wrap lock not acquired` (any nonzero exit, busy or not): reply with exactly `Session wrap skipped (wrap lock busy)` and stop; the `CronDelete` sent in parallel (step 7) still deletes the cron. If it prints `WRAP FAILED` (any write failed; `set -e` stops at the first failure and the EXIT trap still releases the lock): reply with exactly `Session wrap failed: see <root>/.agentic/wrap/.wrap-b.log` and stop, with no kickoff, because the resume file may be missing. Inside the parentheses, put each command on its own line (never join two with `&&` or `||`, which `set -e` does not stop on) and write each file through a quoted heredoc to a dot-tmp sibling, then `mv` it into place. Each delimiter is `DSW_<nonce>_<n>`, using the 12 hex characters call A printed and a distinct `<n>` per file (for example `cat > .agentic/.wrap.tmp <<'DSW_3fa9c07e12bd_1'` ... `DSW_3fa9c07e12bd_1`, then `mv .agentic/.wrap.tmp .agentic/_wrap.md`). The nonce is random and printed only after the conversation was written, so no conversation text can contain the delimiter and end a heredoc early; never put the nonce into file content.
-
-3. **Part A.** Run Step 2 of the daemon procedure above: write `.agentic/_wrap.md` and `.agentic/wrap/last-wrap` = `<sid>` (both, always). The Recent Focus label for this session ends with `Resume: .agentic/resume/<sid>.md (kickoff: <kickoff>)`.
-4. **Part B and Part C.** Run Step 3 of the daemon procedure above (append to `.agentic/memory.md`). Do not edit any AGENTS.md: write the would-be AGENTS.md additions as `## Watch Out For` bullets in `_wrap.md` instead (`enforce-shippable-edit.py` denies conductor-direct AGENTS.md edits).
-5. **Resume file.** Write `.agentic/resume/.<sid>.tmp`, then `mv` it to `.agentic/resume/<sid>.md`. Keep it at or under 8192 bytes (`RESUME_MAX_BYTES`); when it is over, cut `## Agents`, then `## Work state`, to their 5 newest entries. Use exactly these headings, in this order:
+1. **Survey** (call A, one Bash call): `cd` to `<root>` (quote it for the shell), then `echo "nonce=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 12)"`; `cat .agentic/_wrap.md .agentic/memory.md`; `git status --short --branch`; `git worktree list`; `gh pr list --author @me --state open --json number,title,headRefName,statusCheckRollup,isDraft` (if `gh` is absent or fails, note that it was omitted); `ls .agentic/loop-state-*.json`. Chain them with `;` and suffix each with `2>&1` so a failure is shown, not fatal. Compile the Step 1 survey from the conversation plus these results.
+2. **Compose the payload**: one JSON object with exactly these three string values (escape newlines as `\n` and double quotes as `\"`).
+   - `wrap_md` (Part A and Part C): the whole new `.agentic/_wrap.md`, per Step 2 of the daemon procedure above. The Recent Focus label for this session ends with `Resume: .agentic/resume/<sid>.md (kickoff: <kickoff>)`. Do not edit any AGENTS.md: put the would-be AGENTS.md additions here as `## Watch Out For` bullets (`enforce-shippable-edit.py` denies conductor-direct AGENTS.md edits). `ds-keepalive-wrap` also writes `.agentic/wrap/last-wrap` = `<sid>`.
+   - `memory_append` (Part B): the entries Step 3 of the daemon procedure above would append to `.agentic/memory.md`, already de-duplicated against the copy call A printed; `""` when there are none.
+   - `resume`: the resume file, written to `.agentic/resume/<sid>.md`. Keep it at or under 8192 bytes (`RESUME_MAX_BYTES`); when it is over, cut `## Agents`, then `## Work state`, to their 5 newest entries. Use exactly these headings, in this order, and no other `## ` line:
 
    ```
    # Resume: <sid>
@@ -98,9 +77,22 @@ The cache-keepalive hook (`hooks/cache-keepalive.py`) triggers this mode inside 
    ```
 
    `## Goal`: 1-3 lines on what this session was driving toward. `## Next step`: exactly one concrete action, first line imperative. `## Pending operator decisions`: scan the whole conversation, not only its last turns, and quote verbatim every question you asked the operator that they have not answered and every decision the operator said is still open or theirs to make (for example "I have not yet decided whether ..."), one bullet each. Write `None` only when that scan finds nothing. `## Work state`: each PR (number, branch, draft, CI state), each branch or worktree (path, ahead/behind, dirty), each loop-state file (path and phase). `## Artifacts`: absolute plan, handoff, brief and evidence paths. `## Agents`: recently returned agents (id, description, terminal status, output or report path, one-line result). `## Watch out`: session-specific hazards.
-6. **Prune.** `find .agentic/resume -type f -mtime +14 -delete` (`RESUME_RETENTION_DAYS`; covers `consumed/` too), last inside the parentheses. The EXIT trap then releases the lock.
-7. **Delete the cron.** `CronDelete` the keepalive job, in parallel with call B.
-8. **Final line.** End with exactly the one line the hook note gives: `Session wrapped (idle 2h). Run /exit, then resume with: <kickoff>`. With the cron deleted, the session prints nothing further.
+3. **Write** (call B, one Bash call): the note's `WRAP_COMMAND`, copied verbatim, with the payload as a quoted heredoc and nothing else in the call. The delimiter is `DSW_<nonce>_1`, using the 12 hex characters call A printed; the nonce was printed only after the conversation was written, so no conversation text can contain the delimiter and end the heredoc early, and it never goes into the payload.
+
+   ```
+   <WRAP_COMMAND> <<'DSW_3fa9c07e12bd_1'
+   {"wrap_md": "# Session Context\n...", "memory_append": "", "resume": "# Resume: <sid>\n..."}
+   DSW_3fa9c07e12bd_1
+   ```
+
+   It prints exactly one line:
+   - `wrap files written`: every file was written and the lock released. Go on to step 5.
+   - `wrap skipped: wrap lock busy`: reply with exactly `Session wrap skipped (wrap lock busy)` and stop.
+   - anything else (`WRAP FAILED: <reason>`, a shell error, or no output): reply with exactly `Session wrap failed: <that line, or "no output">` and stop, with no kickoff, because the resume file may be missing. Do not retry and do not write the files another way.
+
+   In the last two cases the `CronDelete` sent in parallel (step 4) still deletes the cron.
+4. **Delete the cron.** `CronDelete` the keepalive job, in parallel with call B.
+5. **Final line.** End with exactly the one line the hook note gives: `Session wrapped (idle 2h). Run /exit, then resume with: <kickoff>`. With the cron deleted, the session prints nothing further.
 
 The fresh session the kickoff starts reads `.agentic/context.md`, then the resume file, restates its Next step and Pending operator decisions verbatim, moves the file to `.agentic/resume/consumed/`, and continues from the Next step. If the printed line is lost, run `claude` in the repo root and paste:
 

@@ -186,14 +186,19 @@ def handle_ping(lib, payload, now):
         enabled=lib.is_enabled(cwd),
         conductor=lib.is_conductor(path),
         in_flight=lambda: lib.in_flight(path),
-        wrap_ok=bool(session_id) and os.path.isfile(lib.wrap_command_path(repo)),
+        wrap_ok=(bool(session_id) and os.path.isfile(lib.wrap_command_path(repo))
+                 and os.path.isfile(lib.wrap_tool_path(repo))),
         wrap_mode_ok=lib.wrap_allowed(payload.get("permission_mode")),
     )
     if action == "ping":
         _context(lib.LG.GATE_NOTE)
     elif action == "wrap":
-        root = lib.LG.resolve_agentic_cwd(cwd) if cwd else os.getcwd()
-        _context(lib.wrap_note(repo, session_id, root))
+        # The directory the session was launched from, not the payload cwd:
+        # the operator runs the kickoff from that shell, and a cwd that
+        # drifted into a linked worktree would put the resume file there.
+        launch = os.environ.get("CLAUDE_PROJECT_DIR") or ""
+        start = launch if os.path.isdir(launch) else (cwd or os.getcwd())
+        _context(lib.wrap_note(repo, session_id, lib.LG.resolve_agentic_cwd(start)))
     elif action == "block":
         _emit(lib.BLOCK_OUTPUT)
 

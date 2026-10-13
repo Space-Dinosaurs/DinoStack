@@ -871,8 +871,16 @@ class TestCacheKeepaliveRoundTrip:
         (tmp_path / ".git").mkdir()
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("AE_CACHE_KEEPALIVE_DISABLE", raising=False)
-        fake_global = tmp_path / "home" / ".claude" / "agentic-engineering.json"
+        home = tmp_path / "home"
+        fake_global = home / ".claude" / "agentic-engineering.json"
         monkeypatch.setattr(_mod, "CONFIG_PATH", fake_global)
+        # is_enabled resolves activation through <repo_dir>/bin/ds-status, and
+        # repo_dir comes from ~/.agentic/agentic-engineering-config.json: give
+        # the test its own HOME so it does not depend on this machine's install.
+        (home / ".agentic").mkdir(parents=True)
+        (home / ".agentic" / "agentic-engineering-config.json").write_text(
+            json.dumps({"repo_dir": str(Path(__file__).resolve().parents[2])}))
+        monkeypatch.setenv("HOME", str(home))
         ck = _load_keepalive()
         monkeypatch.setattr(ck, "GLOBAL_CONFIG", str(fake_global))
         return ck, fake_global

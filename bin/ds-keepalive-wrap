@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+"""
+Purpose: Writes the in-session wrap (content/commands/ds-wrap-deferred.md
+         §In-session mode) for the cache keepalive: takes the wrap lock,
+         writes the session's wrap files atomically under <root>/.agentic/,
+         prunes old resume files and releases the lock. The model supplies
+         only text, as one JSON payload on stdin; every shell-shaped step
+         lives here so it is tested rather than re-typed per wrap.
+
+Public API: CLI. `ds-keepalive-wrap --root <dir> --session-id <sid>` with
+    a JSON object on stdin:
+        wrap_md        str, non-empty: the whole new .agentic/_wrap.md
+        memory_append  str, may be empty: appended to .agentic/memory.md
+        resume         str: the whole resume file; its first line starts
+                       with "# Resume: <sid>", its `## ` lines are exactly
+                       RESUME_HEADINGS in order, and it is at most
+                       RESUME_MAX_BYTES bytes
+    Writes, in order: .agentic/resume/<sid>.md, .agentic/_wrap.md,
+    .agentic/wrap/last-wrap (= <sid>), .agentic/memory.md; then deletes
+    resume files older than RESUME_RETENTION_DAYS (consumed/ included).
+    Prints exactly one line and exits:
+        0  "wrap files written"            every write, the prune and the
+                                           lock release succeeded
+        5  "wrap skipped: wrap lock busy"  nothing written
+        1  "WRAP FAILED: <reason>"         anything else; nothing after the
+                                           failing step was written
+
+Upstream deps: Python 3.9+ stdlib; sibling bin/ds-wrap-acquire-lock and
+    bin/ds-wrap-release-lock (node), run with <root> as their cwd argument;
+    hooks/lib/cache_keepalive.py for RESUME_DIR, RESUME_MAX_BYTES and
+    RESUME_RETENTION_DAYS.
+
+Downstream consumers: the wrap command hooks/lib/cache_keepalive.py
+    wrap_command() puts in the hook's wrap note, run by the model per
+    content/commands/ds-wrap-deferred.md §In-session mode;
+    bin/tests/test_ds_keepalive_wrap.py.
+
+Failure modes: never writes outside <root>/.agentic/: the session id is
+    restricted to [A-Za-z0-9_-], and a .agentic, wrap or resume directory
+    that resolves elsewhere, or a symlink at a target path, is refused. The
+    lock is taken before stdin is read and released in a finally block, on
+    SIGTERM, SIGINT and SIGHUP too; SIGKILL leaves it for
+    ds-wrap-acquire-lock's abandoned-lock rule. A release that does not
+    report "released" is a failure even when every file was written. Each
+    file is written to a dot-tmp sibling and renamed, so a failed write
+    never leaves a partial target; files written before the failing step
+    stay. The directories are created and checked before the lock is taken.
+
+Performance: two node spawns (about 0.1 s) plus a handful of small writes.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+
+BIN = os.path.dirname(os.path.abspath(__file__))
+RESUME_HEADINGS = ("Goal", "Next step", "Pending operator decisions", "Work state", "Artifacts", "Agents", "Watch out")
+_SID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+EXIT_BUSY = 5
+
+
+class WrapError(Exception):
+    pass
+
+
+def _load_lib():
+    path = os.path.join(BIN, "..", "hooks", "lib", "cache_keepalive.py")
+    spec = importlib.util.spec_from_file_location("cache_keepalive", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def validate(payload, sid, max_bytes):
+    if not isinstance(payload, dict):
+        raise WrapError("payload is not a JSON object")
+    for key in ("wrap_md", "memory_append", "resume"):
+        if not isinstance(payload.get(key), str):
+            raise WrapError("payload." + key + " is missing or not a string")
+    if not payload["wrap_md"].strip():
+        raise WrapError("payload.wrap_md is empty")
+    resume = payload["resume"]
+    size = len(resume.encode("utf-8"))
+    if size > max_bytes:
+        raise WrapError("resume is %d bytes, over the %d-byte limit" % (size, max_bytes))
+    lines = resume.splitlines()
+    if not lines or not lines[0].startswith("# Resume: " + sid):
+        raise WrapError("resume must start with '# Resume: %s'" % sid)
+    headings = tuple(line[3:].strip() for line in lines if line.startswith("## "))
+    if headings != RESUME_HEADINGS:
+        raise WrapError("resume '## ' headings must be exactly: " + ", ".join(RESUME_HEADINGS))
+
+
+def _confined_dir(base, *parts):
+    path = os.path.join(base, *parts)
+    os.makedirs(path, exist_ok=True)
+    if os.path.realpath(path) != path:
+        raise WrapError("%s resolves outside the project's .agentic/" % path)
+    return path
+
+
+def _write(path, text):
+    if os.path.islink(path):
+        raise WrapError("%s is a symlink" % path)
+    tmp = os.path.join(os.path.dirname(path), "." + os.path.basename(path) + ".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except OSError as exc:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise WrapError("could not write %s: %s" % (path, exc.strerror or exc))
+
+
+def prepare_dirs(root, lib):
+    agentic = _confined_dir(os.path.realpath(root), ".agentic")
+    return agentic, _confined_dir(agentic, "wrap"), _confined_dir(os.path.realpath(root), *lib.RESUME_DIR.split("/"))
+
+
+def write_files(dirs, sid, payload, lib, now=None):
+    agentic, wrap_dir, resume_dir = dirs
+    resume_path = os.path.join(resume_dir, sid + ".md")
+    _write(resume_path, payload["resume"])
+    _write(os.path.join(agentic, "_wrap.md"), payload["wrap_md"])
+    _write(os.path.join(wrap_dir, "last-wrap"), sid + "\n")
+    if payload["memory_append"].strip():
+        memory = os.path.join(agentic, "memory.md")
+        try:
+            with open(memory, "r", encoding="utf-8") as f:
+                existing = f.read()
+        except FileNotFoundError:
+            existing = ""
+        except OSError as exc:
+            raise WrapError("could not read %s: %s" % (memory, exc.strerror or exc))
+        if existing and not existing.endswith("\n"):
+            existing += "\n"
+        _write(memory, existing + payload["memory_append"].rstrip("\n") + "\n")
+    cutoff = (time.time() if now is None else now) - lib.RESUME_RETENTION_DAYS * 86400
+    try:
+        for folder, _dirs, files in os.walk(resume_dir):
+            for name in files:
+                path = os.path.join(folder, name)
+                if path != resume_path and os.lstat(path).st_mtime < cutoff:
+                    os.unlink(path)
+    except OSError as exc:
+        raise WrapError("could not prune %s: %s" % (resume_dir, exc.strerror or exc))
+
+
+def _first_line(text):
+    for line in (text or "").splitlines():
+        if line.strip():
+            return line.strip()
+    return ""
+
+
+def acquire(root, sid):
+    """-> token, or None when the lock is busy."""
+    try:
+        r = subprocess.run([os.path.join(BIN, "ds-wrap-acquire-lock"), root, "--no-wait", "--role=agent", "--print-token",
+                            "--session-id=" + sid], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise WrapError("wrap lock not acquired: %s" % exc)
+    if r.returncode == EXIT_BUSY:
+        return None
+    match = re.search(r"^token=(\S+)$", r.stdout, re.M)
+    if r.returncode != 0 or not match:
+        raise WrapError("wrap lock not acquired (exit %d): %s" % (r.returncode, _first_line(r.stdout + r.stderr)))
+    return match.group(1)
+
+
+def release(root, token):
+    """-> None when released, else a one-line reason."""
+    try:
+        r = subprocess.run([os.path.join(BIN, "ds-wrap-release-lock"), root, "--token=" + token], capture_output=True,
+                           text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return str(exc)
+    if r.returncode == 0 and r.stdout.startswith("released "):
+        return None
+    return "exit %d: %s" % (r.returncode, _first_line(r.stdout + r.stderr))
+
+
+def _on_signal(signum, _frame):
+    raise WrapError("interrupted by signal %d" % signum)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="ds-keepalive-wrap", description=__doc__.split("\n\n")[0])
+    parser.add_argument("--root", required=True)
+    parser.add_argument("--session-id", required=True)
+    args = parser.parse_args(argv)
+    root, sid = args.root, args.session_id
+    failure = None
+    token = None
+    try:
+        if not _SID_RE.match(sid):
+            raise WrapError("session id has characters outside [A-Za-z0-9_-]")
+        if not os.path.isdir(root):
+            raise WrapError("project root %s is not a directory" % root)
+        if sys.stdin.isatty():
+            raise WrapError("no JSON payload on stdin")
+        lib = _load_lib()
+        for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            signal.signal(signum, _on_signal)
+        try:
+            dirs = prepare_dirs(root, lib)
+        except OSError as exc:
+            raise WrapError("could not create %s/.agentic directories: %s" % (root, exc.strerror or exc))
+        token = acquire(root, sid)
+        if token is None:
+            print("wrap skipped: wrap lock busy")
+            return EXIT_BUSY
+        try:
+            payload = json.loads(sys.stdin.read())
+        except ValueError as exc:
+            raise WrapError("payload is not valid JSON: %s" % exc)
+        validate(payload, sid, lib.RESUME_MAX_BYTES)
+        write_files(dirs, sid, payload, lib)
+    except WrapError as exc:
+        failure = str(exc)
+    except Exception as exc:
+        failure = "%s: %s" % (type(exc).__name__, exc)
+    finally:
+        if token is not None:
+            for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+                signal.signal(signum, signal.SIG_IGN)
+            unreleased = release(root, token)
+            if unreleased:
+                failure = (failure + "; " if failure else "files written, but ") + "wrap lock not released (" + unreleased + ")"
+    if failure:
+        print("WRAP FAILED: " + " ".join(failure.split()))
+        return 1
+    print("wrap files written")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

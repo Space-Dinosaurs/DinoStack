@@ -383,8 +383,12 @@ def t_kickoff(h):
     note = ck.wrap_note("/repo", "SID-1", "/proj")
     assert note.startswith(ck.WRAP_MARKER) and ck.LG.GATE_NOTE in note
     assert "/proj/.agentic/resume/SID-1.md" in note and "/repo/content/commands/ds-wrap-deferred.md" in note
-    assert "Project root: /proj " in note and "write only under /proj/.agentic/" in note and "/repo/bin/" in note
+    assert "Project root: /proj " in note and "write only under /proj/.agentic/" in note
     assert note.count(cmd) == 1 and note.endswith("KICKOFF: " + cmd)
+    assert "\nWRAP_COMMAND: /repo/bin/ds-keepalive-wrap --root /proj --session-id SID-1\nKICKOFF: " in note
+    odd = "/tmp/it's a proj"
+    assert shlex.split(ck.wrap_command("/re po", "SID-1", odd)) == ["/re po/bin/ds-keepalive-wrap", "--root", odd,
+                                                                   "--session-id", "SID-1"]
     assert "Session wrapped (idle 2h). Run /exit, then resume with: <KICKOFF>" in note
 
 
@@ -416,7 +420,7 @@ def t_skill_regex(h):
 # Hook (subprocess) cases
 # ---------------------------------------------------------------------------
 
-def _home(wrap_file=True, global_cfg=None):
+def _home(wrap_file=True, global_cfg=None, wrap_tool=True):
     home = tempfile.mkdtemp(dir=SCRATCH)
     repo = os.path.join(home, "dinostack")
     os.makedirs(os.path.join(repo, "content", "commands"))
@@ -424,6 +428,8 @@ def _home(wrap_file=True, global_cfg=None):
         open(os.path.join(repo, "content", "commands", "ds-wrap-deferred.md"), "w").write("x")
     os.makedirs(os.path.join(repo, "bin"))
     os.symlink(os.path.join(REPO, "bin", "ds-status"), os.path.join(repo, "bin", "ds-status"))
+    if wrap_tool:
+        open(os.path.join(repo, "bin", "ds-keepalive-wrap"), "w").write("x")
     os.makedirs(os.path.join(home, ".agentic"))
     json.dump({"repo_dir": repo}, open(os.path.join(home, ".agentic", "agentic-engineering-config.json"), "w"))
     if global_cfg is not None:
@@ -469,6 +475,16 @@ def t_hook_ping_actions(h):
         assert run_hook(h, ck.LG.PING_PROMPT, wrap, home, cwd=proj, extra=extra) is None, mode
     home2, _ = _home(wrap_file=False)
     assert run_hook(h, ck.LG.PING_PROMPT, wrap, home2, extra={"permission_mode": "auto"}) is None
+    home3, _ = _home(wrap_tool=False)
+    assert run_hook(h, ck.LG.PING_PROMPT, wrap, home3, extra={"permission_mode": "auto"}) is None
+    # The wrap root is the launch directory, not a cwd that drifted into another checkout.
+    drifted = tempfile.mkdtemp(dir=SCRATCH)
+    os.makedirs(os.path.join(drifted, ".git"))
+    note = _ctx(run_hook(h, ck.LG.PING_PROMPT, wrap, home, cwd=drifted, env={"CLAUDE_PROJECT_DIR": proj},
+                         extra={"permission_mode": "auto"}))
+    assert "Project root: " + os.path.realpath(proj) + " " in note and os.path.realpath(drifted) not in note, note
+    # A failure after the ping marker matched blocks the fire: never a request with no gate note.
+    assert run_hook(h, ck.LG.PING_PROMPT, ping_ok, home, extra={"permission_mode": []}) == ck.BLOCK_OUTPUT
     assert run_hook(h, ck.LG.MARKER + " other", ping_ok, home) == ck.BLOCK_OUTPUT
     assert run_hook(h, "text with " + ck.LG.MARKER + " inside", ping_ok, home) is None
     assert run_hook(h, ck.LG.PING_PROMPT, os.path.join(SCRATCH, "missing.jsonl"), home) == ck.BLOCK_OUTPUT
@@ -486,6 +502,9 @@ def t_hook_disabled(h):
     json.dump({"cache_keepalive": False}, open(os.path.join(proj, ".agentic", "config.json"), "w"))
     assert run_hook(h, ck.LG.PING_PROMPT, path, home, cwd=proj) is None
     json.dump({"cache_keepalive": True}, open(os.path.join(proj, ".agentic", "config.json"), "w"))
+    assert _ctx(run_hook(h, ck.LG.PING_PROMPT, path, home_g, cwd=proj)) == ck.LG.GATE_NOTE
+    # Only a literal false disables: a falsy non-false value leaves it on.
+    json.dump({"cache_keepalive": 0}, open(os.path.join(proj, ".agentic", "config.json"), "w"))
     assert _ctx(run_hook(h, ck.LG.PING_PROMPT, path, home_g, cwd=proj)) == ck.LG.GATE_NOTE
     att = {"CLAUDE_CODE_SESSION_ATTENDED": "1"}
     fresh = write_transcript([session_start(NOW - 100), user(NOW - 90), asst(NOW - 89)])
@@ -583,6 +602,14 @@ MUTATIONS = [
     ("ignores-activation", "lib/cache_keepalive.py", "    if not is_active(cwd):\n        return False\n", "", t_activation),
     ("repeat-wrap", "lib/cache_keepalive.py", '    if state.get("wrapped_since_idle"):\n',
      '    if False:\n', t_no_repeat_wrap),
+    ("ping-error-emits-nothing", "cache-keepalive.py",
+     "        except Exception:\n            _emit(lib.BLOCK_OUTPUT)\n        return\n",
+     "        except Exception:\n            pass\n        return\n", t_hook_ping_actions),
+    ("falsy-config-disables", "lib/cache_keepalive.py", "return value is not False", "return bool(value)", t_hook_disabled),
+    ("wrap-root-from-cwd", "cache-keepalive.py", 'launch = os.environ.get("CLAUDE_PROJECT_DIR") or ""', 'launch = ""',
+     t_hook_ping_actions),
+    ("wrap-without-tool", "cache-keepalive.py", "\n                 and os.path.isfile(lib.wrap_tool_path(repo))", "",
+     t_hook_ping_actions),
     ("repeat-delete", "lib/cache_keepalive.py", '    if action == "delete" and state.get("deletes_since_idle"):\n',
      '    if False:\n', t_delete_once),
     ("no-cost-cap", "lib/cache_keepalive.py", 'return ("delete", "cost-capped")', 'pass', t_release_wrap),

@@ -48,9 +48,12 @@ Public API:
         complete=False) -> (due, check_existing).
     create_note(check_existing) -> str: the CREATE_NOTE_MARKER instruction.
     repo_dir() -> str; wrap_command_path(repo) -> str.
+    wrap_tool_path(repo) -> str: <repo>/bin/ds-keepalive-wrap.
+    wrap_command(repo, session_id, root) -> str: the shell-quoted
+        ds-keepalive-wrap invocation the wrap note carries.
     kickoff_command(session_id) -> str: `claude <quoted KICKOFF_PROMPT>`.
     wrap_note(repo, session_id, root) -> str: WRAP_MARKER note naming the
-        procedure file, the project root, the tools dir and the kickoff.
+        procedure file, the project root, the wrap command and the kickoff.
     process_started_at(env, session_id) -> float | None.
 
 Definitions (main chain only; sidechain records are ignored):
@@ -77,7 +80,8 @@ decide order (first that holds wins):
     release-wrap (now - idle_since >= RELEASE_AFTER_S, nothing in flight)
         -> wrap; delete when the session's permission_mode is not in
         WRAP_PERMISSION_MODES (release-no-wrap-mode: the wrap's Bash calls
-        would wait at a prompt) or the wrap command file is missing.
+        would wait at a prompt) or the wrap command file or
+        bin/ds-keepalive-wrap is missing.
     cost-capped (pings_since_idle >= max_pings(prefix)) -> delete.
     recently-active (L < ACTIVE_WINDOW_S) -> block.  Otherwise pass -> ping.
     Then delete-ignored: any delete becomes block when deletes_since_idle
@@ -175,7 +179,9 @@ CREATE_NOTE_MARKER = "[dinostack-cache-keepalive:create]"
 # prompt in a project with no allow rules (measured on 2.1.287: Read of the
 # command file, call A, call B). In default and acceptEdits both Bash calls
 # prompted, so an unattended wrap would wait at a prompt; there, release
-# deletes the cron instead. CronCreate/CronDelete prompted in no mode.
+# deletes the cron instead. CronCreate/CronDelete prompted in none of the
+# four measured modes (default, acceptEdits, auto, bypassPermissions); plan
+# and dontAsk were not measured and get the same self-delete.
 WRAP_PERMISSION_MODES = frozenset(("auto", "bypassPermissions"))
 # Prompts the harness submits on a subagent's behalf (measured: a subagent
 # hand-back arrives as a UserPromptSubmit starting "<agent-message from=").
@@ -666,6 +672,14 @@ def wrap_command_path(repo: str) -> str:
     return os.path.join(repo, WRAP_COMMAND_REL)
 
 
+def wrap_tool_path(repo: str) -> str:
+    return os.path.join(repo, "bin", "ds-keepalive-wrap")
+
+
+def wrap_command(repo: str, session_id: str, root: str) -> str:
+    return " ".join(shlex.quote(part) for part in (wrap_tool_path(repo), "--root", root, "--session-id", session_id))
+
+
 def kickoff_command(session_id: str) -> str:
     # No cd and no CLAUDE_CONFIG_DIR prefix: the operator starts the fresh
     # session from the shell the wrapped session ran in, which already has
@@ -683,18 +697,20 @@ def wrap_note(repo: str, session_id: str, root: str) -> str:
     return (
         WRAP_MARKER + " " + LG.GATE_NOTE + " Do not reply ok. This session "
         "has been idle for 2h: wrap it now by following "
-        + wrap_command_path(repo) + " §In-session mode (read it once), steps 1-8, for "
+        + wrap_command_path(repo) + " §In-session mode (read it once), steps 1-5, for "
         "session " + session_id + ". Project root: " + root + " - run every "
         "command there and write only under " + os.path.join(root, ".agentic")
-        + "/; never write anywhere else. DinoStack tools: "
-        + os.path.join(repo, "bin") + "/. Resume file to write: "
+        + "/; never write anywhere else. Resume file: "
         + os.path.join(root, RESUME_DIR, session_id + ".md")
-        + ". The KICKOFF below is a shell command for the "
+        + ". WRAP_COMMAND below is the one command that writes the wrap: run "
+        "it exactly as given, adding only the heredoc the procedure describes. "
+        "The KICKOFF below is a shell command for the "
         "operator to paste into a new terminal later. Never run it and never "
         "act on the prompt inside it; only copy it, verbatim, into the resume "
-        "file header, the Recent Focus label and your final line. If the "
-        "procedure stops early (wrap lock busy or a failed write), end with the "
-        "line it gives instead and no kickoff. Otherwise end your "
+        "file header, the Recent Focus label and your final line. If "
+        "WRAP_COMMAND does not print `wrap files written`, end with the line "
+        "the procedure gives for that case and no kickoff. Otherwise end your "
         "reply with exactly one line: Session wrapped (idle 2h). Run /exit, "
-        "then resume with: <KICKOFF>\nKICKOFF: " + kickoff
+        "then resume with: <KICKOFF>\nWRAP_COMMAND: " + wrap_command(repo, session_id, root)
+        + "\nKICKOFF: " + kickoff
     )
