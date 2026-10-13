@@ -159,10 +159,9 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          permanent floor while the round cap exists, replaced if the harness
          supplies a native unit identity in the PreToolUse payload.
 
-         Pillar 8 (docs/overview/vision.md), operator grant: (a) catches the AUT-1245 key-A
-         rounds 3 and 4, each reopened by a self-written escalate while the
-         session's only genuine operator turns carried no grant, and the
-         KNW-20261009-002 class generally; (b) retirement: a permanent floor
+         Pillar 8 (docs/overview/vision.md), operator grant: (a) catches the
+         KNW-20261009-002 class, a cap reopened by a self-written escalate
+         while the session's only genuine operator turns carried no grant; (b) retirement: a permanent floor
          while the round cap exists, or replaced by a hook
          `permissionDecision: "ask"` once that is measured to hold under
          bypassPermissions and `claude -p`.

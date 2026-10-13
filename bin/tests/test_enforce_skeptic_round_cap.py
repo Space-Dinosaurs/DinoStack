@@ -3,7 +3,7 @@
 Regression tests for hooks/enforce-skeptic-round-cap.py.
 
 Test groups:
-  0. test_round_cap_constant_is_three                 - DS-232: pins `_ROUND_CAP == 3` literally, so the
+  0. test_round_cap_constant_is_three                 - pins `_ROUND_CAP == 3` literally, so the
                                                          cap is guarded by something other than itself.
   1. test_round_1_2_3_allowed                        - rounds 1-3 all ALLOW, round_count advances
                                                          (each round carries DIFFERENT "What to
@@ -382,7 +382,7 @@ def _read_state(cwd: str, unit: str) -> dict:
 # 0. The cap CONSTANT itself, pinned independently of the behavioral tests
 # --------------------------------------------------------------------------- #
 def test_round_cap_constant_is_three():
-    """DS-232 moved the default Skeptic round cap from 3 to 2; it is 3 again. Every other
+    """The default Skeptic round cap is 3. Every other
     test in this file derives its round boundaries from the hook's OWN
     behavior, so all of them would stay green if `_ROUND_CAP` silently
     drifted and the boundaries were shifted to match. This test
