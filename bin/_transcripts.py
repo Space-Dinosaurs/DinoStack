@@ -80,14 +80,17 @@ Public API:
         creations.
     Turn: kind ("ping" | "human" | "other"), ts, gated, wrap, cron_delete,
         requests, first ({model, cache_read, cache_creation} of the
-        turn's first request, or None), last_ts, usage. A turn opens at every
+        turn's first request, or None), last_ts, usage, origin (the opening
+        record's `turnOrigin`, or None). A turn opens at every
         user record cache_keepalive's LG.starts_turn accepts (human, task
         notification, agent hand-back, scheduled), not only at human ones;
         a ping is LG.is_ping_record. outcome (pings only): dropped (no
         request), wrapped (WRAP_MARKER in its UserPromptSubmit hook output),
         passed (LG.GATE_NOTE there), deleted (a CronDelete tool_use), else
         unclassified. A request belongs to the turn its first record falls
-        in; requests before any turn opener form an "other" turn.
+        in; requests before any turn opener form an "other" turn. "human"
+        needs turnOrigin "human"; Claude Code before 2.1.280 wrote no
+        turnOrigin, so its human turns are "other".
     Sub: agent_id, agent_type, description, tool_use_id, usage,
         wall_seconds, pr_created. Meta fields are None without a
         `.meta.json`; wall_seconds is None without a timestamp.
@@ -126,7 +129,11 @@ Failure modes: never raises on a missing store, an unreadable file, a
     skipped. Absent data is None or empty, never a fabricated zero.
     `cwd` and `timestamp` are read by substring/regex on the harness's
     compact JSON (`"key":"value"`, no spaces); a spaced writer would yield
-    no sessions.
+    no sessions. Exception: a missing or broken hooks/lib/cache_keepalive.py
+    raises at import, which breaks every importer (ds-eval,
+    ds-skill-load-rate, ds-learnings-retrieval-rate,
+    ds-measure-conductor-tool-calls) rather than letting ping usage fall
+    silently back into the conductor figure.
 
 Performance: one streaming pass per transcript file. Lines are prefiltered
     by substring before json parsing; a session whose files were all last
@@ -218,6 +225,7 @@ class Turn:
     first: Optional[dict] = None
     last_ts: Optional[datetime] = None
     usage: Usage = field(default_factory=Usage)
+    origin: Optional[str] = None
 
     @property
     def outcome(self) -> Optional[str]:
@@ -611,7 +619,8 @@ def _scan(path: Path, want_cost: bool, skip_sidechain: bool) -> dict:
             if skip_sidechain and '"type":"user"' in line and '"type":"tool_result"' not in line:
                 rec = _loads(line) or {}
                 if rec.get("type") == "user" and rec.get("isSidechain") is not True and _ck.LG.starts_turn(rec):
-                    turns.append(Turn(_turn_kind(rec), ts))
+                    origin = rec.get("turnOrigin")
+                    turns.append(Turn(_turn_kind(rec), ts, origin=origin if isinstance(origin, str) else None))
             elif turns and turns[-1].kind == "ping" and '"UserPromptSubmit"' in line:
                 att = _dict((_loads(line) or {}).get("attachment"))
                 if att.get("hookEvent") == "UserPromptSubmit":

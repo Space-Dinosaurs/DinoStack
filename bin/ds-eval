@@ -46,10 +46,11 @@ Public API: ds-eval --repo P [P ...] [--since S] [--until U] [--base REF]
                 neither. A PR that is open, closed, or merged to another
                 branch reads this way too.
             [keepalive] (per repo): pings fired/passed/dropped/deleted/
-            wrapped/unclassified, passed-ping tokens and priced usd, returns
-            after idle per gap bucket with and without a passed ping, and
-            estimated_net_usd, labelled ESTIMATE; with no ping in the
-            window it prints ABSENT with the reason, never 0.
+            wrapped/unclassified, ping tokens and priced usd per outcome,
+            returns after idle per gap bucket with and without a ping that
+            made a request (always shown: a window with no pings is the
+            baseline), and estimated_net_usd, labelled ESTIMATE; a figure
+            with no input prints ABSENT with the reason, never 0.
             In a multi-repo run an item
             is prefixed with its repo's owner/name (else its directory
             name). --json always carries every item.
@@ -302,13 +303,22 @@ def _print_keepalive(r: dict) -> None:
             print(f"  {repo}")
         p = k["pings"]
         if p["status"] == "ABSENT":
-            print(f"  ABSENT ({'; '.join(p['missing'])})")
-            continue
-        v = p["value"]
-        print(f"  pings  fired {v['fired']}, passed {v['passed']}, dropped {v['dropped']}, "
-              f"deleted {v['deleted']}, wrapped {v['wrapped']}, unclassified {v['unclassified']}")
-        print(f"  passed_ping_usage  {_fmt_metric(k['passed_ping_usage'])}")
-        print("  returns after idle (gap since previous non-ping request; cold = creation > read on first request)")
+            print(f"  pings  ABSENT ({'; '.join(p['missing'])})")
+        else:
+            v = p["value"]
+            print(f"  pings  fired {v['fired']}, passed {v['passed']}, dropped {v['dropped']}, "
+                  f"deleted {v['deleted']}, wrapped {v['wrapped']}, unclassified {v['unclassified']}")
+        u = k["ping_usage"]
+        if u["status"] == "ABSENT":
+            print(f"  ping_usage  ABSENT ({'; '.join(u['missing'])})")
+        else:
+            for name, t in u["value"].items():
+                usd = f"${t['usd']:,.2f}" if t["usd"] is not None else "unpriced"
+                print(f"  ping_usage {name:<13} read {t['cache_read']:,} creation {t['cache_creation']:,} "
+                      f"output {t['output']:,}  {usd}")
+        print("  returns after idle (gap since previous non-ping request; with_ping = a ping made a request in "
+              "the gap; cold = creation > read on first request; needs turnOrigin, Claude Code 2.1.280+; "
+              "a session file's first human turn is never counted)")
         for bucket, split in k["returns"].items():
             for side in ("with_ping", "no_ping"):
                 m = split[side]

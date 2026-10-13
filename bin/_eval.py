@@ -53,26 +53,40 @@ Public API:
     keepalive: {repo: section}, one per repo (never pooled). A section is
         pings {fired, passed, dropped, deleted, wrapped, unclassified}
         (_transcripts.Turn.outcome, ping turns timestamped in the window);
-        passed_ping_usage {input, output, cache_read, cache_creation, usd};
-        returns {"20-60"|"60-120"|"120-240"|"over 240": {with_ping,
-        no_ping}}, each {returns, cold, avg_cache_read,
-        avg_cache_creation}: a return is a human turn in the window more
-        than 20 min after the previous non-ping main-chain request (any
-        turn's request, a task notification's included), with_ping when a
-        passed ping fell in that gap, cold when its first request created
-        more than it read; and estimated_net_usd {usd,
-        avoided_creation_tokens, avoided_creation_usd, passed_ping_usd},
-        basis "estimate": each warm with-ping return's cache_read x the
-        same bucket's no-ping cold rate, priced at (1h write - read), minus
-        passed-ping dollars. Never a measured saving. A bucket with
-        1-9 returns is PARTIAL "n < 10", with none ABSENT; with no ping
-        turn in the window every figure is ABSENT, never 0.
+        ping_usage {passed|deleted|wrapped|unclassified|all: {input, output,
+        cache_read, cache_creation, usd}}; returns {"20-60"|"60-120"|
+        "120-240"|"over 240": {with_ping, no_ping}}, each {returns, cold,
+        avg_cache_read, avg_cache_creation}: a return is a human turn in the
+        window more than 20 min after the previous non-ping main-chain
+        request (any non-ping turn's request, a task notification's
+        included; a ping never moves that point), with_ping when any ping
+        turn that made a request (passed, deleted, wrapped or unclassified)
+        fell in that gap, cold when its first request created more than it
+        read. Returns are computed whether or not the window has pings: a
+        window with none is the no-ping baseline. Limits: a session file's
+        first human turn is never a return (no earlier request in that
+        file, so a resume into a new file is missed), and Claude Code
+        before 2.1.280 wrote no turnOrigin, so its turns are never human:
+        an empty bucket then reads ABSENT "no turnOrigin in transcripts",
+        and a mixed window names the sessions without it. And
+        estimated_net_usd {usd, avoided_creation_tokens,
+        avoided_creation_usd, ping_usd}, basis "estimate": each warm
+        with-ping return's cache_read x the same bucket's no-ping cold rate,
+        priced at (1h write - read), minus all ping usage. Never a measured
+        saving; ABSENT with the reason when the avoided side cannot be
+        estimated (no return followed a ping, a warm with-ping return's
+        bucket has no no-ping return, or a model is unpriced). A bucket
+        with 1-9 returns is PARTIAL "n < 10", with none ABSENT. With no
+        ping turn in the window, pings, ping_usage and estimated_net_usd
+        are ABSENT, never 0.
     Ping usage: agents.conductor (usd and by_entrypoint) excludes keepalive
         ping turns; it included them before keepalive was split out, so a
         window with passed pings now reads lower by their usage. cost, mix
         and is_empty_session still count it, as visible spend the
-        cost-state also records. ds-change-delta inherits only this; a
-        keepalive cut should be the first real ping fire, not the merge.
+        cost-state also records. ds-change-delta reads no agents figure;
+        it inherits only session_summary's model/entrypoint choice, now
+        counted without ping messages. A keepalive cut should be the first
+        real ping fire, not the merge.
     Additive figures (none feeds a decision rule):
         Empty session (is_empty_session, the one definition, also used by
         bin/ds-change-delta through session_rows[].empty): no usage record,
@@ -116,8 +130,8 @@ Public API:
         {session_id, repo, first_ts (ISO), entrypoint, model, version,
         cost_usd, empty}. `empty` is is_empty_session(session).
         entrypoint/model/version are the (model, entrypoint,
-        version) Usage key with the most conductor messages (subagent usage
-        when the conductor has none; ties break on the sorted key); each is
+        version) Usage key with the most conductor messages (keepalive ping
+        usage when the conductor has none, then subagent usage; ties break on the sorted key); each is
         None when the session recorded no usage. cost_usd is
         Session.cost_usd (None unless cost-state covers the session).
     fire_key(row) -> str | None
@@ -606,7 +620,7 @@ def _usd(value):
 
 def session_summary(session, repo) -> dict:
     counts: dict = {}
-    for key, tokens in session.conductor.items():
+    for key, tokens in (session.conductor or session.keepalive).items():
         counts[key] = counts.get(key, 0) + tokens.get("messages", 0)
     if not counts:
         for sub in session.subagents:
@@ -1432,16 +1446,17 @@ def _sum_usage(usages) -> dict:
 
 def _returns(session) -> list[dict]:
     """Human turns more than IDLE_RETURN after the previous non-ping
-    main-chain request. Any turn (task notification, agent hand-back) that
-    made a request moves that point; a passed ping does not, and is recorded
-    as preceding the return instead."""
+    main-chain request. Any non-ping turn that made a request (a task
+    notification or agent hand-back included) moves that point. A ping turn
+    never does; one that made a request (passed, deleted, wrapped or
+    unclassified: each warms the cache) marks the next return with_ping."""
     out, prev, pinged = [], None, False
     for turn in session.turns:
         if (turn.kind == "human" and turn.first is not None and prev is not None
                 and turn.ts is not None and turn.ts - prev > IDLE_RETURN):
             out.append({"ts": turn.ts, "gap": turn.ts - prev, "with_ping": pinged, **turn.first})
         if turn.kind == "ping":
-            pinged = pinged or turn.outcome == "passed"
+            pinged = pinged or turn.requests > 0
         elif turn.last_ts is not None:
             prev, pinged = turn.last_ts, False
     return out
@@ -1452,14 +1467,15 @@ def _bucket(gap: timedelta) -> str:
     return next(name for name, upper in RETURN_BUCKETS if upper is None or minutes < upper)
 
 
-def _return_metric(rows: list[dict]) -> dict:
+def _return_metric(rows: list[dict], empty_reason: str = "no returns", caveats=()) -> dict:
     if not rows:
-        return _absent("no returns")
+        return _absent(empty_reason)
     n = len(rows)
     value = {"returns": n, "cold": sum(1 for r in rows if r["cache_creation"] > r["cache_read"]),
              "avg_cache_read": round(sum(r["cache_read"] for r in rows) / n),
              "avg_cache_creation": round(sum(r["cache_creation"] for r in rows) / n)}
-    return metric(PARTIAL, value, None, ["n < 10"]) if n < MIN_BUCKET_N else metric(OK, value)
+    missing = (["n < 10"] if n < MIN_BUCKET_N else []) + list(caveats)
+    return metric(PARTIAL if missing else OK, value, None, missing)
 
 
 def _avoided_usd(model, tokens: float, rates: dict) -> float | None:
@@ -1471,35 +1487,58 @@ def _avoided_usd(model, tokens: float, rates: dict) -> float | None:
     return write["by_kind"]["cache_creation_1h"] - read["by_kind"]["cache_read"]
 
 
+def _ping_usage(pings, rates) -> tuple[dict, float | None]:
+    """Tokens and priced usd per ping outcome that can make a request, plus
+    `all`; and the all-pings usd (None when any of it is unpriced)."""
+    value, unpriced_all = {}, set()
+    for name in ("passed", "deleted", "wrapped", "unclassified", "all"):
+        usage = _sum_usage(t.usage for t in pings if name == "all" or t.outcome == name)
+        usd, unpriced = _price_usage(usage, rates) if usage else (0.0, [])
+        unpriced_all.update(unpriced)
+        value[name] = {**{k: sum(t[k] for t in usage.values())
+                          for k in ("input", "output", "cache_read", "cache_creation")},
+                       "usd": None if unpriced or usd is None else _usd(usd)}
+    if unpriced_all or value["all"]["usd"] is None:
+        return metric(PARTIAL, value, None, ["unpriced models: " + ", ".join(sorted(unpriced_all))]), None
+    return metric(OK, value), value["all"]["usd"]
+
+
 def _keepalive_section(inputs, rates, start, end) -> dict:
-    """Keepalive pings in the window, what the passed ones cost, how warm
-    the operator's returns after idle were, and an estimated net."""
+    """Keepalive pings in the window, what they cost, how warm the
+    operator's returns after idle were, and an estimated net. Returns are
+    reported with or without pings: a window with none is the baseline."""
     sessions = [s for inp in inputs for s in inp["sessions"]]
+    in_window = [s for s in sessions if any(_in(t.ts, start, end) for t in s.turns)]
+    no_origin = sum(1 for s in in_window if not any(t.origin for t in s.turns))
+    if in_window and no_origin == len(in_window):
+        empty_reason = "no turnOrigin in transcripts"
+    else:
+        empty_reason = "no returns" + (f" ({no_origin} session(s) without turnOrigin)" if no_origin else "")
+    caveats = [f"{no_origin} session(s) without turnOrigin"] if no_origin else []
+    rows = [r for s in sessions for r in _returns(s) if _in(r["ts"], start, end)]
+    returns, by_bucket = {}, {}
+    for name, _ in RETURN_BUCKETS:
+        mine = [r for r in rows if _bucket(r["gap"]) == name]
+        by_bucket[name] = ([r for r in mine if r["with_ping"]], [r for r in mine if not r["with_ping"]])
+        returns[name] = {side: _return_metric(group, empty_reason, caveats)
+                         for side, group in zip(("with_ping", "no_ping"), by_bucket[name])}
+
     pings = [t for s in sessions for t in s.turns if t.kind == "ping" and _in(t.ts, start, end)]
     if not pings:
         none = _absent("no keepalive ping in window")
-        return {"pings": none, "passed_ping_usage": none,
-                "returns": {name: {"with_ping": none, "no_ping": none} for name, _ in RETURN_BUCKETS},
-                "estimated_net_usd": none}
+        return {"pings": none, "ping_usage": none, "returns": returns, "estimated_net_usd": none}
     counts = {"fired": len(pings), **{o: sum(1 for t in pings if t.outcome == o) for o in PING_OUTCOMES}}
-    passed = _sum_usage(t.usage for t in pings if t.outcome == "passed")
-    passed_usd, unpriced = _price_usage(passed, rates) if passed else (0.0, [])
-    tokens = {k: sum(t[k] for t in passed.values()) for k in ("input", "output", "cache_read", "cache_creation")}
-    usage_m = (metric(PARTIAL, {**tokens, "usd": None}, None, ["unpriced models: " + ", ".join(unpriced)])
-               if passed_usd is None else metric(OK, {**tokens, "usd": _usd(passed_usd)}))
+    usage_m, ping_usd = _ping_usage(pings, rates)
 
-    rows = [r for s in sessions for r in _returns(s) if _in(r["ts"], start, end)]
-    returns, missing, avoided_tokens, avoided_usd = {}, [], 0.0, 0.0
-    for name, _ in RETURN_BUCKETS:
-        mine = [r for r in rows if _bucket(r["gap"]) == name]
-        with_ping = [r for r in mine if r["with_ping"]]
-        no_ping = [r for r in mine if not r["with_ping"]]
-        returns[name] = {"with_ping": _return_metric(with_ping), "no_ping": _return_metric(no_ping)}
+    missing, absent, avoided_tokens, avoided_usd = [], [], 0.0, 0.0
+    if not any(with_ping for with_ping, _ in by_bucket.values()):
+        absent.append("no return followed a ping")
+    for name, (with_ping, no_ping) in by_bucket.items():
         warm = [r for r in with_ping if r["cache_creation"] <= r["cache_read"]]
         if not warm:
             continue
         if not no_ping:
-            missing.append(f"{name}: no no-ping returns (no counterfactual)")
+            absent.append(f"{name}: no no-ping returns (no counterfactual)")
             continue
         if len(with_ping) < MIN_BUCKET_N or len(no_ping) < MIN_BUCKET_N:
             missing.append(f"{name}: n < 10")
@@ -1507,22 +1546,22 @@ def _keepalive_section(inputs, rates, start, end) -> dict:
         for r in warm:
             usd = _avoided_usd(r["model"], r["cache_read"] * cold_rate, rates)
             if usd is None:
-                missing.append(f"{name}: unpriced model {r['model']}")
+                absent.append(f"{name}: unpriced model {r['model']}")
                 continue
             avoided_tokens += r["cache_read"] * cold_rate
             avoided_usd += usd
-    if passed_usd is None:
-        net = _absent("passed pings unpriced")
+    if ping_usd is None:
+        absent.append("ping usage unpriced")
+    if absent:
+        net = _absent("; ".join(sorted(set(absent))))
     else:
-        if not rows:
-            missing.append("no returns after idle")
-        net = metric(PARTIAL if missing else OK,
-                     {"usd": _usd(avoided_usd - passed_usd), "avoided_creation_tokens": round(avoided_tokens),
-                      "avoided_creation_usd": _usd(avoided_usd), "passed_ping_usd": _usd(passed_usd)},
-                     None, sorted(set(missing)))
-    net["basis"] = ("estimate, not a measured saving: warm returns after a passed ping x the no-ping "
-                    "cold rate of the same bucket x cache_read, priced at (1h write - read), minus passed pings")
-    return {"pings": metric(OK, counts), "passed_ping_usage": usage_m, "returns": returns,
+        net = metric(PARTIAL if missing or caveats else OK,
+                     {"usd": _usd(avoided_usd - ping_usd), "avoided_creation_tokens": round(avoided_tokens),
+                      "avoided_creation_usd": _usd(avoided_usd), "ping_usd": ping_usd},
+                     None, sorted(set(missing)) + caveats)
+    net["basis"] = ("estimate, not a measured saving: warm returns after a ping x the no-ping cold rate "
+                    "of the same bucket x cache_read, priced at (1h write - read), minus all ping usage")
+    return {"pings": metric(OK, counts), "ping_usage": usage_m, "returns": returns,
             "estimated_net_usd": net}
 
 
