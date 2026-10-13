@@ -5,7 +5,7 @@ Purpose: Default-on prompt-cache keepalive for idle interactive conductor
          prompt in an eligible session it asks the model to create one
          session-only cron that re-submits PING_PROMPT every 20 minutes. On
          each cron fire it gates the ping: refresh a warm 1h cache the
-         operator may return to (GATE_NOTE), wrap a session idle for 2h with
+         operator may return to (gate_note), wrap a session idle for 2h with
          nothing in flight (WRAP_NOTE), let the model delete its own cron
          (no output), or block the fire before it makes a request. Decision
          logic lives in hooks/lib/cache_keepalive.py.
@@ -28,7 +28,8 @@ Public API: python3 hooks/cache-keepalive.py
              one JSON object; always exits 0.)
 
 Behavior (UserPromptSubmit only; any other event gets no output):
-    prompt == PING_PROMPT: decide() -> ping: additionalContext GATE_NOTE;
+    prompt == PING_PROMPT: decide() -> ping: additionalContext gate_note()
+        (GATE_NOTE plus the reply line the model echoes in place of ok);
         wrap: additionalContext WRAP_NOTE (with the hook-built kickoff
         command `claude '<resume prompt naming this session id>'`), only
         when the payload's permission_mode is in WRAP_PERMISSION_MODES
@@ -207,7 +208,7 @@ def handle_ping(lib, payload, now):
         wrap_mode_ok=lib.wrap_allowed(payload.get("permission_mode")),
     )
     if action == "ping":
-        _context(lib.LG.GATE_NOTE)
+        _context(lib.gate_note(state, now))
     elif action == "wrap":
         # The git root above the directory the session was launched from,
         # not above the payload cwd: a cwd that drifted into a linked

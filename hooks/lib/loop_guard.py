@@ -73,7 +73,7 @@ Public API (module-level functions, no class):
         arrive as `type:"user"` lines without isMeta (background task-
         completion notifications, <system-reminder>, <command-name>) and
         must not be mistaken for a genuine human turn.
-    MARKER, PING_PROMPT, GATE_NOTE, WRAP_MARKER, TAIL_BYTES
+    MARKER, PING_PROMPT, GATE_NOTE, GATE_REPLY_LEAD, WRAP_MARKER, TAIL_BYTES
         The cache-keepalive literals (hooks/cache-keepalive.py). Kept here
         so the Stop-hook carve-out and the gate share one copy.
     read_tail_records(transcript_path, max_bytes=TAIL_BYTES) -> list
@@ -89,7 +89,9 @@ Public API (module-level functions, no class):
         True iff the current turn answers a ping: the last turn-opening
         user record passes is_ping_record, and either every tool_use after
         it is CronList or CronDelete and the final text (last_message when
-        given, else the transcript's) normalizes to "ok"; or a
+        given, else the transcript's) normalizes to "ok" or to the reply
+        line a GATE_NOTE attachment in this turn gives after
+        GATE_REPLY_LEAD; or a
         UserPromptSubmit attachment after it carries WRAP_MARKER and the
         final text's last line starts with "Session wrapped", "Session
         wrap skipped" or "Session wrap failed" (any tools). False on any
@@ -465,6 +467,9 @@ PING_PROMPT = (
     "exactly: ok."
 )
 GATE_NOTE = "DinoStack keepalive gate passed for this ping."
+# PING_PROMPT stays byte-identical so crons created before this lead existed
+# keep passing the gate; the gate note overrides its "ok" with this line.
+GATE_REPLY_LEAD = " Instead of ok, reply with exactly this one line: "
 WRAP_MARKER = "[dinostack-cache-keepalive:wrap]"
 TAIL_BYTES = 4194304
 _PING_ACK_TOOLS = frozenset(("CronList", "CronDelete"))
@@ -552,11 +557,17 @@ def is_ping_ack_turn(transcript_path: str, last_message=None) -> bool:
         final_text = ""
         wrap_turn = False
         other_tool = False
+        acks = {"ok"}
         for rec in records[ping_idx + 1:]:
             if rec.get("type") == "attachment":
                 att = rec.get("attachment") or {}
-                if att.get("hookEvent") == "UserPromptSubmit" and WRAP_MARKER in json.dumps(att):
-                    wrap_turn = True
+                if att.get("hookEvent") == "UserPromptSubmit":
+                    if WRAP_MARKER in json.dumps(att):
+                        wrap_turn = True
+                    notes = att.get("content")
+                    for note in notes if isinstance(notes, list) else [notes]:
+                        if isinstance(note, str) and note.startswith(GATE_NOTE) and GATE_REPLY_LEAD in note:
+                            acks.add(_normalize_ack(note.split(GATE_REPLY_LEAD, 1)[1].splitlines()[0]))
                 continue
             if rec.get("type") != "assistant":
                 continue
@@ -576,6 +587,6 @@ def is_ping_ack_turn(transcript_path: str, last_message=None) -> bool:
         if wrap_turn:
             lines = [ln.strip() for ln in final_text.strip().splitlines() if ln.strip()]
             return bool(lines) and lines[-1].strip("*`").startswith(_WRAP_FINAL_PREFIXES)
-        return not other_tool and _normalize_ack(final_text) == "ok"
+        return not other_tool and _normalize_ack(final_text) in acks
     except Exception:
         return False

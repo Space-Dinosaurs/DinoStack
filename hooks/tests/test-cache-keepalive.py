@@ -475,7 +475,9 @@ def t_hook_ping_actions(h):
     ck = load(h)
     home, repo = _home()
     ping_ok = write_transcript(warm_idle(ck, 3000))
-    assert _ctx(run_hook(h, ck.LG.PING_PROMPT, ping_ok, home)) == ck.LG.GATE_NOTE
+    note = _ctx(run_hook(h, ck.LG.PING_PROMPT, ping_ok, home))
+    assert re.fullmatch(re.escape(ck.LG.GATE_NOTE + ck.LG.GATE_REPLY_LEAD)
+                        + r"keepalive: cache warmed \(idle 50m, next check (1[0-2]|[1-9]):[0-5]\d[ap]m\)", note), note
     recent = write_transcript(warm_idle(ck, 600))
     assert run_hook(h, ck.LG.PING_PROMPT, recent, home) == ck.BLOCK_OUTPUT
     not_cond = write_transcript(warm_idle(ck, 3000), conductor=False)
@@ -527,10 +529,10 @@ def t_hook_disabled(h):
     json.dump({"cache_keepalive": False}, open(os.path.join(proj, ".agentic", "config.json"), "w"))
     assert run_hook(h, ck.LG.PING_PROMPT, path, home, cwd=proj) is None
     json.dump({"cache_keepalive": True}, open(os.path.join(proj, ".agentic", "config.json"), "w"))
-    assert _ctx(run_hook(h, ck.LG.PING_PROMPT, path, home_g, cwd=proj)) == ck.LG.GATE_NOTE
+    assert _ctx(run_hook(h, ck.LG.PING_PROMPT, path, home_g, cwd=proj)).startswith(ck.LG.GATE_NOTE)
     # Only a literal false disables: a falsy non-false value leaves it on.
     json.dump({"cache_keepalive": 0}, open(os.path.join(proj, ".agentic", "config.json"), "w"))
-    assert _ctx(run_hook(h, ck.LG.PING_PROMPT, path, home_g, cwd=proj)) == ck.LG.GATE_NOTE
+    assert _ctx(run_hook(h, ck.LG.PING_PROMPT, path, home_g, cwd=proj)).startswith(ck.LG.GATE_NOTE)
     att = {"CLAUDE_CODE_SESSION_ATTENDED": "1"}
     fresh = write_transcript([session_start(NOW - 100), user(NOW - 90), asst(NOW - 89)])
     assert run_hook(h, "next", fresh, home, env=dict(att, AE_CACHE_KEEPALIVE_DISABLE="1")) is None
@@ -553,7 +555,7 @@ def t_activation(h):
         create_out = run_hook(h, "please continue", fresh, home, env=att, cwd=proj)
         label = (mode, marker)
         if active:
-            assert _ctx(ping_out) == ck.LG.GATE_NOTE, label
+            assert _ctx(ping_out).startswith(ck.LG.GATE_NOTE), label
             assert _ctx(create_out) == ck.create_note(False), label
         else:
             assert ping_out is None and create_out is None, (label, ping_out, create_out)
