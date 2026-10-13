@@ -105,6 +105,7 @@ hooks/lib/context-rollup.js::+ '*Derived from .agentic/context.d/ - ' + blocks.l
 hooks/lib/context-rollup.js::return path.join(resolveAgenticCwd(cwd), '.agentic');
 hooks/lib/enforcement_log.py::agentic_dir = os.path.join(root, ".agentic")
 hooks/lib/cache_keepalive.py::"command there and write only under " + os.path.join(root, ".agentic")
+hooks/lib/cache_keepalive.py::return "claude " + shlex.quote(KICKOFF_PROMPT.format(sid=session_id, agentic=os.path.join(root, ".agentic")))
 hooks/lib/cache_keepalive.py::paths.append(os.path.join(LG.resolve_agentic_cwd(cwd), ".agentic", "config.json"))
 hooks/lib/loop_guard.py::agentic_dir = os.path.join(resolve_agentic_cwd(cwd), ".agentic")
 hooks/lib/loop_guard.py::return os.path.join(resolve_agentic_cwd(cwd), ".agentic", counter_filename)
