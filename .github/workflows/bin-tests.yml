@@ -15,8 +15,7 @@ permissions:
 # execution, so a job-level `timeout-minutes` can be consumed entirely by queue
 # wait. That is not hypothetical here: python-bin-tests was cancelled on this
 # repo having recorded `steps: []` - no step ever ran - and bin-sh-tests was
-# cancelled the same way on main (run 31115638748, sha f81b63c0). The suites
-# themselves finish in well under a minute.
+# cancelled the same way on main (run 31115638748, sha f81b63c0).
 #
 # So: job-level `timeout-minutes` is a BACKSTOP ONLY (20; 30 on bin-sh-tests,
 # whose test step is the one long step in this file), and every network
@@ -69,7 +68,11 @@ jobs:
         timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y zsh jq
       - run: python3 -m pytest bin/tests/ -q --timeout=60 --timeout-method=thread
-        timeout-minutes: 5
+        # Re-derive the current distribution with
+        # `bash scripts/ci-step-durations.sh` before changing this value.
+        # The prior bound (5 minutes) killed a run in which every test had
+        # passed. Must stay below the job backstop above.
+        timeout-minutes: 10
       - name: floor collected test_phase8_telemetry_shell.py count at 20
         # 10 test functions x 2 shells (bash, zsh) = 20 collected IDs (round
         # 12 added test_correct_block_aborts_loudly_on_defeated_negation, the
@@ -238,12 +241,11 @@ jobs:
         # 8 minutes was derived from a single observation, and 15 minutes
         # was derived from a real distribution that then stopped describing
         # the step. This loop runs every file serially, so the step's
-        # duration is a sum that grows with each test file added - it
-        # roughly doubled in three weeks with no single file regressing,
-        # until healthy runs with every group passing were killed at 15.
-        # Expect to re-derive this as the suite grows; a measurement of it
-        # has a short shelf life. The job backstop above must stay above
-        # this value.
+        # duration is the sum of every file's, and one slow file added
+        # moves it as far as many quick ones: healthy runs with every
+        # group passing were killed at 15. Expect to re-derive this as
+        # the suite grows; a measurement of it has a short shelf life.
+        # The job backstop above must stay above this value.
         timeout-minutes: 25
         run: |
           set -e
