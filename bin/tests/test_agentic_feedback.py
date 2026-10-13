@@ -40,6 +40,10 @@ Test groups:
   13. test_fire_label_invalid_skips_item - a fire_label with a bad verdict,
       an empty or non-string field, or a non-object value skips that item
       per the per-item soft-fail.
+  14. test_list_creates_nothing_in_an_empty_home - `list` with no store
+      leaves a scratch HOME empty.
+  15. test_list_takes_no_lock_and_creates_no_lock_file - `list` never
+      creates the lock file or takes the exclusive lock.
 
 Regression test obligation: content/references/regression-test-obligation.md
 Run with: python3 -m pytest bin/tests/test_agentic_feedback.py -x
@@ -564,6 +568,49 @@ def test_mark_warns_on_malformed_line_and_drops_it():
 
         print("PASS test_mark_warns_on_malformed_line_and_drops_it")
 
+def test_list_creates_nothing_in_an_empty_home():
+    """(14) `list` is a pure read: with no store it leaves HOME empty (no
+    ~/.agentic/, no store, no lock file)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        home = Path(tmp) / "home"
+        home.mkdir()
+        result = subprocess.run(
+            [sys.executable, str(_BIN_PATH), "list", "--status", "triaged", "--repo", "/r"],
+            env={**os.environ, "HOME": str(home)}, capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout) == []
+        assert list(home.rglob("*")) == [], sorted(str(x) for x in home.rglob("*"))
+
+        print("PASS test_list_creates_nothing_in_an_empty_home")
+
+
+def test_list_takes_no_lock_and_creates_no_lock_file():
+    """(15) `list` reads an existing store without creating the lock file,
+    and returns while another process holds the exclusive lock."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        feedback_path, lock_path = _patch_paths(tmp_path)
+        feedback_path.write_text(json.dumps({"id": "a", "scope": "project", "status": "open"}) + "\n",
+                                 encoding="utf-8")
+        rc, out, _ = _run(["list"])
+        assert rc == 0 and [r["id"] for r in json.loads(out)] == ["a"]
+        assert not lock_path.exists(), "list created the lock file"
+
+        lock_path.touch()
+        calls = []
+        orig = _mod.acquire_exclusive_lock
+        _mod.acquire_exclusive_lock = lambda *a, **k: calls.append(a) or orig(*a, **k)
+        try:
+            with orig(lock_path):
+                rc, out, _ = _run(["list"])
+        finally:
+            _mod.acquire_exclusive_lock = orig
+        assert rc == 0 and [r["id"] for r in json.loads(out)] == ["a"]
+        assert calls == [], "list tried to take the exclusive lock"
+
+        print("PASS test_list_takes_no_lock_and_creates_no_lock_file")
+
 
 if __name__ == "__main__":
     test_append_valid_and_invalid_mixed()
@@ -579,4 +626,6 @@ if __name__ == "__main__":
     test_mark_warns_on_malformed_line_and_drops_it()
     test_fire_label_valid_is_born_triaged()
     test_fire_label_invalid_skips_item()
+    test_list_creates_nothing_in_an_empty_home()
+    test_list_takes_no_lock_and_creates_no_lock_file()
     print("All tests passed.")

@@ -334,6 +334,20 @@ class TestRateOrNone(unittest.TestCase):
         self.assertEqual(rate_or_none(0, 4), 0.0)
 
 
+class TestRunLaunchFailure(unittest.TestCase):
+    """_run turns a missing executable or cwd into a failed result, never a raise."""
+
+    def test_missing_executable_is_rc_127(self):
+        proc = _lib._run(["ds-no-such-executable-xyz", "--version"], timeout=5.0)
+        self.assertEqual(proc.returncode, 127)
+        self.assertEqual(proc.stdout, "")
+        self.assertIn("ds-no-such-executable-xyz", proc.stderr)
+
+    def test_missing_cwd_is_rc_127(self):
+        proc = _lib._run(["git", "--version"], cwd="/nonexistent-dir-for-run-test", timeout=5.0)
+        self.assertEqual(proc.returncode, 127)
+
+
 # ---------------------------------------------------------------------------
 # Standalone runner (matches existing test pattern in bin/tests/)
 # ---------------------------------------------------------------------------
