@@ -254,13 +254,14 @@ def test_sigterm_releases_the_lock(tmp_path, case):
         os.write(gate_fd, b"go\n")
         memory.parent.mkdir()
         os.mkfifo(memory)
-    p = subprocess.Popen([str(tree / "bin" / "ds-keepalive-wrap"), "--root", str(root), "--session-id", SID],
-                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    payload = tmp_path / "payload.json"
+    payload.write_text(json.dumps(_payload()))
+    with open(payload) as stdin:
+        p = subprocess.Popen([str(tree / "bin" / "ds-keepalive-wrap"), "--root", str(root), "--session-id", SID],
+                             stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     mem_fd = None
     try:
         if case == "after-acquire":
-            p.stdin.write(json.dumps(_payload()))
-            p.stdin.close()
             while mem_fd is None:
                 assert p.poll() is None, p.communicate()
                 try:
