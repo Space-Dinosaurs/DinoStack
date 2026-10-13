@@ -269,7 +269,8 @@ brought you here. It is also not silent - pytest emits
 exit code instead of the summary line. Do not add new `-> int` returners;
 new hook tests should assert.
 
-**A hook test must never write to a checkout's `.agentic/`.** When a payload
+**A hook test must never write to a real `.agentic/`** - a checkout's or
+`$HOME`'s. When a payload
 carries no `cwd`, `log_fire()` falls back to the hook process's own cwd, and
 from a linked worktree that resolves to the PRIMARY checkout - so a test that
 spawns a hook with the caller's cwd and a `cwd`-less payload appends fixture
@@ -281,7 +282,10 @@ every hook subprocess a temp-dir process cwd, or a payload `cwd` under a temp
 dir. `bin/tests/test_hook_tests_agentic_isolation.sh` enforces this for the
 Python suites by running them from a linked worktree of a scratch repo and
 requiring the scratch primary's `.agentic/` to stay byte-identical; the JS and
-sh suites are outside it on cost.
+sh suites are outside it on cost, and nothing guards `$HOME`. A test that
+drives `stop-context.js` down its standard exit path must also set `HOME` to a
+temp dir: that path writes session telemetry under `$HOME/.agentic/`, which is
+how `test-capture-gap.js` put a fixture session in a real session log.
 
 ## Registering a new enforce-*.py hook: the Pillar-8 naming obligation
 
