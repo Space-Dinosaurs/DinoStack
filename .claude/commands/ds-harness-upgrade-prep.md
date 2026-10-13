@@ -142,7 +142,7 @@ Run `/ds-skeptic` from its Step 2, skipping Step 1: `report.md` is the Worker ou
 
 ## Approve
 
-Print a header: harness and how it was identified (the matched ancestor line, or "explicit argument"), installed, latest, pending release count, Affected and Unaffected counts, and the report path. Under `--notes`, installed, latest and pending release count print as `n/a (--notes)`. Show every Affected finding in full. Unaffected is a count.
+Print a header: harness and how it was identified (the matched ancestor line, or "explicit argument"), installed, latest, pending release count, Affected and Unaffected counts, and the report path. Under `--notes`, installed, latest and pending release count print as `n/a (--notes)`. For each Affected finding show its id, title, Kind, Surface, Patch line and Other harnesses line; the quoted change and the evidence stay in `report.md`. Unaffected is a count.
 
 For each finding whose Patch is a patch or a `decision`, the operator answers approve (choosing the option for a `decision`) or decline. Wait for an explicit answer. With zero such findings, ask nothing. Approving a finding selects it for patching; a patch routed through `/ds-update-agentic-engineering` is confirmed again at that command's own diff-approval step. Then append `## Approved` to `report.md` listing the approved finding ids.
 
