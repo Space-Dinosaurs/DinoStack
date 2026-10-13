@@ -51,7 +51,8 @@ Public API:
     wrap_tool_path(repo) -> str: <repo>/bin/ds-keepalive-wrap.
     wrap_command(repo, session_id, root) -> str: the shell-quoted
         ds-keepalive-wrap invocation the wrap note carries.
-    kickoff_command(session_id) -> str: `claude <quoted KICKOFF_PROMPT>`.
+    kickoff_command(session_id, root) -> str: `claude <quoted
+        KICKOFF_PROMPT>`, naming <root>/.agentic by absolute path.
     wrap_note(repo, session_id, root) -> str: WRAP_MARKER note naming the
         procedure file, the project root, the wrap command and the kickoff.
     process_started_at(env, session_id) -> float | None.
@@ -200,10 +201,13 @@ GLOBAL_CONFIG = os.path.expanduser("~/.claude/agentic-engineering.json")
 AE_CONFIG = os.path.expanduser("~/.agentic/agentic-engineering-config.json")
 WRAP_COMMAND_REL = os.path.join("content", "commands", "ds-wrap-deferred.md")
 
+# {agentic} is the absolute <root>/.agentic the wrap wrote to: the root is
+# the git-root ancestor of the launch directory, so a session launched from
+# a subdirectory must not look for .agentic/ relative to its own cwd.
 KICKOFF_PROMPT = (
-    "Resume wrapped session {sid}: read .agentic/context.md first, then "
-    ".agentic/resume/{sid}.md. Restate its Next step and Pending operator "
-    "decisions verbatim, move the file to .agentic/resume/consumed/, then "
+    "Resume wrapped session {sid}: read {agentic}/context.md first, then "
+    "{agentic}/resume/{sid}.md. Restate its Next step and Pending operator "
+    "decisions verbatim, move the file to {agentic}/resume/consumed/, then "
     "continue from the Next step."
 )
 FALLBACK_PROMPT = (
@@ -680,11 +684,12 @@ def wrap_command(repo: str, session_id: str, root: str) -> str:
     return " ".join(shlex.quote(part) for part in (wrap_tool_path(repo), "--root", root, "--session-id", session_id))
 
 
-def kickoff_command(session_id: str) -> str:
+def kickoff_command(session_id: str, root: str) -> str:
     # No cd and no CLAUDE_CONFIG_DIR prefix: the operator starts the fresh
-    # session from the shell the wrapped session ran in, which already has
-    # both. The session id keeps concurrent sessions in one repo apart.
-    return "claude " + shlex.quote(KICKOFF_PROMPT.format(sid=session_id))
+    # session from the shell the wrapped session ran in. The session id keeps
+    # concurrent sessions in one repo apart; the absolute paths make the
+    # prompt work from any directory of that repo.
+    return "claude " + shlex.quote(KICKOFF_PROMPT.format(sid=session_id, agentic=os.path.join(root, ".agentic")))
 
 
 def wrap_note(repo: str, session_id: str, root: str) -> str:
@@ -693,7 +698,7 @@ def wrap_note(repo: str, session_id: str, root: str) -> str:
     # instead of the wrap, so it is fenced as data; and without an explicit
     # project root the model took the DinoStack checkout for the project and
     # wrote into its .agentic/.
-    kickoff = kickoff_command(session_id)
+    kickoff = kickoff_command(session_id, root)
     return (
         WRAP_MARKER + " " + LG.GATE_NOTE + " Do not reply ok. This session "
         "has been idle for 2h: wrap it now by following "

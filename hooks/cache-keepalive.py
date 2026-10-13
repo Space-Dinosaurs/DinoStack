@@ -64,7 +64,7 @@ Measurements (Claude Code 2.1.287, haiku 4.5 and opus 5.5 scratch sessions,
         default and acceptEdits and in neither auto nor bypassPermissions,
         hence WRAP_PERMISSION_MODES. End to end on the shipped hook, opus:
         default (e3) - creation by the note and the self-delete ran with no
-        prompt; auto (e1, e2) - the auto-mode classifier DENIED the
+        prompt; auto (e1, e2) - the auto-mode classifier denied the
         note-requested CronCreate as "Unauthorized Persistence" 2/2, so an
         auto-mode session has no keepalive unless CronCreate, CronList and
         CronDelete are allow-listed (the model reports the denial in one
@@ -206,9 +206,10 @@ def handle_ping(lib, payload, now):
     if action == "ping":
         _context(lib.LG.GATE_NOTE)
     elif action == "wrap":
-        # The directory the session was launched from, not the payload cwd:
-        # the operator runs the kickoff from that shell, and a cwd that
-        # drifted into a linked worktree would put the resume file there.
+        # The git root above the directory the session was launched from,
+        # not above the payload cwd: a cwd that drifted into a linked
+        # worktree would put the resume file in that worktree. The kickoff
+        # names this root by absolute path.
         launch = os.environ.get("CLAUDE_PROJECT_DIR") or ""
         start = launch if os.path.isdir(launch) else (cwd or os.getcwd())
         _context(lib.wrap_note(repo, session_id, lib.LG.resolve_agentic_cwd(start)))

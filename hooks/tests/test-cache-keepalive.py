@@ -220,6 +220,11 @@ def t_no_repeat_wrap(h):
     assert d(after) == ("block", "already-wrapped"), d(after)
     back = after + [user(NOW - 600), asst(NOW - 599)]
     assert ck.session_state(back)["wrapped_since_idle"] is False
+    # Only a UserPromptSubmit note counts: the same text from another hook event is not a wrap or a gated ping.
+    other = dict(wrap_attachment(NOW - 3000, ck))
+    other["attachment"] = dict(other["attachment"], hookEvent="SessionStart")
+    state = ck.session_state(idle + [ping(NOW - 3000, ck), other, asst(NOW - 2999)])
+    assert state["wrapped_since_idle"] is False and state["deletes_since_idle"] == 1, state
 
 
 def t_delete_once(h):
@@ -374,12 +379,15 @@ def t_is_conductor(h):
 
 def t_kickoff(h):
     ck = load(h)
-    cmd = ck.kickoff_command("SID-1")
+    cmd = ck.kickoff_command("SID-1", "/proj")
     argv = shlex.split(cmd)
-    assert argv == ["claude", ck.KICKOFF_PROMPT.format(sid="SID-1")], argv
-    assert "SID-1" in argv[1] and ".agentic/resume/SID-1.md" in argv[1]
-    quoted = shlex.split(ck.kickoff_command("it's-SID"))
-    assert quoted == ["claude", ck.KICKOFF_PROMPT.format(sid="it's-SID")], quoted
+    assert argv == ["claude", ck.KICKOFF_PROMPT.format(sid="SID-1", agentic="/proj/.agentic")], argv
+    # Absolute paths: the wrap writes under the git root, and the operator may
+    # start the fresh session from a subdirectory of it.
+    assert "then /proj/.agentic/resume/SID-1.md." in argv[1] and "read /proj/.agentic/context.md first" in argv[1]
+    assert "to /proj/.agentic/resume/consumed/" in argv[1] and " .agentic/" not in argv[1]
+    quoted = shlex.split(ck.kickoff_command("it's-SID", "/a b/it's"))
+    assert quoted == ["claude", ck.KICKOFF_PROMPT.format(sid="it's-SID", agentic="/a b/it's/.agentic")], quoted
     note = ck.wrap_note("/repo", "SID-1", "/proj")
     assert note.startswith(ck.WRAP_MARKER) and ck.LG.GATE_NOTE in note
     assert "/proj/.agentic/resume/SID-1.md" in note and "/repo/content/commands/ds-wrap-deferred.md" in note
@@ -483,6 +491,15 @@ def t_hook_ping_actions(h):
     note = _ctx(run_hook(h, ck.LG.PING_PROMPT, wrap, home, cwd=drifted, env={"CLAUDE_PROJECT_DIR": proj},
                          extra={"permission_mode": "auto"}))
     assert "Project root: " + os.path.realpath(proj) + " " in note and os.path.realpath(drifted) not in note, note
+    # Launched from a subdirectory: the files go under the git root, and the kickoff names that same place.
+    gitroot = os.path.realpath(tempfile.mkdtemp(dir=SCRATCH))
+    os.makedirs(os.path.join(gitroot, ".git"))
+    os.makedirs(os.path.join(gitroot, "pkg", "sub"))
+    note = _ctx(run_hook(h, ck.LG.PING_PROMPT, wrap, home, cwd=os.path.join(gitroot, "pkg", "sub"),
+                         env={"CLAUDE_PROJECT_DIR": os.path.join(gitroot, "pkg", "sub")}, extra={"permission_mode": "auto"}))
+    sid = "11111111-2222-3333-4444-555555555555"
+    assert "--root " + gitroot + " " in note and "Project root: " + gitroot + " " in note, note
+    assert "then " + gitroot + "/.agentic/resume/" + sid + ".md." in note.split("KICKOFF: ")[1], note
     # A failure after the ping marker matched blocks the fire: never a request with no gate note.
     assert run_hook(h, ck.LG.PING_PROMPT, ping_ok, home, extra={"permission_mode": []}) == ck.BLOCK_OUTPUT
     assert run_hook(h, ck.LG.MARKER + " other", ping_ok, home) == ck.BLOCK_OUTPUT
@@ -570,8 +587,13 @@ CASES = [t_constants, t_decide_actions, t_release_wrap, t_no_repeat_wrap, t_dele
 MUTATIONS = [
     ("gate-note-on-delete", "cache-keepalive.py", 'elif action == "block":',
      'elif action == "delete":\n        _context(lib.LG.GATE_NOTE)\n    elif action == "block":', t_hook_ping_actions),
-    ("kickoff-unquoted", "lib/cache_keepalive.py", 'return "claude " + shlex.quote(KICKOFF_PROMPT.format(sid=session_id))',
-     'return "claude " + KICKOFF_PROMPT.format(sid=session_id)', t_kickoff),
+    ("kickoff-unquoted", "lib/cache_keepalive.py", 'return "claude " + shlex.quote(KICKOFF_PROMPT.format(',
+     'return "claude " + str(KICKOFF_PROMPT.format(', t_kickoff),
+    ("kickoff-relative-paths", "lib/cache_keepalive.py", 'agentic=os.path.join(root, ".agentic")))',
+     'agentic=".agentic"))', t_kickoff),
+    ("state-any-hook-event", "lib/cache_keepalive.py",
+     '            if in_ping_turn and att.get("hookEvent") == "UserPromptSubmit":\n', "            if in_ping_turn:\n",
+     t_no_repeat_wrap),
     ("note-without-root", "lib/cache_keepalive.py", '". Project root: " + root + " - run every "',
      '". Run every "', t_kickoff),
     ("idle-since-counts-pings", "lib/cache_keepalive.py", 'real = [r for r in requests if not r["ping"]]',

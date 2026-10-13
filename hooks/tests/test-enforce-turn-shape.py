@@ -4323,6 +4323,9 @@ check("ka8c. WRAP_MARKER in an attachment from another hook event is not a wrap 
       _ka_enforced("ka8c", [_ka_ping(), {"type": "attachment", "attachment": {
           "type": "hook_additional_context", "hookEvent": "SessionStart", "content": [_KA_LG.WRAP_MARKER + " note"]}},
           _ka_tool("Bash", "t8c"), _ka_result("t8c")], _ka_wrap_line))
+check("ka8d. wrap turn whose 'Session wrapped' line is not the last line -> full enforcement",
+      _ka_enforced("ka8d", [_ka_ping(), _ka_wrap_attachment(), _ka_tool("Bash", "t8d"), _ka_result("t8d")],
+                   _ka_wrap_line + "\nDone."))
 check("ka9. a non-wrap turn ending 'Session wrapped' -> full enforcement",
       _ka_enforced("ka9", [_ka_ping(), _ka_tool("Bash", "t9"), _ka_result("t9")], _ka_wrap_line))
 check("ka10. wrap turn replying 'ok' -> full enforcement",

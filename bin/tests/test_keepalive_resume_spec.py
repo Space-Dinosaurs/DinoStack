@@ -62,4 +62,5 @@ def test_kickoff_prompt_documented():
     ck = _ck()
     first = ck.KICKOFF_PROMPT.split("{sid}")[0]
     assert first == "Resume wrapped session "
+    assert "{agentic}/resume/{sid}.md" in ck.KICKOFF_PROMPT and " .agentic/" not in ck.KICKOFF_PROMPT
     assert "Resume wrapped session <id>" in DOC.read_text()

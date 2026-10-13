@@ -79,6 +79,7 @@ def test_fresh_project_writes_everything(tmp_path):
     assert (agentic / "memory.md").read_text() == "- learned a thing\n"
     assert not _lock(root).exists()
     assert not [p for p in agentic.rglob(".*.tmp")]
+    assert oct((agentic / "_wrap.md").stat().st_mode & 0o777) == "0o644"
 
 
 def test_memory_is_appended_and_empty_append_leaves_it(tmp_path):
@@ -196,6 +197,27 @@ def test_path_escape_refused(tmp_path):
     os.symlink(victim, third / ".agentic" / "_wrap.md")
     r = _run(third)
     assert r.returncode == 1 and "is a symlink" in r.stdout and not victim.exists(), r.stdout
+
+
+PLANTED_TEMPS = [("memory.md", ".memory.md.tmp"), ("_wrap.md", "._wrap.md.tmp"), ("wrap/last-wrap", "wrap/.last-wrap.tmp"),
+                 ("resume/%s.md" % SID, "resume/.%s.md.tmp" % SID)]
+
+
+@pytest.mark.parametrize("target,planted", PLANTED_TEMPS, ids=[p[1] for p in PLANTED_TEMPS])
+def test_planted_temp_symlink_is_never_followed(tmp_path, target, planted):
+    """A symlink waiting at a guessable temp path must not receive the write
+    or end up as the target."""
+    root = tmp_path / "proj"
+    outside = tmp_path / "outside-file"
+    link = root / ".agentic" / planted
+    link.parent.mkdir(parents=True)
+    os.symlink(outside, link)
+    r = _run(root)
+    assert r.returncode == 0 and _one_line(r) == WRITTEN, r.stdout + r.stderr
+    assert not outside.exists(), "the write followed a planted temp symlink out of the project"
+    final = root / ".agentic" / target
+    assert final.is_file() and not final.is_symlink()
+    assert os.path.realpath(final) == str((Path(os.path.realpath(root)) / ".agentic" / target))
 
 
 def test_sigterm_releases_the_lock(tmp_path):

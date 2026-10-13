@@ -42,9 +42,11 @@ Failure modes: never writes outside <root>/.agentic/: the session id is
     SIGTERM, SIGINT and SIGHUP too; SIGKILL leaves it for
     ds-wrap-acquire-lock's abandoned-lock rule. A release that does not
     report "released" is a failure even when every file was written. Each
-    file is written to a dot-tmp sibling and renamed, so a failed write
-    never leaves a partial target; files written before the failing step
-    stay. The directories are created and checked before the lock is taken.
+    file is written to a sibling temp file created exclusively under a
+    random name (a planted symlink or file at a guessable temp path is
+    never opened) and renamed, and the renamed target must be a regular
+    file at its own real path; a failed write never leaves a partial
+    target, and files written before the failing step stay. The directories are created and checked before the lock is taken.
 
 Performance: two node spawns (about 0.1 s) plus a handful of small writes.
 """
@@ -59,6 +61,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 BIN = os.path.dirname(os.path.abspath(__file__))
@@ -108,19 +111,34 @@ def _confined_dir(base, *parts):
 
 
 def _write(path, text):
+    """Atomic write that cannot be steered outside the directory: the temp
+    file is created exclusively under a random name (mkstemp: O_CREAT |
+    O_EXCL, which neither follows nor reuses an existing path), and the
+    renamed target must be a regular file at its own real path."""
+    folder = os.path.dirname(path)
     if os.path.islink(path):
         raise WrapError("%s is a symlink" % path)
-    tmp = os.path.join(os.path.dirname(path), "." + os.path.basename(path) + ".tmp")
+    tmp = None
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
+        if os.path.realpath(folder) != folder:
+            raise WrapError("%s resolves outside the project's .agentic/" % folder)
+        fd, tmp = tempfile.mkstemp(dir=folder, prefix="." + os.path.basename(path) + ".", suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
+            os.fchmod(f.fileno(), 0o644)
         os.replace(tmp, path)
+        tmp = None
+        if os.path.islink(path) or os.path.realpath(path) != path:
+            os.unlink(path)
+            raise WrapError("%s did not stay inside the project's .agentic/" % path)
     except OSError as exc:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
         raise WrapError("could not write %s: %s" % (path, exc.strerror or exc))
+    finally:
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 def prepare_dirs(root, lib):
