@@ -4350,6 +4350,13 @@ check("ka9. a non-wrap turn ending 'Session wrapped' -> full enforcement",
 check("ka10. wrap turn replying 'ok' -> full enforcement",
       _ka_enforced("ka10", [_ka_ping(), _ka_wrap_attachment()], "ok"))
 
+_ka_reply = "keepalive: cache warmed (idle 40m, next check 4:28pm)"
+_ka_gate = {"type": "attachment", "attachment": {"type": "hook_additional_context", "hookEvent": "UserPromptSubmit",
+                                                 "content": [_KA_LG.GATE_NOTE + _KA_LG.GATE_REPLY_LEAD + _ka_reply]}}
+check("ka13. ping turn echoing its gate note's reply line -> exempt; a different line -> full enforcement",
+      _ka_exempt("ka13", [_ka_ping(), _ka_gate], _ka_reply)
+      and _ka_enforced("ka13b", [_ka_ping(), _ka_gate], "keepalive: cache warmed (idle 99m)"))
+
 _ka_answer = "notes.txt now contains alpha."
 _ka_plain = _ka_run("ka12a", _ka_human, _ka_answer)
 _ka_created = _ka_run("ka12b", _ka_human + [_ka_tool("ToolSearch", "t12"), _ka_result("t12"),

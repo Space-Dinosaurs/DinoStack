@@ -47,6 +47,10 @@ Public API:
     creation_due(records, state, enabled, conductor, started_at=None,
         complete=False) -> (due, check_existing).
     create_note(check_existing) -> str: the CREATE_NOTE_MARKER instruction.
+    gate_note(state, now) -> str: GATE_NOTE plus the one reply line the
+        model echoes, e.g. "keepalive: cache warmed (idle 40m, next check
+        4:28pm)": idle is now - idle_since (omitted when unknown), the
+        check is now + PERIOD_S in local time.
     repo_dir() -> str; wrap_command_path(repo) -> str.
     wrap_tool_path(repo) -> str: <repo>/bin/ds-keepalive-wrap.
     wrap_command(repo, session_id, root) -> str: the shell-quoted
@@ -150,6 +154,7 @@ import json
 import os
 import re
 import shlex
+import time
 
 
 def _load_loop_guard():
@@ -661,6 +666,21 @@ def create_note(check_existing: bool) -> str:
         "you mention it, use one line naming the job and the opt-out; if asked, "
         "explain it plainly."
     )
+
+
+def _duration(seconds):
+    minutes = int(seconds) // 60
+    return "%dm" % minutes if minutes < 60 else "%dh%02dm" % divmod(minutes, 60)
+
+
+def gate_note(state, now) -> str:
+    # The next fire is one PERIOD_S after this one (measured, M3); it is a
+    # check, not a promised ping, since the gate decides again then.
+    idle_since = state.get("idle_since")
+    idle = "idle %s, " % _duration(now - idle_since) if idle_since is not None else ""
+    t = time.localtime(now + PERIOD_S)
+    when = "%d:%02d%s" % (t.tm_hour % 12 or 12, t.tm_min, "am" if t.tm_hour < 12 else "pm")
+    return LG.GATE_NOTE + LG.GATE_REPLY_LEAD + "keepalive: cache warmed (" + idle + "next check " + when + ")"
 
 
 def repo_dir() -> str:
