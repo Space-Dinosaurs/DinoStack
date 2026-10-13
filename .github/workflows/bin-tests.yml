@@ -17,8 +17,9 @@ permissions:
 # repo having recorded `steps: []` - no step ever ran - and bin-sh-tests was
 # cancelled the same way on main (run 31115638748, sha f81b63c0).
 #
-# So: job-level `timeout-minutes` is a BACKSTOP ONLY (20; 42 on bin-sh-tests,
-# whose test step is the one long step in this file), and every network
+# So: job-level `timeout-minutes` is a BACKSTOP ONLY, set above the sum of
+# that job's own step bounds (20 on hooks-python-tests, 33 on
+# python-bin-tests, 42 on bin-sh-tests), and every network
 # install/download step and every test-execution step carries its own
 # `timeout-minutes`, which starts when the step starts and is therefore immune
 # to acquisition delay. Do not "fix" a queue-starvation cancellation by raising
@@ -30,7 +31,10 @@ permissions:
 jobs:
   python-bin-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The step bounds below sum to 32 (2 + 10 + 10 + five floor steps at 2),
+    # plus a minute for the unbounded checkout and setup-python steps. Move
+    # the two together.
+    timeout-minutes: 33
     env:
       # Keep partial output if the job is force-killed anyway.
       PYTHONUNBUFFERED: '1'
@@ -164,7 +168,7 @@ jobs:
   # across other dirs (different naming convention, previously unwired anywhere).
   bin-sh-tests:
     runs-on: ubuntu-latest
-    # 42, not the 20 the other two jobs carry: the backstop has to sit above
+    # 42, not the 20 hooks-python-tests carries: the backstop has to sit above
     # the step bounds below, or it fires first and the step bounds diagnose
     # nothing. Those bounds sum to 41 (2 + 10 + 2 + 2 + 25), plus a minute
     # for the unbounded checkout and setup-python steps. Move the two
