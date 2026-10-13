@@ -36,6 +36,46 @@ def test_resolve_rates_exact_family_and_unresolved():
         assert tel.resolve_rates(model, rates) == (None, None), model
 
 
+def test_5_5_models_resolve_to_their_own_published_rates():
+    rates = tel.DEFAULT_RATES
+    sonnet = {"input": 2.0, "output": 10.0, "cache_read": 0.10}
+    haiku = {"input": 0.10, "output": 0.50, "cache_read": 0.01}
+    for model in ("claude-sonnet-5-5", "claude-sonnet-5-5[1m]", "claude-sonnet-5-5-20261001"):
+        assert tel.resolve_rates(model, rates) == (sonnet, "exact"), model
+    for model in ("claude-haiku-5-5", "claude-haiku-5-5-20261001"):
+        assert tel.resolve_rates(model, rates) == (haiku, "exact"), model
+
+
+def test_ids_priced_before_ds_265_keep_their_rates():
+    opus = {"input": 4.0, "output": 20.0, "cache_read": 0.20}
+    sonnet = {"input": 2.0, "output": 10.0, "cache_read": 0.20}
+    haiku = {"input": 1.0, "output": 5.0, "cache_read": 0.10}
+    fable = {"input": 10.0, "output": 50.0, "cache_read": 0.25}
+    expected = {
+        "claude-opus-5-5": (opus, "exact"), "claude-opus-5-5[1m]": (opus, "exact"),
+        "claude-opus-5": (opus, "family"), "opus": (opus, "family"),
+        "claude-sonnet-5": (sonnet, "exact"), "claude-sonnet-4-5": (sonnet, "family"),
+        "sonnet": (sonnet, "family"),
+        "claude-haiku-4-5": (haiku, "exact"), "claude-haiku-4-5-20251001": (haiku, "exact"),
+        "claude-haiku-4": (haiku, "family"), "haiku": (haiku, "family"),
+        "claude-fable-5-1": (fable, "exact"), "claude-fable-5": (fable, "family"),
+    }
+    for model, want in expected.items():
+        assert tel.resolve_rates(model, tel.DEFAULT_RATES) == want, model
+
+
+def test_built_in_rates_price_5_5_models_as_exact():
+    with tempfile.TemporaryDirectory() as tmp:
+        rates, _ = tel.load_rates(True, Path(tmp) / "absent.yml")
+    toks = fx.tokens(input=1_000_000, output=1_000_000, cache_read=1_000_000, cc_5m=1_000_000, cc_1h=1_000_000)
+    haiku = tel.price_tokens("claude-haiku-5-5", toks, rates)
+    assert haiku["match"] == "exact" and haiku["missing"] == []
+    assert haiku["total"] == pytest.approx(0.935)   # 0.10 + 0.50 + 0.01 + 0.125 + 0.20
+    sonnet = tel.price_tokens("claude-sonnet-5-5", toks, rates)
+    assert sonnet["match"] == "exact"
+    assert sonnet["total"] == pytest.approx(18.6)   # 2 + 10 + 0.10 + 2.50 + 4
+
+
 def test_price_tokens_hand_computed_with_1h_cache_at_2x_input():
     toks = fx.tokens(input=1000, output=2000, cache_read=1_000_000, cc_5m=100_000, cc_1h=50_000)
     priced = tel.price_tokens("claude-opus-5-5", toks, tel.DEFAULT_RATES)
