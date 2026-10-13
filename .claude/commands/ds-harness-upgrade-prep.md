@@ -1,0 +1,152 @@
+---
+description: "Run before upgrading your AI coding harness - checks its pending release notes against DinoStack and patches what they affect."
+---
+
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
+
+# /ds-harness-upgrade-prep
+
+> Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
+
+<!--
+Purpose: Before a harness upgrade, checks the harness's pending release notes against DinoStack and
+         patches what they affect, through the existing review and edit paths.
+Public API: /ds-harness-upgrade-prep [harness] [--notes <local path>] [--installed <version>]. Writes one
+            gitignored run directory under <AE_REPO_DIR>/docs/planning/ (releases.json, pending.md,
+            report.md). Exits ok | needs_human | blocked with a "safe to upgrade" or "not safe yet" verdict.
+Upstream deps: content/commands/ds-update-agentic-engineering.md (AE_REPO_DIR resolver, in-repo comparison,
+               Scope list, edit path); content/commands/ds-skeptic.md; the GitHub releases API; python3, curl.
+Downstream consumers: build-all.sh (regenerates this command into the adapter dirs); the operator.
+Failure modes: every stop is a `blocked:` line naming the flag that gets past it. Nothing mechanical confirms
+               the analyst read all of pending.md; the Review round is the check. The analyst's write
+               restriction is brief compliance. Only the newest 100 releases are fetched.
+Performance: one API fetch, one analyst spawn, and one review loop per invocation.
+-->
+
+**When to use:** before upgrading any AI coding harness that runs DinoStack - "is it safe to upgrade", "what does the new release break", "prep for the harness update".
+
+**Do not use to:** perform the upgrade, or prune rules (`/ds-prune-harness`). Nothing in this command installs or runs the new version.
+
+**Invocation:** `/ds-harness-upgrade-prep [harness] [--notes <local path>] [--installed <version>]`. `--notes` is a local file that is the pending notes, used whole, with no version locate. `--installed` replaces the version probe.
+
+| id | process token | releases repo |
+|---|---|---|
+| claude | `claude` | `anthropics/claude-code` |
+| codex | `codex` | `openai/codex` |
+| gemini | `gemini` | `google-gemini/gemini-cli` |
+| cursor | `cursor-agent` | none |
+| kimi | `kimi-cli` | `MoonshotAI/kimi-cli` |
+| opencode | `opencode` | `anomalyco/opencode` |
+| omp | `omp` | `can1357/oh-my-pi` |
+| pi | `pi` | `earendil-works/pi` |
+| hermes | `hermes` | `NousResearch/hermes-agent` |
+| openclaw | `openclaw` | `openclaw/openclaw` |
+| copilot | `copilot` | `github/copilot-cli` |
+
+## Preflight
+
+Resolve `AE_REPO_DIR` with the resolver block in `/ds-update-agentic-engineering` Step 0a. If it is not a git repo, exit `blocked: DinoStack checkout not found at <AE_REPO_DIR>`. Every DinoStack read in this command targets `AE_REPO_DIR`.
+
+## Identify
+
+An explicit `[harness]` equal to a table id wins. Any other value exits `blocked: unknown harness "<arg>"` and lists the ids. With no argument, print the ancestor processes:
+
+```bash
+p=$PPID
+while [ "${p:-0}" -gt 1 ]; do
+  ps -o pid= -o ppid= -o args= -p "$p" || break
+  p="$(ps -o ppid= -p "$p" | tr -d ' ')"
+done
+```
+
+The harness is the nearest ancestor whose argv0 basename equals a table token exactly; when argv0 is an interpreter (`node`, `bun`, `python*`, `deno`), use the basename of its first script-path argument. No substring matching. No match: exit `blocked: harness undetermined`, print the ancestor lines, and name the explicit form `/ds-harness-upgrade-prep <id>`. This command never defaults to Claude Code.
+
+## Notes
+
+Create the run directory, with `<id>` filled in, and use the printed path as `RUN_DIR` from here on. Then take the first numbered case that applies:
+
+```bash
+RUN_DIR="$AE_REPO_DIR/docs/planning/harness-upgrade-<id>-$(date -u +%Y%m%d-%H%M%S)"
+mkdir -p "$RUN_DIR" && echo "$RUN_DIR"
+```
+
+1. `--notes` given: `cp` it to `$RUN_DIR/pending.md` and go to Analyze. A missing file exits `blocked: --notes file not found`.
+2. Releases repo `none`: exit `blocked: no known release-notes source for <harness>` and name `--notes`. This runs before any probe.
+3. Otherwise run the block below with the table's process token and releases repo written in place of `<token>` and `<repo>`, and `INSTALLED` set to the `--installed` value or left empty. The extract keeps stable releases in API order and compares no versions: a tag matches when, with its leading non-digit prefix removed, it equals a candidate exactly, and the last-listed match is the installed release.
+
+```bash
+INSTALLED=""
+[ -n "$INSTALLED" ] || PROBE="$(<token> --version 2>/dev/null | head -n 1)"
+echo "probe: ${PROBE:-skipped}"
+CANDS="${INSTALLED:-$(printf '%s\n' "$PROBE" | grep -Eo '[0-9]+(\.[0-9]+)+' | tr '\n' ' ')}"
+[ -n "$CANDS" ] || { echo "blocked: installed version unknown"; exit 1; }
+curl -fsSL -o "$RUN_DIR/releases.json" "https://api.github.com/repos/<repo>/releases?per_page=100" \
+  || { echo "blocked: release-notes fetch failed"; exit 1; }
+python3 -c '
+import json, re, sys
+run, cands = sys.argv[1], sys.argv[2].split()
+kept = [r for r in json.load(open(run + "/releases.json", encoding="utf-8")) if not r["draft"] and not r["prerelease"]]
+hits = [i for i, r in enumerate(kept) if re.sub(r"^\D+", "", r["tag_name"]) in cands]
+if not hits:
+    sys.exit("blocked: installed version not among the newest 100 releases")
+pending = kept[:hits[-1]]
+text = "".join("=== %s ===\n%s\n" % (r["tag_name"], r["body"] or "") for r in pending)
+open(run + "/pending.md", "w", encoding="utf-8", newline="").write(text)
+print("installed=%s latest=%s pending=%d pending_bytes=%d" % (kept[hits[-1]]["tag_name"], kept[0]["tag_name"], len(pending), len(text.encode("utf-8"))))
+' "$RUN_DIR" "$CANDS"
+```
+
+- `blocked: installed version unknown` (probe missing, failing, or carrying no version token): name `--installed`.
+- `blocked: release-notes fetch failed`: name `--notes`. `gh api "repos/<repo>/releases?per_page=100"` redirected to the same file is an equivalent fetch. Never obtain notes through a tool that returns a summarized, rendered or truncated page.
+- `blocked: installed version not among the newest 100 releases`: name `--notes`, then `--installed`.
+- `pending=0`: exit `ok: nothing pending`.
+
+## Analyze
+
+Spawn one `general-purpose` analyst per the methodology's delegation rules. Its prompt carries the `pending.md` path, `AE_REPO_DIR`, the harness id, the Report format and Patch rules sections below verbatim, and `RUN_DIR/report.md` as the only file it may create or modify.
+
+The analyst reads `pending.md` to the end - headings, bullets, nested bullets and prose lines alike - and checks each change against `content/`, `hooks/`, `bin/`, `scripts/` and the hand-authored adapter sources (files in adapter dirs that no `build.sh` regenerates). Each affected surface gets its own `A<n>` block. Unaffected changes are grouped by topic with the search terms used. It returns the report path, the Affected count by kind, and the Unaffected group count.
+
+### Report format
+
+```
+## Affected
+### A<n>: <title>
+- Release: <tag>
+- Change: <notes text, quoted verbatim>
+- Kind: breaks | unclear
+- Surface: <path:line>
+- Evidence: <what the cited code depends on; for unclear, what would decide it>
+- Patch: <files and change> | after-upgrade: <why> | decision: <options, one marked Recommended> | none safe: <why>
+- Other harnesses: <ids affected and how> | unaffected: <reason>
+## Unaffected
+- <topic>: releases <tags>; searched <terms>; zero hits in <scope>
+```
+
+- Bad: `- Terminal UI fixes: not relevant to DinoStack`
+- Good: `- Terminal title rendering: releases v2.1.290, v2.1.293; searched "terminal title", "title bar"; zero hits in content/ hooks/ bin/ scripts/`
+
+### Patch rules
+
+- **Single source.** A patch edits hand-authored sources only. Never generated adapter output, a per-harness copy of a content file, or new harness-conditional prose in `content/**` - text in a shared content file that tells the reader to behave differently depending on which harness it runs in. A change whose only fix is such prose is written as `decision`, never as a patch.
+- **Other harnesses.** Every patch states its effect on each other harness that consumes the edited file. A patch that would break another harness is not written as a patch; it is written as `decision`.
+- **Both versions.** A patch must work on the installed and the new version. One that cannot is `after-upgrade` and is not applied in this run.
+- **Claude priority.** A patch that would break or degrade Claude Code is never proposed. Where harnesses conflict, the entry is `decision` with the Claude-favoring option marked Recommended and the degraded harness named.
+
+## Review
+
+Run `/ds-skeptic` from its Step 2, skipping Step 1: `report.md` is the Worker output and `pending.md` is a review input. The contract is the Report format, the Patch rules, and completeness against `pending.md`: a change present in `pending.md` that appears in neither an Affected block nor an Unaffected group is a defect in the report, and the reviewer reads `pending.md` to check for one. Its Step 4 Worker revises `report.md` in place. Field 6 KEY: the `RUN_DIR` directory name, identical every round. `skeptic-protocol.md` §Stable unit key contract derives a KEY from a ticket or branch, and this review has neither. If `/ds-skeptic` ends without sign-off, exit `needs_human` with its findings. Approve is not reached.
+
+## Approve
+
+Print a header: harness and how it was identified (the matched ancestor line, or "explicit argument"), installed, latest, pending release count, Affected and Unaffected counts, and the report path. Under `--notes`, installed, latest and pending release count print as `n/a (--notes)`. Show every Affected finding in full. Unaffected is a count.
+
+For each finding whose Patch is a patch or a `decision`, the operator answers approve (choosing the option for a `decision`) or decline. Wait for an explicit answer. With zero such findings, ask nothing. Approving a finding selects it for patching; a patch routed through `/ds-update-agentic-engineering` is confirmed again at that command's own diff-approval step. Then append `## Approved` to `report.md` listing the approved finding ids.
+
+## Apply
+
+If the session repo is not the DinoStack checkout (the canonical-path comparison in `/ds-update-agentic-engineering` Step 0a), apply nothing. Tell the operator to run `/ds-update-agentic-engineering` once per approved finding, quoting the finding block from `report.md`, from a session rooted in `AE_REPO_DIR`. This command is not re-entered at Apply.
+
+Otherwise take one approved finding at a time, passing the finding block verbatim: paths inside the Scope list of `/ds-update-agentic-engineering` go through that command, and any other path goes through the repo's normal Worker, review and PR workflow per its `AGENTS.md`.
+
+**Verdict.** `safe to upgrade` only when there are no Affected findings or every one has its patch landed on the base branch. Otherwise `not safe yet:` followed by each remaining finding and why (patch not landed, declined, after-upgrade, none safe, unclear). Exit `ok` on `safe to upgrade` or nothing pending; otherwise `needs_human`.
