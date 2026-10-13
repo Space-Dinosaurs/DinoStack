@@ -78,7 +78,10 @@ Public API:
         bucket has no no-ping return, or a model is unpriced). A bucket
         with 1-9 returns is PARTIAL "n < 10", with none ABSENT. With no
         ping turn in the window, pings, ping_usage and estimated_net_usd
-        are ABSENT, never 0.
+        are ABSENT, never 0. Window-edge skew: the avoided side counts
+        in-window returns whose ping may have fired before `start`, while
+        ping_usd counts only pings inside the window, so a short window is
+        skewed and comparisons need windows of similar length.
     Ping usage: agents.conductor (usd and by_entrypoint) excludes keepalive
         ping turns; it included them before keepalive was split out, so a
         window with passed pings now reads lower by their usage. cost, mix

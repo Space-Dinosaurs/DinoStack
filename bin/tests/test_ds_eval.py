@@ -1239,3 +1239,38 @@ def test_a_wrapped_ping_marks_the_next_return_with_ping(tmp_path):
     ])
     (row,) = ev._returns(s)
     assert row["with_ping"] is True
+
+
+def _priced_ping_session(tmp_path, middle, cold_baseline=True):
+    cold = {"model": "claude-opus-5-5", "cache_read": 0, "cache_creation": 500}
+    warm = {"model": "claude-opus-5-5", "cache_read": 1_000_000, "cache_creation": 0}
+    turns = [_turn("human", T(2, 10), last=T(2, 10, 1))]
+    if cold_baseline:
+        turns.append(_turn("human", T(2, 10, 40), last=T(2, 10, 41), first=cold))
+    turns += [middle, _turn("human", T(2, 11, 30), last=T(2, 11, 31), first=warm)]
+    return replace(session(tmp_path, "s"), turns=turns)
+
+
+def _passed_ping():
+    ping = _turn("ping", T(2, 11), last=T(2, 11), gated=True)
+    ping.usage.update(usage(10))
+    return ping
+
+
+def test_a_warm_with_ping_return_without_counterfactual_leaves_the_net_absent(tmp_path):
+    s = _priced_ping_session(tmp_path, _passed_ping(), cold_baseline=False)
+    net = ev._keepalive_section([{"sessions": [s]}], RATES, START, END)["estimated_net_usd"]
+    assert net["status"] == "ABSENT" and "no counterfactual" in net["missing"][0]
+
+
+def test_a_dropped_ping_does_not_mark_the_next_return_with_ping(tmp_path):
+    s = _priced_ping_session(tmp_path, _turn("ping", T(2, 11)))
+    assert [r["with_ping"] for r in ev._returns(s)] == [False, False]
+
+
+def test_estimated_net_is_avoided_minus_ping_usd(tmp_path):
+    s = _priced_ping_session(tmp_path, _passed_ping())
+    net = ev._keepalive_section([{"sessions": [s]}], RATES, START, END)["estimated_net_usd"]
+    assert net["value"]["avoided_creation_usd"] == 7.8
+    assert net["value"]["ping_usd"] == 0.0002
+    assert net["value"]["usd"] == 7.7998

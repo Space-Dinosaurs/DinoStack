@@ -319,6 +319,8 @@ def _print_keepalive(r: dict) -> None:
         print("  returns after idle (gap since previous non-ping request; with_ping = a ping made a request in "
               "the gap; cold = creation > read on first request; needs turnOrigin, Claude Code 2.1.280+; "
               "a session file's first human turn is never counted)")
+        print("  estimate skew: a return's ping may predate --since, but only in-window pings are costed; "
+              "compare windows of similar length")
         for bucket, split in k["returns"].items():
             for side in ("with_ping", "no_ping"):
                 m = split[side]
