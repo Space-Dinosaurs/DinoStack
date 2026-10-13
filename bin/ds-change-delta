@@ -36,9 +36,13 @@ Purpose: DS-241 one-shot before/after telemetry delta tool. Resolves a
            cli-heavy window against an sdk-cli-heavy one). Retires once
            the compared repos run a single entrypoint for 2 consecutive
            windows, when there is no mix left to shift.
-         - prefix_test (K = 5, 25, 100): catches a one-time prompt-prefix
-           removal read as a rate change (a step shows the same delta at
-           every K, a trend grows with K). Retires when 3 consecutive cuts
+         - prefix_test (K = 5, 25, 100): compares the mean cost per
+           session of the last K sessions before the cut with the first K
+           after it. Catches a one-time prompt-prefix removal read as a
+           rate change (a step shows the same delta at every K, a trend
+           grows with K). It cannot tell a fixed per-session saving from a
+           per-turn rate change: both lower a session's cost, and the test
+           sees only whole-session cost. Retires when 3 consecutive cuts
            need no step-vs-trend call.
 
 Public API: ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH]
@@ -54,7 +58,8 @@ Public API: ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH]
             what it did before the eval side existed).
             build_eval_side(repos, cut_dt, window_days, now=None, *,
             evaluate=None, stores=None) -> dict runs
-            _eval.evaluate(use_gh=False, include_sessions=True) per window;
+            _eval.evaluate(use_gh=False, use_feedback=False,
+            include_sessions=True) per window;
             any exception there returns the block as one ABSENT envelope
             naming it. compare_eval(reports, base_counts, cut_dt,
             window_days, now) builds the block: meta (figure,
@@ -75,8 +80,10 @@ Public API: ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH]
             figures are always PARTIAL). The per-entrypoint, pooled, mix
             and prefix figures count each session once, on the side its
             first_ts falls in, and exclude empty sessions (no usage record
-            and no cost-state spend, counted in empty_sessions); an
-            unelapsed after window is PARTIAL.
+            and no cost-state spend, counted in empty_sessions). A window
+            still running is PARTIAL on its own side: the after window of
+            a recent cut, and the before window too when --cut is in the
+            future.
             Exit 0 on any well-formed run, even one where every metric
             reports a non-OK status (an absent or short-of-window store
             is informative output, not a CLI failure). Exit 1 when --cut
@@ -108,8 +115,11 @@ Read-only guarantee (AC7): every filesystem open() call in this module is
             subprocesses go through bin/_eval.py's own _lib._run: `git log`,
             `git rev-list --count` (_base_commit_count), `git remote`,
             `git show-ref`/`symbolic-ref`/`rev-parse` (base resolution),
-            and `ds-feedback list`, all read-only, and no gh call (allowlist
-            in test_eval_side_in_cli_json_and_its_subprocesses_are_read_only).
+            all read-only; no gh call and no `ds-feedback list` (the block
+            reads no label). Nothing under the home directory is created or
+            changed: test_eval_side_in_cli_json_and_its_subprocesses_are_read_only
+            runs the real path against a scratch HOME and compares it
+            byte for byte.
 
 Multi-repo aggregation: session-log and fires-log ROWS from every --repo
             are merged into ONE combined row set for counting (see
@@ -207,9 +217,9 @@ Performance: one `git show` per --cut-repo, one `gh repo view` and one
             1,000-result cap (see content/commands/ds-change-delta.md).
             The `eval` side adds two evaluate() runs (one transcript pass
             each over every config-dir store) and one `git rev-list` per
-            repo per window. Measured 2026-10-12 on authentic8 (~270
-            sessions in the two windows): 37.5 s with the eval side, 0.77 s
-            with --no-eval; with no gh on PATH, 34.7 s and 0.41 s.
+            repo per window: tens of seconds on a repo with hundreds of
+            sessions in the two windows, against under a second with
+            --no-eval.
 """
 from __future__ import annotations
 
@@ -1396,10 +1406,12 @@ def _mix_shift(before: dict, after: dict) -> dict:
     return out
 
 
-def _not_yet_elapsed(m: dict, after_end: datetime, now: datetime) -> dict:
-    if now >= after_end:
+def _not_yet_elapsed(m: dict, side: str, window_end: datetime, now: datetime) -> dict:
+    """A window still running (the after window of a recent cut, or both
+    windows of a future cut) is PARTIAL: its figures will still move."""
+    if now >= window_end:
         return m
-    return _demote(m, f"after window not yet elapsed (ends {after_end.isoformat()})")
+    return _demote(m, f"{side} window not yet elapsed (ends {window_end.isoformat()})")
 
 
 def _base_commit_count(repo: str, base: str | None, start: datetime, end: datetime) -> int | None:
@@ -1468,17 +1480,20 @@ def _assign_sessions(reports: dict, before_start: datetime, cut_dt: datetime,
 
 
 def _prefix_test(before_rows: list[dict], after_rows: list[dict], label: str, elapsed) -> dict:
-    """Last K sessions before the cut against the first K after it, per K."""
+    """Mean cost per session of the last K sessions before the cut against
+    the first K after it, per K. A step at the cut shows the same delta at
+    every K and a trend grows with K; it cannot tell a fixed per-session
+    saving from a per-turn rate change, since both move a session's cost."""
     out = {}
     for k in PREFIX_KS:
-        b = _session_rate(before_rows[-k:], f"last {k} before-cut{label}")
+        b = elapsed(_session_rate(before_rows[-k:], f"last {k} before-cut{label}"), "before")
         a = _session_rate(after_rows[:k], f"first {k} after-cut{label}")
         if 0 < len(before_rows) < k:
             b = _demote(b, f"only {len(before_rows)} of {k} sessions in the window")
         if 0 < len(after_rows) < k:
             a = _demote(a, f"only {len(after_rows)} of {k} sessions in the window")
         if len(after_rows) < k:
-            a = elapsed(a)
+            a = elapsed(a, "after")
         out[str(k)] = {"before": b, "after": a, "delta": _eval_delta(b, a)}
     return out
 
@@ -1492,8 +1507,10 @@ def compare_eval(reports: dict, base_counts: dict, cut_dt: datetime, window_days
     before_rows = [r for r in before_all if not _is_empty(r)]
     after_rows = [r for r in after_all if not _is_empty(r)]
 
-    def elapsed(m):
-        return _not_yet_elapsed(m, after_end, now)
+    window_end = {"before": cut_dt, "after": after_end}
+
+    def elapsed(m, side):
+        return _not_yet_elapsed(m, side, window_end[side], now)
 
     def ep_of(row):
         return row.get("entrypoint") or "(none)"
@@ -1504,17 +1521,17 @@ def compare_eval(reports: dict, base_counts: dict, cut_dt: datetime, window_days
                 "version": _shares(side_rows, "version"), "base_commits": _base_commits(base_counts[side]),
                 "empty_sessions": (_metric(_OK, len(side_all) - len(side_rows)) if side_all
                                    else _absent("no sessions in this window"))}
-        confounders[side] = {k: elapsed(v) for k, v in conf.items()} if side == "after" else conf
+        confounders[side] = {k: elapsed(v, side) for k, v in conf.items()}
 
-    pooled_before = _session_rate(before_rows, "before")
-    pooled_after = elapsed(_session_rate(after_rows, "after"))
+    pooled_before = elapsed(_session_rate(before_rows, "before"), "before")
+    pooled_after = elapsed(_session_rate(after_rows, "after"), "after")
     per_entrypoint = {}
     prefix_per_entrypoint = {}
     for ep in sorted({ep_of(r) for r in before_rows + after_rows}):
         ep_before = [r for r in before_rows if ep_of(r) == ep]
         ep_after = [r for r in after_rows if ep_of(r) == ep]
-        b = _session_rate(ep_before, f"{ep} before")
-        a = elapsed(_session_rate(ep_after, f"{ep} after"))
+        b = elapsed(_session_rate(ep_before, f"{ep} before"), "before")
+        a = elapsed(_session_rate(ep_after, f"{ep} after"), "after")
         per_entrypoint[ep] = {"before": b, "after": a, "delta": _eval_delta(b, a)}
         prefix_per_entrypoint[ep] = _prefix_test(ep_before, ep_after, f" {ep}", elapsed)
 
@@ -1524,8 +1541,8 @@ def compare_eval(reports: dict, base_counts: dict, cut_dt: datetime, window_days
                                        "first_ts_outside_windows": outside},
                  "min_n": MIN_N,
                  "base": {side: reports[side]["meta"].get("base") for side in ("before", "after")}},
-        "before": _window_figures(reports["before"]),
-        "after": {k: elapsed(v) for k, v in _window_figures(reports["after"]).items()},
+        "before": {k: elapsed(v, "before") for k, v in _window_figures(reports["before"]).items()},
+        "after": {k: elapsed(v, "after") for k, v in _window_figures(reports["after"]).items()},
         "confounders": confounders,
         "pooled": {"before": pooled_before, "after": pooled_after,
                    "delta": _eval_delta(pooled_before, pooled_after)},
@@ -1539,8 +1556,8 @@ def compare_eval(reports: dict, base_counts: dict, cut_dt: datetime, window_days
 def build_eval_side(repos: list[Path], cut_dt: datetime, window_days: int, now: datetime | None = None,
                     *, evaluate=None, stores=None) -> dict:
     """evaluate() over each window, compared by compare_eval. `evaluate` is
-    injectable for tests (defaults to bin/_eval.py's). No gh call: the block
-    reads no gh-derived figure. Any exception from evaluate() or the
+    injectable for tests (defaults to bin/_eval.py's). No gh call and no
+    ds-feedback read: the block uses no gh-derived or label-derived figure. Any exception from evaluate() or the
     comparison becomes an ABSENT block naming it, so the rest of the report
     still prints and the exit code stays 0."""
     if now is None:
@@ -1549,7 +1566,8 @@ def build_eval_side(repos: list[Path], cut_dt: datetime, window_days: int, now: 
     before_start, before_end, after_start, after_end = _windows(cut_dt, window_days)
     windows = {"before": (before_start, before_end), "after": (after_start, after_end)}
     try:
-        reports = {side: evaluate(repos, start, end, stores=stores, use_gh=False, include_sessions=True)
+        reports = {side: evaluate(repos, start, end, stores=stores, use_gh=False, use_feedback=False,
+                                  include_sessions=True)
                    for side, (start, end) in windows.items()}
         base_counts = {
             side: {repo: _base_commit_count(
@@ -1637,6 +1655,15 @@ def _print_table(report: dict) -> None:
             return f"ABSENT ({'; '.join(m['missing'])})"
         return f"{_fmt_val(m['value'])} ({m['status']})"
 
+    def why(m) -> str:
+        """n and, for a PARTIAL figure, its reasons, so a small sample is
+        visible without --json."""
+        n = m.get("n") or {}
+        out = f"  n={_fmt_val(n.get('before'))}/{_fmt_val(n.get('after'))}"
+        if m["status"] == _PARTIAL:
+            out += f"  [{'; '.join(m['missing'])}]"
+        return out
+
     print()
     if "status" in ev:
         print(f"eval: {env(ev)}")
@@ -1655,12 +1682,13 @@ def _print_table(report: dict) -> None:
         parts.append(f"empty_sessions={env(conf['empty_sessions'])}")
         print(f"  confounders {side}: " + "; ".join(parts))
     ms = ev["mix_shifted"]
-    print(f"  mix_shifted: {env(ms)} points={ms['points']}")
+    print(f"  mix_shifted: {env(ms)} points={ms['points']}{why(ms)}")
     rows = [("pooled", ev["pooled"])] + list(ev["per_entrypoint"].items()) + \
         [(f"prefix K={k}", v) for k, v in ev["prefix_test"].items()] + \
         [(f"prefix {ep} K={k}", v) for ep, ks in ev["prefix_test_per_entrypoint"].items() for k, v in ks.items()]
     for name, m in rows:
-        print(f"  {name:<24}before={env(m['before'])}  after={env(m['after'])}  delta={env(m['delta'])}")
+        print(f"  {name:<24}before={env(m['before'])}  after={env(m['after'])}  "
+              f"delta={env(m['delta'])}{why(m['delta'])}")
 
 
 # ---------------------------------------------------------------------------

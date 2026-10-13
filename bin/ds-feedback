@@ -75,8 +75,8 @@ Failure modes:
     batch is NOT an error (exit 0, no-op). Exit 1 only on hard errors:
     --file missing/unreadable, --file not valid JSON, --file not a JSON
     array, lock acquisition timeout, or a write I/O failure.
-  list: file-absent prints "[]" and exits 0 (not an error). Malformed
-    (non-JSON) lines in the store are skipped silently.
+  list: file-absent prints "[]" and exits 0 (not an error) and creates
+    nothing. Malformed (non-JSON) lines in the store are skipped silently.
   mark: exits 1 with a stderr message if the store file is absent or no
     line matches --id. The rewrite is all-or-nothing via atomic_write - a
     failure mid-rewrite leaves the original file untouched. A malformed
@@ -90,14 +90,21 @@ Failure modes:
     line (different key order, whitespace, etc.) will be re-canonicalized
     to the CLI's compact form even though its field values are preserved.
 
-  Locking: all three subcommands acquire the same exclusive LOCK_PATH for
+  Locking: `append` and `mark` acquire the same exclusive LOCK_PATH for
   their full read/modify/write critical section (append's read+append,
-  list's read, mark's read+rewrite), serializing concurrent invocations -
-  e.g. two projects' /ds-wrap runs calling `append` at the same time, or a
-  `mark` full-file rewrite racing an `append`. acquire_exclusive_lock (from
+  mark's read+rewrite), serializing concurrent invocations - e.g. two
+  projects' /ds-wrap runs calling `append` at the same time, or a `mark`
+  full-file rewrite racing an `append`. acquire_exclusive_lock (from
   bin/_lib) opens the lock file in 'r' mode and requires it to already
-  exist; every subcommand therefore mkdir -p's the lock file's parent and
-  touch()es the lock file before calling acquire_exclusive_lock.
+  exist; those two subcommands therefore mkdir -p's the lock file's parent
+  and touch()es the lock file before calling acquire_exclusive_lock.
+  `list` takes no lock and creates nothing (no ~/.agentic/, no store, no
+  lock file): it is a pure read, so read-only tools can call it. That is
+  safe against both writers: `mark` replaces the store by atomic rename
+  (a reader sees the old or the new file, never a mix), and an `append`
+  caught mid-write can only leave a torn final line, which fails to parse
+  and is skipped like any malformed line (that item shows on the next
+  read).
 
 Performance: Standard. Single-file read + append/rewrite; no indexing. Fine
   at the scale of an individual developer's accumulated feedback backlog.
@@ -288,13 +295,9 @@ def cmd_append(args: argparse.Namespace) -> int:
 
 
 def cmd_list(args: argparse.Namespace) -> int:
-    _ensure_lock_bootstrap()
-    try:
-        with acquire_exclusive_lock(LOCK_PATH):
-            rows = _read_store()
-    except RuntimeError as exc:
-        print(f"ds-feedback: {exc}", file=sys.stderr)
-        return 1
+    # Lock-free and create-nothing on purpose: read-only callers (bin/_eval.py)
+    # promise to leave the home dir untouched.
+    rows = _read_store()
 
     if args.scope is not None:
         rows = [r for r in rows if r.get("scope") == args.scope]

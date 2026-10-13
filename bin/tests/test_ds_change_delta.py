@@ -31,6 +31,7 @@ _loader.exec_module(_mod)
 # Every main() call in this file runs the eval side. Keep it off the
 # machine's real transcript stores and real `ds-feedback list`.
 _REAL_EVALUATE = _mod._EVAL.evaluate
+_REAL_FEEDBACK_ITEMS = _mod._EVAL._feedback_items
 
 
 def _evaluate_without_stores(repos, start, end, **kwargs):
@@ -1475,6 +1476,12 @@ def test_eval_sessions_assigned_once_by_first_ts_and_after_not_elapsed():
     assert any("not yet elapsed" in x for x in running["after"]["sessions"]["missing"])
     assert running["before"]["sessions"]["status"] == "OK"
 
+    future = _mod.compare_eval(reports, base, CUT_DT, 14, CUT_DT - timedelta(days=1))
+    for m in (future["before"]["sessions"], future["pooled"]["before"], future["prefix_test"]["5"]["before"],
+              future["confounders"]["before"]["entrypoint"]):
+        assert m["status"] == "PARTIAL", m
+        assert any("before window not yet elapsed" in x for x in m["missing"]), m
+
 
 def test_build_eval_side_windows_no_gh_and_base_commit_count():
     calls = []
@@ -1489,8 +1496,9 @@ def test_build_eval_side_windows_no_gh_and_base_commit_count():
         assert _mod._base_commit_count(str(repo), "no-such-ref", CUT_DT - day, CUT_DT + day) is None
         assert _mod._base_commit_count(str(repo), None, CUT_DT - day, CUT_DT + day) is None
 
-        def fake_evaluate(repos, start, end, *, stores=None, use_gh=True, include_sessions=False):
-            calls.append((start, end, use_gh, include_sessions))
+        def fake_evaluate(repos, start, end, *, stores=None, use_gh=True, use_feedback=True,
+                          include_sessions=False):
+            calls.append((start, end, use_gh, use_feedback, include_sessions))
             report = _eval_report([])
             report["meta"]["repos"] = [str(repo)]
             ref = "HEAD" if start >= CUT_DT - 2 * day else None
@@ -1499,7 +1507,8 @@ def test_build_eval_side_windows_no_gh_and_base_commit_count():
 
         ev = _mod.build_eval_side([repo], CUT_DT - 2 * day, 3, NOW, evaluate=fake_evaluate)
     before_start, before_end, after_start, after_end = _mod._windows(CUT_DT - 2 * day, 3)
-    assert calls == [(before_start, before_end, False, True), (after_start, after_end, False, True)], calls
+    assert calls == [(before_start, before_end, False, False, True),
+                     (after_start, after_end, False, False, True)], calls
     assert ev["confounders"]["before"]["base_commits"]["status"] == "ABSENT"
     assert ev["confounders"]["after"]["base_commits"]["value"] == {str(repo): 1}
 
@@ -1513,7 +1522,16 @@ def test_build_eval_side_contains_an_evaluate_failure_as_absent():
     assert ev["missing"] == ["eval side failed: RuntimeError: store exploded"], ev
 
 
+def _tree_snapshot(root: Path) -> dict:
+    """Every path under root -> its bytes (None for a directory)."""
+    return {str(p.relative_to(root)): (p.read_bytes() if p.is_file() else None) for p in sorted(root.rglob("*"))}
+
+
 def test_eval_side_in_cli_json_and_its_subprocesses_are_read_only():
+    """The real eval path (real evaluate(), real transcript-store lookup, real
+    ds-feedback reader, no stub) against a scratch HOME that already holds a
+    feedback store and a transcript store: the HOME is byte-for-byte unchanged
+    afterwards and every subprocess is a read-only git command."""
     recorded: list[list[str]] = []
     real = _mod._EVAL._LIB._run
 
@@ -1526,14 +1544,28 @@ def test_eval_side_in_cli_json_and_its_subprocesses_are_read_only():
         repo.mkdir()
         _init_git_repo(repo)
         subprocess.run(["git", "update-ref", "refs/remotes/origin/main", "HEAD"], cwd=repo, check=True)
+        home = Path(tmp) / "home"
+        (home / ".claude" / "projects").mkdir(parents=True)
+        _write_jsonl(home / ".agentic" / "feedback.jsonl",
+                     [{"id": "a", "repo": str(repo), "scope": "project", "status": "triaged"}])
+        before = _tree_snapshot(home)
         out = StringIO()
-        orig_stdout, _mod._EVAL._LIB._run = sys.stdout, recording
+        saved = (sys.stdout, _mod._EVAL._LIB._run, _mod._EVAL.evaluate, _mod._EVAL._feedback_items,
+                 os.environ.get("HOME"), os.environ.pop("CLAUDE_CONFIG_DIR", None))
+        _mod._EVAL._LIB._run, _mod._EVAL.evaluate = recording, _REAL_EVALUATE
+        _mod._EVAL._feedback_items = _REAL_FEEDBACK_ITEMS
+        os.environ["HOME"] = str(home)
         sys.stdout = out
         try:
             rc = _mod.main(["--cut", CUT_ISO, "--repo", str(repo), "--json"])
         finally:
-            sys.stdout, _mod._EVAL._LIB._run = orig_stdout, real
+            sys.stdout, _mod._EVAL._LIB._run, _mod._EVAL.evaluate, _mod._EVAL._feedback_items = saved[:4]
+            os.environ["HOME"] = saved[4]
+            if saved[5] is not None:
+                os.environ["CLAUDE_CONFIG_DIR"] = saved[5]
+        after = _tree_snapshot(home)
     assert rc == 0
+    assert after == before, sorted(set(after) ^ set(before))
     report = json.loads(out.getvalue())
     assert {"meta", "metrics", "pr_history", "agent_model", "per_ticket", "eval"} <= set(report)
     assert set(report["eval"]["prefix_test"]) == {"5", "25", "100"}
@@ -1543,6 +1575,29 @@ def test_eval_side_in_cli_json_and_its_subprocesses_are_read_only():
         sub = args[3] if args[1] == "-C" else args[1]
         assert sub in git_read, args
     assert any(a[:2] == ["git", "rev-list"] for a in recorded), recorded
+
+
+def test_eval_table_rows_show_n_and_partial_reason():
+    before = _side_rows("before", [("cli", 5.0)] * 12 + [("sdk-cli", 4.0)] * 3)
+    after = _side_rows("after", [("cli", 6.0)] * 12 + [("sdk-cli", 30.0)] * 12)
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "tb"
+        repo.mkdir()
+        _init_git_repo(repo)
+        out = StringIO()
+        orig_stdout, orig_build = sys.stdout, _mod.build_eval_side
+        _mod.build_eval_side = lambda *a, **k: _compare(before, after)
+        sys.stdout = out
+        try:
+            rc = _mod.main(["--cut", CUT_ISO, "--repo", str(repo)])
+        finally:
+            sys.stdout, _mod.build_eval_side = orig_stdout, orig_build
+    assert rc == 0
+    lines = {line.split("before=")[0].strip(): line for line in out.getvalue().splitlines() if "delta=" in line}
+    assert "n=3/12" in lines["sdk-cli"] and "before: n < 10" in lines["sdk-cli"], lines["sdk-cli"]
+    assert "n=12/12" in lines["cli"] and "[" not in lines["cli"], lines["cli"]
+    mix = next(line for line in out.getvalue().splitlines() if "mix_shifted:" in line)
+    assert "n=15/24" in mix, mix
 
 
 def test_no_eval_flag_omits_the_eval_block():
@@ -1584,8 +1639,10 @@ def test_cli_exits_0_with_no_gh_on_path():
         env.update({"PATH": str(bindir), "HOME": str(home)})
         proc = subprocess.run([sys.executable, str(_MOD_PATH), "--cut", CUT_ISO, "--repo", str(repo), "--json"],
                               capture_output=True, text=True, env=env, timeout=120)
+        leftover = sorted(str(x) for x in home.rglob("*"))
     assert proc.returncode == 0, proc.stderr
     assert "Traceback" not in proc.stderr, proc.stderr
+    assert leftover == [], leftover
     report = json.loads(proc.stdout)
     assert set(report["eval"]["prefix_test"]) == {"5", "25", "100"}, report["eval"]
 
