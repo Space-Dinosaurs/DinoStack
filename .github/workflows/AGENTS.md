@@ -233,3 +233,12 @@ loops are *not* consolidated (see `merged-hooks-js-tests`).
 - `bin-tests.yml`'s header holds the repo's TIMEOUT POLICY (job-level timeouts
   are a backstop; network and execution steps carry their own).
   `verify-merged-tree.yml` follows it.
+- `bin-tests.yml`'s `bin-sh-tests` job builds the adapters once, then runs the
+  shell tests with `AE_INSTALL_SKIP_BUILD=1`, as `scripts/check-local.sh` does,
+  so `.claude/install.sh` calls in those tests skip their rebuild. Measured
+  locally on 2026-10-13 by running that step's loop over the same 81 files both
+  ways: 1,236 s to 706 s, every file exit 0 with identical PASS-line counts.
+  The CI effect is to be re-measured with `bash scripts/ci-step-durations.sh`
+  once runs with the variable set have accumulated. `adapter-sync.yml` still
+  gates the build output. `verify-merged-tree.yml` has no matching job (the
+  known gap above), so nothing is mirrored there.
