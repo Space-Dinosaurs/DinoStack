@@ -220,20 +220,79 @@ def test_planted_temp_symlink_is_never_followed(tmp_path, target, planted):
     assert os.path.realpath(final) == str((Path(os.path.realpath(root)) / ".agentic" / target))
 
 
-def test_sigterm_releases_the_lock(tmp_path):
+@pytest.mark.parametrize("case", ["own-lock", "other-owner", "after-acquire"])
+def test_sigterm_releases_the_lock(tmp_path, case):
+    """SIGTERM lands at a point the test waits for, never at a sleep-tuned
+    moment. own-lock and other-owner: while the acquire child is still running,
+    after it has taken the lock (or found it busy); the stub blocks on a FIFO
+    the test holds open until the signal is sent. after-acquire: with the token
+    held, while the wrapper is blocked opening .agentic/memory.md, a FIFO whose
+    non-blocking write-open succeeds only once the wrapper is reading it."""
+    tree = tmp_path / "ds"
+    (tree / "bin").mkdir(parents=True)
+    shutil.copy(TOOL, tree / "bin" / "ds-keepalive-wrap")
+    os.symlink(REPO / "bin" / "ds-wrap-release-lock", tree / "bin" / "ds-wrap-release-lock")
+    os.symlink(REPO / "hooks", tree / "hooks")
+    ready, gate = tmp_path / "acquired", tmp_path / "gate"
+    os.mkfifo(gate)
+    gate_fd = os.open(gate, os.O_RDWR)
+    stub = tree / "bin" / "ds-wrap-acquire-lock"
+    stub.write_text("#!/bin/sh\n%s \"$@\"\nrc=$?\n: > %s\nread _ < %s\nexit $rc\n"
+                    % (shlex.quote(str(REPO / "bin" / "ds-wrap-acquire-lock")), shlex.quote(str(ready)),
+                       shlex.quote(str(gate))))
+    stub.chmod(0o755)
     root = tmp_path / "proj"
     root.mkdir()
-    p = subprocess.Popen([str(TOOL), "--root", str(root), "--session-id", SID], stdin=subprocess.PIPE,
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    for _ in range(100):
-        if _lock(root).exists():
-            break
-        time.sleep(0.1)
-    assert _lock(root).exists(), "the lock is taken before stdin is read"
-    p.send_signal(signal.SIGTERM)
-    out, err = p.communicate(timeout=30)
+    owner = None
+    if case == "other-owner":
+        held = subprocess.run([str(REPO / "bin" / "ds-wrap-acquire-lock"), str(root), "--no-wait", "--role=agent"],
+                              capture_output=True, text=True, timeout=30)
+        assert held.returncode == 0, held.stdout + held.stderr
+        owner = _lock(root).joinpath("owner.json").read_text()
+    memory = root / ".agentic" / "memory.md"
+    if case == "after-acquire":
+        os.write(gate_fd, b"go\n")
+        memory.parent.mkdir()
+        os.mkfifo(memory)
+    payload = tmp_path / "payload.json"
+    payload.write_text(json.dumps(_payload()))
+    with open(payload) as stdin:
+        p = subprocess.Popen([str(tree / "bin" / "ds-keepalive-wrap"), "--root", str(root), "--session-id", SID],
+                             stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    mem_fd = None
+    try:
+        if case == "after-acquire":
+            while mem_fd is None:
+                assert p.poll() is None, p.communicate()
+                try:
+                    mem_fd = os.open(memory, os.O_WRONLY | os.O_NONBLOCK)
+                except OSError:
+                    time.sleep(0.01)
+        else:
+            while not ready.exists():
+                assert p.poll() is None, p.communicate()
+                time.sleep(0.01)
+        assert _lock(root).exists()
+        p.send_signal(signal.SIGTERM)
+        if case != "after-acquire":
+            os.write(gate_fd, b"go\n")
+        if mem_fd is not None:
+            os.close(mem_fd)
+            mem_fd = None
+        out, err = p.communicate(timeout=30)
+    finally:
+        os.close(gate_fd)
+        if mem_fd is not None:
+            os.close(mem_fd)
+        if p.poll() is None:
+            p.kill()
     assert p.returncode == 1 and out.startswith("WRAP FAILED: interrupted"), out + err
-    assert not _lock(root).exists() and not (root / ".agentic" / "_wrap.md").exists()
+    if case == "other-owner":
+        assert _lock(root).joinpath("owner.json").read_text() == owner, "another owner's lock was released"
+    else:
+        assert not _lock(root).exists(), "the lock was left held"
+    if case != "after-acquire":
+        assert not (root / ".agentic" / "_wrap.md").exists()
 
 
 def test_prune_removes_only_old_resume_files(tmp_path):
