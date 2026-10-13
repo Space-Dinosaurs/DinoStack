@@ -1903,7 +1903,7 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
   "loop_state": {
     "phase": "skeptic",
     "iteration": 1,
-    "max_iterations": 2,
+    "max_iterations": 3,
     "tier": 2,
     "findings_log": [],
     "qa_failures_log": [],
@@ -1942,7 +1942,7 @@ The file is overwritten (not appended) on each iteration state update and at loo
 Emit the inline breadcrumb:
 
 ```
-[loop: skeptic | iteration 1/2 | open findings: -]
+[loop: skeptic | iteration 1/3 | open findings: -]
 ```
 
 **Loop entry (repeat until termination):**
@@ -2137,7 +2137,7 @@ Fires exactly once per ticket per `/ds-implement-ticket` invocation.
 
 **Phase 6b only runs if Phase 6 exits cleanly (Skeptic sign-off granted, `termination_reason: clean`).** If Phase 6 exits via `cap_reached`, `convergence_failure`, or `blocked` escalation, Phase 6b is skipped entirely. Running QA on a Skeptic-rejected implementation is wasteful - the Phase 6 escalation subsumes Phase 6b for that session.
 
-**Cap independence:** the Phase 6 Skeptic cap (2 fix passes) and the Phase 6b QA cap (3) are separate budgets.
+**Cap independence:** the Phase 6 Skeptic cap (3 fix passes) and the Phase 6b QA cap (3) are separate budgets.
 
 **Trigger:** Phase 6b QA fires for Elevated units IFF all of the following hold:
 1. The unit's `qa_criteria` block (from the Brief, or from the architect plan if no Brief) is present.

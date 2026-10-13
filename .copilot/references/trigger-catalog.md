@@ -51,7 +51,7 @@ An open-goal loop is an iterative conductor flow where the operator declares a m
 
 **Hard-stop**: the loop exits on whichever of these is hit first:
 - `goal_condition` evaluates to true (success).
-- The existing re-route cap is reached: 2 fix passes per Skeptic loop, or an immediate convergence failure (same finding re-raised unchanged after the engineer claimed to have fixed it). See `content/references/skeptic-protocol.md` for the exact rules.
+- The existing re-route cap is reached: 3 fix passes per Skeptic loop, or an immediate convergence failure (same finding re-raised unchanged after the engineer claimed to have fixed it). See `content/references/skeptic-protocol.md` for the exact rules.
 - A hard blocker is encountered: permission denial, missing credential, irreversible destructive action without authorization, fundamental scope conflict, or a gate/threshold/validation floor that has rejected the same substantive attempt twice (see `content/references/delegation-detail.md` section Worker Autonomy Contract for the full rule).
 
 The open-goal loop REUSES the per-ticket `loop-state-<LOOP_KEY>.json` (legacy: `.agentic/loop-state.json`), resume, and clean-exit exactly as documented in `content/sections/07-cross-session-loop-resume.md`. No new loop engine is introduced. Cross-session resume, interruption recovery, and batch-state coexistence all apply unchanged.

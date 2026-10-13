@@ -42,7 +42,7 @@ Test groups:
                                                                  operator's grant token in the transcript;
                                                                  a sibling-denied spawn leaves the state
                                                                  byte-unchanged; the NEXT valid spawn is
-                                                                 allowed at round 3 and uses the grant;
+                                                                 allowed at round 4 and uses the grant;
                                                                  the spawn after THAT is denied at the cap.
   4. test_clean_spawn_still_advances_normally                   - control: a spawn no sibling denies
                                                                  advances state exactly as before this
@@ -476,9 +476,9 @@ def test_operator_grant_preserved_when_sibling_denies(tmp_path, registered_confi
     diff_key = "sibling-deny-grant-unit"
     env = _isolated_env(registered_config_dir)
 
-    # Rounds 1-2: clean spawns (tagged/n-a field 7), distinct Worker output
+    # Rounds 1-3: clean spawns (tagged/n-a field 7), distinct Worker output
     # each round so fingerprint coalescing does not collapse them.
-    for i in (1, 2):
+    for i in (1, 2, 3):
         prompt = _prompt(diff_key, what_to_review=f"Worker fixed issue #{i}, round {i}.")
         payload = _payload(cwd, prompt, tool_use_id=f"tuid-{i}")
         code, parsed = _run_hook(_ROUND_CAP_HOOK, payload, env=env)
@@ -488,10 +488,10 @@ def test_operator_grant_preserved_when_sibling_denies(tmp_path, registered_confi
     state_files = _state_files(cwd)
     assert len(state_files) == 1
     state_path = state_files[0]
-    assert json.loads(state_path.read_text())["round_count"] == 2
+    assert json.loads(state_path.read_text())["round_count"] == 3
 
     # The cap deny prints the token; the operator types it in this session.
-    prompt_cap = _prompt(diff_key, what_to_review="Worker fixed issue #3, round 3 (no grant yet).")
+    prompt_cap = _prompt(diff_key, what_to_review="Worker fixed issue #4, round 4 (no grant yet).")
     _, cap_parsed = _run_hook(_ROUND_CAP_HOOK, _payload(cwd, prompt_cap, tool_use_id="tuid-cap"), env=env)
     assert _is_denied(cap_parsed)
     reason = cap_parsed["hookSpecificOutput"]["permissionDecisionReason"]
@@ -502,18 +502,18 @@ def test_operator_grant_preserved_when_sibling_denies(tmp_path, registered_confi
     )
     before = state_path.read_bytes()
 
-    # Round 3: a NEW fingerprint (new Worker output), but field 7 is untagged
+    # Round 4: a NEW fingerprint (new Worker output), but field 7 is untagged
     # -> neutrality denies it.
     prompt3 = _prompt(
         diff_key,
-        what_to_review="Worker fixed issue #3, round 3.",
+        what_to_review="Worker fixed issue #4, round 4.",
         field7="The retry logic still has a subtle race condition nobody caught.",
     )
     payload3 = _payload(cwd, prompt3, tool_use_id="tuid-3")
     payload3["transcript_path"] = str(transcript)
 
     _, neut_parsed = _run_hook(_NEUTRALITY_HOOK, payload3)
-    assert _is_denied(neut_parsed), "precondition failed: neutrality did not deny round 3's untagged field-7"
+    assert _is_denied(neut_parsed), "precondition failed: neutrality did not deny round 4's untagged field-7"
 
     rc_code, rc_parsed = _run_hook(_ROUND_CAP_HOOK, payload3, env=env)
     assert rc_code == 0
@@ -521,22 +521,22 @@ def test_operator_grant_preserved_when_sibling_denies(tmp_path, registered_confi
     assert state_path.read_bytes() == before, "a sibling-denied spawn at the cap must leave the state byte-unchanged"
 
     # The NEXT valid (clean, new-fingerprint) spawn uses the still-live grant.
-    prompt4 = _prompt(diff_key, what_to_review="Worker fixed issue #4, round 4 (clean, tagged).")
+    prompt4 = _prompt(diff_key, what_to_review="Worker fixed issue #5, round 5 (clean, tagged).")
     payload4 = _payload(cwd, prompt4, tool_use_id="tuid-4")
     payload4["transcript_path"] = str(transcript)
     rc4_code, rc4_parsed = _run_hook(_ROUND_CAP_HOOK, payload4, env=env)
     assert rc4_code == 0
     assert not _is_denied(rc4_parsed), "the spawn using the grant must be allowed"
-    assert json.loads(state_path.read_text())["round_count"] == 3
+    assert json.loads(state_path.read_text())["round_count"] == 4
 
     # The spawn after THAT needs a new grant and is denied.
-    prompt5 = _prompt(diff_key, what_to_review="Worker fixed issue #5, round 5 (clean, tagged).")
+    prompt5 = _prompt(diff_key, what_to_review="Worker fixed issue #6, round 6 (clean, tagged).")
     payload5 = _payload(cwd, prompt5, tool_use_id="tuid-5")
     payload5["transcript_path"] = str(transcript)
     rc5_code, rc5_parsed = _run_hook(_ROUND_CAP_HOOK, payload5, env=env)
     assert rc5_code == 0
     assert _is_denied(rc5_parsed), "a used grant must not allow another round"
-    assert json.loads(state_path.read_text())["round_count"] == 3, "a DENIED spawn must not advance round_count"
+    assert json.loads(state_path.read_text())["round_count"] == 4, "a DENIED spawn must not advance round_count"
 
 
 # --------------------------------------------------------------------------- #

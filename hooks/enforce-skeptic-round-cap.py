@@ -446,7 +446,7 @@ import sys
 import time
 from pathlib import Path
 
-_ROUND_CAP = 2
+_ROUND_CAP = 3
 _KEY_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]")
 _MAX_KEY_LEN = 80
 # Covers: numbered ("6. Diff under review: ..."), hyphen-bullet
