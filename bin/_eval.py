@@ -50,9 +50,49 @@ Public API:
         metric's input set is non-empty and every source it reads was
         available (coverage < 1 then says the input set is a subset, and
         `missing` names what it excludes).
+    Additive figures (none feeds a decision rule):
+        Empty session (is_empty_session, the one definition, also used by
+        bin/ds-change-delta through session_rows[].empty): no usage record,
+        conductor or subagent, and no cost-state spend (the cost-state
+        record is absent or $0). cost.reconciled.empty_sessions and
+        cost.no_cost_state.empty_sessions (each with empty_session_ids)
+        count them inside the group they already belong to, so each
+        session is in one group; both are left out of
+        cost.window_total.coverage (numerator and denominator; the total is
+        coverage_excludes_empty_sessions), and the reconciled ones out of
+        cost.attributed_share.coverage's denominator. They add $0.
+        skeptic_rounds.by_iteration.iteration_tagged_share (equal to its
+        `coverage`) and findings_carrying_share (returns carrying
+        signed_off or findings_count), with their counts in `returns`.
+        work_items.items rows carry `tiers` (the key tiers of the item's
+        spawns), `wall_spawns` (spawns with a wall time; wall_seconds is
+        their sum and None when there is none) and `pr_history` (False
+        when the repo has no readable merged-PR history), and three
+        fields that say where an item with no `first_merged_pr` landed
+        (none feeds first_merged_pr, pr_numbers, rework or D3):
+        `own_prs_merged_in_window`: its key PR or its spawns' own PR
+        numbers that are in the window's merge set ([start, end + 7d))
+        but are not in pr_numbers (the PR carries no ticket id);
+        `merged_outside_window`: the PR commits it names (those
+        numbers, or a PR commit carrying its ticket id) that
+        git_pr_merges finds on the base ref and that are not in the
+        window's merge set, as [{number, merged_at, when
+        "before"|"in"|"after"}]. `when` is "in" only for a
+        `Merge pull request #N from ...` commit dated inside the
+        window, a subject form the window's own merge set does not
+        parse. A commit whose subject starts `Revert "` is never
+        counted here;
+        `ticket_mention_commits`: how many other first-parent commits
+        on the base ref, at any date, carry its ticket id in subject or
+        body (a count only: a mention is not a landing).
+        The last two are [] and 0 when the search found none, and None
+        when the item has a first_merged_pr (not searched) or the base
+        ref could not be read. work_items.summary is {items, usd_median,
+        wall_seconds_median}, the two medians as metric envelopes.
     session_summary(session, repo) -> dict
         {session_id, repo, first_ts (ISO), entrypoint, model, version,
-        cost_usd}. entrypoint/model/version are the (model, entrypoint,
+        cost_usd, empty}. `empty` is is_empty_session(session).
+        entrypoint/model/version are the (model, entrypoint,
         version) Usage key with the most conductor messages (subagent usage
         when the conductor has none; ties break on the sorted key); each is
         None when the session recorded no usage. cost_usd is
@@ -63,6 +103,13 @@ Public API:
         First-parent commits on `base` whose subject ends "(#N)", committed
         in [start, end): {number, sha, merged_at, subject, body, ids, reverts,
         revert_subject}. None when git cannot read the ref.
+    git_pr_merges(repo, base, numbers, tickets, pattern) -> list[dict] | None
+        One `git log --first-parent --grep` over the whole of `base`:
+        commits whose subject ends "(#N)" or reads
+        `Merge pull request #N from ...` for an N in `numbers`, or whose
+        subject or body carries one of `tickets`: {number, subject,
+        merged_at, ids}. `number` is None for any other subject. None
+        when git cannot read the ref.
     order_decisions(decisions) -> list
         Sorted by (rank_usd is None, -(rank_usd or 0), -evidence.count, rule,
         subject).
@@ -94,7 +141,8 @@ Upstream deps: Python 3 stdlib; bin/_lib.py (resolve_base_branch, _run),
     Reads <repo>/.agentic/events.jsonl (hook spawn rows),
     <repo>/.agentic/.enforcement-fires.jsonl (primary copy only),
     <repo>/.agentic/tasks.jsonl and ticket-ledger.jsonl (ticket prefixes),
-    `git log --first-parent <base>`, `git remote get-url origin`, and,
+    `git log --first-parent <base>` (the window, and one undated --grep
+    pass for the items with no in-window merge), `git remote get-url origin`, and,
     `ds-feedback list --status triaged --repo <repo>` (operator fire labels,
     read unless use_feedback is False; a pure read that creates nothing),
     and, unless use_gh is False, `gh pr list` (open/closed
@@ -111,7 +159,7 @@ Failure modes: never raises on a missing store, file, ref, gh or pricing;
 
 Performance: one _transcripts.sessions() pass per repo (dominant cost,
     about 1 min for 280 sessions), one read of events.jsonl and the fire log
-    per repo, one `git log` per repo, at most one `gh pr list` and one
+    per repo, at most two `git log` per repo, at most one `gh pr list` and one
     `ds-feedback list` per repo.
 """
 from __future__ import annotations
@@ -164,6 +212,7 @@ SECTIONS = ("agents", "skeptic_rounds", "work_items", "hooks", "cost", "mix", "d
 
 _PR_SUBJECT_RE = re.compile(r"\(#(\d+)\)\s*$")
 _REVERT_SUBJECT_RE = re.compile(r'^Revert "(.*)"\s*$')
+_MERGE_COMMIT_SUBJECT_RE = re.compile(r"^Merge pull request #(\d+) from ")
 _REVERTS_BODY_RE = re.compile(r"This reverts commit ([0-9a-f]{7,40})")
 _SLUG_RE = re.compile(r"github\.com[:/]+([^/\s]+/[^/\s]+?)(?:\.git)?/?$")
 _PREFIX_RE = re.compile(r"^([A-Z][A-Z0-9]+)-\d+")
@@ -541,7 +590,15 @@ def session_summary(session, repo) -> dict:
         "session_id": session.session_id, "repo": str(repo),
         "first_ts": session.first_ts.isoformat() if session.first_ts else None,
         "model": top[0], "entrypoint": top[1], "version": top[2], "cost_usd": session.cost_usd,
+        "empty": is_empty_session(session),
     }
+
+
+def is_empty_session(session) -> bool:
+    """No usage record, conductor or subagent, and no cost-state spend (the
+    record is absent or $0): the session never reached the model."""
+    return (not session.conductor and not any(sub.usage for sub in session.subagents)
+            and not session.cost_state_usd)
 
 
 def fire_key(row: dict) -> str | None:
@@ -612,6 +669,32 @@ def git_merged_prs(repo, base: str, start: datetime, end: datetime) -> list[dict
             "revert_subject": rev.group(1) if rev else None,
         })
     out.sort(key=lambda pr: pr["merged_at"])
+    return out
+
+
+def git_pr_merges(repo, base: str, numbers, tickets, pattern: re.Pattern) -> list[dict] | None:
+    args = ["git", "log", "--first-parent", "-F", "--format=%cI%x1f%s%x1f%b%x1e"]
+    for n in sorted(numbers):
+        args += [f"--grep=(#{n})", f"--grep=Merge pull request #{n} from "]
+    args += [f"--grep={t}" for t in sorted(tickets)]
+    proc = _LIB._run(args + [base], cwd=str(repo), timeout=60.0)
+    if proc.returncode != 0:
+        return None
+    out = []
+    for chunk in proc.stdout.split("\x1e"):
+        parts = chunk.strip("\n").split("\x1f")
+        if len(parts) < 3:
+            continue
+        subject = parts[1]
+        m = _PR_SUBJECT_RE.search(subject) or _MERGE_COMMIT_SUBJECT_RE.match(subject)
+        merged_at = _parse_ts(parts[0])
+        if merged_at is None:
+            continue
+        number = int(m.group(1)) if m else None
+        ids = [t for t in _ids(pattern, subject) + _ids(pattern, parts[2]) if t in tickets]
+        if number in numbers or ids:
+            out.append({"number": number, "subject": subject, "merged_at": merged_at, "ids": ids})
+    out.sort(key=lambda c: (c["merged_at"], c["subject"]))
     return out
 
 
@@ -899,6 +982,11 @@ def _skeptic_section(returns: list[dict]) -> dict:
     missing = [f"{len(returns) - with_iter} returns carry no iteration"] if with_iter < len(returns) else []
     by_iteration = metric(OK, dict(sorted(by_iter.items(), key=lambda kv: (kv[0] == "unknown", kv[0].zfill(4)))),
                           _ratio(with_iter, len(returns)), missing)
+    with_verdict = sum(1 for r in returns if r["signed_off"] is not None or r["findings"] is not None)
+    by_iteration["returns"] = {"total": len(returns), "iteration_tagged": with_iter,
+                               "findings_carrying": with_verdict}
+    by_iteration["iteration_tagged_share"] = _ratio(with_iter, len(returns))
+    by_iteration["findings_carrying_share"] = _ratio(with_verdict, len(returns))
 
     late = [r for r in returns if r["iteration"] is not None and r["iteration"] >= 2]
     so = [r for r in late if r["signed_off"] is not None]
@@ -1024,7 +1112,39 @@ def _key_spawns(spawns: list[dict], inputs: list[dict]) -> dict:
     return {"agreement": {str(t): v for t, v in agreement.items()}, "tier4_disabled": tier4_disabled}
 
 
-def _work_items(spawns: list[dict], inputs: list[dict], returns: list[dict], keying: dict) -> dict:
+def _landing_evidence(rows: list[dict], inputs: list[dict], start: datetime, end: datetime) -> None:
+    """Where each row with no first_merged_pr landed, so its absence from the
+    ticket-id match never reads as "not merged": its own PRs in the window's
+    merge set, then one git_pr_merges call per repo for PR commits outside
+    that set and a count of other commits mentioning its ticket id."""
+    for inp in inputs:
+        mine = [r for r in rows if r["repo"] == inp["repo"] and r["pr_history"] and r["first_merged_pr"] is None]
+        if not mine:
+            continue
+        in_window = {pr["number"] for pr in inp["prs"] or []}
+        for r in mine:
+            r["own_prs_merged_in_window"] = sorted(r["_pr_candidates"] & in_window)
+        numbers = {n for r in mine for n in r["_pr_candidates"]}
+        tickets = {r["ticket"] for r in mine if r["ticket"]}
+        found = git_pr_merges(inp["repo"], inp["base"], numbers, tickets, inp["pattern"]) if inp["base"] else None
+        if found is None:
+            continue
+
+        def when(ts):
+            return "before" if ts < start else "in" if ts < end + LOOKAHEAD else "after"
+
+        for r in mine:
+            hits = [c for c in found if c["number"] in r["_pr_candidates"] or r["ticket"] in c["ids"]]
+            merges = [c for c in hits if c["number"] is not None and c["number"] not in in_window
+                      and not c["subject"].startswith('Revert "')]
+            r["merged_outside_window"] = [
+                {"number": c["number"], "merged_at": c["merged_at"].isoformat(), "when": when(c["merged_at"])}
+                for c in merges]
+            r["ticket_mention_commits"] = sum(1 for c in hits if r["ticket"] in c["ids"] and c not in merges)
+
+
+def _work_items(spawns: list[dict], inputs: list[dict], returns: list[dict], keying: dict,
+                start: datetime, end: datetime) -> dict:
     total = len(spawns)
     tiers = {str(t): sum(1 for sp in spawns if sp["tier"] == t) for t in (1, 2, 3, 4)}
     tiers["unkeyed"] = sum(1 for sp in spawns if sp["tier"] is None)
@@ -1053,11 +1173,16 @@ def _work_items(spawns: list[dict], inputs: list[dict], returns: list[dict], key
         inp = sp["inp"]
         it = items.setdefault((inp["repo"], sp["key"]), {
             "repo": inp["repo"], "key": sp["key"], "ticket": sp["ticket"], "spawns": 0, "usd_list": [],
-            "wall_seconds": 0.0, "max_iteration": None, "types": set(), "prs": set(), "repo_inferred": False,
+            "walls": [], "tiers": set(), "max_iteration": None, "types": set(), "prs": set(),
+            "repo_inferred": False, "own_prs": set(),
         })
+        it["own_prs"].update(n for ref_repo, n, _ts in sp["sub"].pr_created
+                             if ref_repo and inp["slug"] and ref_repo.lower() == inp["slug"].lower())
         it["spawns"] += 1
         it["usd_list"].append(sp["usd"])
-        it["wall_seconds"] += sp["sub"].wall_seconds or 0.0
+        if sp["sub"].wall_seconds is not None:
+            it["walls"].append(sp["sub"].wall_seconds)
+        it["tiers"].add(sp["tier"])
         it["types"].add(sp["type"])
         it["repo_inferred"] |= sp["repo_inferred"]
         if sp["pr"] is not None:
@@ -1086,12 +1211,19 @@ def _work_items(spawns: list[dict], inputs: list[dict], returns: list[dict], key
         rows.append({
             "repo": repo, "key": it["key"], "ticket": it["ticket"], "spawns": it["spawns"],
             "usd": _usd(sum(known)) if known else None, "usd_basis": "priced",
-            "wall_seconds": round(it["wall_seconds"], 3), "max_iteration": it["max_iteration"],
+            "wall_seconds": round(sum(it["walls"]), 3) if it["walls"] else None,
+            "wall_spawns": len(it["walls"]), "tiers": sorted(it["tiers"]),
+            "pr_history": inp["prs"] is not None, "max_iteration": it["max_iteration"],
             "types": sorted(it["types"]), "pr_numbers": [pr["number"] for pr in merged],
             "first_merged_pr": first["number"] if first else None,
             "follow_up_prs": follow_ups, "reverted": reverted,
             "repo_inferred": it["repo_inferred"], "flagged_d3": flagged,
+            "own_prs_merged_in_window": [], "merged_outside_window": None, "ticket_mention_commits": None,
+            "_pr_candidates": it["prs"] | it["own_prs"],
         })
+    _landing_evidence(rows, inputs, start, end)
+    for row in rows:
+        del row["_pr_candidates"]
 
     if not rows:
         items_metric = _absent("no keyed work items")
@@ -1122,7 +1254,23 @@ def _work_items(spawns: list[dict], inputs: list[dict], returns: list[dict], key
             "merged_prs_in_window": sum(1 for i in inputs for pr in i["prs"] or [] if pr["in_window"]),
         }, _ratio(len(merged_rows), len(rows)), miss)
     return {"coverage": coverage, "tier_agreement": keying["agreement"], "tier4_disabled": keying["tier4_disabled"],
-            "items": items_metric, "pr_outcome": outcome, "rework": rework}
+            "items": items_metric, "summary": _items_summary(rows), "pr_outcome": outcome, "rework": rework}
+
+
+def _items_summary(rows: list[dict]) -> dict:
+    """Keyed-item count with the median priced dollars and median summed
+    spawn wall, each over the items that carry the figure."""
+    def median(key, what):
+        known = [r[key] for r in rows if r[key] is not None]
+        if not known:
+            return _absent(f"no keyed work item with {what}" if rows else "no keyed work items")
+        return metric(OK if len(known) == len(rows) else PARTIAL, round(statistics.median(known), 6),
+                      _ratio(len(known), len(rows)),
+                      [f"{len(rows) - len(known)} of {len(rows)} items without {what}"]
+                      if len(known) < len(rows) else [])
+
+    return {"items": len(rows), "usd_median": median("usd", "priced usage"),
+            "wall_seconds_median": median("wall_seconds", "a spawn wall time")}
 
 
 def _engineer_value(spawns: list[dict], inputs: list[dict]) -> dict:
@@ -1243,8 +1391,11 @@ def _cost_section(inputs, rates, start, end) -> dict:
     sessions = [s for inp in inputs for s in inp["sessions"]]
     reconciled = sorted((s for s in sessions if s.cost_covers_session and s.cost_usd is not None),
                         key=lambda s: s.session_id)
+    empty = [s for s in reconciled if is_empty_session(s)]
     partial = [s for s in sessions if s.cost_state_usd is not None and not s.cost_covers_session]
     no_state = [s for s in sessions if s.cost_state_usd is None]
+    empty_no_state = [s for s in no_state if is_empty_session(s)]
+    all_empty = len(empty) + len(empty_no_state)
 
     def visible(s):
         usds, unpriced = [], set()
@@ -1258,7 +1409,9 @@ def _cost_section(inputs, rates, start, end) -> dict:
     rec_usd = _ordered_sum(s.cost_usd for s in reconciled)
     cost: dict = {
         "reconciled": {"status": OK if reconciled else ABSENT, "usd": rec_usd if reconciled else None,
-                       "sessions": len(reconciled), "session_ids": sorted(s.session_id for s in reconciled)},
+                       "sessions": len(reconciled), "session_ids": sorted(s.session_id for s in reconciled),
+                       "empty_sessions": len(empty),
+                       "empty_session_ids": sorted(s.session_id for s in empty)},
         "partial_process": {"status": PARTIAL if partial else OK, "sessions": len(partial),
                             "last_process_usd_lower_bound":
                                 _ordered_sum(s.cost_state_usd for s in sorted(partial, key=lambda s: s.session_id))
@@ -1269,15 +1422,18 @@ def _cost_section(inputs, rates, start, end) -> dict:
     nv_known = [u for u in nv if u is not None]
     cost["no_cost_state"] = {"status": ABSENT if no_state else OK, "value": None, "sessions": len(no_state),
                              "priced_visible_usd": _usd(sum(nv_known)) if nv_known else None,
-                             "basis": "priced", "session_ids": sorted(s.session_id for s in no_state)}
+                             "basis": "priced", "session_ids": sorted(s.session_id for s in no_state),
+                             "empty_sessions": len(empty_no_state),
+                             "empty_session_ids": sorted(s.session_id for s in empty_no_state)}
     if not sessions:
         cost["window_total"] = _absent("no in-window sessions in any store")
     else:
         gaps = len(partial) + len(no_state)
         cost["window_total"] = metric(
             PARTIAL if gaps else OK, rec_usd if reconciled else None,
-            _ratio(len(reconciled), len(sessions)),
+            _ratio(len(reconciled) - len(empty), len(sessions) - all_empty),
             [f"partial_process: {len(partial)}", f"no_cost_state: {len(no_state)}"] if gaps else [])
+        cost["window_total"]["coverage_excludes_empty_sessions"] = all_empty
         if not reconciled:
             cost["window_total"]["value"] = None
     cost["straddling_sessions"] = sum(1 for s in sessions if s.first_ts < start or s.last_ts > end)
@@ -1310,7 +1466,7 @@ def _cost_section(inputs, rates, start, end) -> dict:
         cost["attributed_share"] = metric(PARTIAL if miss else OK,
                                           {"share": _ratio(sum(known), rec_usd), "priced_visible_usd": _usd(sum(known)),
                                            "reconciled_usd": rec_usd},
-                                          _ratio(len(known), len(reconciled)), miss)
+                                          _ratio(len(known), len(reconciled) - len(empty)), miss)
         cost["attributed_share"]["basis"] = "priced / cost-state"
     cost["models_absent_from_transcripts"] = {m: _usd(v) for m, v in sorted(absent_models.items())}
     cost["visible_exceeds_cost_state"] = {"sessions": len(exceed), "session_ids": sorted(exceed)}
@@ -1544,7 +1700,7 @@ def _sections(inputs, rates, start, end) -> tuple[dict, list, list]:
     keying = _key_spawns(spawns, inputs)
     returns = _skeptic_returns(inputs, start, end)
     skeptic = _skeptic_section(returns)
-    work = _work_items(spawns, inputs, returns, keying)
+    work = _work_items(spawns, inputs, returns, keying, start, end)
     hooks, round_cap = _hooks_section(inputs, start, end)
     sections = {
         "agents": _agents_section(inputs, spawns, rates, skeptic, work, start, end),

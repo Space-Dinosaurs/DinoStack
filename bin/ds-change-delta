@@ -63,7 +63,7 @@ Public API: ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH]
             any exception there returns the block as one ABSENT envelope
             naming it. compare_eval(reports, base_counts, cut_dt,
             window_days, now) builds the block: meta (figure,
-            sessions_assigned, min_n, base), before/after (sessions,
+            sessions_assigned, session_counts, min_n, base), before/after (sessions,
             cost_usd, usd_per_reconciled_session, straddling_sessions),
             confounders.{before,after}.{entrypoint,model,version,
             base_commits,empty_sessions}, pooled and per_entrypoint[ep]
@@ -79,11 +79,25 @@ Public API: ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH]
             makes the figure PARTIAL with reason "n < 10" (so K=5 prefix
             figures are always PARTIAL). The per-entrypoint, pooled, mix
             and prefix figures count each session once, on the side its
-            first_ts falls in, and exclude empty sessions (no usage record
-            and no cost-state spend, counted in empty_sessions). A window
+            first_ts falls in, and exclude empty sessions (bin/_eval.py's
+            is_empty_session, the one definition both tools use: no usage
+            record and no cost-state spend, the cost-state record absent
+            or $0; counted in empty_sessions). A window
             still running is PARTIAL on its own side: the after window of
             a recent cut, and the before window too when --cut is in the
             future.
+            The report carries several session counts over different
+            populations, each labelled where it is printed and in JSON
+            (SESSION_COUNT_BASIS): metrics.sessions (its `basis`) counts
+            session-log rows by their own ts; eval.meta.session_counts
+            gives, per side, the transcript sessions overlapping the window
+            (eval before/after `sessions`; one crossing the cut is on both
+            sides), those placed once by first timestamp
+            (sessions_assigned), and the non-empty ones among them (the n
+            of pooled, per-entrypoint, mix and prefix figures).
+            usd_per_reconciled_session divides by the reconciled sessions
+            that are not empty (_eval's cost.reconciled.empty_sessions),
+            the same exclusion _eval applies to cost.window_total.coverage.
             Exit 0 on any well-formed run, even one where every metric
             reports a non-OK status (an absent or short-of-window store
             is informative output, not a CLI failure). Exit 1 when --cut
@@ -237,6 +251,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _lib import _run, iter_jsonl_dict_records, rate_or_none  # noqa: E402
+
+
+# The report's session counts are over different populations, so they differ
+# on the same window. Each is printed with its entry.
+SESSION_COUNT_BASIS = {
+    "session_log": (
+        "session-log sessions: one row per session_uuid in <repo>/.agentic/session-log/*.jsonl, "
+        "placed by that row's own ts (metrics `sessions`, and the denominator of the per-session metrics)"),
+    "transcript_overlapping_window": (
+        "transcript sessions whose first..last timestamp overlaps the window; one that crosses the cut "
+        "counts on both sides (eval before/after `sessions`, cost_usd, usd_per_reconciled_session)"),
+    "transcript_assigned_by_first_ts": (
+        "the same transcript sessions placed once, on the side their first timestamp falls in "
+        "(eval.meta.sessions_assigned)"),
+    "transcript_assigned_non_empty": (
+        "assigned sessions minus empty ones (no usage record and no cost-state spend): the n of the "
+        "pooled, per-entrypoint, mix and prefix figures"),
+}
 
 
 def _load_eval():
@@ -1164,7 +1196,8 @@ def build_delta(
     a_side = _side_obj(a_status, after_sess["sessions"] if a_status == "OK" else None,
                         after_sess["sources"], after_sess["rows_consumed"], a_note)
     delta = (after_sess["sessions"] - before_sess["sessions"]) if (b_status == "OK" and a_status == "OK") else None
-    metrics["sessions"] = {"before": b_side, "after": a_side, "delta": delta, "note": None}
+    metrics["sessions"] = {"before": b_side, "after": a_side, "delta": delta, "note": None,
+                           "basis": SESSION_COUNT_BASIS["session_log"]}
 
     # -- spawns_per_session ----------------------------------------------
     def ratio_metric(key_sum, before_win, after_win):
@@ -1442,21 +1475,22 @@ def _window_figures(report: dict) -> dict:
     cost = report["cost"]
     n = report["meta"]["sessions"]
     rec = cost["reconciled"]
+    spending = rec["sessions"] - rec["empty_sessions"]
     no_sessions = "no in-window sessions in any store"
     return {
         "sessions": _metric(_OK, n) if n else _absent(no_sessions),
         "cost_usd": cost["window_total"],
         "usd_per_reconciled_session": (
-            _metric(_OK, round(rec["usd"] / rec["sessions"], 6), cost["window_total"]["coverage"])
-            if rec["sessions"] else _absent("no session whose cost-state covers it")),
+            _metric(_OK, round(rec["usd"] / spending, 6), cost["window_total"]["coverage"])
+            if spending else _absent("no non-empty session whose cost-state covers it")),
         "straddling_sessions": _metric(_OK, cost["straddling_sessions"]) if n else _absent(no_sessions),
     }
 
 
 def _is_empty(row: dict) -> bool:
-    """No usage record at all and no cost-state spend: a session that never
-    reached the model, which would otherwise pull every mean toward $0."""
-    return row.get("model") is None and not row.get("cost_usd")
+    """bin/_eval.py's is_empty_session, carried on the row: left out here
+    because such a session would pull every mean toward $0."""
+    return row["empty"]
 
 
 def _assign_sessions(reports: dict, before_start: datetime, cut_dt: datetime,
@@ -1542,6 +1576,13 @@ def compare_eval(reports: dict, base_counts: dict, cut_dt: datetime, window_days
         "meta": {"figure": "usd_per_session: cost-state dollars per session it covers",
                  "sessions_assigned": {"before": len(before_all), "after": len(after_all),
                                        "first_ts_outside_windows": outside},
+                 "session_counts": {
+                     "definitions": {k: v for k, v in SESSION_COUNT_BASIS.items() if k != "session_log"},
+                     **{side: {"transcript_overlapping_window": reports[side]["meta"]["sessions"],
+                               "transcript_assigned_by_first_ts": len(side_all),
+                               "transcript_assigned_non_empty": len(side_rows)}
+                        for side, side_all, side_rows in (("before", before_all, before_rows),
+                                                          ("after", after_all, after_rows))}},
                  "min_n": MIN_N,
                  "base": {side: reports[side]["meta"].get("base") for side in ("before", "after")}},
         "before": {k: elapsed(v, "before") for k, v in _window_figures(reports["before"]).items()},
@@ -1616,6 +1657,7 @@ def _print_table(report: dict) -> None:
             f"{name:<26}{_fmt_val(b['value']):<16}{_fmt_val(a['value']):<16}"
             f"{_fmt_val(delta):<14}{status_str}"
         )
+    print(f"  sessions = {report['metrics']['sessions']['basis']}")
     print()
     print("pr_history:")
     for repo, entry in report["pr_history"].items():
@@ -1672,8 +1714,17 @@ def _print_table(report: dict) -> None:
         print(f"eval: {env(ev)}")
         return
     print(f"eval ({ev['meta']['figure']}):")
+    counts = ev["meta"]["session_counts"]
+    log = report["metrics"]["sessions"]
+    print("  session counts (different populations, so they differ):")
+    log_side = {side: (str(log[side]["value"]) if log[side]["value"] is not None
+                       else f"n/a ({log[side]['status']})") for side in ("before", "after")}
+    print(f"    {'session_log':<34}before={log_side['before']}  after={log_side['after']}  {log['basis']}")
+    for name, basis in counts["definitions"].items():
+        print(f"    {name:<34}before={counts['before'][name]}  after={counts['after'][name]}  {basis}")
     for name in ev["before"]:
-        print(f"  {name:<28}before={env(ev['before'][name])}  after={env(ev['after'][name])}")
+        label = "sessions (overlapping window)" if name == "sessions" else name
+        print(f"  {label:<30}before={env(ev['before'][name])}  after={env(ev['after'][name])}")
     for side in ("before", "after"):
         conf = ev["confounders"][side]
         parts = []

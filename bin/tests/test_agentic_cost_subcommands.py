@@ -580,6 +580,85 @@ def test_session_hook_spawn_tokens_render_na():
     print("PASS test_session_hook_spawn_tokens_render_na")
 
 
+_WIDE_TOKENS = {"input": 123456789012, "output": 98765432101,
+                "cache_creation": 231155171, "cache_read": 3560900854}
+_WIDE_CELLS = ["123456789012", "98765432101", "231155171", "3560900854"]
+
+
+def _table_cells(line: str) -> list[str]:
+    import re
+    return re.split(r" {2,}", line.strip())
+
+
+def _assert_aligned(lines: list[str]) -> None:
+    """Every cell after the first ends at the same offset as its header cell."""
+    header = lines[0]
+    for line in lines[1:]:
+        assert len(_table_cells(line)) == len(_table_cells(header)), (header, line)
+        for cell in _table_cells(header)[1:]:
+            end = header.index(cell) + len(cell)
+            assert line[:end].rstrip() == line[:end] and (len(line) == end or line[end] == " "), (cell, line)
+
+
+def test_team_and_operator_tables_keep_wide_token_columns_apart():
+    """Mutation: join format_columns' cells with no separator - the cache
+    columns run together again (2311551713560900854)."""
+    bucket = {"sessions": 12345, "wall_seconds": 9876543.2, "tokens": dict(_WIDE_TOKENS)}
+    small = {"sessions": 1, "wall_seconds": 1.0,
+             "tokens": {"input": 1, "output": 1, "cache_creation": 1, "cache_read": 1}}
+    team = _mod._render_team_table({"a-developer-with-a-very-long-identifier": bucket, "bob": small})
+    header, rule, row, small_row = team.splitlines()
+    assert _table_cells(row) == ["a-developer-with-a-very-long-identifier", "12345", *_WIDE_CELLS, "9876543.2"]
+    assert _table_cells(header) == ["developer", "sessions", "in_tok", "out_tok", "cache_cr", "cache_rd", "wall(s)"]
+    assert rule == "-" * len(row) and "2311551713560900854" not in team
+    _assert_aligned([header, row, small_row])
+
+    operator = _mod._render_operator_table({("a-developer-with-a-long-id", "a-long-project-slug"): bucket,
+                                            ("bob", "p"): small})
+    title, header, rule, row, small_row = operator.splitlines()
+    assert title == "Operator rollup (all projects)"
+    assert _table_cells(row) == ["a-developer-with-a-long-id/a-long-project-slug", "12345", *_WIDE_CELLS,
+                                 "9876543.2"]
+    _assert_aligned([header, row, small_row])
+    print("PASS test_team_and_operator_tables_keep_wide_token_columns_apart")
+
+
+def test_agent_tables_keep_wide_token_columns_apart():
+    agg = {"a-very-long-agent-type-name": {"spawns": 123456789, "tokens": dict(_WIDE_TOKENS),
+                                           "wall_seconds": 12345678901.5, "models": {}},
+           "qa": {"spawns": 1, "tokens": {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0},
+                  "wall_seconds": 0.0, "models": {}}}
+    lines = _mod._render_table(agg, None, None, None, 0).splitlines()
+    assert _table_cells(lines[1]) == ["a-very-long-agent-type-name", "123456789", *_WIDE_CELLS, "12345678901.5"]
+    assert _table_cells(lines[2]) == ["qa", "1", "n/a", "n/a", "n/a", "n/a", "n/a"]
+    assert _table_cells(lines[3])[0] == "TOTAL"
+    _assert_aligned(lines[:4])
+
+    priced = _mod._render_table(agg, {}, None, None, 0).splitlines()
+    assert _table_cells(priced[0]) == ["agent", "spawns", "tokens", "$in", "$out", "$cache_cr", "$cache_rd",
+                                       "$total", "wall(s)"]
+    assert _table_cells(priced[1])[:3] == ["a-very-long-agent-type-name", "123456789", str(sum(_WIDE_TOKENS.values()))]
+    _assert_aligned(priced[:4])
+    print("PASS test_agent_tables_keep_wide_token_columns_apart")
+
+
+def test_priced_dollar_columns_sit_under_their_own_headers():
+    """Mutation: reverse the dollar columns - every figure lands under another header."""
+    import telemetry_v2_fixtures as fixtures
+    pricing = {"claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_creation": 5.0, "cache_read": 0.2}}
+    toks = fixtures.tokens(input=1000, output=2000, cache_read=1_000_000, cc_5m=100_000, cc_1h=50_000)
+    agg = {"engineer": {"spawns": 2, "wall_seconds": 7.5, "models": {"claude-opus-5-5": toks},
+                        "tokens": {"input": 1000, "output": 2000, "cache_creation": 150_000,
+                                   "cache_read": 1_000_000}}}
+    lines = _mod._render_table(agg, pricing, None, None, 0).splitlines()
+    header, row, total = (dict(zip(_table_cells(lines[0]), _table_cells(line))) for line in lines[:3])
+    for cells in (row, total):
+        assert {k: cells[k] for k in ("$in", "$out", "$cache_cr", "$cache_rd", "$total")} == {
+            "$in": "0.004", "$out": "0.040", "$cache_cr": "0.900", "$cache_rd": "0.200", "$total": "1.144"}, cells
+    assert (row["agent"], row["spawns"], row["tokens"], row["wall(s)"]) == ("engineer", "2", "1153000", "7.5")
+    print("PASS test_priced_dollar_columns_sit_under_their_own_headers")
+
+
 def test_render_table_na_for_zero_tokens():
     """_render_table renders n/a in token columns when agent has all-zero tokens."""
     agg = {
@@ -993,4 +1072,8 @@ if __name__ == "__main__":
     test_paired_complete_resolves_to_nothing_not_double_counted()
     # post-DS-160 token resolution
     test_hook_spawn_complete_with_resolved_tokens_renders_real_numbers()
+    test_priced_dollar_columns_sit_under_their_own_headers()
+    # wide values stay in their own columns
+    test_team_and_operator_tables_keep_wide_token_columns_apart()
+    test_agent_tables_keep_wide_token_columns_apart()
     print("All agentic-cost session/task/project/operator tests passed.")

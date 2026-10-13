@@ -16,7 +16,10 @@ Public API: ds-cost session [<session_uuid>]
             ds-cost operator [--since YYYY-MM-DD] [--json]
             ds-cost retro [--since YYYY-MM-DD] [--until YYYY-MM-DD]
                                [--author <handle>] [--json]
-            All subcommands print a fixed-width table to stdout. Every
+            All subcommands print a table to stdout; session, task,
+            project, team and operator size each column to its widest
+            value with two spaces between columns (_lib.format_columns),
+            so two large token counts never run together. Every
             output ends with the V1 disclosure footer line per
             acceptance criterion 12.
             `operator` reads the global mirror ~/.agentic/session-log/*.jsonl
@@ -403,6 +406,21 @@ def _price_row(
     return dollars, missing
 
 
+_TOKEN_COLUMNS = ("input", "output", "cache_creation", "cache_read")
+_DOLLAR_COLUMNS = _TOKEN_COLUMNS + ("total",)
+
+
+def _session_log_table(label_header: str, buckets: list[tuple[str, dict]]) -> list[str]:
+    """Header, rule and one line per (label, bucket), for the team and
+    operator rollups."""
+    table = [(label_header, "sessions", "in_tok", "out_tok", "cache_cr", "cache_rd", "wall(s)")]
+    for label, b in buckets:
+        table.append((label, b["sessions"], *(b["tokens"][k] for k in _TOKEN_COLUMNS),
+                      f"{b['wall_seconds']:.1f}"))
+    lines = _LIB.format_columns(table)
+    return [lines[0], "-" * max(len(line) for line in lines)] + lines[1:]
+
+
 def _render_table(
     agg: dict,
     pricing: dict | None,
@@ -412,12 +430,8 @@ def _render_table(
 ) -> str:
     lines: list[str] = []
     if pricing is not None:
-        header = (
-            f"{'agent':<12}{'spawns':>8}{'tokens':>10}"
-            f"{'$in':>8}{'$out':>8}{'$cache_cr':>11}{'$cache_rd':>11}"
-            f"{'$total':>9}{'wall(s)':>10}"
-        )
-        lines.append(header)
+        table = [("agent", "spawns", "tokens", "$in", "$out", "$cache_cr", "$cache_rd",
+                  "$total", "wall(s)")]
         total_tokens = 0
         total_dollars = {"input": 0.0, "output": 0.0,
                          "cache_creation": 0.0, "cache_read": 0.0,
@@ -434,32 +448,18 @@ def _render_table(
             for m in missing:
                 all_missing.add(m)
             if dollars is None:
-                row = (
-                    f"{agent:<12}{b['spawns']:>8}{tok_sum:>10}"
-                    f"{'?':>8}{'?':>8}{'?':>11}{'?':>11}{'?':>9}"
-                    f"{b['wall_seconds']:>10.1f}"
-                )
+                priced = ("?",) * 5
             else:
-                row = (
-                    f"{agent:<12}{b['spawns']:>8}{tok_sum:>10}"
-                    f"{dollars['input']:>8.3f}{dollars['output']:>8.3f}"
-                    f"{dollars['cache_creation']:>11.3f}"
-                    f"{dollars['cache_read']:>11.3f}"
-                    f"{dollars['total']:>9.3f}{b['wall_seconds']:>10.1f}"
-                )
+                priced = tuple(f"{dollars[k]:.3f}" for k in _DOLLAR_COLUMNS)
                 for k in total_dollars:
                     total_dollars[k] += dollars[k]
-            lines.append(row)
+            table.append((agent, b["spawns"], tok_sum, *priced, f"{b['wall_seconds']:.1f}"))
             total_tokens += tok_sum
             total_wall += b["wall_seconds"]
             total_spawns += b["spawns"]
-        lines.append(
-            f"{'TOTAL':<12}{total_spawns:>8}{total_tokens:>10}"
-            f"{total_dollars['input']:>8.3f}{total_dollars['output']:>8.3f}"
-            f"{total_dollars['cache_creation']:>11.3f}"
-            f"{total_dollars['cache_read']:>11.3f}"
-            f"{total_dollars['total']:>9.3f}{total_wall:>10.1f}"
-        )
+        table.append(("TOTAL", total_spawns, total_tokens,
+                      *(f"{total_dollars[k]:.3f}" for k in _DOLLAR_COLUMNS), f"{total_wall:.1f}"))
+        lines.extend(_LIB.format_columns(table))
         lines.append("")
         if pricing_updated:
             lines.append(
@@ -478,11 +478,7 @@ def _render_table(
                 "Missing rates for: " + ", ".join(sorted(all_missing))
             )
     else:
-        header = (
-            f"{'agent':<12}{'spawns':>8}{'in':>10}{'out':>10}"
-            f"{'cache_cr':>11}{'cache_rd':>11}{'wall(s)':>10}"
-        )
-        lines.append(header)
+        table = [("agent", "spawns", "in", "out", "cache_cr", "cache_rd", "wall(s)")]
         totals = _empty_tokens()
         total_wall = 0.0
         total_spawns = 0
@@ -495,17 +491,10 @@ def _render_table(
             # is 0 to stay consistent with the token treatment.
             if tok_sum == 0:
                 wall_str = "n/a" if b["wall_seconds"] == 0.0 else f"{b['wall_seconds']:.1f}"
-                lines.append(
-                    f"{agent:<12}{b['spawns']:>8}{'n/a':>10}"
-                    f"{'n/a':>10}{'n/a':>11}"
-                    f"{'n/a':>11}{wall_str:>10}"
-                )
+                table.append((agent, b["spawns"], "n/a", "n/a", "n/a", "n/a", wall_str))
             else:
-                lines.append(
-                    f"{agent:<12}{b['spawns']:>8}{t['input']:>10}"
-                    f"{t['output']:>10}{t['cache_creation']:>11}"
-                    f"{t['cache_read']:>11}{b['wall_seconds']:>10.1f}"
-                )
+                table.append((agent, b["spawns"], *(t[k] for k in _TOKEN_COLUMNS),
+                              f"{b['wall_seconds']:.1f}"))
             _add_tokens(totals, t)
             total_wall += b["wall_seconds"]
             total_spawns += b["spawns"]
@@ -515,17 +504,11 @@ def _render_table(
         )
         if total_tok_sum == 0:
             total_wall_str = "n/a" if total_wall == 0.0 else f"{total_wall:.1f}"
-            lines.append(
-                f"{'TOTAL':<12}{total_spawns:>8}{'n/a':>10}"
-                f"{'n/a':>10}{'n/a':>11}"
-                f"{'n/a':>11}{total_wall_str:>10}"
-            )
+            table.append(("TOTAL", total_spawns, "n/a", "n/a", "n/a", "n/a", total_wall_str))
         else:
-            lines.append(
-                f"{'TOTAL':<12}{total_spawns:>8}{totals['input']:>10}"
-                f"{totals['output']:>10}{totals['cache_creation']:>11}"
-                f"{totals['cache_read']:>11}{total_wall:>10.1f}"
-            )
+            table.append(("TOTAL", total_spawns, *(totals[k] for k in _TOKEN_COLUMNS),
+                          f"{total_wall:.1f}"))
+        lines.extend(_LIB.format_columns(table))
         lines.append("")
         if pricing_error:
             lines.append(pricing_error)
@@ -666,27 +649,13 @@ def _aggregate_team(records: list[dict]) -> dict:
 
 
 def _render_team_table(agg: dict) -> str:
-    """Render fixed-width table of team telemetry sorted by total tokens desc."""
-    lines: list[str] = []
-    header = (
-        f"{'developer':<20}{'sessions':>9}{'in_tok':>10}{'out_tok':>10}"
-        f"{'cache_cr':>10}{'cache_rd':>10}{'wall(s)':>10}"
-    )
-    lines.append(header)
-    lines.append("-" * len(header))
-
+    """Render the team telemetry table sorted by total tokens desc."""
     def _tok_total(b: dict) -> int:
         t = b["tokens"]
         return t["input"] + t["output"] + t["cache_creation"] + t["cache_read"]
 
     sorted_devs = sorted(agg.keys(), key=lambda d: _tok_total(agg[d]), reverse=True)
-    for dev in sorted_devs:
-        b = agg[dev]
-        t = b["tokens"]
-        lines.append(
-            f"{dev:<20}{b['sessions']:>9}{t['input']:>10}{t['output']:>10}"
-            f"{t['cache_creation']:>10}{t['cache_read']:>10}{b['wall_seconds']:>10.1f}"
-        )
+    lines = _session_log_table("developer", [(dev, agg[dev]) for dev in sorted_devs])
     return "\n".join(lines) + "\n"
 
 
@@ -751,16 +720,7 @@ def _aggregate_operator(records: list[dict]) -> dict:
 
 
 def _render_operator_table(agg: dict) -> str:
-    """Render fixed-width operator rollup table sorted by total tokens desc."""
-    lines: list[str] = []
-    lines.append("Operator rollup (all projects)")
-    header = (
-        f"{'developer/project':<24}{'sessions':>9}{'in_tok':>10}{'out_tok':>10}"
-        f"{'cache_cr':>10}{'cache_rd':>10}{'wall(s)':>10}"
-    )
-    lines.append(header)
-    lines.append("-" * len(header))
-
+    """Render the operator rollup table sorted by total tokens desc."""
     def _tok_total(b: dict) -> int:
         t = b["tokens"]
         return t["input"] + t["output"] + t["cache_creation"] + t["cache_read"]
@@ -770,15 +730,8 @@ def _render_operator_table(agg: dict) -> str:
         key=lambda k: _tok_total(agg[k]),
         reverse=True,
     )
-    for (dev, project) in sorted_keys:
-        b = agg[(dev, project)]
-        t = b["tokens"]
-        label = f"{dev}/{project}"
-        lines.append(
-            f"{label:<24}{b['sessions']:>9}{t['input']:>10}{t['output']:>10}"
-            f"{t['cache_creation']:>10}{t['cache_read']:>10}"
-            f"{b['wall_seconds']:>10.1f}"
-        )
+    lines = ["Operator rollup (all projects)"] + _session_log_table(
+        "developer/project", [(f"{dev}/{project}", agg[(dev, project)]) for dev, project in sorted_keys])
     return "\n".join(lines) + "\n"
 
 

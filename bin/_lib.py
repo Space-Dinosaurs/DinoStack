@@ -31,6 +31,10 @@ Purpose: Provide the shared helpers reused by multiple CLIs:
      duplicated per-file) because bin/_lib.py is this repo's established
      home for exactly this drift risk - resolve_base_branch (helper 4) was
      extracted for the identical reason.
+  6. format_columns - the text-table layout bin/ds-cost and bin/ds-eval
+     share. Fixed-width f-string columns run two adjacent values together
+     once one outgrows its width (measured: `cache_cr` 231155171 and
+     `cache_rd` 3560900854 printed as `2311551713560900854`).
 
 Public API:
   acquire_exclusive_lock(lock_path, timeout=30.0)
@@ -128,6 +132,12 @@ Public API:
     consumer's own denominator-construction logic (which differs: one
     excludes unreadable sessions from a session count, the other excludes
     unreadable runs from a run count).
+
+  format_columns(rows, left=1, gap=2)
+    rows: equal-length sequences of cells (str() is applied). Returns one
+    string per row, each column as wide as its widest cell, columns
+    separated by `gap` spaces; the first `left` columns are left-aligned,
+    the rest right-aligned. Trailing whitespace is stripped.
 
 Upstream deps: Python 3 stdlib only (contextlib, fcntl, json, os, re,
                subprocess, time, pathlib, typing), plus the `git` CLI for
@@ -755,3 +765,16 @@ def rate_or_none(numerator: int, denominator: int) -> Optional[float]:
     if denominator <= 0:
         return None
     return numerator / denominator
+
+
+def format_columns(rows, left: int = 1, gap: int = 2) -> List[str]:
+    """Rows of cells as aligned text lines: each column as wide as its widest
+    cell, `gap` spaces apart, the first `left` columns left-aligned."""
+    cells = [[str(c) for c in row] for row in rows]
+    if not cells:
+        return []
+    widths = [max(len(row[i]) for row in cells) for i in range(len(cells[0]))]
+    sep = " " * gap
+    return [sep.join(c.ljust(w) if i < left else c.rjust(w)
+                     for i, (c, w) in enumerate(zip(row, widths))).rstrip()
+            for row in cells]

@@ -714,8 +714,12 @@ def test_legend_present_in_json_and_table(tmp_path):
         "ZERO_INVOCATIONS",
         "ZERO_ACTION_IN_WINDOW",
         "ACTIVE",
+        "fire_count_window_no_session_id",
+        "window_all_unjoinable",
+        "window_predates_session_ids",
     }
     assert "NOT proof" in report["meta"]["legend"]["ZERO_ACTION_IN_WINDOW"]
+    assert "session_id" in report["meta"]["legend"]["fire_count_window_no_session_id"]
 
     table_proc = _run(repo)
     assert "Legend:" in table_proc.stdout
@@ -1047,3 +1051,74 @@ def test_consumer_repo_missing_fires_log_is_absent_not_zero(tmp_path):
     assert report["meta"]["log_present"] is False
     assert report["hooks"], "expected rows from the tool's own hooks/"
     assert all(r["status"] == "UNMEASURED" for r in report["hooks"])
+
+def _unjoinable_case(tmp_path, lines):
+    repo = _make_repo(tmp_path)
+    _write(repo / ".agentic" / ".enforcement-fires.jsonl", "\n".join(json.dumps(x) for x in lines) + "\n")
+    report = _run_json(repo, "--days", "14")
+    row = _row_for(report, "enforce-fake-abdication.py")
+    table = _run(repo, "--days", "14").stdout
+    status_cell = next(l for l in table.splitlines() if l.startswith("enforce-fake-abdication.py")).split()[2]
+    return report, row, status_cell
+
+
+def _stamp(hours_ago: float) -> str:
+    return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_rows_from_before_session_ids_were_logged_are_not_flagged_unjoinable(tmp_path):
+    """Mutation: let window_all_unjoinable ignore whether ids were being
+    logged - real denies written before rows carried session_id get a star."""
+    no_sid = {"hook": "enforce-fake-abdication", "decision": "deny", "reason": "real deny, old writer"}
+    report, row, status_cell = _unjoinable_case(tmp_path, [{**no_sid, "ts": _stamp(5)}, {**no_sid, "ts": _stamp(4)}])
+    assert report["meta"]["first_session_id_ts"] is None
+    assert (row["status"], row["fire_count_window"]) == ("ACTIVE", 2)
+    assert (row["window_all_unjoinable"], row["window_predates_session_ids"]) == (False, True)
+    assert status_cell == "ACTIVE"
+    quiet = _row_for(report, "enforce-fake-action.py")
+    assert (quiet["fire_count_window"], quiet["window_all_unjoinable"], quiet["window_predates_session_ids"]) == \
+        (0, False, False)
+
+    first_id = _stamp(3)
+    other = {"hook": "enforce-fake-action", "decision": "deny", "reason": "r", "session_id": "s1", "ts": first_id}
+    report, row, status_cell = _unjoinable_case(
+        tmp_path, [{**no_sid, "ts": _stamp(5)}, {**no_sid, "ts": first_id}, other])
+    assert report["meta"]["first_session_id_ts"] == first_id
+    assert (row["window_all_unjoinable"], row["window_predates_session_ids"]) == (False, True)
+    assert status_cell == "ACTIVE"
+
+
+def test_unattributable_rows_after_session_ids_began_are_flagged_unknown(tmp_path):
+    """Mutation: drop the `not` from window_predates_session_ids - the same
+    hook then reads both unjoinable and predating."""
+    no_sid = {"hook": "enforce-fake-abdication", "decision": "deny", "reason": "fixture"}
+    other = {"hook": "enforce-fake-action", "decision": "deny", "reason": "r", "session_id": "s1", "ts": _stamp(3)}
+    lines = [{**no_sid, "ts": _stamp(5)}, {**no_sid, "ts": _stamp(1), "session_id": ""}, other]
+    report, row, status_cell = _unjoinable_case(tmp_path, lines)
+    assert (row["status"], row["fire_count_window"]) == ("ACTIVE", 2)
+    assert (row["window_all_unjoinable"], row["window_predates_session_ids"]) == (True, False)
+    assert status_cell == "ACTIVE*"
+    legend = report["meta"]["legend"]
+    for key in ("window_all_unjoinable", "window_predates_session_ids"):
+        assert "session_id" in legend[key]
+    assert "never zero-fire evidence" in legend["window_all_unjoinable"]
+    assert "proves" not in legend["window_all_unjoinable"]
+
+    lines.append({**no_sid, "ts": _stamp(0.5), "session_id": "sess-live"})
+    _report, live, status_cell = _unjoinable_case(tmp_path, lines)
+    assert (live["fire_count_window"], live["window_all_unjoinable"], live["window_predates_session_ids"]) == \
+        (3, False, False)
+    assert status_cell == "ACTIVE"
+
+
+def test_first_session_id_ts_is_the_earliest_id_bearing_row(tmp_path):
+    """Mutation: take the latest id-bearing row instead - a no-id row written
+    between two id-bearing rows then reads as predating session ids."""
+    no_sid = {"hook": "enforce-fake-abdication", "decision": "deny", "reason": "r"}
+    with_id = {"hook": "enforce-fake-action", "decision": "deny", "reason": "r", "session_id": "s1"}
+    earliest = _stamp(6)
+    report, row, status_cell = _unjoinable_case(
+        tmp_path, [{**with_id, "ts": _stamp(1)}, {**with_id, "ts": earliest}, {**no_sid, "ts": _stamp(3)}])
+    assert report["meta"]["first_session_id_ts"] == earliest
+    assert (row["window_all_unjoinable"], row["window_predates_session_ids"]) == (True, False)
+    assert status_cell == "ACTIVE*"

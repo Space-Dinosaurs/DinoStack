@@ -15865,15 +15865,32 @@ missing input is `ABSENT` with `value: null` and a reason, never 0, and an
 after window still running is `PARTIAL` with "after window not yet
 elapsed".
 
+- Session counts: the report carries four, over different populations, so
+  they differ on the same window. Each is labelled where it prints, and in
+  JSON by `metrics.sessions.basis` and `eval.meta.session_counts`
+  (`definitions` plus the per-side figures):
+  - `session_log` - the metrics table's `sessions`: one row per
+    `session_uuid` in `.agentic/session-log/`, placed by that row's own
+    `ts`. It is the denominator of the per-session metrics.
+  - `transcript_overlapping_window` - `eval.before/after.sessions`:
+    transcript sessions whose first..last timestamp overlaps the window. A
+    session that crosses the cut counts on both sides.
+  - `transcript_assigned_by_first_ts` - `eval.meta.sessions_assigned`: the
+    same sessions placed once, on the side their first timestamp falls in.
+  - `transcript_assigned_non_empty` - the assigned sessions minus empty
+    ones: the `n` of the pooled, per-entrypoint, mix and prefix figures.
 - `before` / `after`: `ds-eval`'s own window figures - `sessions`,
   `cost_usd` (cost reconciled to the harness cost-state),
   `usd_per_reconciled_session`, `straddling_sessions`. `evaluate()` lists a
-  session in every window it overlaps.
+  session in every window it overlaps. `usd_per_reconciled_session` divides
+  by the reconciled sessions that are not empty, and `cost_usd`'s coverage
+  leaves empty sessions out of both sides.
 - The figures below count each session once, on the side its first
   timestamp falls in (`meta.sessions_assigned`). The figure is cost-state
   dollars per session, over the sessions whose cost-state covers them.
-  Empty sessions (no usage record and no cost-state spend, i.e. sessions
-  that never reached the model) are left out of every rate, mix and prefix
+  Empty sessions (no usage record and no cost-state spend - the cost-state
+  record is absent or $0 - i.e. sessions that never reached the model; the
+  same definition `ds-eval` uses) are left out of every rate, mix and prefix
   figure and counted in `confounders.<side>.empty_sessions`.
 - Small samples: each rate carries its session count as `sessions`, and
   each delta and `mix_shifted` carry `n` (`{before, after}`). Fewer than
@@ -16454,17 +16471,20 @@ The CLI reads `.agentic/events.jsonl` from the current working directory.
 Run from a linked worktree, it also reads the hook `spawn_start`/`spawn_complete`
 rows in the primary checkout's `.agentic/events.jsonl`, where the hooks write
 them since DS-246.
-Output is a fixed-width table sorted by agent name, with a TOTAL row.
+Output is a table sorted by agent name, with a TOTAL row. Every column
+is as wide as its widest value, with two spaces between columns, so two
+large token counts never run together; `team` and `operator` lay out their
+tables the same way.
 Every output ends with the V1 disclosure footer (see "V1 scope" below).
 
 ## Output: pricing absent
 
 ```
-agent       spawns   in       out      cache_cr  cache_rd  wall(s)
-engineer    6        21044    9120     88421     311009    612.4
-skeptic     7        4012     1840     21001     94221     401.2
-qa-engineer 1        801      244      3001      9100      88.0
-TOTAL       14       25857    11204    112423    414330    1101.6
+agent        spawns     in    out  cache_cr  cache_rd  wall(s)
+engineer          6  21044   9120     88421    311009    612.4
+qa-engineer       1    801    244      3001      9100     88.0
+skeptic           7   4012   1840     21001     94221    401.2
+TOTAL            14  25857  11204    112423    414330   1101.6
 
 Pricing not configured. Create ~/.agentic/pricing.yml to enable dollar columns.
 Note: all agent types are counted (hook-emitted spawn_start for ad-hoc sessions; conductor spawn_complete for /ds-implement-ticket sessions). Hook-spawn tokens render as n/a in the unpriced table (zeros in the priced table) UNLESS a paired hook-emitted spawn_complete resolved a real subagent transcript (post-DS-160 token resolution), in which case the real summed tokens are shown. Hook-spawn wall-time renders as n/a (unpriced table) or 0.0 (priced table) UNLESS a paired DS-246 hook spawn_complete supplied per-run wall_seconds for that spawn, in which case the summed run durations are shown.
@@ -16564,17 +16584,17 @@ with a confirmed identity to populate." and exits 0.
 **Options:**
 
 - `--since YYYY-MM-DD` - filter to sessions whose `ts` is on or after the given date
-- `--json` - emit machine-readable JSON instead of the fixed-width table
+- `--json` - emit machine-readable JSON instead of the table
 
 **Example output:**
 
 ```
 Operator rollup (all projects)
-developer/project        sessions    in_tok   out_tok  cache_cr  cache_rd   wall(s)
------------------------------------------------------------------------------------
-alice/my-project                1     84210     37440      9200     41000    4812.1
-bob/my-project                  1     31022     14200      3900     16100    2100.0
-alice/side-project              1     21004      9310      2100      8800    1204.3
+developer/project   sessions  in_tok  out_tok  cache_cr  cache_rd  wall(s)
+--------------------------------------------------------------------------
+alice/my-project           1   84210    37440      9200     41000   4812.1
+bob/my-project             1   31022    14200      3900     16100   2100.0
+alice/side-project         1   21004     9310      2100      8800   1204.3
 ```
 
 Rows are sorted by total tokens descending, keyed by a single
@@ -16807,7 +16827,9 @@ The report (stdout) is the single measured-signal input to every pillar lens; pa
 
 - **Every metric carries a status:** `OK`, `PARTIAL` (a named source or sample is incomplete, with its coverage) or `ABSENT` (no input, value null). An ABSENT figure is an absence of data, never a measurement of 0 - the report must say so.
 - **Every figure is window-scoped:** sessions, spawns, hook denies and dollars count only the window; never present one as an all-time or per-session figure.
-- **Dollars are reconciled, not summed tokens:** `[cost]` reconciles against the harness's own cost-state; sessions with no cost-state are a separate group, reported PARTIAL rather than folded into the total.
+- **Dollars are reconciled, not summed tokens:** `[cost]` reconciles against the harness's own cost-state; sessions with no cost-state are a separate group, reported PARTIAL rather than folded into the total. Empty sessions (no usage record and no cost-state spend: the cost-state record is absent or $0) are counted on the `reconciled` and `no_cost_state` lines and left out of coverage: they add no dollars.
+- **`by_iteration` has two coverages:** iteration-tagged (returns carrying an iteration) and findings-carrying (returns carrying `signed_off` or `findings_count`). A high first and a low second means the rounds are counted but most verdicts are not recorded - do not read yield from it.
+- **`[work_items]` lists the top 10 keyed items by priced cost**, with one summary line. `spawn wall` is summed spawn time, not end-to-end duration, and `n/a (<reason>)` is an absent figure, never 0. `PR outcome` is the first of these that applies: `n/a (no merged-PR history)` (the base ref is unreadable); `merged #N`, with `, K follow-up` and `, reverted` when they apply (a PR merge in the window or its 7-day lookahead, by ticket id, key PR or the item's own PR); `merged #N (before window)` or `merged #N (after window)` (a PR commit on the base ref at another date); `no PR merge found (ticket id mentioned in K base commit(s))` (no PR commit, but K first-parent commits on the base ref carry the ticket id - a mention, not a landing); `no merge found in window (wider base history unreadable)` (the undated search failed); and `no merge found` (the base ref's first-parent history has neither the item's PR number nor its ticket id). None of them is a statement that the PR is unmerged.
 
 If the collector fails or prints no report, treat the invocation as a sparsity finding (see Edge cases) - never proceed with an invented signal baseline.
 
@@ -23308,7 +23330,7 @@ The analyst applies each signal to every file in scope and flags candidates as t
 
 **Signal 7 - reference doc that is a strict subset of another.** MEDIUM confidence. Flag for consolidation, not outright deletion, unless the subset is empty (no unique content).
 
-**Signal 8 - zero enforcement action in the fire log.** Candidate if `bin/ds-hook-fire-report --json --days 90` (run by the conductor before Step 1 and passed into this spawn prompt - see Step 1) reports a hook with status `ZERO_INVOCATIONS` or `ZERO_ACTION_IN_WINDOW`. Confidence keys on TWO fields together, never `meta.log_coverage_days` alone and never on `meta.requested_window_days` (the `--days` value echoed back verbatim): `meta.log_confidence_eligible` (a single derived bool, DS-179 round 3) must be `true` before `meta.log_coverage_days` is even consulted, and only then does `log_coverage_days >= 30` gate MEDIUM vs LOW. `log_confidence_eligible` closes two measured failure modes that `log_coverage_days` alone cannot: a sparse-but-old log can claim months of span off a couple of stray records (measured: 2 records dated 2025-01-01 -> `log_coverage_days: 595.0`; 3 records spanning 121 days -> `log_coverage_days: 121.0` - both cross the old `>= 30` gate on span alone), and a majority-corrupted log can still report a real measurement over its few clean lines (measured: 99 garbage lines + 1 valid record -> `log_effectively_empty: False`, `log_malformed_lines: 99`). `log_confidence_eligible` is `false` whenever the log is too sparse (`log_parsed_lines` below the tool's density floor) or too corrupted (`log_malformed_ratio` above the tool's corruption ceiling) - see `bin/ds-hook-fire-report`'s module manifest for the exact thresholds and their rationale; do not hand-derive the check from the raw fields, consume the derived bool. MEDIUM requires **both** `log_confidence_eligible: true` **and** `log_coverage_days >= 30`; LOW (informational only, never a standalone deletion candidate) otherwise - including when `log_confidence_eligible` is `false` regardless of what `log_coverage_days` reports, and including when `log_coverage_days` is `null` (no parseable timestamp anywhere in the log). Also check `meta.log_effectively_empty`: if `true`, the log was present but nothing in it parsed, every hook reports `UNMEASURED`, and Signal 8 produces zero candidates from this run - do not substitute the absent-log guidance below for this case, it is a distinct condition (a corrupted or truncated log, not a missing one) worth flagging on its own if seen. Before treating any `ZERO_*` status as candidate evidence, the write-up must note whether the hook is even registered - cross-reference `bin/ds-doctor`'s hook-liveness check (`MANAGED_HOOK_BASENAMES`). A silently unregistered hook also shows zero fires, and that is a different, more urgent finding ("the enforcement was already dead," not "the rule expired") - flag it separately, not as a Signal 8 pruning candidate. `UNMEASURED` status (fires log absent, or present but unparseable) is never itself a signal - it means no data exists, not that the hook is unused. **Every Signal 8 candidate is subject to the mandatory pre-filter above before it is proposed**: a zero-fire enforcement hook is very often a model-driven floor being cheap to satisfy (see the worked example in `content/references/obsolescence-signal.md`), not evidence the rule is unnecessary - do not let a MEDIUM/LOW confidence tier substitute for applying the floor-vs-dial test.
+**Signal 8 - zero enforcement action in the fire log.** Candidate if `bin/ds-hook-fire-report --json --days 90` (run by the conductor before Step 1 and passed into this spawn prompt - see Step 1) reports a hook with status `ZERO_INVOCATIONS` or `ZERO_ACTION_IN_WINDOW`. Confidence keys on TWO fields together, never `meta.log_coverage_days` alone and never on `meta.requested_window_days` (the `--days` value echoed back verbatim): `meta.log_confidence_eligible` (a single derived bool, DS-179 round 3) must be `true` before `meta.log_coverage_days` is even consulted, and only then does `log_coverage_days >= 30` gate MEDIUM vs LOW. `log_confidence_eligible` closes two measured failure modes that `log_coverage_days` alone cannot: a sparse-but-old log can claim months of span off a couple of stray records (measured: 2 records dated 2025-01-01 -> `log_coverage_days: 595.0`; 3 records spanning 121 days -> `log_coverage_days: 121.0` - both cross the old `>= 30` gate on span alone), and a majority-corrupted log can still report a real measurement over its few clean lines (measured: 99 garbage lines + 1 valid record -> `log_effectively_empty: False`, `log_malformed_lines: 99`). `log_confidence_eligible` is `false` whenever the log is too sparse (`log_parsed_lines` below the tool's density floor) or too corrupted (`log_malformed_ratio` above the tool's corruption ceiling) - see `bin/ds-hook-fire-report`'s module manifest for the exact thresholds and their rationale; do not hand-derive the check from the raw fields, consume the derived bool. MEDIUM requires **both** `log_confidence_eligible: true` **and** `log_coverage_days >= 30`; LOW (informational only, never a standalone deletion candidate) otherwise - including when `log_confidence_eligible` is `false` regardless of what `log_coverage_days` reports, and including when `log_coverage_days` is `null` (no parseable timestamp anywhere in the log). Also check `meta.log_effectively_empty`: if `true`, the log was present but nothing in it parsed, every hook reports `UNMEASURED`, and Signal 8 produces zero candidates from this run - do not substitute the absent-log guidance below for this case, it is a distinct condition (a corrupted or truncated log, not a missing one) worth flagging on its own if seen. Before treating any `ZERO_*` status as candidate evidence, the write-up must note whether the hook is even registered - cross-reference `bin/ds-doctor`'s hook-liveness check (`MANAGED_HOOK_BASENAMES`). A silently unregistered hook also shows zero fires, and that is a different, more urgent finding ("the enforcement was already dead," not "the rule expired") - flag it separately, not as a Signal 8 pruning candidate. `UNMEASURED` status (fires log absent, or present but unparseable) is never itself a signal - it means no data exists, not that the hook is unused. Two row flags qualify an `ACTIVE` hook none of whose window rows has a `session_id`; neither is zero-fire evidence and neither is grounds to prune. `window_all_unjoinable: true`: ids were being logged, yet these rows cannot be attributed to a session. They may be test or tool-driven invocations. Treat it as unknown and check the rows; if you mention the hook, say only that. `window_predates_session_ids: true`: the rows were written before fire-log rows carried a `session_id` (`meta.first_session_id_ts`), so the missing id says nothing either way - read the hook as plainly `ACTIVE`. `meta.legend` defines both flags and `fire_count_window_no_session_id`. **Every Signal 8 candidate is subject to the mandatory pre-filter above before it is proposed**: a zero-fire enforcement hook is very often a model-driven floor being cheap to satisfy (see the worked example in `content/references/obsolescence-signal.md`), not evidence the rule is unnecessary - do not let a MEDIUM/LOW confidence tier substitute for applying the floor-vs-dial test.
 
 **Explicit non-signals:**
 - Short rules - length is not a deletion signal

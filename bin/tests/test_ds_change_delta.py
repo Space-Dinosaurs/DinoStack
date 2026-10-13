@@ -1279,7 +1279,7 @@ _EVAL_REPO = "/r"
 def _srow(sid: str, ts: datetime, ep: str | None, cost: float | None, model="claude-opus-5-5",
           version="2.1.287") -> dict:
     return {"session_id": sid, "repo": _EVAL_REPO, "first_ts": ts.isoformat(), "entrypoint": ep,
-            "model": model, "version": version, "cost_usd": cost}
+            "model": model, "version": version, "cost_usd": cost, "empty": model is None and not cost}
 
 
 def _side_rows(side: str, specs: list[tuple[str | None, float | None]]) -> list[dict]:
@@ -1306,7 +1306,8 @@ def _eval_report(rows: list[dict]) -> dict:
                  "base": {_EVAL_REPO: {"ref": "main", "source": "explicit", "diagnostics": []}}},
         "cost": {"window_total": total, "straddling_sessions": 0,
                  "reconciled": {"usd": sum(r["cost_usd"] for r in reconciled) if reconciled else None,
-                                "sessions": len(reconciled)}},
+                                "sessions": len(reconciled),
+                                "empty_sessions": sum(1 for r in reconciled if _mod._is_empty(r))}},
         "session_rows": rows,
     }
 
@@ -1658,3 +1659,71 @@ if __name__ == "__main__":
         if _name.startswith("test_") and _name != "test_ds_change_delta_regression_suite":
             _fn()
     print("All DS-246 spawn-telemetry tests passed.")
+
+
+# ---------------------------------------------------------------------------
+# Session counts are labelled per population; empty sessions leave the rate
+# ---------------------------------------------------------------------------
+
+
+def _counts_rows():
+    """Before: 10 spending + 6 empty sessions, plus one that started before
+    the before window and only overlaps it."""
+    early = _srow("early", datetime(2026, 7, 1, tzinfo=timezone.utc), "cli", 20.0)
+    before = [early] + _side_rows("before", [("cli", 20.0)] * 10) + _empty_rows("before", 6)
+    after = _side_rows("after", [("cli", 10.0)] * 10) + _empty_rows("after", 2)
+    return before, after
+
+
+def test_eval_session_counts_name_each_population():
+    ev = _compare(*_counts_rows())
+    counts = ev["meta"]["session_counts"]
+    assert counts["before"] == {"transcript_overlapping_window": 17, "transcript_assigned_by_first_ts": 16,
+                                "transcript_assigned_non_empty": 10}
+    assert counts["after"] == {"transcript_overlapping_window": 12, "transcript_assigned_by_first_ts": 12,
+                               "transcript_assigned_non_empty": 10}
+    assert set(counts["definitions"]) == set(counts["before"])
+    assert counts["before"]["transcript_overlapping_window"] == ev["before"]["sessions"]["value"]
+    assert counts["before"]["transcript_assigned_by_first_ts"] == ev["meta"]["sessions_assigned"]["before"]
+    assert counts["before"]["transcript_assigned_non_empty"] == ev["pooled"]["before"]["sessions"]
+
+
+def test_eval_usd_per_reconciled_session_leaves_out_empty_sessions():
+    ev = _compare(*_counts_rows())
+    assert ev["before"]["usd_per_reconciled_session"]["value"] == 20.0
+    only_empty = _compare(_empty_rows("before", 3), _empty_rows("after", 3))
+    m = only_empty["before"]["usd_per_reconciled_session"]
+    assert m["status"] == "ABSENT" and m["value"] is None, m
+
+
+def test_table_and_json_label_every_session_count():
+    before, after = _counts_rows()
+    outputs = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "sc"
+        repo.mkdir()
+        _init_git_repo(repo)
+        orig_stdout, orig_build = sys.stdout, _mod.build_eval_side
+        _mod.build_eval_side = lambda *a, **k: _compare(before, after)
+        try:
+            for flags in ((), ("--json",)):
+                sys.stdout = StringIO()
+                assert _mod.main(["--cut", CUT_ISO, "--repo", str(repo), *flags]) == 0
+                outputs[flags] = sys.stdout.getvalue()
+        finally:
+            sys.stdout, _mod.build_eval_side = orig_stdout, orig_build
+    basis = _mod.SESSION_COUNT_BASIS
+    data = json.loads(outputs[("--json",)])
+    assert data["metrics"]["sessions"]["basis"] == basis["session_log"]
+    assert data["eval"]["meta"]["session_counts"]["definitions"]["transcript_overlapping_window"] == \
+        basis["transcript_overlapping_window"]
+    lines = outputs[()].splitlines()
+    assert f"  sessions = {basis['session_log']}" in lines
+    counts = {line.split()[0]: line for line in lines if line.startswith("    ") and "before=" in line}
+    assert "before=n/a (ABSENT)" in counts["session_log"] and basis["session_log"] in counts["session_log"]
+    assert "before=17  after=12" in counts["transcript_overlapping_window"]
+    assert "before=16  after=12" in counts["transcript_assigned_by_first_ts"]
+    assert "before=10  after=10" in counts["transcript_assigned_non_empty"]
+    for name in ("transcript_overlapping_window", "transcript_assigned_by_first_ts", "transcript_assigned_non_empty"):
+        assert basis[name] in counts[name]
+    assert any(line.startswith("  sessions (overlapping window)") for line in lines)
