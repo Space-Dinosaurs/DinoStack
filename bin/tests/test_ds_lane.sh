@@ -430,7 +430,7 @@ osa_encloses() { # osa_encloses <script> <if-line> <inner>: inner follows the if
 # Spaces: raising or activating onto a window that is not on screen in the current Space pulls it
 # into this Space or switches Space, so every raise is gated on spaceOf.
 space_handler="$(printf '%s\n' "$osa_script" | sed -n '/^on spaceOf/,/^end spaceOf/p' | tr -s ' ' | tr '\n' '|')"
-check "spaceOf answers unknown when the on-screen query fails" contains "$space_handler" '| on error| return "unknown"| end try| if shown is "" then return "unknown"|'
+check "spaceOf answers unknown when the on-screen query fails" contains "$space_handler" '| on error| set shown to ""| end try| end if| if shown is "" then return "unknown"|'
 check "spaceOf answers on only for an id in the on-screen list" contains "$space_handler" '| if ("," & shown & ",") contains ("," & (winId as text) & ",") then return "on"| return "off"|'
 check "open and close share the same spaceOf handler" eq "$(printf '%s\n' "$close_script" | sed -n '/^on spaceOf/,/^end spaceOf/p' | tr -s ' ' | tr '\n' '|')" "$space_handler"
 check "open raises the conductor window only when it is on this Space" osa_encloses "$open_run" 'if condSpace is "on" then' 'set index of window id condWinId to 1'
@@ -449,6 +449,38 @@ check "the on-screen query is passed to osascript" contains "$(cat "$LOG/osa-jxa
 # A CoreGraphics query, not an Apple event: it reads the window list and touches no app.
 if [[ -x /usr/bin/osascript ]]; then
   check "the on-screen query prints comma-separated window ids" bash -c '[[ "$(/usr/bin/osascript -l JavaScript -e "$1")" =~ ^[0-9]+(,[0-9]+)*$ ]]' _ "$(cat "$LOG/osa-jxa")"
+  # Native tabs: once Cmd-T puts the watch tab in front, the conductor's window leaves the
+  # on-screen list. A stand-in query answers 42 on its first call and 7 after, and the real
+  # handlers must keep answering from the first reading so the restore raises still run.
+  cat > "$TMP/space-ids.sh" << 'SH'
+#!/bin/sh
+f="$(dirname "$0")/space-calls"
+n="$(cat "$f" 2> /dev/null || echo 0)"
+echo $((n + 1)) > "$f"
+if [ "$n" = 0 ]; then echo 42; else echo 7; fi
+SH
+  space_jxa="var a = Application.currentApplication(); a.includeStandardAdditions = true; a.doShellScript($(python3 -c 'import json, sys; print(json.dumps("/bin/sh " + sys.argv[1]))' "$TMP/space-ids.sh"))"
+  space_handlers="$(printf '%s\n' "$osa_script" | sed -n '1,/^end selectTty/p')"
+  space_probe="$space_handlers
+on run argv
+  set onScreenJxa to item 1 of argv
+  return (my spaceOf(42)) & \" \" & (my spaceOf(42)) & \" \" & (my spaceOf(7))
+end run"
+  check "spaceOf keeps the reading taken before anything changed" eq "$(/usr/bin/osascript -e "$space_probe" "$space_jxa" 2>&1)" "on on off"
+  check "spaceOf ran the on-screen query once" eq "$(cat "$TMP/space-calls" 2> /dev/null)" 1
+  check "open takes the Space reading before selecting the conductor tab" osa_before "$open_run" 'if recFrontId is not missing value then my spaceOf(recFrontId)' 'set selected of aTab to true'
+  check "close takes the Space reading before closing or selecting anything" osa_before "$close_run" 'if recFrontId is not missing value then my spaceOf(recFrontId)' 'close aWin'
+  # Terminal's window id must be the CGWindowID the on-screen list carries. Reading the ids is an
+  # Apple event to Terminal: it raises nothing, but on a machine that has not granted this terminal
+  # Automation access to Terminal it would block on a consent dialog, so it is opt-in.
+  if [[ "${DS_LANE_TEST_TERMINAL_IDS:-}" == 1 ]] && [[ "$(/usr/bin/osascript -e 'application "Terminal" is running')" == true ]]; then
+    term_ids="$(/usr/bin/osascript -e 'tell application "Terminal" to get id of every window' | tr -d ' ')"
+    cg_ids="$(/usr/bin/osascript -l JavaScript -e 'ObjC.import("CoreGraphics"); ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionAll, $.kCGNullWindowID))).filter(function (w) { return w.kCGWindowOwnerName === "Terminal"; }).map(function (w) { return w.kCGWindowNumber; }).join(",")')"
+    check "Terminal reports at least one window id" bash -c '[[ "$1" =~ ^[0-9]+(,[0-9]+)*$ ]]' _ "$term_ids"
+    check "every Terminal window id is a CGWindowID of a Terminal window" bash -c 'for i in ${1//,/ }; do [[ ",$2," == *",$i,"* ]] || exit 1; done' _ "$term_ids" "$cg_ids"
+  else
+    echo "SKIP: Terminal window id == CGWindowID (set DS_LANE_TEST_TERMINAL_IDS=1 with Terminal running)"
+  fi
 fi
 check "close raises the recorded front window after Cmd-W" osa_before "$close_run" 'keystroke "w"' 'set index of window id recFrontId to 1'
 check "close raises no other window after Cmd-W" eq "$(printf '%s\n' "$close_run" | sed -n '/keystroke "w"/,$p' | grep -c 'set index of')" 1

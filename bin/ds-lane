@@ -647,19 +647,24 @@ ON_SCREEN_JXA='ObjC.import("CoreGraphics"); ObjC.deepUnwrap(ObjC.castRefToObject
 # is not on screen in the current Space pulls it into this Space or switches Space, so nothing
 # raises a window unless spaceOf says "on". spaceOf returns "on", "off" (another Space,
 # minimized, a hidden app or a native-tab group's background tab) or "unknown" (the query
-# failed, treated as off). selectTty selects the tab whose tty is t, if any. Selecting a tab
+# failed, treated as off). It answers from one query taken by its first call, which each script
+# makes before it changes anything: a later live query would read the conductor's own window as
+# "off" once a new native tab sits in front of it in its group, and the restore would be skipped. selectTty selects the tab whose tty is t, if any. Selecting a tab
 # does not raise its window, but a native-tab Terminal reports each tab as its own one-tab window,
 # where selecting has no effect: such a tab is selected in its tab group only by raising its
 # window, so callers raise the recorded front window afterwards. loneOnly leaves a multi-tab
 # window alone.
 SELECT_TTY_OSA='property onScreenJxa : ""
+property shown : missing value
 
 on spaceOf(winId)
-  try
-    set shown to do shell script "/usr/bin/osascript -l JavaScript -e " & quoted form of onScreenJxa
-  on error
-    return "unknown"
-  end try
+  if shown is missing value then
+    try
+      set shown to do shell script "/usr/bin/osascript -l JavaScript -e " & quoted form of onScreenJxa
+    on error
+      set shown to ""
+    end try
+  end if
   if shown is "" then return "unknown"
   if ("," & shown & ",") contains ("," & (winId as text) & ",") then return "on"
   return "off"
@@ -737,6 +742,9 @@ on run argv
       set recFront to recFrontId as text
       set recTty to tty of selected tab of front window
     end if
+  end tell
+  if recFrontId is not missing value then my spaceOf(recFrontId)
+  tell application "Terminal"
     set condWinId to missing value
     set condWinSel to ""
     set beforeTtys to {}
@@ -828,8 +836,9 @@ end run'
 # AppleScript (argv: own tty, conductor tty, ON_SCREEN_JXA). Terminal cannot close a single tab by
 # script, only a window: a one-tab window is closed; a tab in a multi-tab window is selected and
 # closed with Cmd-W (Accessibility), only when that window is on screen in the current Space (else
-# offscreen, or spaceunknown when the query failed, with nothing touched). Acts only once the tab has no processes left, so it never prompts and never
-# hits a reused tty that a new shell already owns. Cmd-W is pressed only while Terminal is
+# offscreen, or spaceunknown when the query failed, with nothing touched). Acts only once the tab
+# has no processes left, so it never prompts and never hits a reused tty that a new shell already
+# owns. Cmd-W is pressed only while Terminal is
 # frontmost with this tab selected. Then restores that window's previously selected tab (the
 # conductor's tab when that was the tab being closed; after closing a one-tab window, the
 # conductor's tab if it too is alone in its window, since closing a native tab selects a
@@ -856,6 +865,9 @@ on run argv
       set recFrontId to id of front window
       set recTty to tty of selected tab of front window
     end if
+  end tell
+  if recFrontId is not missing value then my spaceOf(recFrontId)
+  tell application "Terminal"
     repeat with aWin in windows
       repeat with aTab in tabs of aWin
         if tty of aTab is myTty then
