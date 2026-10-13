@@ -34,6 +34,16 @@ Test groups:
       a subprocess through a symlink (mimicking ~/.local/bin/agentic-feedback
       -> repo bin/agentic-feedback) and asserts it can still locate and
       load bin/_lib.py rather than raising FileNotFoundError.
+  12. test_fire_label_valid_is_born_triaged - a draft with a valid
+      fire_label is stored `triaged` with the label, so `list --status open`
+      excludes it and `list --status triaged` includes it.
+  13. test_fire_label_invalid_skips_item - a fire_label with a bad verdict,
+      an empty or non-string field, or a non-object value skips that item
+      per the per-item soft-fail.
+  14. test_list_creates_nothing_in_an_empty_home - `list` with no store
+      leaves a scratch HOME empty.
+  15. test_list_takes_no_lock_and_creates_no_lock_file - `list` never
+      creates the lock file or takes the exclusive lock.
 
 Regression test obligation: content/references/regression-test-obligation.md
 Run with: python3 -m pytest bin/tests/test_agentic_feedback.py -x
@@ -255,6 +265,54 @@ def test_list_filters_by_scope_and_status():
         assert len(rows) == 1 and rows[0]["scope"] == "methodology"
 
         print("PASS test_list_filters_by_scope_and_status")
+
+
+FIRE_LABEL = {"hook": "enforce-tier", "fire_key": "toolu_01abc", "fire_ts": "2026-10-01T00:00:00Z",
+              "verdict": "false_positive"}
+
+
+def test_fire_label_valid_is_born_triaged():
+    """(12) A valid fire_label item is stored triaged and never listed as open."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        feedback_path, _ = _patch_paths(tmp_path)
+        drafts = [dict(VALID_DRAFT, category="guardrail-fire", fire_label=dict(FIRE_LABEL)), dict(VALID_DRAFT)]
+        rc, out, err = _run(["append", "--repo", "/repo/x", "--session-uuid", "s1",
+                             "--file", str(_write_batch(tmp_path, drafts))])
+        assert rc == 0 and "Appended 2" in out, (out, err)
+        rows = [json.loads(l) for l in feedback_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        labelled = [r for r in rows if "fire_label" in r]
+        assert len(labelled) == 1 and labelled[0]["status"] == "triaged", rows
+        assert labelled[0]["fire_label"] == FIRE_LABEL
+        assert [r["status"] for r in rows if "fire_label" not in r] == ["open"]
+
+        rc, out, _ = _run(["list", "--status", "open"])
+        assert all("fire_label" not in r for r in json.loads(out))
+        rc, out, _ = _run(["list", "--status", "triaged", "--repo", "/repo/x"])
+        assert [r["fire_label"] for r in json.loads(out)] == [FIRE_LABEL]
+        print("PASS test_fire_label_valid_is_born_triaged")
+
+
+def test_fire_label_invalid_skips_item():
+    """(13) An invalid fire_label skips its item; the rest of the batch lands."""
+    bad_labels = [
+        dict(FIRE_LABEL, verdict="maybe"),
+        dict(FIRE_LABEL, fire_key=""),
+        dict(FIRE_LABEL, fire_ts=123),
+        {k: v for k, v in FIRE_LABEL.items() if k != "hook"},
+        "toolu_01abc",
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        feedback_path, _ = _patch_paths(tmp_path)
+        drafts = [dict(VALID_DRAFT, fire_label=bad) for bad in bad_labels] + [dict(VALID_DRAFT)]
+        rc, out, err = _run(["append", "--repo", "/repo/x", "--session-uuid", "s1",
+                             "--file", str(_write_batch(tmp_path, drafts))])
+        assert rc == 0 and "Appended 1" in out, (out, err)
+        assert err.count("skipping draft") == len(bad_labels), err
+        rows = [json.loads(l) for l in feedback_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        assert len(rows) == 1 and "fire_label" not in rows[0] and rows[0]["status"] == "open"
+        print("PASS test_fire_label_invalid_skips_item")
 
 
 def test_list_missing_file_returns_empty_array():
@@ -510,6 +568,49 @@ def test_mark_warns_on_malformed_line_and_drops_it():
 
         print("PASS test_mark_warns_on_malformed_line_and_drops_it")
 
+def test_list_creates_nothing_in_an_empty_home():
+    """(14) `list` is a pure read: with no store it leaves HOME empty (no
+    ~/.agentic/, no store, no lock file)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        home = Path(tmp) / "home"
+        home.mkdir()
+        result = subprocess.run(
+            [sys.executable, str(_BIN_PATH), "list", "--status", "triaged", "--repo", "/r"],
+            env={**os.environ, "HOME": str(home)}, capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout) == []
+        assert list(home.rglob("*")) == [], sorted(str(x) for x in home.rglob("*"))
+
+        print("PASS test_list_creates_nothing_in_an_empty_home")
+
+
+def test_list_takes_no_lock_and_creates_no_lock_file():
+    """(15) `list` reads an existing store without creating the lock file,
+    and returns while another process holds the exclusive lock."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        feedback_path, lock_path = _patch_paths(tmp_path)
+        feedback_path.write_text(json.dumps({"id": "a", "scope": "project", "status": "open"}) + "\n",
+                                 encoding="utf-8")
+        rc, out, _ = _run(["list"])
+        assert rc == 0 and [r["id"] for r in json.loads(out)] == ["a"]
+        assert not lock_path.exists(), "list created the lock file"
+
+        lock_path.touch()
+        calls = []
+        orig = _mod.acquire_exclusive_lock
+        _mod.acquire_exclusive_lock = lambda *a, **k: calls.append(a) or orig(*a, **k)
+        try:
+            with orig(lock_path):
+                rc, out, _ = _run(["list"])
+        finally:
+            _mod.acquire_exclusive_lock = orig
+        assert rc == 0 and [r["id"] for r in json.loads(out)] == ["a"]
+        assert calls == [], "list tried to take the exclusive lock"
+
+        print("PASS test_list_takes_no_lock_and_creates_no_lock_file")
+
 
 if __name__ == "__main__":
     test_append_valid_and_invalid_mixed()
@@ -523,4 +624,8 @@ if __name__ == "__main__":
     test_two_sequential_appends_both_land_under_shared_lock()
     test_concurrent_appends_serialize_under_real_multiprocess_contention()
     test_mark_warns_on_malformed_line_and_drops_it()
+    test_fire_label_valid_is_born_triaged()
+    test_fire_label_invalid_skips_item()
+    test_list_creates_nothing_in_an_empty_home()
+    test_list_takes_no_lock_and_creates_no_lock_file()
     print("All tests passed.")

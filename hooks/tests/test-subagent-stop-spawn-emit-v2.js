@@ -474,6 +474,29 @@ console.log('\nQA result parsing and Skeptic round-state fallback');
   assert(parseQaResult('```yaml\nresult: PARTIAL\n```').qaResult === 'PARTIAL', 'PARTIAL is recorded');
   assert(parseQaResult('  result: PASS\n').qaResultNote !== undefined, 'an indented result line alone is not a run result');
   assert(parseQaResult('result: PASS\nlater:\nresult: FAIL\n').qaResult === 'FAIL', 'the last top-level result line wins');
+  assert(parseQaResult('Done.\n\n## Result: PASS on all three criteria\n\n## Acceptance Criteria Results\n').qaResult === 'PASS',
+    'a "## Result:" heading with trailing text is a run result');
+  assert(parseQaResult('**Result:** FAIL\n').qaResult === 'FAIL', 'a bold "**Result:**" line is a run result');
+  assert(parseQaResult('result: partial\n').qaResult === 'PARTIAL', 'a lowercase result line is recorded uppercased');
+  assert(parseQaResult('## Result: PARTIAL\n...\n## Result: PASS. All baselines captured\n').qaResult === 'PASS',
+    'the last heading result wins');
+  assert(parseQaResult('## Results summary\n## Result: Baseline captured\n- **Result:** PASS\n').qaResultNote !== undefined,
+    'a "Results" heading, a non-enum value, and a per-criterion bullet are not run results');
+  assert(parseQaResult('## Result: PARTIAL\n\n**Result: PASS**\n**Result:** INCONCLUSIVE\nresult: FAIL\n').qaResult === 'PARTIAL',
+    'an overall heading outranks later bare and bold criterion lines');
+  assert(parseQaResult('result: FAIL\n**Result:** PASS\n').qaResult === 'FAIL', 'a bare result line outranks a later bold one');
+  assert(parseQaResult('## Result: **FAIL**\n\n**Result:** PASS\n').qaResult === 'FAIL', 'a bold heading value is a run result');
+  assert(parseQaResult('## QA Result: PASS\n').qaResult === 'PASS' && parseQaResult('# QA Result: FAIL\n').qaResult === 'FAIL',
+    'a "QA Result" heading is a run result');
+  assert(parseQaResult('## Overall verdict: FAIL\n').qaResult === 'FAIL', 'an "Overall verdict" heading is a run result');
+  assert(parseQaResult('**Overall verdict:** PASS\nQA result: PASS\n').qaResultNote !== undefined,
+    'QA Result / Overall verdict labels count only as headings');
+  assert(parseQaResult('result: PASS | FAIL | PARTIAL | INCONCLUSIVE\n').qaResultNote !== undefined,
+    'the pointer-return enum template is not a run result');
+  assert(parseQaResult('## Result: PASS | FAIL | PARTIAL | BLOCKED\n').qaResultNote !== undefined,
+    'the report-heading enum template is not a run result');
+  assert(parseQaResult('Result: pass-through\n## Result: PASSED\n').qaResultNote !== undefined,
+    'a value continued by "-" or a word character is not a run result');
 }
 {
   const sb = sandbox('sess-rs', true);

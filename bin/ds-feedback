@@ -27,8 +27,23 @@ Data model:
     suggested_title    caller-supplied draft field; non-empty string.
     suggested_body     caller-supplied draft field; non-empty string.
     status             (CLI-owned) one of "open", "triaged", "dismissed";
-                       assigned "open" on append, changed only via `mark`.
+                       assigned on append ("triaged" when the draft carries
+                       a valid fire_label, else "open"), changed only via
+                       `mark`.
     session_uuid       caller-supplied via --session-uuid at append time.
+    fire_label         OPTIONAL caller-supplied draft field: an operator
+                       verdict on one hook deny, {hook, fire_key, fire_ts,
+                       verdict}. All four are non-empty strings; verdict is
+                       "true_positive" or "false_positive"; fire_key is
+                       bin/_eval.py's fire_key() of the deny row. Absent from
+                       the stored item when the draft has none. Born
+                       "triaged" so /ds-feedback-triage (which lists only
+                       open items) never shows it; bin/_eval.py reads it to
+                       compute a hook's labelled false-positive rate.
+                       Retirement: per hook, sampling stops after 2
+                       consecutive evaluations with a labelled false-positive
+                       rate < 0.1 at n >= 10; the field retires when no hook
+                       is D2-flagged for 3 consecutive evaluations.
 
   IMPORTANT: id, ts, and status are CLI-owned. On `append`, any id/ts/status
   keys present in a caller-supplied draft object are IGNORED and overwritten
@@ -40,6 +55,7 @@ Data model:
     severity: high | medium | low
     category: tool-friction | process-escalation | guardrail-fire | operator-correction
     status:   open | triaged | dismissed
+    fire_label.verdict: true_positive | false_positive
 
 Upstream deps: Python 3 stdlib only (argparse, json, os, sys, uuid, datetime,
                pathlib). Shared helpers: bin/_lib (acquire_exclusive_lock,
@@ -47,17 +63,20 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, sys, uuid, datetime,
 
 Downstream consumers: content/commands/ds-wrap.md Part D.5 (writes drafts via
                       `append` at end of session); content/commands/ds-feedback-triage.md
-                      (reads via `list`, updates status via `mark`).
+                      (reads via `list`, updates status via `mark`); bin/_eval.py
+                      (reads fire_label items via `list --status triaged --repo`).
 
 Failure modes:
   append: per-item soft-fail - an individual draft that fails validation
-    (bad enum value, missing/empty required string field) is skipped with a
+    (bad enum value, missing/empty required string field, or a fire_label
+    that is not an object of four non-empty strings with a valid verdict)
+    is skipped with a
     warning printed to stderr; the batch continues. An empty or all-invalid
     batch is NOT an error (exit 0, no-op). Exit 1 only on hard errors:
     --file missing/unreadable, --file not valid JSON, --file not a JSON
     array, lock acquisition timeout, or a write I/O failure.
-  list: file-absent prints "[]" and exits 0 (not an error). Malformed
-    (non-JSON) lines in the store are skipped silently.
+  list: file-absent prints "[]" and exits 0 (not an error) and creates
+    nothing. Malformed (non-JSON) lines in the store are skipped silently.
   mark: exits 1 with a stderr message if the store file is absent or no
     line matches --id. The rewrite is all-or-nothing via atomic_write - a
     failure mid-rewrite leaves the original file untouched. A malformed
@@ -71,14 +90,21 @@ Failure modes:
     line (different key order, whitespace, etc.) will be re-canonicalized
     to the CLI's compact form even though its field values are preserved.
 
-  Locking: all three subcommands acquire the same exclusive LOCK_PATH for
+  Locking: `append` and `mark` acquire the same exclusive LOCK_PATH for
   their full read/modify/write critical section (append's read+append,
-  list's read, mark's read+rewrite), serializing concurrent invocations -
-  e.g. two projects' /ds-wrap runs calling `append` at the same time, or a
-  `mark` full-file rewrite racing an `append`. acquire_exclusive_lock (from
+  mark's read+rewrite), serializing concurrent invocations - e.g. two
+  projects' /ds-wrap runs calling `append` at the same time, or a `mark`
+  full-file rewrite racing an `append`. acquire_exclusive_lock (from
   bin/_lib) opens the lock file in 'r' mode and requires it to already
-  exist; every subcommand therefore mkdir -p's the lock file's parent and
-  touch()es the lock file before calling acquire_exclusive_lock.
+  exist; those two subcommands therefore mkdir -p's the lock file's parent
+  and touch()es the lock file before calling acquire_exclusive_lock.
+  `list` takes no lock and creates nothing (no ~/.agentic/, no store, no
+  lock file): it is a pure read, so read-only tools can call it. That is
+  safe against both writers: `mark` replaces the store by atomic rename
+  (a reader sees the old or the new file, never a mix), and an `append`
+  caught mid-write can only leave a torn final line, which fails to parse
+  and is skipped like any malformed line (that item shows on the next
+  read).
 
 Performance: Standard. Single-file read + append/rewrite; no indexing. Fine
   at the scale of an individual developer's accumulated feedback backlog.
@@ -123,6 +149,8 @@ SCOPE_VALUES = ("project", "methodology")
 SEVERITY_VALUES = ("high", "medium", "low")
 CATEGORY_VALUES = ("tool-friction", "process-escalation", "guardrail-fire", "operator-correction")
 STATUS_VALUES = ("open", "triaged", "dismissed")
+VERDICT_VALUES = ("true_positive", "false_positive")
+FIRE_LABEL_FIELDS = ("hook", "fire_key", "fire_ts", "verdict")
 
 DRAFT_STRING_FIELDS = ("evidence", "suggested_title", "suggested_body")
 
@@ -186,6 +214,16 @@ def _validate_draft(draft: dict) -> str | None:
         value = draft.get(field)
         if not isinstance(value, str) or not value.strip():
             return f"missing/empty required field {field!r}"
+    if "fire_label" in draft:
+        label = draft["fire_label"]
+        if not isinstance(label, dict):
+            return "fire_label is not a JSON object"
+        for field in FIRE_LABEL_FIELDS:
+            value = label.get(field)
+            if not isinstance(value, str) or not value.strip():
+                return f"missing/empty fire_label field {field!r}"
+        if label["verdict"] not in VERDICT_VALUES:
+            return f"invalid fire_label verdict {label['verdict']!r} (must be one of {VERDICT_VALUES})"
     return None
 
 
@@ -226,9 +264,11 @@ def cmd_append(args: argparse.Namespace) -> int:
             "evidence": draft["evidence"],
             "suggested_title": draft["suggested_title"],
             "suggested_body": draft["suggested_body"],
-            "status": "open",
+            "status": "triaged" if "fire_label" in draft else "open",
             "session_uuid": args.session_uuid,
         }
+        if "fire_label" in draft:
+            record["fire_label"] = {f: draft["fire_label"][f] for f in FIRE_LABEL_FIELDS}
         accepted.append(record)
 
     if not accepted:
@@ -255,13 +295,9 @@ def cmd_append(args: argparse.Namespace) -> int:
 
 
 def cmd_list(args: argparse.Namespace) -> int:
-    _ensure_lock_bootstrap()
-    try:
-        with acquire_exclusive_lock(LOCK_PATH):
-            rows = _read_store()
-    except RuntimeError as exc:
-        print(f"ds-feedback: {exc}", file=sys.stderr)
-        return 1
+    # Lock-free and create-nothing on purpose: read-only callers (bin/_eval.py)
+    # promise to leave the home dir untouched.
+    rows = _read_store()
 
     if args.scope is not None:
         rows = [r for r in rows if r.get("scope") == args.scope]

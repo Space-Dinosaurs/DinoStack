@@ -5,14 +5,19 @@
 #          scope-filter exception), and that the triage artifact's Kickoff
 #          skeleton carries no /rename line (the rename belongs only to the
 #          post-"conduct" chat output, so runs without cross-session tools
-#          keep today's artifact).
+#          keep today's artifact). Also asserts the "launch" wiring: item 8
+#          names ds-lane, ## Launched lanes names ds-lane start and ds-lane
+#          reap, takes lane file paths from ds-lane path, states the queue
+#          rebuild rule and has no per-lane "open a new session" print, the State
+#          file Fields line names launched, and bin/ds-lane exists.
 #
 # Public API: ./bin/tests/test_runbook_conductor_wiring.sh
 #             Exits 0 on all pass, 1 on any failure.
 #             Auto-wired into CI by the bin/tests/test_*.sh glob in
 #             .github/workflows/bin-tests.yml.
 #
-# Upstream deps: bash, grep, awk. Reads the three files above from the checkout.
+# Upstream deps: bash, grep, awk. Reads the three files above and bin/ds-lane
+#                from the checkout.
 #
 # Downstream consumers: developer running locally; CI (bin-tests.yml).
 #                       Retires with the reference: delete this file in the
@@ -73,6 +78,70 @@ elif grep -qF '/rename' <<<"$kickoff"; then
   _fail "Kickoff prompts skeleton contains /rename (it belongs only in the post-conduct chat output)"
 else
   _pass "Kickoff prompts skeleton contains no /rename"
+fi
+
+if grep -qF 'ds-lane' <<<"$item8"; then
+  _pass "triage Output item 8 names ds-lane"
+else
+  _fail "triage Output item 8 does not name ds-lane"
+fi
+
+if grep -qF 'Cron tools could not be loaded' <<<"$item8"; then
+  _pass "triage Output item 8 has a launch load-failure line"
+else
+  _fail "triage Output item 8 has no launch load-failure line"
+fi
+
+launched="$(awk '/^## Launched lanes$/{in_l=1; next} in_l && /^## /{in_l=0} in_l{print}' "$REF")"
+if [[ -z "$launched" ]]; then
+  _fail "$REF_PATH has no ## Launched lanes section"
+else
+  for cmd in 'ds-lane start' 'ds-lane reap'; do
+    if grep -qF "$cmd" <<<"$launched"; then
+      _pass "## Launched lanes names $cmd"
+    else
+      _fail "## Launched lanes does not name $cmd"
+    fi
+  done
+  firing="$(grep -F '**Firing.**' <<<"$launched")"
+  if grep -qF '`dead`' <<<"$firing"; then
+    _pass "## Launched lanes Firing surfaces a dead lane"
+  else
+    _fail "## Launched lanes Firing never surfaces a dead lane (crash, API error or stop stalls silently)"
+  fi
+  if grep -qF '`done`' <<<"$(grep -F '**Delivery.**' <<<"$launched")"; then
+    _pass "## Launched lanes Delivery names done lanes"
+  else
+    _fail "## Launched lanes Delivery does not exclude done lanes"
+  fi
+  if grep -qF 'ds-lane path' <<<"$launched" && ! grep -qF '<repo>/.agentic/lanes' <<<"$launched"; then
+    _pass "## Launched lanes takes lane file paths from ds-lane path"
+  else
+    _fail "## Launched lanes builds lane file paths from <repo> instead of ds-lane path (a linked-worktree conductor misses _rules.md)"
+  fi
+  if grep -qF 'The queue is not stored' <<<"$launched" && grep -qF 'rebuild it' <<<"$launched"; then
+    _pass "## Launched lanes states how the lane queue is rebuilt"
+  else
+    _fail "## Launched lanes does not say how queued lanes are rebuilt after compaction"
+  fi
+  if grep -qF 'open a new session' <<<"$launched"; then
+    _fail "## Launched lanes contains a per-lane 'open a new session' print"
+  else
+    _pass "## Launched lanes prints no per-lane 'open a new session' line"
+  fi
+fi
+
+fields="$(grep -E '^Fields: ' "$REF")"
+if grep -qF 'launched' <<<"$fields"; then
+  _pass "State file Fields line names launched"
+else
+  _fail "State file Fields line does not name launched"
+fi
+
+if [[ -f "$REPO_DIR/bin/ds-lane" ]]; then
+  _pass "bin/ds-lane exists"
+else
+  _fail "bin/ds-lane missing"
 fi
 
 echo "---"

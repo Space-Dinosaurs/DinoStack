@@ -53,6 +53,15 @@
  *        a PATH with git but no python3, and a non-git cwd so the
  *        single-repo gate is silently skipped independent of python3) ->
  *        silent, hook survives, valid JSON payload.
+ *   W15 - payload `source` is `compact`, 6 worktrees, a different machine-wide
+ *        worst repo, a seeded deferred item -> neither worktree line, the
+ *        deferred-work line survives, valid JSON. The same fixture with
+ *        `startup` shows both worktree lines.
+ *   W16 - `startup`, `resume`, `clear` -> the worktree nudge is present.
+ *   W17 - jq stubbed to fail, `compact` -> the grep fallback reads `source`
+ *        and the nudge is skipped.
+ *   W18 - jq stubbed to fail, `startup`, and an earlier `"event_source":
+ *        "compact"` key -> the nudge is present.
  *
  * Run with: node hooks/tests/test-session-start-wrap-worktree-nudge.js
  */
@@ -205,12 +214,29 @@ function pathWithoutPython3() {
 }
 
 /**
+ * Same shadowing method as pathWithoutPython3, for `jq`: the stub exits
+ * non-zero, so the hook's grep/sed fallback is what extracts the payload
+ * fields.
+ */
+function pathWithFailingJq() {
+  const dir = makeTmp('ae-wt-nudge-nojq-');
+  const stubPath = path.join(dir, 'jq');
+  fs.writeFileSync(stubPath, '#!/bin/sh\nexit 1\n', 'utf8');
+  fs.chmodSync(stubPath, 0o755);
+  return { path: `${dir}:${process.env.PATH}`, dir };
+}
+
+/**
  * Run the SessionStart hook (given script path) with a given projectDir as
  * cwd, a fake HOME, and an optional PATH override. AGENTIC_QUIET is
  * explicitly unset so the composed systemMessage is populated.
  */
-function runHook(scriptPath, projectDir, fakeHome, pathOverride, extraEnv) {
-  const payload = JSON.stringify({ cwd: projectDir });
+function runHook(scriptPath, projectDir, fakeHome, pathOverride, extraEnv, source, extraPayload) {
+  const fields = Object.assign({ cwd: projectDir }, extraPayload || {});
+  if (source !== undefined) {
+    fields.source = source;
+  }
+  const payload = JSON.stringify(fields);
   const env = Object.assign({}, process.env, {
     HOME: fakeHome,
     AGENTIC_WRAP_DAEMON: '1', // never spawn the real daemon from a test
@@ -655,6 +681,99 @@ console.log('\n[W14] python3 unresolvable on PATH, non-git cwd, config populated
   cleanup(nonGitDir);
   cleanup(decoyRepo);
   cleanup(noPyDir);
+}
+
+// ---------------------------------------------------------------------------
+// (W15) source=compact -> both worktree nudges skipped, other contributors
+// unchanged. The startup run on the same fixture proves both lines would fire.
+// ---------------------------------------------------------------------------
+console.log('\n[W15] source=compact, 6 worktrees, different machine-wide worst, seeded deferred item -> no worktree lines, defer line kept');
+{
+  const cwdRepo = buildBareRepoWithWorktrees(6, 'ae-wt-nudge-w15-cwd-');
+  const worstRepo = buildBareRepoWithWorktrees(8, 'ae-wt-nudge-w15-worst-');
+  const fakeHome = seedFakeHome(REPO_ROOT, { repos: [cwdRepo, worstRepo] });
+  const agenticDir = path.join(cwdRepo, '.agentic');
+  fs.mkdirSync(agenticDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(agenticDir, 'deferred-work.jsonl'),
+    `${JSON.stringify({ id: 'w15-defer-1', status: 'open', text: 'w15 seeded deferred item' })}\n`,
+    'utf8',
+  );
+
+  const control = runHook(SCRIPT, cwdRepo, fakeHome, null, null, 'startup');
+  assert(control.systemMessage.includes('6 non-root git worktrees in this project')
+    && control.systemMessage.includes('Worst project for stale worktrees machine-wide')
+    && control.systemMessage.includes('deferred-work item(s) pending'),
+    `W15: control - with source=startup the fixture shows both worktree lines and the defer line (got: ${JSON.stringify(control.systemMessage)})`);
+
+  const { code, systemMessage, parsedOk } = runHook(SCRIPT, cwdRepo, fakeHome, null, null, 'compact');
+  assert(code === 0, 'W15: hook exits 0');
+  assert(parsedOk, 'W15: stdout parses as valid JSON');
+  assert(!systemMessage.includes('non-root git worktrees in this project'),
+    `W15: no single-repo worktree line on compact (got: ${JSON.stringify(systemMessage)})`);
+  assert(!systemMessage.toLowerCase().includes('machine-wide'),
+    `W15: no machine-wide line on compact (got: ${JSON.stringify(systemMessage)})`);
+  assert(systemMessage.includes('deferred-work item(s) pending'),
+    `W15: deferred-work line still present on compact (got: ${JSON.stringify(systemMessage)})`);
+
+  cleanup(fakeHome);
+  cleanup(cwdRepo);
+  cleanup(worstRepo);
+}
+
+// ---------------------------------------------------------------------------
+// (W16) every non-compact source keeps the nudge.
+// ---------------------------------------------------------------------------
+console.log('\n[W16] source=startup/resume/clear -> worktree nudge present');
+{
+  const cwdRepo = buildBareRepoWithWorktrees(6, 'ae-wt-nudge-w16-');
+  const fakeHome = seedFakeHome(REPO_ROOT);
+  for (const source of ['startup', 'resume', 'clear']) {
+    const { code, systemMessage } = runHook(SCRIPT, cwdRepo, fakeHome, null, null, source);
+    assert(code === 0, `W16: hook exits 0 (source=${source})`);
+    assert(systemMessage.includes('6 non-root git worktrees in this project'),
+      `W16: nudge present for source=${source} (got: ${JSON.stringify(systemMessage)})`);
+  }
+  cleanup(fakeHome);
+  cleanup(cwdRepo);
+}
+
+// ---------------------------------------------------------------------------
+// (W17) jq fails -> the grep fallback still reads source=compact.
+// ---------------------------------------------------------------------------
+console.log('\n[W17] jq stubbed to fail, source=compact -> nudge skipped via the grep fallback');
+{
+  const cwdRepo = buildBareRepoWithWorktrees(6, 'ae-wt-nudge-w17-');
+  const fakeHome = seedFakeHome(REPO_ROOT);
+  const { path: noJqPath, dir: noJqDir } = pathWithFailingJq();
+  const { code, systemMessage, parsedOk } = runHook(SCRIPT, cwdRepo, fakeHome, noJqPath, null, 'compact');
+  assert(code === 0, 'W17: hook exits 0');
+  assert(parsedOk, 'W17: stdout parses as valid JSON');
+  assert(!systemMessage.includes('non-root git worktrees in this project'),
+    `W17: nudge skipped on compact with jq failing (got: ${JSON.stringify(systemMessage)})`);
+  cleanup(fakeHome);
+  cleanup(cwdRepo);
+  cleanup(noJqDir);
+}
+
+// ---------------------------------------------------------------------------
+// (W18) jq fails, source=startup, and an earlier key ending in "source"
+// holds "compact" -> the fallback must anchor on the exact "source" key.
+// ---------------------------------------------------------------------------
+console.log('\n[W18] jq stubbed to fail, source=startup, decoy "event_source": "compact" before it -> nudge present');
+{
+  const cwdRepo = buildBareRepoWithWorktrees(6, 'ae-wt-nudge-w18-');
+  const fakeHome = seedFakeHome(REPO_ROOT);
+  const { path: noJqPath, dir: noJqDir } = pathWithFailingJq();
+  const { code, systemMessage, parsedOk } = runHook(SCRIPT, cwdRepo, fakeHome, noJqPath, null, 'startup',
+    { event_source: 'compact' });
+  assert(code === 0, 'W18: hook exits 0');
+  assert(parsedOk, 'W18: stdout parses as valid JSON');
+  assert(systemMessage.includes('6 non-root git worktrees in this project'),
+    `W18: nudge present - the event_source decoy is not read as source (got: ${JSON.stringify(systemMessage)})`);
+  cleanup(fakeHome);
+  cleanup(cwdRepo);
+  cleanup(noJqDir);
 }
 
 // ---------------------------------------------------------------------------

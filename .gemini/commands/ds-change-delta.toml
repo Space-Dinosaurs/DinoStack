@@ -13,14 +13,17 @@ per session, hook denies per session, tokens per session, wall time per
 session, and (for a git-checkout `--repo` with a resolvable `gh` remote)
 commits per merged PR, for two equal-length windows either side of the
 cut point, from the same live telemetry stores `ds-cost`, `ds-evaluate`,
-`ds-hook-fire-report`, and `ds-branch-prune` already read.
+`ds-hook-fire-report`, and `ds-branch-prune` already read. The `eval`
+block adds the same comparison over `ds-eval`'s figures (cost-state
+dollars per session), split by entrypoint and stated with its
+confounders.
 
 Implementation: `bin/ds-change-delta` (Python 3 stdlib).
 
 ## Usage
 
 ```
-ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH] [--window-days N] [--pr-lookahead-days N] --repo PATH [--repo PATH ...] [--json]
+ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH] [--window-days N] [--pr-lookahead-days N] --repo PATH [--repo PATH ...] [--json] [--no-eval]
 ```
 
 - `--cut` (required): a git SHA (resolved to its **committer** date on
@@ -46,6 +49,7 @@ ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH] [--window-days N] [--pr-lo
   past a window's end still count for that window's tickets.
 - `--json` for the full machine-readable report; default is a fixed-width
   table.
+- `--no-eval` skips the `eval` side (see below) and omits its key.
 
 ## Spawn telemetry: `agent_model` and `per_ticket` (DS-246)
 
@@ -65,11 +69,14 @@ a store with no v2 rows is `ABSENT`, both with `null` values.
   in `tokens_null_runs`, never priced as zero.
 - `per_ticket`: one row per ticket whose first v2 spawn (else its ledger
   `opened_ts`) falls in the window, keyed by the hooks' `task_id`. Each
-  row reports Skeptic reviews, max iteration, Critical/Major/Minor totals,
+  row reports Skeptic reviews (every Skeptic run, with
+  `skeptic_reviews_with_findings` counting those that carry a findings
+  count), max iteration, Critical/Major/Minor totals,
   `re_raised` (`null` when no `findings_log` entry records it), QA runs and
   fail-backs (FAIL or PARTIAL), merged and follow-up PRs, re-entries more
   than 1h after the first merge, Critical+Major findings after it (`null`
-  when the review count fell back to the ledger's `skeptic_rounds`),
+  when the review count fell back to the ledger's `skeptic_rounds`, or when
+  any Skeptic run after the first merge carries no findings count),
   `ledger_skeptic_rounds` (shown beside a telemetry count so an undercount
   is visible), `unit_count` (from the ledger, default 1), rework loops
   (`max(skeptic_reviews - unit_count, 0) + qa_fail_backs +
@@ -86,6 +93,62 @@ a store with no v2 rows is `ABSENT`, both with `null` values.
   mentions T does not count, and one matching several tickets goes to
   `ambiguous_prs`. When `gh` is unavailable, only the PR-derived fields
   (and `loops`) are `null`.
+
+## Evaluation side: `eval`
+
+`bin/_eval.py`'s `evaluate()` (the `ds-eval` engine) runs once per window
+over every Claude Code profile's transcript store. Every figure uses its
+envelope `{status: OK|PARTIAL|ABSENT, value, coverage, missing}`: a
+missing input is `ABSENT` with `value: null` and a reason, never 0, and an
+after window still running is `PARTIAL` with "after window not yet
+elapsed".
+
+- `before` / `after`: `ds-eval`'s own window figures - `sessions`,
+  `cost_usd` (cost reconciled to the harness cost-state),
+  `usd_per_reconciled_session`, `straddling_sessions`. `evaluate()` lists a
+  session in every window it overlaps.
+- The figures below count each session once, on the side its first
+  timestamp falls in (`meta.sessions_assigned`). The figure is cost-state
+  dollars per session, over the sessions whose cost-state covers them.
+  Empty sessions (no usage record and no cost-state spend, i.e. sessions
+  that never reached the model) are left out of every rate, mix and prefix
+  figure and counted in `confounders.<side>.empty_sessions`.
+- Small samples: each rate carries its session count as `sessions`, and
+  each delta and `mix_shifted` carry `n` (`{before, after}`). Fewer than
+  10 sessions on either side makes the figure `PARTIAL` with reason
+  "n < 10", so a K=5 prefix figure is always `PARTIAL`.
+- `confounders.before` / `confounders.after`: session shares by
+  entrypoint, model and Claude Code version (the usage key with the most
+  conductor messages), `base_commits` (the first-parent commits on each
+  repo's base ref in the window) and `empty_sessions`.
+- `pooled` and `per_entrypoint` (`cli`, `sdk-cli`, ...): before, after and
+  delta. A pooled delta can carry the opposite sign of every entrypoint's
+  own delta when the mix moves, so read `per_entrypoint` first.
+- `mix_shifted`: `true` when any entrypoint's session share moved more
+  than 10 points (exactly 10 is not a shift); `points` gives each
+  entrypoint's movement.
+- `prefix_test` at K = 5, 25 and 100: the mean cost per session of the
+  last K sessions before the cut against the first K after it. A step
+  change (for example a one-time prompt-prefix removal) shows the same
+  delta at every K; a trend grows with K. It cannot tell a fixed
+  per-session saving from a per-turn rate change: both lower a session's
+  cost, and the test sees only whole-session cost. Fewer than K sessions
+  on a side is `PARTIAL`. The pooled
+  `prefix_test` mixes entrypoints, so when `mix_shifted` is true it
+  compares mostly one entrypoint before the cut against another after
+  it; `prefix_test_per_entrypoint` runs the same test within each
+  entrypoint and is the one to read then.
+
+A window still running is `PARTIAL` on its own side: the after window of
+a recent cut, and the before window too when `--cut` is in the future.
+The default table prints `n=<before>/<after>` and the `PARTIAL` reasons
+on each `eval` row.
+
+The `eval` side never calls `gh` or `ds-feedback`, and any failure inside
+it becomes an `ABSENT` `eval` block naming the error, never a non-zero
+exit. It costs two transcript passes: tens of seconds on a repo with
+hundreds of sessions in the two windows. `--no-eval` skips it and omits
+the `eval` key.
 
 ## Coverage and status
 
@@ -153,7 +216,12 @@ state. Every subprocess call is one of `git rev-parse --verify`,
 `git show`, `git remote get-url`, `gh repo view`, or `gh api graphql`
 (all read-only). See `bin/tests/test_ds_change_delta.py`'s R5 test for
 the enforced argv allowlist and a fixture-repo HEAD/status
-byte-identity assertion.
+byte-identity assertion. The `eval` side runs through `bin/_eval.py`'s
+own reads: `git log`, `git rev-list --count`, `git remote`, the base-ref
+lookups (`git show-ref`, `git symbolic-ref`, `git rev-parse`), all
+read-only, with no `gh` and no `ds-feedback` call. The tool writes
+nothing itself, under the home directory or anywhere else; `gh`, when
+present, is run for PR history and may write its own state there.
 
 ## Known limitation: PR-history window granularity
 

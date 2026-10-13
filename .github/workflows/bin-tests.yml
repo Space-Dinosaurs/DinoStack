@@ -42,13 +42,13 @@ jobs:
       # pytest-timeout converts an unbounded subprocess stall anywhere in
       # bin/tests/ into ONE failing test with a stack trace at the exact call,
       # instead of a killed job with no usable log.
-      - name: pip install pytest pytest-timeout pyyaml
+      - name: pip install pytest pytest-timeout pytest-xdist pyyaml
         # Bounded so a queue-starved or hung step fails as itself rather
         # than consuming the job backstop. Re-derive the current
         # distribution with `bash scripts/ci-step-durations.sh` before
         # changing any value here.
         timeout-minutes: 2
-        run: pip install pytest pytest-timeout pyyaml
+        run: pip install pytest pytest-timeout pytest-xdist pyyaml
       - name: install zsh and jq (required for the bash/zsh parity matrix in
           test_phase8_telemetry_shell.py, and for test_auto_merge_followthrough_shell.py's
           real-jq sibling-PR-sweep filter tests - jq's own _require_jq() guard
@@ -168,10 +168,11 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
-      - name: pip install pytest pytest-timeout pyyaml
-        # pytest and pytest-timeout are here for test_check_local.sh, not for
-        # this job to run pytest itself: check-local.sh's toolchain preflight
-        # probes `import pytest, pytest_timeout, yaml` as one unit, and the
+      - name: pip install pytest pytest-timeout pytest-xdist pyyaml
+        # pytest, pytest-timeout and pytest-xdist are here for
+        # test_check_local.sh, not for this job to run pytest itself:
+        # check-local.sh's toolchain preflight probes
+        # `import pytest, pytest_timeout, xdist, yaml` as one unit, and the
         # suite hard-fails under ${CI} rather than skipping when it is
         # unsatisfied. With pytest absent the suite aborts at its first guard;
         # with pytest present but pytest_timeout missing the preflight exits 2
@@ -182,7 +183,7 @@ jobs:
         # distribution with `bash scripts/ci-step-durations.sh` before
         # changing any value here.
         timeout-minutes: 2
-        run: pip install pytest pytest-timeout pyyaml
+        run: pip install pytest pytest-timeout pytest-xdist pyyaml
       - name: install zsh (required for bash/zsh parity assertion in test_check_resident_budget.sh)
         # Bounded so a queue-starved or hung step fails as itself rather
         # than consuming the job backstop. Re-derive the current

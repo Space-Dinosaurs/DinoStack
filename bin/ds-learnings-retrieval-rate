@@ -10,12 +10,27 @@ Purpose: Read-only measurement tool. Answers one question per agent run,
          DS-73-shaped keyword retrieval specifically, and not a write
          detector - the metric is observed read-access.
 
-Public API: ds-learnings-retrieval-rate [--json]
-            Exactly one flag. Prints one row per role - role, wiring, runs,
+Public API: ds-learnings-retrieval-rate [--json] [--store DIR ...]
+            Scans every store bin/_transcripts.py's resolve_stores() finds (each
+            `~/.claude*/projects` dir plus the active config dir's), not
+            only the active CLAUDE_CONFIG_DIR; a repeatable `--store DIR`
+            (a config dir or a projects dir) replaces that set. Prints a
+            header naming every store scanned with its transcript count,
+            then one row per role - role, wiring, runs,
             fired, not_fired, unreadable, rate - wired roles first, then a
             pooled wired line, a pooled unwired-control line, and a footer
             stating the measurement's scope and its two-sided error. --json
-            emits the same data as a single JSON object. Exit 0 on EVERY
+            emits the same data as a single JSON object (`stores`: one
+            {path, status, transcripts, reason, unreadable_dirs,
+            unreadable_dir_paths} entry per store). status "scanned": every
+            dir on the way was read, 0 for a store holding none. status
+            "partial": some project, session or subagents dir could not be
+            read; transcripts is a floor (">= N" in text), or null (ABSENT)
+            when nothing readable was counted. status "unreadable" (the
+            store itself), "missing" or "invalid" (a --store path that does
+            not exist or is not a directory): transcripts null, a reason,
+            printed as ABSENT. A store or dir the tool could not read is
+            never reported as 0. Exit 0 on EVERY
             path, including no-data; errors are reported in the envelope's
             `error` field and never raised.
 
@@ -48,10 +63,13 @@ Public API: ds-learnings-retrieval-rate [--json]
             hand composition dressed as a measurement (DS-223 J3).
 
 Upstream deps: Python 3 stdlib only (argparse, json, os, re, shlex, sys,
-               glob, pathlib). Imports four names from bin/_lib.py
-               (DS-227 round 2): resolve_claude_config_dir() - never a
-               hardcoded ~/.claude (bin/ds-parse-subagent-usage shipped
-               exactly that bug); MAX_TRANSCRIPT_BYTES and
+               pathlib). bin/_transcripts.py for the store set
+               (resolve_stores()), checked directory listing
+               (listdir_checked()) and the per-store report (store_entry(),
+               store_line()) - store discovery and unreadable-dir handling
+               are not re-implemented here. Imports
+               three names from bin/_lib.py (DS-227 round 2):
+               MAX_TRANSCRIPT_BYTES and
                iter_jsonl_dict_records - the streaming scan skeleton shared
                with bin/ds-skill-load-rate; and rate_or_none, used by this
                file's own rate_of() helper. Deliberately does NOT import
@@ -61,7 +79,7 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, re, shlex, sys,
                is >= MAX_TRANSCRIPT_BYTES" for its own skipped_oversize
                subset count - a distinction the shared boolean-only helper
                collapses, so the size check itself stays local. Reads
-               <config_dir>/projects/*/*/subagents/agent-*.jsonl and each
+               <store>/*/*/subagents/agent-*.jsonl in every store and each
                transcript's paired agent-<id>.meta.json sidecar for
                `agentType`. Reads content/agents/*.md from this checkout to
                derive the `wiring` column. Writes nothing, anywhere.
@@ -74,9 +92,13 @@ Downstream consumers: the operator or conductor, on demand. No hook, no
                       loads it via importlib and drives its classifier
                       against the DS-223 plan's normative case table.
 
-Failure modes: never raises, never exits nonzero. A missing config dir, a
-               missing projects/ dir, or zero discovered transcripts exits 0
-               with error="no_transcripts" and one human line naming the
+Failure modes: never raises, never exits nonzero. An unreadable store is
+               skipped and listed as status "unreadable" (ABSENT); an
+               unreadable dir inside a store makes it "partial" with a floor
+               count or ABSENT; neither is counted as a scanned zero. No readable store at all, or zero
+               discovered transcripts across every store, exits 0 with
+               error="no_transcripts" (each store still listed) and one
+               human line naming the
                harness limitation. A transcript that parses to zero records,
                or is >= 20 MiB (bin/_lib.py MAX_TRANSCRIPT_BYTES), counts as `unreadable`:
                a run the tool could not read. `unreadable` is excluded from
@@ -93,8 +115,9 @@ Failure modes: never raises, never exits nonzero. A missing config dir, a
                "n/a" and says so in the footer.
 
 Performance: O(total transcript bytes), single streaming pass per file with
-             an early exit on the first satisfying call in a run. ~900
-             transcripts / ~35k tool calls measured at a few seconds.
+             an early exit on the first satisfying call in a run. The default
+             every-store scan read about 6,450 transcripts across 4 stores
+             in 53-102 s on 2026-10-12 (two runs); --store narrows it.
 
 R2 (Pillar 8 simplicity test), stated verbatim as the DS-223 outcome rubric
 requires it, so the retirement condition ships with the mechanism:
@@ -137,7 +160,6 @@ requires it, so the retirement condition ships with the mechanism:
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import os
 import re
@@ -146,11 +168,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _transcripts  # noqa: E402
 from _lib import (  # noqa: E402
     MAX_TRANSCRIPT_BYTES,
     iter_jsonl_dict_records,
     rate_or_none,
-    resolve_claude_config_dir,
 )
 
 REPO_DIR = Path(__file__).resolve().parent.parent
@@ -567,13 +589,49 @@ def rate_of(fired: int, runs: int, unreadable: int):
     return rate_or_none(fired, runs - unreadable)
 
 
-def collect(config_dir: Path, agents_dir: Path) -> dict:
-    pattern = str(config_dir / "projects" / "*" / "*" / "subagents" / "agent-*.jsonl")
-    transcripts = sorted(glob.glob(pattern))
+def subagent_transcripts(store: Path) -> tuple[list[str], list]:
+    """<store>/*/*/subagents/agent-*.jsonl, plus (dir, reason) for every
+    project, session or subagents dir on the way that cannot be read."""
+    found: list[str] = []
+    unreadable: list = []
+    for pname in _transcripts.listdir_checked(store)[0]:
+        pdir = store / pname
+        if pname.startswith(".") or not pdir.is_dir():
+            continue
+        snames, reason = _transcripts.listdir_checked(pdir)
+        if reason is not None:
+            unreadable.append((pdir, reason))
+            continue
+        for sname in snames:
+            sdir = pdir / sname
+            if sname.startswith(".") or not sdir.is_dir():
+                continue
+            if not os.access(sdir, os.X_OK):
+                unreadable.append((sdir, "permission denied"))
+                continue
+            subdir = sdir / "subagents"
+            if not subdir.is_dir():
+                continue
+            names, reason = _transcripts.listdir_checked(subdir)
+            if reason is not None:
+                unreadable.append((subdir, reason))
+                continue
+            found.extend(str(subdir / n) for n in names
+                         if n.startswith("agent-") and n.endswith(".jsonl"))
+    return sorted(found), unreadable
+
+
+def collect(store_set, agents_dir: Path) -> dict:
+    transcripts: list[str] = []
+    per_store: list[dict] = []
+    for store in store_set.readable:
+        found, unreadable_dirs = subagent_transcripts(store)
+        per_store.append(_transcripts.store_entry(store, len(found), unreadable_dirs, "transcripts"))
+        transcripts.extend(found)
 
     payload = {
         "harness": "claude-code",
-        "config_dir": str(config_dir),
+        "stores": per_store + store_set.problem_entries("transcripts"),
         "transcripts_scanned": 0,
         "by_role": {},
         "pooled": {
@@ -700,16 +758,20 @@ def format_rate(value) -> str:
 
 def render(payload: dict, agents_dir_present: bool) -> str:
     lines: list[str] = []
-    lines.append(f"harness: {payload['harness']}   config_dir: {payload['config_dir']}")
+    stores = payload["stores"]
+    scanned = [s for s in stores if s["status"] in ("scanned", "partial")]
+    lines.append(f"harness: {payload['harness']}   stores scanned ({len(scanned)}):"
+                 + ("" if stores else " (none found)"))
+    lines.extend(_transcripts.store_line(s, "transcripts", "transcripts") for s in stores)
 
     if payload["error"] == "no_transcripts":
         lines.append("")
         lines.append(
-            "No subagent transcripts found. This measurement reads Claude Code's "
-            "own per-subagent transcripts under"
+            "No subagent transcripts found. This measurement reads "
+            "Claude Code's own per-subagent transcripts under"
         )
         lines.append(
-            "  <config_dir>/projects/*/*/subagents/agent-*.jsonl "
+            "  <store>/*/*/subagents/agent-*.jsonl in every store "
             "- absent on a harness that does not write them, and on a fresh machine."
         )
         lines.append("error: no_transcripts")
@@ -759,11 +821,14 @@ def main(argv=None) -> int:
         )
     )
     parser.add_argument("--json", action="store_true", help="emit JSON instead of a table")
+    parser.add_argument(
+        "--store", action="append", metavar="DIR",
+        help="scan this config dir or projects dir instead of every store (repeatable)",
+    )
     args = parser.parse_args(argv)
 
-    config_dir = resolve_claude_config_dir()
     agents_dir = AGENTS_DIR
-    payload = collect(config_dir, agents_dir)
+    payload = collect(_transcripts.resolve_stores(args.store), agents_dir)
 
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))

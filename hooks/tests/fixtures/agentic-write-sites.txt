@@ -66,6 +66,7 @@ bin/ds-identity::cwd / ".agentic" / "session-log" / f"{developer_id}.jsonl",
 bin/ds-identity::if (current / ".agentic").exists():
 bin/ds-identity::if not (cwd / ".agentic").exists() and not (cwd / ".git").exists():
 bin/ds-identity::return Path(cwd or Path.cwd()) / ".agentic" / "identity.yml"
+bin/ds-lane::STATE="$PRIMARY/.agentic/lanes"
 bin/ds-memory-capture::INBOX_REL = os.path.join(".agentic", "memory-capture-inbox.md")
 bin/ds-memory-capture::LOCK_REL = os.path.join(".agentic", "memory-capture.lock")
 bin/ds-memory-capture::SHARD_REL = os.path.join(".agentic", "memory-shards")

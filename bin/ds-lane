@@ -1,0 +1,985 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# Module manifest
+# Purpose: Launch, watch and close headless Claude Code lane sessions (one per
+#          ticket) on behalf of a conductor session, so the operator does not
+#          open them by hand. A lane is `claude -p` in streaming-input mode:
+#          stdin is a `tail -f` of run/<name>.in, so the session stays up
+#          between turns and accepts follow-up messages (`send`). It ends when
+#          stdin is closed (`close` / `reap`) or it is stopped. The lane
+#          signals completion by printing a line starting LANE-DONE or
+#          LANE-BLOCKED in its own (non-subagent) assistant text.
+#
+# Public API:
+#   ds-lane <start|send|close|reap|resume|list|tail|watch|open|open-all|
+#            stop|resume-hint|count|path|help> [args]   (see `ds-lane help`)
+#   Exit 0 on success, 1 on any refusal or error (message on stderr).
+#   `start` prepends the marker contract (MARKER_CONTRACT below, the only
+#   canonical copy) to the prompt. `reap` closes stdin of every running lane
+#   that printed LANE-DONE or LANE-BLOCKED since its last message.
+#   State: <primary>/.agentic/lanes/{.gitignore,prompts/,run/}, where
+#   <primary> is the first entry of `git worktree list --porcelain` for the
+#   cwd, so a call from any linked worktree lands in the primary checkout.
+#   `ds-lane path` prints that state dir, so callers never rebuild it.
+#   run/<name>.{in,jsonl,err,meta,pid,tailpid,tab.log}.
+#   Env: DS_LANE_MAX (default 5, per repo), DS_LANE_RUN_DIR (overrides
+#   run/, propagated into the watch tab), DS_LANE_CLAUDE_BIN,
+#   DS_LANE_PERMISSION_MODE, DS_LANE_BG_CEILING_MS (default 0 = wait
+#   indefinitely; "default" leaves the CLI default), DS_LANE_NO_TAB=1,
+#   DS_LANE_TAB_LOCK_WAIT_S (default 30), DS_LANE_TAB_LOCK (lock file path,
+#   for tests; not propagated into the watch tab).
+#   Internal subcommands (not for callers): `__open-tab <name> <conductor-tty>`
+#   (the detached opener `start`/`resume` fork) and `__close-tab <own-tty>
+#   <conductor-tty> <tab-log>` (the detached closer a watch tab forks).
+#   run/<name>.tab.log lines: when the command ran, `opened: <tab|window>`
+#   (window = no single new tab was found after Cmd-T, so a new window was
+#   used), then `focus: kept` (the front window, its selected tab, the
+#   frontmost app and the conductor window's selected tab match what was
+#   recorded beforehand; in a native-tab Terminal each tab is its own
+#   window, so the last check cannot fail there) or `focus: NOT kept
+#   (<observed>; was <recorded>)`, prefixed `tab orphaned (<n> other new
+#   tab(s) after Cmd-T, left open); ` when stray new tabs remain (never closed: they cannot be
+#   proven ours), else `tab misplaced (new window, no new tab found); ` on
+#   the window path; otherwise one of `tab skipped: <no conductor tty|no
+#   osascript|no matching tab|lock busy|lock unavailable>` (no matching tab
+#   also when Terminal is not running: it is never launched) or `tab error:
+#   <first stderr line>; focus: unknown`. When the watch tab closes itself:
+#   `close: ok`, `close skipped: <no osascript|lock busy|lock unavailable|tab
+#   busy|no matching tab|Terminal not frontmost>` or `close error: <first
+#   stderr line or osascript output>`.
+#
+# Upstream deps: git, python3 (os.setsid detach, getmtime, realpath), jq, ps,
+#   tail; claude CLI resolved as DS_LANE_CLAUDE_BIN, then `command -v claude`,
+#   then $CLAUDE_CODE_EXECPATH. Permission mode: DS_LANE_PERMISSION_MODE, else
+#   the conductor transcript
+#   ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/*/$CLAUDE_CODE_SESSION_ID.jsonl
+#   (last `permission-mode` record, else last `permissionMode` on a
+#   `type:"user"` record). CLAUDE_CONFIG_DIR is inherited, never set.
+#   macOS Terminal.app + osascript for watch tabs (System Events keystrokes
+#   need Accessibility permission); tab open/close is serialized by a flock
+#   on the per-user file /tmp/ds-lane-tab-<uid>.lock (released by the kernel
+#   when its holder exits, so it never goes stale).
+#
+# Downstream consumers: content/references/runbook-conductor.md
+#   (§Launched lanes); bin/agentic-lane compat alias.
+#
+# Failure modes: dies (exit 1) with nothing written when not in a git repo or
+#   the primary checkout is bare. Every other refusal (invalid name,
+#   unreadable prompt, claude CLI not found, permission mode undeterminable,
+#   lane already running, DS_LANE_MAX live lanes; finished lanes hold a slot
+#   until `reap`/`close`) dies after .agentic/lanes/{.gitignore,prompts/,run/}
+#   exist but before any run/<name>.* file of that lane is written; the
+#   liveness sweep may already have pruned other lanes' dead .pid files. A
+#   pid is a live lane only while its start time equals the one recorded at
+#   launch and it runs the claude path recorded at launch (directly or under
+#   a shebang interpreter), so a reused pid never matches.
+#   Lanes run in the conductor's live permission mode: a lane in default,
+#   manual or acceptEdits mode has nobody to answer its prompts, so its tool
+#   calls are denied. DS_LANE_PERMISSION_MODE can exceed the conductor's own
+#   mode; that is the caller's responsibility (the runbook never sets it).
+#   Watch tabs are best-effort and never fail `start`; every open and close
+#   outcome is appended to run/<name>.tab.log (lines listed above). Tabs are
+#   macOS-only; elsewhere lanes work and tabs are skipped. Native Windows:
+#   os.setsid fails and `start` dies.
+#
+# Performance: `start` waits up to 5 s for the lane's init event; tab open
+#   runs detached and may wait DS_LANE_TAB_LOCK_WAIT_S for the lock.
+#
+# Retirement: delete when Claude Code ships native launch-and-track of
+#   headless sessions.
+# ---------------------------------------------------------------------------
+set -euo pipefail
+
+RESUME_TEXT="continue: your background agents were stopped when the session exited; inspect worktrees/branches and carry on"
+MARKER_CONTRACT='When the whole task is finished print a final line starting exactly `LANE-DONE` and the one-line outcome; if you must stop for a decision print a line starting exactly `LANE-BLOCKED` and the question. Print neither before then. Never poll or sleep.'
+MAX_LANES="${DS_LANE_MAX:-5}"
+
+# `claude -p` kills background tasks (subagents, background bash) still running 600s after a turn
+# ends, then exits. 0 = wait indefinitely. DS_LANE_BG_CEILING_MS=default leaves the CLI default.
+BG_CEILING="${DS_LANE_BG_CEILING_MS:-0}"
+
+TAB_LOCK="${DS_LANE_TAB_LOCK:-/tmp/ds-lane-tab-$(id -u).lock}"
+
+die() { echo "ds-lane: $*" >&2; exit 1; }
+
+SELF="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${BASH_SOURCE[0]}")"
+
+# Sets PRIMARY, STATE and RUN_DIR; creates the self-ignoring state dir.
+init_state() {
+  local wl
+  wl="$(git worktree list --porcelain 2>/dev/null)" || die "not inside a git repository"
+  PRIMARY="$(printf '%s\n' "$wl" | sed -n '1s/^worktree //p')"
+  [[ -n "$PRIMARY" ]] || die "cannot resolve the primary checkout from git worktree list"
+  if printf '%s\n' "$wl" | awk 'NF == 0 { exit } $0 == "bare" { found = 1 } END { exit !found }'; then
+    die "primary checkout $PRIMARY is a bare repository; run from a repo with a working tree"
+  fi
+  STATE="$PRIMARY/.agentic/lanes"
+  RUN_DIR="${DS_LANE_RUN_DIR:-$STATE/run}"
+  mkdir -p "$STATE/prompts" "$RUN_DIR"
+  [[ -f "$STATE/.gitignore" ]] || printf '*\n' > "$STATE/.gitignore"
+}
+
+valid_name() { [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid lane name '$1' (use [A-Za-z0-9._-])"; }
+
+file_mtime() { python3 -c 'import os, sys; print(int(os.path.getmtime(sys.argv[1])))' "$1" 2>/dev/null; }
+
+proc_start() { ps -p "$1" -o lstart= 2>/dev/null | tr -s ' ' || true; }
+
+# True only if pid is alive, started at the time recorded at launch, AND runs the lane's recorded
+# claude path followed by the `-p` launch() passes, as argv[0] or after an interpreter (a shebang
+# install runs as `node <path> -p ...`). The start time is what rules out a reused pid.
+is_live_claude() { # is_live_claude <pid> <claude-bin> <start-time>
+  local pid="$1" bin="${2:-}" start="${3:-}" args
+  [[ "$pid" =~ ^[0-9]+$ && -n "$bin" && -n "$start" ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  [[ "$(proc_start "$pid")" == "$start" ]] || return 1
+  args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+  [[ "$args" == "$bin -p "* || "$args" == *" $bin -p "* ]]
+}
+
+# True only if the lane's recorded stdin feeder is still a `tail -f` of this lane's .in file.
+is_live_feeder() { # is_live_feeder <name>
+  local name="$1" pid args
+  [[ -f "$RUN_DIR/$name.tailpid" ]] || return 1
+  pid="$(tr -dc '0-9' < "$RUN_DIR/$name.tailpid")"
+  [[ -n "$pid" ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+  [[ "$args" == tail\ * && "$args" == *"$RUN_DIR/$name.in" ]]
+}
+
+kill_feeder() { # closes the lane's stdin
+  local name="$1"
+  if is_live_feeder "$name"; then kill -TERM "$(tr -dc '0-9' < "$RUN_DIR/$name.tailpid")" 2>/dev/null || true; fi
+  rm -f "$RUN_DIR/$name.tailpid"
+}
+
+is_live_lane() { # is_live_lane <name>
+  [[ -f "$RUN_DIR/$1.pid" ]] && is_live_claude "$(tr -dc '0-9' < "$RUN_DIR/$1.pid")" "$(meta_get "$1" claude_bin)" "$(meta_get "$1" pid_start)"
+}
+
+meta_get() { # meta_get <name> <key>
+  local f="$RUN_DIR/$1.meta"
+  [[ -f "$f" ]] || return 0
+  { grep -E "^$2=" "$f" || true; } | tail -n1 | cut -d= -f2-
+}
+
+meta_set() { # meta_set <name> <key> <value>
+  local f="$RUN_DIR/$1.meta" tmp
+  tmp="$(mktemp "$RUN_DIR/.meta.XXXXXX")"
+  { [[ -f "$f" ]] && grep -v -E "^$2=" "$f" || true; echo "$2=$3"; } > "$tmp"
+  mv "$tmp" "$f"
+}
+
+log_lines() { if [[ -f "$1" ]]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
+
+# Remove .pid files whose process is not a live claude; mark their lanes exited. Prints live count.
+count_live() {
+  local n=0 f pid name end
+  for f in "$RUN_DIR"/*.pid; do
+    [[ -e "$f" ]] || continue
+    pid="$(tr -dc '0-9' < "$f")"
+    name="$(basename "$f" .pid)"
+    if is_live_claude "$pid" "$(meta_get "$name" claude_bin)" "$(meta_get "$name" pid_start)"; then
+      n=$((n + 1))
+    else
+      rm -f "$f"
+      kill_feeder "$name"
+      if [[ -f "$RUN_DIR/$name.meta" && "$(meta_get "$name" status)" == "running" ]]; then
+        meta_set "$name" status exited
+        end="$(file_mtime "$RUN_DIR/$name.jsonl" || true)"
+        meta_set "$name" end_epoch "${end:-$(date +%s)}"
+      fi
+    fi
+  done
+  echo "$n"
+}
+
+# Record the session_id of the most recent init event (a resumed lane may report a new one).
+capture_session() {
+  local name="$1" sid
+  [[ -s "$RUN_DIR/$name.jsonl" ]] || return 0
+  sid="$(jq -r 'select(.type == "system" and .subtype == "init") | .session_id // empty' "$RUN_DIR/$name.jsonl" 2>/dev/null | tail -n1 || true)"
+  if [[ -n "$sid" && "$sid" != "$(meta_get "$name" session_id)" ]]; then meta_set "$name" session_id "$sid"; fi
+  return 0
+}
+
+fmt_elapsed() {
+  local s="$1"
+  printf '%dh%02dm%02ds' $((s / 3600)) $((s % 3600 / 60)) $((s % 60))
+}
+
+# jq filter: the lane's own assistant text (subagent messages carry parent_tool_use_id).
+MAIN_TEXT='select(.type == "assistant" and .parent_tool_use_id == null) | [.message.content[]? | select(.type == "text") | .text] | join("\n") | select(length > 0)'
+
+# jq filter (-R, one raw jsonl line): `watch` view of the lane's own text, tool calls, tool
+# errors and results.
+WATCH_FILTER='fromjson? | (
+  ('"$MAIN_TEXT"'),
+  (select(.type == "assistant" and .parent_tool_use_id == null) | .message.content[]? | select(.type == "tool_use")
+    | "  > \(.name): " + ((.input.description // .input.command // .input.skill // .input.file_path // .input.pattern // .input.url // "")
+      | tostring | gsub("[\r\n]+"; " ") | .[0:100])),
+  (select(.type == "user" and .parent_tool_use_id == null) | .message.content | arrays | .[]
+    | select(.type? == "tool_result" and .is_error == true)
+    | "  ! tool error: " + ((.content | if type == "string" then . elif type == "array" then (map(.text? // "") | join(" ")) else tostring end)
+      | gsub("[\r\n]+"; " ") | .[0:100])),
+  (select(.type == "result") | "=== result (\(.subtype // "-"), is_error: \(.is_error)) ===\n\(.result // "")")
+)'
+
+# Prints done|blocked if the lane printed a LANE-DONE / LANE-BLOCKED line since the last message
+# sent to it, else nothing. The latest marker wins.
+lane_marker() { # lane_marker <name>
+  local name="$1" log="$RUN_DIR/$1.jsonl" off
+  [[ -s "$log" ]] || return 0
+  off="$(meta_get "$name" marker_offset)"
+  tail -n "+$(( ${off:-0} + 1 ))" "$log" | jq -r "$MAIN_TEXT" 2>/dev/null | awk '
+    { sub(/^[ \t*#>`]+/, "") }
+    /^LANE-DONE/ { s = "done" }
+    /^LANE-BLOCKED/ { s = "blocked" }
+    END { if (s != "") print s }' || true
+}
+
+# Append one stream-json user message to the lane's input file.
+write_input() { # write_input <name> <text>
+  jq -cn --arg t "$2" '{type: "user", message: {role: "user", content: $t}}' >> "$RUN_DIR/$1.in"
+}
+
+# Text argument, or the contents of a readable file.
+text_or_file() { if [[ -f "$1" && -r "$1" ]]; then cat "$1"; else printf '%s' "$1"; fi; }
+
+resolve_claude_bin() {
+  local c="${DS_LANE_CLAUDE_BIN:-}"
+  if [[ -z "$c" ]]; then c="$(command -v claude 2>/dev/null || true)"; fi
+  if [[ -z "$c" ]]; then c="${CLAUDE_CODE_EXECPATH:-}"; fi
+  [[ -n "$c" ]] || die "claude CLI not found (set DS_LANE_CLAUDE_BIN, or put claude on PATH)"
+  [[ -x "$c" ]] || die "claude CLI not executable at $c"
+  CLAUDE_BIN="$c"
+}
+
+# The conductor's live permission mode; lanes always run in it.
+resolve_permission_mode() {
+  local mode="${DS_LANE_PERMISSION_MODE:-}" sid="${CLAUDE_CODE_SESSION_ID:-}" f t
+  if [[ -z "$mode" && -n "$sid" ]]; then
+    for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$sid".jsonl; do
+      [[ -f "$f" ]] || continue
+      t="$f"
+      break
+    done
+    if [[ -n "${t:-}" ]]; then
+      mode="$(jq -R -r 'fromjson? | select(.type == "permission-mode") | .permissionMode // empty' "$t" 2>/dev/null | tail -n1 || true)"
+      if [[ -z "$mode" ]]; then
+        mode="$(jq -R -r 'fromjson? | select(.type == "user") | .permissionMode // empty' "$t" 2>/dev/null | tail -n1 || true)"
+      fi
+    fi
+  fi
+  [[ -n "$mode" ]] || die "cannot determine the conductor's permission mode; set DS_LANE_PERMISSION_MODE"
+  PERMISSION_MODE="$mode"
+}
+
+# /dev/<tty> of the first ancestor process that has a controlling terminal, else empty.
+conductor_tty() {
+  local pid=$$ t
+  while [[ "$pid" =~ ^[0-9]+$ ]] && (( pid > 1 )); do
+    t="$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
+    if [[ -n "$t" && "$t" != "?" && "$t" != "??" ]]; then echo "/dev/$t"; return 0; fi
+    pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
+  done
+  return 0
+}
+
+cmd_reap() {
+  local f name state n=0
+  for f in "$RUN_DIR"/*.pid; do
+    [[ -e "$f" ]] || continue
+    name="$(basename "$f" .pid)"
+    is_live_lane "$name" || continue
+    is_live_feeder "$name" || continue
+    state="$(lane_marker "$name")"
+    [[ -n "$state" ]] || continue
+    kill_feeder "$name"
+    meta_set "$name" status "$state"
+    meta_set "$name" end_epoch "$(date +%s)"
+    echo "reaped $name ($state): stdin closed"
+    n=$((n + 1))
+  done
+  echo "reaped $n lane(s)"
+}
+
+# Refuse before touching any lane file: claude missing, mode unknown, name already running, or cap
+# reached.
+check_capacity() { # check_capacity <name>
+  local live
+  resolve_claude_bin
+  resolve_permission_mode
+  live="$(count_live)"
+  if [[ -f "$RUN_DIR/$1.pid" ]]; then
+    die "lane '$1' is already running (pid $(cat "$RUN_DIR/$1.pid"))"
+  fi
+  (( live < MAX_LANES )) || die "refusing: $live lanes running (max $MAX_LANES); finished lanes hold a slot until 'ds-lane reap' or 'ds-lane close'"
+}
+
+# launch <name> <first-message> [resume-session-id]
+launch() {
+  local name="$1" text="$2" sid="${3:-}" pid
+  local -a args env_extra=()
+
+  args=(-p --input-format stream-json --output-format stream-json --verbose --permission-mode "$PERMISSION_MODE")
+  if [[ -n "$sid" ]]; then args+=(--resume "$sid"); fi
+  if [[ "$BG_CEILING" != "default" ]]; then env_extra=("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=$BG_CEILING"); fi
+
+  : > "$RUN_DIR/$name.in"
+  write_input "$name" "$text"
+  meta_set "$name" claude_bin "$CLAUDE_BIN"
+
+  # Detach: nohup + new session via python os.setsid (macOS has no setsid(1)). The launcher forks
+  # the stdin feeder, then execs claude, so the recorded pid is the claude process itself.
+  cd "$PRIMARY"
+  nohup env ${env_extra[@]+"${env_extra[@]}"} python3 -c '
+import os, sys
+os.setsid()
+infile, tailpid_file, argv = sys.argv[1], sys.argv[2], sys.argv[3:]
+r, w = os.pipe()
+feeder = os.fork()
+if feeder == 0:
+    os.dup2(w, 1); os.close(r); os.close(w)
+    os.execvp("tail", ["tail", "-n", "+1", "-f", infile])
+os.close(w); os.dup2(r, 0); os.close(r)
+with open(tailpid_file, "w") as f:
+    f.write(str(feeder))
+os.execv(argv[0], argv)
+' "$RUN_DIR/$name.in" "$RUN_DIR/$name.tailpid" "$CLAUDE_BIN" "${args[@]}" \
+    < /dev/null >> "$RUN_DIR/$name.jsonl" 2>> "$RUN_DIR/$name.err" &
+  pid=$!
+  disown "$pid" 2>/dev/null || true
+
+  meta_set "$name" pid_start "$(proc_start "$pid")"
+  echo "$pid" > "$RUN_DIR/$name.pid"
+  meta_set "$name" pid "$pid"
+  meta_set "$name" start_epoch "$(date +%s)"
+  meta_set "$name" start_time "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  meta_set "$name" status running
+
+  # Brief wait for the init event so session_id is usually recorded immediately.
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    capture_session "$name"
+    [[ -n "$(meta_get "$name" session_id)" ]] && break
+    sleep 0.5
+  done
+  echo "$pid"
+}
+
+cmd_start() {
+  [[ $# -eq 2 ]] || die "usage: ds-lane start <name> <prompt-file>"
+  local name="$1" prompt_file="$2" tty=""
+  valid_name "$name"
+  [[ -r "$prompt_file" ]] || die "prompt file not readable: $prompt_file"
+  prompt_file="$(cd "$(dirname "$prompt_file")" && pwd)/$(basename "$prompt_file")"
+  [[ -s "$prompt_file" ]] || die "prompt file is empty: $prompt_file"
+  check_capacity "$name"
+  if [[ "${DS_LANE_NO_TAB:-}" != 1 ]]; then tty="$(conductor_tty)"; fi
+
+  rm -f "$RUN_DIR/$name.jsonl" "$RUN_DIR/$name.err" "$RUN_DIR/$name.meta"
+  meta_set "$name" prompt_file "$prompt_file"
+  meta_set "$name" marker_offset 0
+  launch "$name" "$MARKER_CONTRACT
+
+$(cat "$prompt_file")"
+  open_tab_bg "$name" "$tty"
+}
+
+cmd_resume() {
+  [[ $# -ge 1 && $# -le 2 ]] || die "usage: ds-lane resume <name> [text-or-file]"
+  local name="$1" text sid tty=""
+  valid_name "$name"
+  [[ -f "$RUN_DIR/$name.meta" ]] || die "no such lane: $name"
+  is_live_lane "$name" && die "lane '$name' is still running; use 'ds-lane send $name <text>'"
+  check_capacity "$name"
+  capture_session "$name"
+  sid="$(meta_get "$name" session_id)"
+  [[ -n "$sid" ]] || die "no session_id recorded for '$name'"
+  text="$RESUME_TEXT"
+  if [[ $# -eq 2 ]]; then text="$(text_or_file "$2")"; fi
+  [[ -n "$text" ]] || die "empty message"
+  if [[ "${DS_LANE_NO_TAB:-}" != 1 ]]; then tty="$(conductor_tty)"; fi
+  # Earlier markers belong to the previous run; the log is appended to, not replaced.
+  meta_set "$name" marker_offset "$(log_lines "$RUN_DIR/$name.jsonl")"
+  meta_set "$name" resumes "$(( $(meta_get "$name" resumes | tr -dc '0-9' | sed 's/^$/0/') + 1 ))"
+  launch "$name" "$text" "$sid"
+  open_tab_bg "$name" "$tty"
+}
+
+cmd_send() {
+  [[ $# -eq 2 ]] || die "usage: ds-lane send <name> <text-or-file>"
+  local name="$1" text
+  valid_name "$name"
+  is_live_lane "$name" || die "lane '$name' is not running; use 'ds-lane resume $name <text>'"
+  is_live_feeder "$name" || die "lane '$name' has no open input channel (closed, or started by another launcher)"
+  text="$(text_or_file "$2")"
+  [[ -n "$text" ]] || die "empty message"
+  meta_set "$name" marker_offset "$(log_lines "$RUN_DIR/$name.jsonl")"
+  meta_set "$name" status running
+  write_input "$name" "$text"
+  echo "sent ${#text} chars to $name"
+}
+
+cmd_close() {
+  [[ $# -eq 1 ]] || die "usage: ds-lane close <name>"
+  local name="$1"
+  valid_name "$name"
+  [[ -f "$RUN_DIR/$name.meta" ]] || die "no such lane: $name"
+  is_live_feeder "$name" || die "lane '$name' has no open input channel (already closed, or started by another launcher)"
+  local state
+  state="$(lane_marker "$name")"
+  kill_feeder "$name"
+  meta_set "$name" status "${state:-closed}"
+  meta_set "$name" end_epoch "$(date +%s)"
+  echo "closed stdin for $name; it exits once any running turn and background tasks finish"
+}
+
+cmd_list() { # cmd_list [name...]
+  local n
+  for n in "$@"; do valid_name "$n"; done
+  count_live > /dev/null
+  local f name pid proc state marker start end elapsed sid last any=0 want
+  printf '%-16s %-7s %-8s %-5s %-11s %-38s %s\n' NAME PID STATE PROC ELAPSED SESSION_ID LAST_ASSISTANT
+  for f in "$RUN_DIR"/*.meta; do
+    [[ -e "$f" ]] || continue
+    name="$(basename "$f" .meta)"
+    if [[ $# -gt 0 ]]; then
+      want=0
+      for n in "$@"; do if [[ "$n" == "$name" ]]; then want=1; fi; done
+      (( want )) || continue
+    fi
+    any=1
+    capture_session "$name"
+    pid="$(meta_get "$name" pid)"
+    if is_live_lane "$name"; then proc="up"; state="alive"; else proc="down"; state="dead"; fi
+    marker="$(lane_marker "$name")"
+    if [[ -n "$marker" ]]; then state="$marker"; fi
+    start="$(meta_get "$name" start_epoch)"
+    end="$(meta_get "$name" end_epoch)"
+    if [[ "$proc" == up || -z "$end" ]]; then end="$(date +%s)"; fi
+    elapsed="$(fmt_elapsed $(( end - ${start:-$end} )))"
+    sid="$(meta_get "$name" session_id)"
+    last="$(jq -r "$MAIN_TEXT"' | gsub("[\r\n]+"; " ")' "$RUN_DIR/$name.jsonl" 2>/dev/null | tail -n1 | cut -c1-150 || true)"
+    printf '%-16s %-7s %-8s %-5s %-11s %-38s %s\n' "$name" "$pid" "$state" "$proc" "$elapsed" "${sid:--}" "${last:--}"
+  done
+  (( any )) || echo "(no lanes)"
+}
+
+cmd_tail() {
+  [[ $# -ge 1 ]] || die "usage: ds-lane tail <name> [n]"
+  local name="$1" n="${2:-5}" log
+  valid_name "$name"
+  [[ "$n" =~ ^[0-9]+$ ]] || die "n must be a number"
+  log="$RUN_DIR/$name.jsonl"
+  [[ -f "$log" ]] || die "no such lane: $name"
+  capture_session "$name"
+  echo "== last $n assistant messages ($name) =="
+  { jq -c "$MAIN_TEXT" "$log" 2>/dev/null || true; } | tail -n "$n" | jq -r '"--- " + ., ""'
+  if jq -e 'select(.type == "result")' "$log" > /dev/null 2>&1; then
+    echo "== latest result =="
+    jq -c 'select(.type == "result")' "$log" | tail -n1 \
+      | jq -r '"is_error: \(.is_error)\nsubtype: \(.subtype // "-")\ntotal_cost_usd: \(.total_cost_usd // "n/a")\nnum_turns: \(.num_turns // "-")\nresult: \(.result // "")"'
+  else
+    echo "== result: (none yet) =="
+  fi
+  if [[ -s "$RUN_DIR/$name.err" ]]; then
+    echo "== stderr (last 3 lines) =="
+    tail -n 3 "$RUN_DIR/$name.err"
+  fi
+}
+
+cmd_stop() {
+  [[ $# -eq 1 ]] || die "usage: ds-lane stop <name>"
+  local name="$1" pid
+  valid_name "$name"
+  [[ -f "$RUN_DIR/$name.meta" ]] || die "no such lane: $name"
+  pid="$(meta_get "$name" pid)"
+  if is_live_lane "$name"; then
+    kill -TERM "$pid"
+    echo "sent SIGTERM to $pid"
+  else
+    echo "lane '$name' not running (pid ${pid:-?} not a live claude process)"
+  fi
+  kill_feeder "$name"
+  rm -f "$RUN_DIR/$name.pid"
+  meta_set "$name" status stopped
+  meta_set "$name" end_epoch "$(date +%s)"
+}
+
+# Read-only live view of a lane's log, from the start. Never writes lane files or stdin, so it uses
+# is_live_lane/lane_marker/meta_get only (count_live and capture_session write).
+cmd_watch() {
+  [[ $# -eq 1 ]] || die "usage: ds-lane watch <name>"
+  local name="$1" log seen=0 n alive was_alive="" state end_at=""
+  valid_name "$name"
+  log="$RUN_DIR/$name.jsonl"
+  if [[ -t 1 ]]; then printf '\033]0;lane %s\007' "$name"; fi
+  trap 'echo; exit 0' INT
+  if [[ ! -f "$log" ]]; then
+    echo "--- waiting for $log ---"
+    while [[ ! -f "$log" ]]; do sleep 1; done
+    sleep 1 # launch creates the log just before it writes the .pid file
+  fi
+  while :; do
+    # Liveness before line count: once the process is seen dead, every line it wrote is drained
+    # before the end line prints.
+    alive=0
+    if is_live_lane "$name"; then alive=1; fi
+    n="$(log_lines "$log")"
+    if (( n < seen )); then echo "--- lane $name log restarted ---"; seen=0; fi
+    if (( n > seen )); then
+      tail -n "+$((seen + 1))" "$log" | head -n "$((n - seen))" | jq -R -r "$WATCH_FILTER" 2>/dev/null || true
+      seen=$n
+    fi
+    if [[ "$alive" != "$was_alive" ]]; then
+      if (( alive )); then
+        if [[ -n "$was_alive" ]]; then echo "--- lane $name running again ---"; fi
+      else
+        state="$(lane_marker "$name")"
+        if [[ -z "$state" ]]; then state="$(meta_get "$name" status)"; fi
+        if [[ -z "$state" || "$state" == running ]]; then state=exited; fi
+        echo "--- lane $name ended ($state) ---"
+        end_at=$(( $(date +%s) + 15 ))
+      fi
+      was_alive=$alive
+    fi
+    if (( alive )); then
+      end_at=""
+    elif [[ -n "$end_at" ]] && (( $(date +%s) >= end_at )); then
+      if [[ "${DS_LANE_WATCH_CLOSE_TAB:-}" == 1 ]]; then close_own_tab_later "$name"; fi
+      exit 0
+    fi
+    sleep 1
+  done
+}
+
+# Runs a command holding the per-user flock that serializes every Terminal tab open/close. The
+# kernel drops the lock when the holder exits, so a dead holder never leaves a stale lock and
+# nothing ever has to break one. Exit 200 = busy after DS_LANE_TAB_LOCK_WAIT_S, 201 = lock file
+# unusable (directory, symlink, not ours); otherwise the command's own exit status.
+with_tab_lock() { # with_tab_lock <command...>
+  python3 -c '
+import fcntl, os, subprocess, sys, time
+path, wait, cmd = sys.argv[1], float(sys.argv[2]), sys.argv[3:]
+try:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+except OSError:
+    sys.exit(201)
+deadline = time.time() + wait
+while True:
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        break
+    except BlockingIOError:
+        if time.time() >= deadline:
+            sys.exit(200)
+        time.sleep(0.2)
+    except OSError:
+        sys.exit(201)
+sys.exit(subprocess.call(cmd))
+' "$TAB_LOCK" "${DS_LANE_TAB_LOCK_WAIT_S:-30}" "$@"
+}
+
+# AppleScript handler shared by both scripts: selects the tab whose tty is t, if any. Selecting a tab
+# does not raise its window, but a native-tab Terminal reports each tab as its own one-tab window,
+# where selecting has no effect: such a tab is selected in its tab group only by raising its window,
+# so callers raise the recorded front window afterwards. loneOnly leaves a multi-tab window alone.
+SELECT_TTY_OSA='on selectTty(t, loneOnly)
+  if t is "" then return
+  tell application "Terminal"
+    repeat with aWin in windows
+      repeat with aTab in tabs of aWin
+        if tty of aTab is t then
+          if (count of tabs of aWin) is 1 then
+            set index of aWin to 1
+          else if not loneOnly then
+            set selected of aTab to true
+          end if
+          return
+        end if
+      end repeat
+    end repeat
+  end tell
+end selectTty'
+
+# AppleScript (argv: command, conductor tty). Returns "nomatch" at once when Terminal is not
+# running, so a conductor in another terminal app never launches it (Terminal's static sdef lets
+# the script compile without launching it). Records the front Terminal window, its selected tab and
+# the conductor window's selected tab, then selects the conductor's tab, raises its window and,
+# only while Terminal is frontmost, presses Cmd-T. The new tab is found by comparing every tab's
+# tty in every window before and after Cmd-T (a native-tab Terminal reports each tab as its own
+# one-tab window); the command goes to it only when exactly one new tty appeared. Otherwise
+# (Accessibility denied, Cmd-T lost or late, Terminal not frontmost, ambiguous) it goes to a new
+# window, never to a tab that existed before. Nothing is closed: a stray new tab cannot be proven
+# to be ours. Then counts orphans (new ttys other than the one running the command, e.g. a Cmd-T
+# tab that arrived after the 3 s poll), restores the conductor window's selected tab (in native-tab
+# mode by raising the conductor's window), raises the recorded front window (not the conductor's:
+# the operator may be looking at another window), re-selects its recorded tab and re-activates the
+# previously frontmost app by process id. Returns "nomatch" or "ok|<tab|window>|<orphans>|<front
+# window id>|<selected tty>|<front app>" observed afterwards, followed by the same three values
+# recorded beforehand, then the conductor window's selected tab observed afterwards and recorded
+# beforehand (11 fields; in native-tab mode both are the conductor's own tty).
+OPEN_TAB_OSA="$SELECT_TTY_OSA"'
+
+on newTtys(beforeTtys)
+  set found to {}
+  tell application "Terminal"
+    repeat with aWin in windows
+      repeat with aTab in tabs of aWin
+        set t to tty of aTab
+        if beforeTtys does not contain t then set end of found to t
+      end repeat
+    end repeat
+  end tell
+  return found
+end newTtys
+
+on run argv
+  if application "Terminal" is not running then return "nomatch"
+  set theCmd to item 1 of argv
+  set condTty to item 2 of argv
+  tell application "System Events"
+    set recProc to first application process whose frontmost is true
+    set recApp to name of recProc
+    set recPid to unix id of recProc
+  end tell
+  tell application "Terminal"
+    set recFrontId to missing value
+    set recFront to ""
+    set recTty to ""
+    if (count of windows) > 0 then
+      set recFrontId to id of front window
+      set recFront to recFrontId as text
+      set recTty to tty of selected tab of front window
+    end if
+    set condWinId to missing value
+    set condWinSel to ""
+    set beforeTtys to {}
+    repeat with aWin in windows
+      repeat with aTab in tabs of aWin
+        set end of beforeTtys to (tty of aTab)
+        if tty of aTab is condTty then
+          set condWinId to id of aWin
+          set condWinSel to tty of selected tab of aWin
+          set selected of aTab to true
+        end if
+      end repeat
+    end repeat
+    if condWinId is missing value then return "nomatch"
+    set index of window id condWinId to 1
+    activate
+  end tell
+  delay 0.2
+  set targetTty to ""
+  tell application "System Events" to set termFront to frontmost of application process "Terminal"
+  if termFront then
+    try
+      tell application "System Events" to keystroke "t" using command down
+      set found to {}
+      repeat 15 times
+        delay 0.2
+        set found to my newTtys(beforeTtys)
+        if (count of found) > 0 then exit repeat
+      end repeat
+      if (count of found) is 1 then set targetTty to item 1 of found
+    end try
+  end if
+  set how to "window"
+  set cmdTty to targetTty
+  tell application "Terminal"
+    if targetTty is not "" then
+      repeat with aWin in windows
+        repeat with aTab in tabs of aWin
+          if tty of aTab is targetTty then
+            do script theCmd in aTab
+            set how to "tab"
+            exit repeat
+          end if
+        end repeat
+        if how is "tab" then exit repeat
+      end repeat
+    end if
+    if how is "window" then set cmdTty to tty of (do script theCmd)
+  end tell
+  set orphans to 0
+  repeat with t in my newTtys(beforeTtys)
+    if (contents of t) is not cmdTty then set orphans to orphans + 1
+  end repeat
+  my selectTty(condWinSel, false)
+  if recFrontId is not missing value then
+    tell application "Terminal"
+      try
+        set index of window id recFrontId to 1
+      end try
+    end tell
+  end if
+  my selectTty(recTty, false)
+  try
+    tell application "System Events" to set frontmost of (first application process whose unix id is recPid) to true
+  end try
+  delay 0.3
+  tell application "System Events" to set obsApp to name of first application process whose frontmost is true
+  set obsCond to ""
+  tell application "Terminal"
+    set obsFront to (id of front window) as text
+    set obsTty to tty of selected tab of front window
+    repeat with aWin in windows
+      repeat with aTab in tabs of aWin
+        if tty of aTab is condTty then set obsCond to tty of selected tab of aWin
+      end repeat
+    end repeat
+  end tell
+  return "ok|" & how & "|" & orphans & "|" & obsFront & "|" & obsTty & "|" & obsApp & "|" & recFront & "|" & recTty & "|" & recApp & "|" & obsCond & "|" & condWinSel
+end run'
+
+# AppleScript (argv: own tty, conductor tty). Terminal cannot close a single tab by script, only a
+# window: a one-tab window is closed; a tab in a multi-tab window is selected and closed with Cmd-W
+# (Accessibility). Acts only once the tab has no processes left, so it never prompts and never
+# hits a reused tty that a new shell already owns. Cmd-W is pressed only while Terminal is
+# frontmost with this tab selected. Then restores that window's previously selected tab (the
+# conductor's tab when that was the tab being closed; after closing a one-tab window, the
+# conductor's tab if it too is alone in its window, since closing a native tab selects a
+# neighbour in its tab group), raises the recorded front window if it
+# still exists, re-selects its recorded tab and re-activates the previously frontmost app by
+# process id. Returns ok, busy, nomatch (also when Terminal is not running, so it is never
+# launched) or notfront.
+CLOSE_TAB_OSA="$SELECT_TTY_OSA"'
+
+on run argv
+  set myTty to item 1 of argv
+  set condTty to item 2 of argv
+  delay 2
+  if application "Terminal" is not running then return "nomatch"
+  tell application "System Events" to set recPid to unix id of first application process whose frontmost is true
+  set outcome to "nomatch"
+  set recFrontId to missing value
+  set recTty to ""
+  set winSel to ""
+  set loneOnly to false
+  tell application "Terminal"
+    if (count of windows) > 0 then
+      set recFrontId to id of front window
+      set recTty to tty of selected tab of front window
+    end if
+    repeat with aWin in windows
+      repeat with aTab in tabs of aWin
+        if tty of aTab is myTty then
+          if (count of (processes of aTab)) > 0 then return "busy"
+          if (count of tabs of aWin) is 1 then
+            close aWin
+            set outcome to "ok"
+            set winSel to condTty
+            set loneOnly to true
+          else
+            set winSel to tty of selected tab of aWin
+            set selected of aTab to true
+            set index of aWin to 1
+            activate
+            set outcome to "notfront"
+          end if
+          exit repeat
+        end if
+      end repeat
+      if outcome is not "nomatch" then exit repeat
+    end repeat
+  end tell
+  if outcome is "notfront" then
+    delay 0.2
+    tell application "System Events" to set termFront to frontmost of application process "Terminal"
+    tell application "Terminal" to set selTty to tty of selected tab of front window
+    if termFront and selTty is myTty then
+      try
+        tell application "System Events" to keystroke "w" using command down
+        set outcome to "ok"
+      on error errMsg
+        set outcome to "Cmd-W failed: " & errMsg
+      end try
+    end if
+  end if
+  if winSel is myTty then set winSel to condTty
+  my selectTty(winSel, loneOnly)
+  if recFrontId is not missing value then
+    tell application "Terminal"
+      try
+        set index of window id recFrontId to 1
+      end try
+    end tell
+  end if
+  if recTty is not myTty then my selectTty(recTty, false)
+  try
+    tell application "System Events" to set frontmost of (first application process whose unix id is recPid) to true
+  end try
+  return outcome
+end run'
+
+# Opens a watch tab for <name> next to the conductor's tab; prints the outcome and appends it to
+# run/<name>.tab.log.
+open_tab() { # open_tab <name> <conductor-tty>
+  local name="$1" ctty="$2" cmd out rc=0 err outcome="" st how orphans ofront otty oapp rfront rtty rapp ocond rcond
+  cmd="$(printf 'cd %q && ' "$PRIMARY")"
+  if [[ -n "${DS_LANE_RUN_DIR:-}" ]]; then cmd="${cmd}DS_LANE_RUN_DIR=$(printf '%q' "$DS_LANE_RUN_DIR") "; fi
+  cmd="${cmd}$(printf 'DS_LANE_WATCH_CLOSE_TAB=1 DS_LANE_CONDUCTOR_TTY=%q %q watch %q; exit' "$ctty" "$SELF" "$name")"
+  if [[ -z "$ctty" ]]; then
+    outcome="tab skipped: no conductor tty"
+  elif ! command -v osascript > /dev/null 2>&1; then
+    outcome="tab skipped: no osascript"
+  else
+    err="$(mktemp "${TMPDIR:-/tmp}/ds-lane-osa.XXXXXX")"
+    out="$(with_tab_lock osascript -e "$OPEN_TAB_OSA" "$cmd" "$ctty" 2> "$err")" || rc=$?
+    if (( rc == 200 )); then
+      outcome="tab skipped: lock busy"
+    elif (( rc == 201 )); then
+      outcome="tab skipped: lock unavailable"
+    elif (( rc != 0 )); then
+      outcome="tab error: $(head -n1 "$err"); focus: unknown"
+    elif [[ "$out" == nomatch ]]; then
+      outcome="tab skipped: no matching tab"
+    else
+      IFS='|' read -r st how orphans ofront otty oapp rfront rtty rapp ocond rcond <<< "$out"
+      if [[ "$st" != ok || ! "$orphans" =~ ^[0-9]+$ || ! "$out" =~ ^([^|]*\|){10}[^|]*$ ]]; then
+        outcome="tab error: unexpected osascript output '$out'; focus: unknown"
+      else
+        echo "opened: $how" >> "$RUN_DIR/$name.tab.log"
+        if [[ "$ofront" == "$rfront" && "$otty" == "$rtty" && "$oapp" == "$rapp" && "$ocond" == "$rcond" ]]; then
+          outcome="focus: kept"
+        else
+          outcome="focus: NOT kept (front window $ofront, tab $otty, app $oapp, conductor window tab $ocond; was $rfront, $rtty, $rapp, $rcond)"
+        fi
+        if (( orphans > 0 )); then
+          outcome="tab orphaned ($orphans other new tab(s) after Cmd-T, left open); $outcome"
+        elif [[ "$how" != tab ]]; then
+          outcome="tab misplaced (new window, no new tab found); $outcome"
+        fi
+      fi
+    fi
+    rm -f "$err"
+  fi
+  echo "$outcome" >> "$RUN_DIR/$name.tab.log"
+  echo "lane $name: $outcome"
+}
+
+# Fire-and-forget tab open after a launch, in its own process (it owns the tab lock while it
+# runs); detached from stdout/stderr so the printed pid and the command's exit are unaffected.
+open_tab_bg() { # open_tab_bg <name> <conductor-tty>
+  [[ "${DS_LANE_NO_TAB:-}" == 1 ]] && return 0
+  # Ignored before the fork, so a terminal hangup as this command exits cannot kill the opener
+  # before nohup takes over.
+  trap '' HUP
+  nohup "$SELF" __open-tab "$1" "$2" < /dev/null > /dev/null 2>&1 &
+  disown $! 2>/dev/null || true
+  return 0
+}
+
+# Closes the Terminal tab this viewer runs in, after its shell exits. Detached into its own session
+# so the closer is not one of the tab's processes.
+close_own_tab_later() { # close_own_tab_later <name>
+  local t
+  t="$(tty 2>/dev/null)" || return 0
+  [[ "$t" == /dev/* ]] || return 0
+  nohup python3 -c '
+import os, sys
+os.setsid()
+os.execv(sys.argv[1], sys.argv[1:])
+' "$SELF" __close-tab "$t" "${DS_LANE_CONDUCTOR_TTY:-}" "$RUN_DIR/$1.tab.log" < /dev/null > /dev/null 2>&1 &
+}
+
+# Appends the close outcome to <tab-log>.
+close_tab_now() { # close_tab_now <own-tty> <conductor-tty> <tab-log>
+  local out rc=0 err outcome
+  if ! command -v osascript > /dev/null 2>&1; then
+    outcome="close skipped: no osascript"
+  else
+    err="$(mktemp "${TMPDIR:-/tmp}/ds-lane-osa.XXXXXX")"
+    out="$(with_tab_lock osascript -e "$CLOSE_TAB_OSA" "$1" "${2:-}" 2> "$err")" || rc=$?
+    case "$rc:$out" in
+      200:*) outcome="close skipped: lock busy" ;;
+      201:*) outcome="close skipped: lock unavailable" ;;
+      0:ok) outcome="close: ok" ;;
+      0:busy) outcome="close skipped: tab busy" ;;
+      0:nomatch) outcome="close skipped: no matching tab" ;;
+      0:notfront) outcome="close skipped: Terminal not frontmost" ;;
+      0:*) outcome="close error: $out" ;;
+      *) outcome="close error: $(head -n1 "$err")" ;;
+    esac
+    rm -f "$err"
+  fi
+  echo "$outcome" >> "${3:-/dev/null}"
+}
+
+cmd_open() {
+  [[ $# -eq 1 ]] || die "usage: ds-lane open <name>"
+  valid_name "$1"
+  open_tab "$1" "$(conductor_tty)"
+}
+
+cmd_open_all() {
+  local f name n=0 tty
+  tty="$(conductor_tty)"
+  for f in "$RUN_DIR"/*.pid; do
+    [[ -e "$f" ]] || continue
+    name="$(basename "$f" .pid)"
+    is_live_lane "$name" || continue
+    open_tab "$name" "$tty" || true
+    n=$((n + 1))
+  done
+  echo "opened $n lane(s)"
+}
+
+cmd_resume_hint() {
+  [[ $# -eq 1 ]] || die "usage: ds-lane resume-hint <name>"
+  local name="$1" sid
+  valid_name "$name"
+  [[ -f "$RUN_DIR/$name.meta" ]] || die "no such lane: $name"
+  capture_session "$name"
+  sid="$(meta_get "$name" session_id)"
+  [[ -n "$sid" ]] || die "no session_id captured yet for '$name'"
+  echo "cd $(printf '%q' "$PRIMARY") && ${CLAUDE_CONFIG_DIR:+CLAUDE_CONFIG_DIR=$(printf '%q' "$CLAUDE_CONFIG_DIR") }claude --resume $sid"
+}
+
+usage() {
+  cat <<EOF
+usage: ds-lane <command>
+  start <name> <prompt-file>     launch a detached headless lane (max $MAX_LANES); stays up until closed
+  send <name> <text-or-file>     send a follow-up user message to a running lane
+  close <name>                   close the lane's stdin so it exits cleanly
+  reap                           close every running lane that printed LANE-DONE / LANE-BLOCKED
+  resume <name> [text-or-file]   relaunch an exited lane on its recorded session_id
+  list [name...]                 name, pid, state (done/blocked/alive/dead), elapsed, session_id, last line
+  tail <name> [n]                last n assistant messages + latest result event
+  watch <name>                   follow a lane's log live (text, tool calls, errors, result); read-only; exits 15s after the lane ends
+  open <name>                    open a Terminal.app tab running 'ds-lane watch <name>' without taking focus
+  open-all                       open a watch tab for every live lane
+  stop <name>                    SIGTERM a live lane recorded by this tool
+  resume-hint <name>             print the interactive claude --resume command
+  count                          print number of live lanes (prunes dead pid files)
+  path                           print the state dir; prompt and message files go in its prompts/
+State lives in <primary checkout>/.agentic/lanes; run from the conductor's repo or any of its worktrees.
+EOF
+}
+
+sub="${1:-}"; shift || true
+case "$sub" in
+  ""|-h|--help|help) usage; exit 0 ;;
+  __close-tab) close_tab_now "$@"; exit 0 ;;
+esac
+init_state
+case "$sub" in
+  start) cmd_start "$@" ;;
+  send) cmd_send "$@" ;;
+  close) cmd_close "$@" ;;
+  reap) cmd_reap ;;
+  resume) cmd_resume "$@" ;;
+  list) cmd_list "$@" ;;
+  tail) cmd_tail "$@" ;;
+  watch) cmd_watch "$@" ;;
+  open) cmd_open "$@" ;;
+  open-all) cmd_open_all ;;
+  stop) cmd_stop "$@" ;;
+  resume-hint) cmd_resume_hint "$@" ;;
+  count) count_live ;;
+  path) echo "$STATE" ;;
+  __open-tab) valid_name "$1"; open_tab "$1" "${2:-}" > /dev/null ;;
+  *) usage; exit 1 ;;
+esac

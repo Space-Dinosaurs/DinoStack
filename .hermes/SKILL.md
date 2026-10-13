@@ -339,7 +339,7 @@ The promotion gate that sits between orchestration-planner output and the first 
 
 **What blocks engineer spawn:**
 - Missing required artifact at any tier.
-- Brief or Plan Skeptic finds Critical or Major findings: same loop semantics as architect-plan Skeptic (re-route limits apply, max 2 fix passes).
+- Brief or Plan Skeptic finds Critical or Major findings: same loop semantics as architect-plan Skeptic (re-route limits apply, max 3 fix passes).
 - Brief or Plan Open Questions section non-empty: same hard gate as architect Open Questions (METHODOLOGY.md §Delegation).
 - Verification gate field set to "cannot specify": blocks Skeptic sign-off until resolved.
 - Cross-artifact alignment check has an unresolved UNCOVERED success criterion: blocks the Skeptic-on-Brief from running until resolved.
@@ -551,7 +551,7 @@ For Low or Trivial units, the Skeptic applies its inline self-check. QA is not s
 
 ### Re-route limits
 
-**Re-route limits.** Within any loop (Skeptic re-route or QA re-route), the conductor applies a max of 2 fix passes in a Skeptic loop and 3 in a QA loop before escalating to the human. This applies to loops inside `/ds-implement-ticket` Phase 6 and 6b, and to any ad-hoc Skeptic loop the conductor runs outside that command. The conductor tracks re-route count in-context.
+**Re-route limits.** Within any loop (Skeptic re-route or QA re-route), the conductor applies a max of 3 fix passes in a Skeptic loop and 3 in a QA loop before escalating to the human. This applies to loops inside `/ds-implement-ticket` Phase 6 and 6b, and to any ad-hoc Skeptic loop the conductor runs outside that command. The conductor tracks re-route count in-context.
 
 **At the cap, the conductor takes exactly one of two actions - never silent continuation.** (a) Ship, recording every unresolved non-Critical finding in the PR body as explicit accepted debt; or (b) escalate to the human, stating cost-to-date (rounds consumed, wall-clock or token cost if available, and CI cycle time when the unit has an open PR - each additional round re-runs the full required-check suite) and what the next round is expected to buy. **An unresolved Critical always blocks - the cap never ships a Critical.** This ship-or-escalate choice governs ad-hoc Skeptic loops and `/ds-implement-ticket` Phase 6 alike. **The round-count cap is mechanically enforced by `hooks/enforce-skeptic-round-cap.py` regardless of caller; the Critical-never-ships rule is not.** Full policy - including the hook's fail-open condition, its known residuals, the value-per-round gate that governs whether a round is spawned at all, and the ordering rule for enforcement-only units - is in `content/references/skeptic-protocol.md` §Round budget and value-per-round gate.
 
@@ -3452,7 +3452,7 @@ standard Skeptic and QA gates unchanged:
   adversarial brief and findings classification are unchanged.
 - The QA gate fires on the same `qa_criteria` trigger logic as any other Worker
   unit (see `content/sections/05-qa-gate.md`).
-- Re-route limits (max 2 fix passes in a Skeptic loop, 3 in a QA loop),
+- Re-route limits (max 3 fix passes in a Skeptic loop, 3 in a QA loop),
   convergence-failure escalation, and per-ticket QA flow all apply identically.
 
 No new gate, no bypass, no special case for cross-harness origin. The harness
@@ -4289,9 +4289,9 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       session log to .agentic/session-log/);
                       /ds-wrap command (reads events.jsonl for structural session skeleton,
                       and .agentic/.enforcement-fires.jsonl for Part D.5 signal 3(b));
-                      bin/ds-evaluate (reads .agentic/.enforcement-fires.jsonl for its
-                      signal 3 per-hook deny/allow_advisory tallies and its
-                      newest_ts/last_10_days figures);
+                      bin/ds-evaluate (reads .agentic/.enforcement-fires.jsonl and
+                      events.jsonl through bin/_eval.py's evaluate(), the same
+                      reader as bin/ds-eval below);
                       /ds-failure-audit (reads .agentic/.enforcement-fires.jsonl as an
                       OPTIONAL supplementary source - item 4 of its "What the audit
                       reads" list, and item 4 of the "Audit brief (verbatim - the
@@ -4309,6 +4309,10 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       `--repo` to compute hook_denies_per_session for two
                       windows either side of a methodology-change cut
                       point);
+                      bin/ds-eval via bin/_eval.py (reads hook
+                      spawn_start/spawn_complete rows and
+                      .agentic/.enforcement-fires.jsonl deny rows, joined
+                      to operator fire labels by session_id/tool_use_id);
                       bin/ds-cost team (reads .agentic/session-log/ for team rollup);
                       hooks/conductor-overreach-nudge.js (the registered Stop hook that
                       appends conductor_overreach); bin/ds-cost session/project (render
@@ -4339,7 +4343,7 @@ Performance: Standard.
   - **Skeptic-specific calibration fields** (when `agent == "skeptic"`): `data` additionally carries `findings_count` (`{critical, major, minor}`), `diff_lines` (integer; lines reviewed), `signed_off` (boolean), `iteration` (integer; loop iteration when sign-off occurred), and `meta_review` (always `null` at emission time; populated retroactively only via the separate `meta_review_complete` event below). The conductor constructs the merged `data` object inline before calling `bin/ds-emit`; meta-Skeptic and the original Skeptic do NOT write to `.agentic/`. See `content/references/skeptic-protocol.md` Section 14 for the calibration mechanism specification.
   - **Hook-emitted variant (DS-160)**: both `spawn_start` and `spawn_complete` now also have a deterministic, hook-emitted variant (`data.source:"hook"`), independent of the conductor-emitted schema above; the two variants may coexist for the same spawn on disk, but consumers do NOT sum them additively - `hooks/stop-context.js` `scanSessionAggregate()` and `bin/ds-cost`'s `_aggregate_by_agent()` both apply a double-count guard: when a session has at least one conductor-emitted (non-hook) `spawn_complete`, ALL hook-emitted telemetry for that session (both `spawn_start` and `spawn_complete`) is excluded from the count entirely, since the conductor-emitted record is treated as authoritative for that spawn. `scanSessionAggregate()` makes one exception: a session with any telemetry v2 hook `spawn_start` or `spawn_complete` (see Telemetry v2 below) is counted from hook rows only and its conductor rows are ignored, so a conductor row cannot zero out hook-resolved tokens and nothing is counted twice; `_aggregate_by_agent()` has no such exception. In a session with NO conductor-emitted `spawn_complete` (a pure ad-hoc session), a hook-emitted `spawn_start` is the sole authoritative "this spawn happened" signal and is deduped by `data.spawn_id` so each real spawn contributes exactly once, including a spawn whose `SubagentStop` never fires. A hook-emitted `spawn_complete` NEVER creates a spawn count of its own (round-2 fix: an earlier version counted an unresolvable `spawn_complete` as its own spawn, which double-counted whenever its matching `spawn_start` was still visible to the consumer) - it only ENRICHES an already-counted spawn's `wall_seconds` when its `data.paired_spawn_id` resolves to a `spawn_start` already seen in that session; an unpaired or unresolvable `spawn_complete` contributes nothing to the aggregate and is available only as raw forensic data directly in `events.jsonl`. `hooks/pre-tool-use-spawn-emit.js` (`PreToolUse(Task/Agent)`) emits hook-sourced `spawn_start` on every subagent spawn with `data.spawn_id` (a fresh `crypto.randomUUID()`, always present - the correlation key for pairing), `data.tool_use_id` (best-effort, from the PreToolUse payload's top-level `tool_use_id` field), and `data.parent_agent_id` (best-effort, from the payload's top-level `agent_id` field; present only for a nested spawn issued from inside a running subagent, else `null`), and `data.tokens_note: "unavailable (harness)"` unconditionally (tokens genuinely do not exist yet at spawn-LAUNCH time - unlike `spawn_complete`'s tokens_note, this is not a resolvable-but-failed state, it is a harness-ceiling fact that never resolves). `data.agentic_root_drift_levels` (int, hook-emitted `spawn_start` only) is how many directory levels `hooks/pre-tool-use-spawn-emit.js` had to walk up from the payload's `cwd` to find the `.agentic/` write location (`hooks/lib/repo-root.js`'s `resolveAgenticCwdWithDiagnostics`); `data.agentic_root_found_git` (boolean) is `false` when no `.git` ancestor was found at all, in which case the write fell back to the (realpath'd) payload `cwd` unchanged rather than a resolved repo root - a fallback that must be distinguishable from a successful resolution, which is the entire reason these two diagnostic fields exist (DS-171: months of silent phantom `.agentic/` trees at drifted cwd locations went unnoticed precisely because no telemetry field ever recorded whether resolution actually succeeded). `hooks/subagent-stop-spawn-emit.js` (`SubagentStop`) emits hook-sourced `spawn_complete` deterministically when a subagent actually finishes (unlike `PostToolUse(Task/Agent)`, which fires at spawn launch, not completion) with `data.paired_spawn_id` (the matched `spawn_start`'s `data.spawn_id`, or `null` if unmatched - pairing requires a same-session exact `data.tool_use_id` match first, falling back to same-session FIFO oldest-unmatched-spawn_start; it never pairs across sessions or when `session_id` is absent on either side) and a real `data.wall_seconds` (`null` if unmatched, OR if a match was found but the implied duration exceeds a 24h sanity ceiling - see `data.suspect` below); the event is always emitted even when pairing fails. `data.suspect` (boolean, hook-emitted `spawn_complete` only) is `true` when a pairing was found but produced an implausible (>86400s) duration - almost certainly a stale/mismatched pair rather than a genuine 24h+ subagent run; `data.wall_seconds` is `null` (never a fabricated ceiling value) whenever `data.suspect` is `true`, and consumers naturally contribute 0 wall-time for it (`Number(null)||0`) while still counting the spawn via its paired `spawn_start`. Both hook-emitted events carry `data.session_uuid`. `hooks/subagent-stop-spawn-emit.js` also resolves `data.tokens` (`{input, output, cache_creation, cache_read}`, summed from the subagent's own transcript JSONL under the active harness config dir - see `hooks/lib/config-dir.js` - via `bin/ds-parse-subagent-usage`'s sibling resolution logic) when at least one assistant record contributes a usable numeric usage field to that transcript; `data.tokens` is ABSENT (never zero-filled) and `data.tokens_note` explains why when it is not: `"unavailable (transcript not found)"` (the transcript file itself could not be located), `"unavailable (transcript unreadable)"` (round-2 fix: the file WAS located but yielded zero assistant records contributing a usable field - an empty file, a wholly malformed/non-JSONL file, and a genuinely turn-less transcript are all reported identically here rather than as a fabricated real-zero measurement; round-3 fix: "usable field" now means a real, non-negative NUMBER, not merely a present `usage` object - a transcript whose assistant records all carry `usage: {}`, or only non-numeric usage values, is reported the same way, and a negative usage value is never summed), or `"skipped (transcript too large)"` (the transcript is at or above 256 MiB - 20 MiB before telemetry v2 - and is never partial-summed). A transcript mixing valid and malformed/truncated lines is summed from the valid lines only, with NO disclosure that some lines were dropped (documented, accepted blemish - see `hooks/subagent-stop-spawn-emit.js`'s header comment). `tokens` and `tokens_note` are mutually exclusive on a given event, with one exception: the hook re-reads the transcript for up to 1000 ms until the run's final assistant record (stop_reason `end_turn`/`stop_sequence`/`max_tokens`/`refusal`) is on disk, and a transcript still without it at that bound emits its partial `tokens` alongside `tokens_note: "partial (final assistant record not on disk after 1000 ms)"`. The conductor-emitted `spawn_complete` schema (`tier`/`agent_id`/`model`/`tokens`/`status`/calibration fields) above is unchanged by this addition.
   - **Hook-emitted calibration fields (DS-178 unit A).** `data.agent_source` (string, hook-emitted `spawn_complete` only, always present) records the PROVENANCE OF THE `agent` LABEL - `"sidecar"` (the harness-written `.meta.json` sidecar's `agentType` resolved it), `"paired_start"` (the sidecar carried no `agentType`, so the label fell through to the matched `spawn_start`'s own `agent`), or `"unknown"` (neither resolved). This is the label's provenance, NOT which tier paired the spawn - a sidecar can pair the spawn via its `toolUseId` while the LABEL still falls through to `paired_start`, and vice versa; `agent_source` always agrees with where `agent` actually came from. `data.tool_use_id` on a hook-emitted `spawn_complete` (distinct from the payload-sourced field of the same name on a hook-emitted `spawn_start`, described earlier in this bullet) is now sourced from the SIDECAR's own `toolUseId` field first, falling back to the SubagentStop payload's own (measured unreliable) `tool_use_id` only when no sidecar resolves - not the payload field directly, as an earlier version of this hook used. `data.agent_note` (string, optional) is emitted only when the transcript's own `attributionAgent` field (present on every record type in a live transcript) DISAGREES with the resolved `agent` - a cross-check the hook computes but does not otherwise act on; absent when they agree or when either side is unavailable. `data.model`/`data.model_note` (mutually exclusive) resolve a Skeptic-or-any-agent's model: sidecar `model` field first (present on ~6-8% of real sidecars), falling back to the transcript's own `message.model`; absent-with-note on any resolution failure, using the same notes as `tokens_note`. For a Skeptic completion specifically (`agent === "skeptic"` after the precedence above), `data` additionally attempts `data.unit_key`/`data.iteration` (via an O(1) lookup against `.agentic/skeptic-tuid-index.json`, maintained by `hooks/enforce-skeptic-round-cap.py` - `iteration` is the round number PINNED at spawn time, not re-derived from the unit's live round-state at completion time), `data.findings_count`/`data.signed_off`/`data.findings_parse_ambiguous` (parsed from the SubagentStop payload's `last_assistant_message`, falling back to the transcript's LAST assistant message only when the payload lacks it, in the mandated sign-off format - a verdict line may also end in `:` or a closing `**` instead of `.`, in any case, or read `Sign-off: GRANTED`/`WITHHELD`, and counts may omit their colons; `findings_parse_ambiguous:true` when more than one `Findings:` line appears and the last one had to be used as a tie-break), and `data.diff_lines` (integer; a best-effort `git diff --shortstat` measurement of the range named in the spawn's own "Diff under review:" line, resolved from the subagent's own transcript prompt - genuinely not derivable from the SubagentStop payload alone). `diff_lines`'s miss clause distinguishes ITS OWN sub-causes by note text, four in total (round-5 correction: the prior wording here named only two): "no spawn prompt found in transcript" (the transcript itself did not yield a prompt to search), "no diff range found in spawn prompt" (a prompt was found but carries no "Diff under review:" line, or that line has no recognizable `ref1..ref2` range in it), "diff range rejected: option-shaped value" (round-4 fix - a range WAS found but starts with `-`, which git would otherwise consume as a flag rather than a ref, so it is rejected before the subprocess call rather than risking a fabricated result), and "git diff resolution failed" (a well-shaped range was found and passed to `git diff --shortstat`, but the subprocess call itself failed - e.g. the range does not resolve in this working tree) - a consumer distinguishing these four causes must read the note text, not just the field's absence. `data.calibration_note` (string, optional) is a SINGLE SHARED field across all three calibration misses above (tuid-index miss, sign-off parse miss, diff-range resolution miss) - when more than one miss occurs on the same completion, each contributes its own labeled clause (`"<field>: <reason>"`), joined with `"; "`, so no miss is silently dropped by another miss's note. **`calibration_note`'s presence does NOT imply every calibration field is absent** - the three misses it names are resolved independently, so a completion can carry a populated `findings_count`/`signed_off` (the sign-off parsed cleanly) alongside a `calibration_note` naming only the `unit_key`/`iteration` and/or `diff_lines` misses; a consumer must read `calibration_note` as "these specific named fields missed," never as "no calibration data resolved." None of these calibration fields are attempted for a non-Skeptic completion (not a "miss" in that case - simply not applicable, and no `calibration_note` either). See `scripts/verify-spawn-attribution-contract.js` for the standalone R1 verification tool that re-runs the shipped hook against real `.meta.json` sidecars; run it live before changing `findMatch()`'s pairing precedence or the sidecar-vs-paired-start label precedence.
-  - **Telemetry v2 (DS-246).** Hook rows carrying `data.telemetry_v: 2` differ from the two bullets above as follows. **Root:** both hooks write the PRIMARY checkout's `.agentic/events.jsonl` (`hooks/lib/spawn-events.js`), so a completion inside a linked isolation worktree survives the worktree; `stop-context.js` and `capture-gap.js` merge this session's primary-root spawn rows back in. **Runs:** every `spawn_complete` is one run of its spawn: `run_index` (prior paired completions + 1), `pair_method` (`tool_use_id` | `resume` | `fifo_same_agent` | null; FIFO only pairs a start of the same agent type), `run_start_ts`, and `wall_seconds` for this run only (a resumed run is timed from its transcript resume boundary, else null plus `wall_note`). Readers sum v2 run walls per spawn; legacy rows stay last-wins. `tokens` is cumulative and deduped per `message.id`, `run_tokens` is this run's share, and both add `cache_creation_5m`/`cache_creation_1h`. `model` is the resolved transcript id (`model_source: "transcript"`), else the sidecar alias (`"sidecar_alias"`). `agent_source` gains `"payload"` (the SubagentStop payload's `agent_type`). qa-engineer runs add `qa_result` (including `BLOCKED`) and `qa_blocking_count`, or `qa_result_note`, parsed from `last_assistant_message` first and the run's last transcript text otherwise. **task_id:** set on hook rows with `data.task_id_source` (`batch_state` | `invocation` | `paired_start` | `none`, plus `task_id_note` when none); an invocation is not credited to a spawn whose description names only other keys of the invoked ticket's project, i.e. the same prefix (`invocation_vetoed:<keys>`), nor to any later spawn until the next invocation (`invocation_expired:<key>`). **Internal agents:** a stop with an empty or absent `agent_type` and no sidecar writes nothing and exits 0, so it never consumes a real spawn's start. Older logs may hold `subagent_stop_internal` rows from before this row was dropped (it had no reader); readers ignore them.
+  - **Telemetry v2 (DS-246).** Hook rows carrying `data.telemetry_v: 2` differ from the two bullets above as follows. **Root:** both hooks write the PRIMARY checkout's `.agentic/events.jsonl` (`hooks/lib/spawn-events.js`), so a completion inside a linked isolation worktree survives the worktree; `stop-context.js` and `capture-gap.js` merge this session's primary-root spawn rows back in. **Runs:** every `spawn_complete` is one run of its spawn: `run_index` (prior paired completions + 1), `pair_method` (`tool_use_id` | `resume` | `fifo_same_agent` | null; FIFO only pairs a start of the same agent type), `run_start_ts`, and `wall_seconds` for this run only (a resumed run is timed from its transcript resume boundary, else null plus `wall_note`). Readers sum v2 run walls per spawn; legacy rows stay last-wins. `tokens` is cumulative and deduped per `message.id`, `run_tokens` is this run's share, and both add `cache_creation_5m`/`cache_creation_1h`. `model` is the resolved transcript id (`model_source: "transcript"`), else the sidecar alias (`"sidecar_alias"`). `agent_source` gains `"payload"` (the SubagentStop payload's `agent_type`). qa-engineer runs add `qa_result` (including `BLOCKED`) and `qa_blocking_count`, or `qa_result_note`, parsed from `last_assistant_message` first and the run's last transcript text otherwise; `qa_result` comes from an unindented result line, case-insensitive, trailing text allowed, recorded uppercase: a heading up to `###` (`## Result: PASS on all criteria`, `## Result: **FAIL**`, `## QA Result:`, `## Overall verdict:`) outranks a bare `result: PASS` line, which outranks a bold `**Result:** FAIL` line (the per-criterion form), and the last match wins within a tier; an enum template value followed by `|` is ignored. **task_id:** set on hook rows with `data.task_id_source` (`batch_state` | `invocation` | `paired_start` | `none`, plus `task_id_note` when none); an invocation is not credited to a spawn whose description names only other keys of the invoked ticket's project, i.e. the same prefix (`invocation_vetoed:<keys>`), nor to any later spawn until the next invocation (`invocation_expired:<key>`). **Internal agents:** a stop with an empty or absent `agent_type` and no sidecar writes nothing and exits 0, so it never consumes a real spawn's start. Older logs may hold `subagent_stop_internal` rows from before this row was dropped (it had no reader); readers ignore them.
 - `conductor_direct` is a retired legacy event name that may appear in old `events.jsonl` files; parsers should ignore it.
 - `meta_review_complete`: emitted by the conductor when a sampled meta-Skeptic returns its textual divergence report. `agent == "skeptic-meta"`. `data` carries `original_task_id` (the task_id of the original Skeptic spawn under review), `divergence` (`{critical_missed, major_missed, minor_missed}` - each a list of finding titles), `agreement` (boolean), and `session_uuid` (see below). The conductor parses meta-Skeptic's return text and constructs this payload itself; meta-Skeptic does not touch `.agentic/`. See `content/references/skeptic-protocol.md` Section 14.
 - `session_total`: no longer written to `events.jsonl`. The Stop hook and the OpenCode plugin used to append one per turn (or per `/ds-wrap`), and it printed a zero aggregate whenever no spawn rows existed. Historical rows stay in old logs; readers ignore them. Session totals now live only in the per-developer session log (see "Per-developer session log" below), whose lines still carry `event: "session_total"`. `bin/ds-identity write-hook` writes that line after its own repo-root resolution and skips the write entirely when neither a `.git` ancestor nor an `.agentic/` directory already present AT the cwd itself is found (it never climbs past the starting cwd, so an orphan cwd under `$HOME` cannot resolve to the global `~/.agentic/` store and poison the global session log with a fabricated `project_slug`) - so an existing session-log line implies resolution succeeded for that write.
@@ -4440,7 +4444,7 @@ Two callers populate it. `enforce-guarded-rm.py` writes `{"agent_self_corrects":
 
 **Retention:** not auto-rotated. Same operating posture as `events.jsonl` above - manual `mv` if it grows past concern. Project-local; gitignored. Note that in a repo with `abdication_guard_enabled: true`, `enforce-no-abdication.py`'s every-verdict posture makes this file grow with conductor turns rather than only with enforcement actions, so it fills faster than the action-only era's rate.
 
-**Consumer:** `/ds-wrap` Part D.5 signal 3(b) (Session-feedback capture signal, "Enforcement fire-log") tallies per `hook` value, counting only rows whose `decision` is not `"allow"`, as a `guardrail-fire` feedback candidate. Its read stays bounded but bounds on the FILTERED count - the last ~500 surviving rows, found within at most ~5000 raw tail lines - so every-verdict `"allow"` rows cannot crowd genuine fires out of the window. `bin/ds-evaluate` signal 3 tallies `"deny"` and `"allow_advisory"` per hook and, by design, counts any other `decision` value under neither total - so `"allow"` rows never reached those two totals. Its `newest_ts` and `last_10_days` figures are a separate matter: they originally counted every parsed row regardless of `decision`, which would have turned the per-day histogram into a conductor-turn histogram once `"allow"` rows existed, so `bin/ds-evaluate` now skips `decision == "allow"` rows before the timestamp is taken. A hook that logs only `"allow"` rows still appears under `by_hook` with both counts at 0 (ran, never fired). Any OTHER free-form `decision` value remains a fire and still feeds `newest_ts`/`last_10_days` - the exclusion is specific to `"allow"`, not a general "unrecognized value" filter. `/ds-failure-audit` is the third consumer (OPTIONAL supplementary source - item 4 of its "What the audit reads" list, and item 4 of the "Audit brief (verbatim - the binding contract)" under Step 3): it excludes `"allow"` rows from every guardrail-fire count and may use them only as a denominator when judging whether a guard is inert.
+**Consumer:** `/ds-wrap` Part D.5 signal 3(b) (Session-feedback capture signal, "Enforcement fire-log") tallies per `hook` value, counting only rows whose `decision` is not `"allow"`, as a `guardrail-fire` feedback candidate. Its read stays bounded but bounds on the FILTERED count - the last ~500 surviving rows, found within at most ~5000 raw tail lines - so every-verdict `"allow"` rows cannot crowd genuine fires out of the window. `/ds-failure-audit` is another consumer (OPTIONAL supplementary source - item 4 of its "What the audit reads" list, and item 4 of the "Audit brief (verbatim - the binding contract)" under Step 3): it excludes `"allow"` rows from every guardrail-fire count and may use them only as a denominator when judging whether a guard is inert. `bin/ds-eval` and `bin/ds-evaluate` (both via `bin/_eval.py`) count only `"deny"` rows per hook within the evaluated window, joins each to operator labels by `fire_key` (`tool_use_id`, else `session_id@ts`), and report a row with neither as not joinable rather than sampling it.
 
 ## Learnings-retrieval firing rate (transcript-derived, read-side only)
 
@@ -4448,7 +4452,7 @@ Not an `events.jsonl` event type, and deliberately so. Nothing emits a per-run r
 
 **The record is the harness's own subagent transcript**, not an agent-written or hook-written artifact: `<config_dir>/projects/*/*/subagents/agent-<id>.jsonl`, with the paired `agent-<id>.meta.json` sidecar supplying `agentType`. Because the harness writes it and records the call that was actually issued, it is not forgeable by an agent that skipped the step - the same property the `spawn_complete` sidecar resolution above relies on.
 
-**The reader is the operator or conductor, on demand**, via `bin/ds-learnings-retrieval-rate` (`--json` for the machine shape). Read-only, no hook, no SessionStart nudge, and not wired into `/ds-implement-ticket` or `/ds-wrap` - keeping it pull-only is what holds it inside the attention pillar. Its `wiring` column is derived from the live `content/agents/*.md` files (a role is `wired` when its agent file carries a `<!-- shared:learnings-retrieval -->` span), so the wired/control split self-updates when the fragment is stamped into or removed from an agent file. That derivation is retroactive, and the distortion runs in both directions: wiring is read from the CURRENT agent files but applied to a HISTORICAL corpus, so stamping a span in drags that role's pre-wiring runs into the wired pool (depressing the pooled wired rate), and removing one drags its historical post-wiring fires into the unwired-control pool (inflating the floor the wired rate is meant to be netted against). Across any wiring change, only the per-role rows read cleanly; neither pooled line is like-for-like. The tool states both directions in its own footer on every run.
+**The reader is the operator or conductor, on demand**, via `bin/ds-learnings-retrieval-rate` (`--json` for the machine shape), which reads that record in every Claude Code config-dir store on the machine (each `~/.claude*/projects` plus the active config dir's, named in its output), not only the active one; a repeatable `--store DIR` replaces that set. Read-only, no hook, no SessionStart nudge, and not wired into `/ds-implement-ticket` or `/ds-wrap` - keeping it pull-only is what holds it inside the attention pillar. Its `wiring` column is derived from the live `content/agents/*.md` files (a role is `wired` when its agent file carries a `<!-- shared:learnings-retrieval -->` span), so the wired/control split self-updates when the fragment is stamped into or removed from an agent file. That derivation is retroactive, and the distortion runs in both directions: wiring is read from the CURRENT agent files but applied to a HISTORICAL corpus, so stamping a span in drags that role's pre-wiring runs into the wired pool (depressing the pooled wired rate), and removing one drags its historical post-wiring fires into the unwired-control pool (inflating the floor the wired rate is meant to be netted against). Across any wiring change, only the per-role rows read cleanly; neither pooled line is like-for-like. The tool states both directions in its own footer on every run.
 
 **What a zero-fire reading means.** No *observable* read of `.agentic/learnings.md` occurred in that role's runs. It is not proof of non-retrieval: the predicate has documented false negatives (a `Grep` reaching the file via `glob=` rather than `path=`, a read through an opaque MCP handle, a read via an interpreter outside its read-command allowlist, a path reached only through a command substitution). For a role with n >= 20 it is strong evidence the instruction is not being followed; below that it is not yet evidence of anything. That threshold counts only runs that POSTDATE the role's span, and it does not apply at all to a role whose span postdates the runs in its row - most sharply the reading taken in the commit that first stamps the span, where every run predates it and a 0.0% at any n is the expected value rather than evidence of non-compliance. The tool cannot separate post-span runs out (it holds no per-run wiring timestamp, by DS-223 J3), so it stars every `wired` row with `*` and states this in its own footer; apply the n >= 20 rule only once the role has accumulated >= 20 runs you know to postdate the span. Read a wired role's rate as lift over the pooled unwired-control line the tool prints, never as an absolute: a nonzero control rate is expected and is not predicate error, because task-driven reads of the file happen without any instruction. `unreadable` runs (zero parsed records, or at/over the 20 MiB ceiling) are excluded from both the numerator and the denominator and are never folded into the not-fired count.
 
@@ -6726,23 +6730,28 @@ Resolution traces:
 <!--
 Purpose: Procedure for the optional cross-session runbook conductor: after
          /ds-ticket-triage, one session watches the ticket sessions the
-         operator opens for the triage lanes, relays operator rulings and
+         operator opens for the triage lanes, or starts them itself as
+         headless lanes via bin/ds-lane, relays operator rulings and
          stoppages between them, and holds risky actions for an operator
          decision. It never implements, reviews, or executes a held action.
 
 Public API: Read-only reference document. Entered only from
             /ds-ticket-triage Output item 8, when the operator replies
-            "conduct". Defines the state file
+            "conduct" or "launch". Defines the state file
             <repo>/.agentic/runbook-<KEY>.json, the kickoff and naming
-            format, the watch subscription, the stoppage relay branches,
-            and the binding message templates (ruling, state, hold, queue).
+            format, the launched-lanes procedure (ds-lane start, per-firing
+            reap and list, blocked and dead lanes as Operator decisions,
+            delivery by send or resume), the watch subscription, the
+            stoppage relay branches, and the binding message templates
+            (ruling, state, hold, queue).
 
 Upstream deps: Claude Code cross-session tools (ListAgents, SendMessage,
                CronCreate, CronList, CronDelete), loaded via ToolSearch;
                the /ds-ticket-triage artifact (lane fences, KEY stem);
                gh CLI and the configured tracker (live PR, CI and ticket
                state); per-ticket loop-state files written by
-               /ds-implement-ticket (read-only here).
+               /ds-implement-ticket (read-only here); bin/ds-lane (launch
+               mode only).
 
 Downstream consumers: content/commands/ds-ticket-triage.md Output item 8;
                       content/references/conductor-turn-format.md scope
@@ -6769,7 +6778,7 @@ Performance: one cron firing per 30 minutes plus one turn per idle notice;
 
 # Runbook conductor
 
-An optional mode for a session that has just run `/ds-ticket-triage`. The operator opens one ticket session per lane; this session watches them, relays operator rulings, surfaces stoppages as Operator decisions, and holds risky actions until the operator rules. Each ticket session still runs its own full `/ds-implement-ticket` flow. No message ever tells a session to skip its own Skeptic, QA or gates.
+An optional mode for a session that has just run `/ds-ticket-triage`. The operator opens one ticket session per lane, or this session starts each lane headless (§Launched lanes); this session watches them, relays operator rulings, surfaces stoppages as Operator decisions, and holds risky actions until the operator rules. Each ticket session still runs its own full `/ds-implement-ticket` flow. No message ever tells a session to skip its own Skeptic, QA or gates.
 
 ## Preconditions and degrade
 
@@ -6782,7 +6791,7 @@ An optional mode for a session that has just run `/ds-ticket-triage`. The operat
 
 One file, `<repo>/.agentic/runbook-<KEY>.json`, where `KEY` is the triage artifact stem (`triage-YYYYMMDD-4hex`). Only the conductor writes it, write-ahead: atomic tmp+rename, before any SendMessage it records.
 
-Fields: `schema_version`, `runbook_key`, `conductor_session_id`, `repo`, `status` (`active`|`complete`), `updated_at`, `resume_hint`, `waves[]`, `sessions[]` (each `{name, tickets[], adopted_via: issued|operator-confirmed, surfaced_status}`), `rulings[]`, `holds[]`, `queue[]`, `cron_id`.
+Fields: `schema_version`, `runbook_key`, `conductor_session_id`, `repo`, `status` (`active`|`complete`), `updated_at`, `resume_hint`, `waves[]`, `sessions[]` (each `{name, tickets[], adopted_via: issued|operator-confirmed|launched, lane, surfaced_status}`; `lane` is present only for launched sessions), `rulings[]`, `holds[]`, `queue[]`, `cron_id`.
 
 `holds[]` entries are `{ticket, session, summary, decision_verbatim}`. The executor is always the reporting `session`.
 
@@ -6802,11 +6811,21 @@ The kickoff is never written into the triage artifact. After "conduct", record e
 - Only issued names are adopted automatically. A session the operator explicitly names is added to `sessions[]` with `adopted_via: operator-confirmed`; its `tickets[]` are the tickets the operator names with it.
 - A session's tickets always come from `sessions[].tickets`, never from its name.
 
+## Launched lanes
+
+Entered when the operator replies "launch" instead of "conduct". This section replaces §Kickoff and naming's per-lane print: launch prints nothing per lane.
+
+- **Start.** `<state>` below is the directory `ds-lane path` prints (the primary checkout's, even from a linked worktree). For each lane, write `<state>/prompts/<name>.md`, where `<name>` is the lane's ticket IDs joined by "-". Its content is `<state>/prompts/_rules.md` when that file exists, followed by the artifact's lane fence, verbatim. Then run `ds-lane start <name> <that file>` and record `{name, tickets[], adopted_via: launched, lane: <name>}` in `sessions[]`, and the lanes' tickets as the first entry of `waves[]`. Start lanes in artifact order under the cap rule in **Firing**; the rest are queued. The queue is not stored: it is the artifact's lanes, in order, whose tickets are in the current `waves[]` entry and appear in no `sessions[]` entry, so rebuild it from those two fields after a compaction. `ds-lane start` adds the `LANE-DONE`/`LANE-BLOCKED` marker contract itself and runs the lane in this session's permission mode.
+- **Not adopted.** Launched sessions get no `ListAgents` adoption, no `notify_when_idle` arming, and no absent-name stoppage.
+- **Firing.** The §Watch cron still exists and drives every firing. Each firing runs `ds-lane reap`, then `ds-lane list <the launched lane names>`. A lane newly showing `blocked` or `dead` becomes an Operator decision whose dedupe key, kept in `surfaced_status`, is its `LANE-BLOCKED` line verbatim, or for `dead` (it exited with no marker: crash, API error or `stop`) `dead: ` plus its last `ds-lane tail <name> 1` message verbatim. Its slot stays reserved until its ruling is delivered. A queued lane starts only while `ds-lane count` plus the `blocked` or `dead` lanes with PROC `down` and no delivered ruling is below `DS_LANE_MAX` (default 5).
+- **Delivery.** Write each message to `<state>/prompts/<name>.msg.md` and pass that file, never the text inline. A message goes by the lane's `ds-lane list` row: STATE `alive` with PROC `up` (feeder still open) takes `ds-lane send <name> <file>`; PROC `down` with STATE `blocked` or `dead` takes `ds-lane resume <name> <file>`. A lane showing `blocked` with PROC still `up` has no feeder: its ruling stays pending and is retried each firing until PROC is `down`. A lane showing `done` gets no message, and a ruling that names no session goes only to the launched lanes not showing `done`.
+- **Reports.** Read a lane's report with `ds-lane tail <name> 1`. A report of a destructive or restoring action goes to §Holds. This reference adds no SendMessage instruction for launched lanes.
+
 ## Watch
 
 - Arm each adopted session with `SendMessage{to, notify_when_idle: true, content: ""}`. This is a subscription, not an envelope message. Re-arm it after every idle notice.
 - Create one cron, every 30 minutes on an off-minute (for example `7,37 * * * *`), whose prompt names the absolute state-file path and this reference. Record its id in `cron_id`. If `CronList` no longer shows it, re-create it (M4).
-- Each firing runs `ListAgents`, re-arms any conducted session missing a watch, and evaluates the close-out condition. An issued session name absent from `ListAgents` (a lane whose `/rename` was skipped) is surfaced once as a stoppage: surface it unless that session's `surfaced_status` is already `absent from ListAgents`, then set it to that.
+- Each firing evaluates the close-out condition. A firing with at least one session not launched by §Launched lanes also runs `ListAgents` and re-arms any such session missing a watch. An issued session name absent from `ListAgents` (a lane whose `/rename` was skipped) is surfaced once as a stoppage: surface it unless that session's `surfaced_status` is already `absent from ListAgents`, then set it to that.
 - **Silence.** A firing or notice with no stoppage emits no operator-visible text; the turn is tool calls only.
 
 ## Stoppage relay
@@ -6871,7 +6890,7 @@ When a wave's tickets are done, re-run `/ds-ticket-triage` over the remaining ti
 
 ## Session reuse
 
-Only on explicit operator request. Until M1 is measured, print the paste line for the operator and send only `queue`.
+Launched lanes are never reused. Otherwise only on explicit operator request. Until M1 is measured, print the paste line for the operator and send only `queue`.
 
 ## Conductor compaction
 
@@ -7092,7 +7111,7 @@ The conductor maintains an exchange log across Skeptic rounds to enforce the 2-r
    - For each finding that was escalated or re-routed, the round number(s) in which it appeared
    - The total re-route count for each finding
 
-4. **When to compress:** The conductor SHOULD apply compression after Round 2 sign-off, or earlier if the compressed log would exceed a single screenful or the preflight list can no longer fit in a single spawn prompt.
+4. **When to compress:** The conductor SHOULD apply compression after Round 3 sign-off, or earlier if the compressed log would exceed a single screenful or the preflight list can no longer fit in a single spawn prompt.
 
 5. **Fresh Skeptic invariant:** Compression affects ONLY the conductor's internal exchange log. The Skeptic remains a fresh invocation for every round. The Skeptic never sees the compressed log — it receives only the current round's adversarial brief, preflight list, and artifact.
 
@@ -7228,7 +7247,7 @@ No review content follows the BLOCKED line. The Skeptic does NOT produce finding
 
 - the ticket's own `loop-state-<LOOP_KEY>.json` (legacy: `loop-state.json`) has its `last_phase_action` set to `skeptic_blocked_input`.
 - Resume re-spawns the Skeptic with corrected inputs; iteration counter does NOT advance.
-- Step-0 BLOCKED is conductor-fault, not engineer-fault. Does NOT count toward the 2-fix-pass re-route cap (Section 5). Consumes a separate counter capped at 3, tracked in a per-unit-slug counter file.
+- Step-0 BLOCKED is conductor-fault, not engineer-fault. Does NOT count toward the 3-fix-pass re-route cap (Section 5). Consumes a separate counter capped at 3, tracked in a per-unit-slug counter file.
 - The CONDUCTOR fixes the spawn brief, NOT the Engineer.
 
 **Per-unit-slug counter files (Q-C=C1):**
@@ -7350,9 +7369,9 @@ The number of permitted Skeptic rounds scales with task complexity:
 
 **Why this exists.** A single session spent ~10 hours and ~15 Skeptic rounds on a 6-unit change. Seven of those rounds went to ONE unit whose entire output was an enforcement gate that shipped zero user-visible behavior change, and it blocked the three units that carried the actual value. Every finding, including Minors, got its own full engineer+Skeptic cycle. The conductor set an explicit stop condition at round 5 and then abandoned it under review pressure. The methodology has extensive machinery against UNDER-verification (the re-route counter, the cognitive-surrender audit note, the calibration sampling) and had no brake at all on OVER-verification. This subsection is that brake.
 
-**1. Round budget.** Default cap of 2 Skeptic rounds per unit (the same Skeptic-loop cap named in `content/sections/05-qa-gate.md` §Re-route limits and `/ds-implement-ticket` Phase 6's `max_iterations`; the QA loop's cap is separate and stays at 3). On reaching the cap, the conductor takes exactly one of two actions, never silent continuation: (a) ship, recording every unresolved non-Critical finding in the PR body as explicit accepted debt; or (b) escalate to the human, stating cost-to-date (rounds consumed, wall-clock or token cost if available, and CI cycle time when the unit has an open PR - each additional round re-runs the full required-check suite) and what the next round is expected to buy. **An unresolved Critical always blocks - the cap never ships a Critical.** This is the one exception to "the cap always terminates the loop" and must never be missed: a cap-reached escalation with an open Critical is `termination_reason: cap_reached` per the loop contract, not a ship decision. `hooks/enforce-skeptic-round-cap.py` mechanically enforces the round cap on every Skeptic spawn regardless of caller (ad-hoc or Phase 6 alike, keyed off the stable unit key that leads the spawn prompt's field 6, not the conductor's own branch; a field 6 present without a valid key is denied, per §4.5 Stable unit key contract). Past the cap, the hook allows exactly one more round per operator grant: its deny prints a `skeptic-grant-<8 hex>` token bound to that unit and round, and the round runs only after the operator's own typed message in that session contains the token. A decision written to the hook's state file, a cross-session message (including a `runbook-conductor.md` ruling), an AskUserQuestion answer, a compaction summary, or agent text never counts, and without a readable session transcript the deny stands. A prompt sent into the session with `claude -p --resume` is recorded as an operator turn and does count, so only the operator may send one carrying the token. Escalating at the cap therefore means reporting to the operator with the token. Before persisting an ALLOW decision, the hook consults `enforce-skeptic-neutrality.py`'s, `enforce-tier.py`'s, `enforce-background-spawn.py`'s, and `enforce-orchestrator-singularity.py`'s own `would_deny(data)` on the identical payload, but only when that sibling's registration on the Task/Agent PreToolUse matcher is positively confirmed against the user-level `settings.json` under the resolved harness config dir or the unit's own project-level `.claude/settings*.json` (a higher-precedence managed/enterprise settings file is deliberately not read - see the hook's own `_sibling_registered` docstring for the disclosed residual) - a spawn any of those four CONSULTED sibling PreToolUse hooks would deny never advances round_count. The counter still advances (charges the round, exactly as before this consultation existed) in every one of three fallback cases: (1) a sibling's registration cannot be confirmed (no settings file found, one is unreadable or malformed, or the basename is simply absent); (2) a sibling's own module fails to import or its `would_deny` call raises; or (3) any other unregistered/third-party guard denies it. In all three, the counter can still advance on a spawn REJECTED at the PreToolUse boundary, not only on a completed review, so a cap can still be reached without that many reviews having run. A cap fire the conductor cannot match to that many returned reviews may still be spurious, and a spurious fire is always `escalate`, never `ship`. This deny is conditional on the spawn prompt's "Diff under review" line being present, recognizable, and unambiguous; when it is not, the hook fails open with no state written rather than blocking. Known residual: the stable-key shape gate's file-path check only rejects a first path with an extension-shaped suffix, so a first path lacking one (e.g. `LICENSE | a.py`) still passes and becomes a wrong-but-stable key shared across units - accepted, not fixed, per the hook's own docstring. The hook does not enforce Critical-never-ships; that rule is the conductor's.
+**1. Round budget.** Default cap of 3 Skeptic rounds per unit (the same Skeptic-loop cap named in `content/sections/05-qa-gate.md` §Re-route limits and `/ds-implement-ticket` Phase 6's `max_iterations`; the QA loop's cap is separate and stays at 3). On reaching the cap, the conductor takes exactly one of two actions, never silent continuation: (a) ship, recording every unresolved non-Critical finding in the PR body as explicit accepted debt; or (b) escalate to the human, stating cost-to-date (rounds consumed, wall-clock or token cost if available, and CI cycle time when the unit has an open PR - each additional round re-runs the full required-check suite) and what the next round is expected to buy. **An unresolved Critical always blocks - the cap never ships a Critical.** This is the one exception to "the cap always terminates the loop" and must never be missed: a cap-reached escalation with an open Critical is `termination_reason: cap_reached` per the loop contract, not a ship decision. `hooks/enforce-skeptic-round-cap.py` mechanically enforces the round cap on every Skeptic spawn regardless of caller (ad-hoc or Phase 6 alike, keyed off the stable unit key that leads the spawn prompt's field 6, not the conductor's own branch; a field 6 present without a valid key is denied, per §4.5 Stable unit key contract). Past the cap, the hook allows exactly one more round per operator grant: its deny prints a `skeptic-grant-<8 hex>` token bound to that unit and round, and the round runs only after the operator's own typed message in that session contains the token. A decision written to the hook's state file, a cross-session message (including a `runbook-conductor.md` ruling), an AskUserQuestion answer, a compaction summary, or agent text never counts, and without a readable session transcript the deny stands. A prompt sent into the session with `claude -p --resume` is recorded as an operator turn and does count, so only the operator may send one carrying the token. Escalating at the cap therefore means reporting to the operator with the token. Before persisting an ALLOW decision, the hook consults `enforce-skeptic-neutrality.py`'s, `enforce-tier.py`'s, `enforce-background-spawn.py`'s, and `enforce-orchestrator-singularity.py`'s own `would_deny(data)` on the identical payload, but only when that sibling's registration on the Task/Agent PreToolUse matcher is positively confirmed against the user-level `settings.json` under the resolved harness config dir or the unit's own project-level `.claude/settings*.json` (a higher-precedence managed/enterprise settings file is deliberately not read - see the hook's own `_sibling_registered` docstring for the disclosed residual) - a spawn any of those four CONSULTED sibling PreToolUse hooks would deny never advances round_count. The counter still advances (charges the round, exactly as before this consultation existed) in every one of three fallback cases: (1) a sibling's registration cannot be confirmed (no settings file found, one is unreadable or malformed, or the basename is simply absent); (2) a sibling's own module fails to import or its `would_deny` call raises; or (3) any other unregistered/third-party guard denies it. In all three, the counter can still advance on a spawn REJECTED at the PreToolUse boundary, not only on a completed review, so a cap can still be reached without that many reviews having run. A cap fire the conductor cannot match to that many returned reviews may still be spurious, and a spurious fire is always `escalate`, never `ship`. This deny is conditional on the spawn prompt's "Diff under review" line being present, recognizable, and unambiguous; when it is not, the hook fails open with no state written rather than blocking. Known residual: the stable-key shape gate's file-path check only rejects a first path with an extension-shaped suffix, so a first path lacking one (e.g. `LICENSE | a.py`) still passes and becomes a wrong-but-stable key shared across units - accepted, not fixed, per the hook's own docstring. The hook does not enforce Critical-never-ships; that rule is the conductor's.
 
-**2. Value-per-round gate.** Before spawning round N+1, the conductor states, in one line, what shipped value that round buys - e.g. `[round-value: round 2 fixes the auth-bypass Critical, ships]`. If the honest answer is only "hardens infrastructure" or "improves a gate" with no behavior change reaching a user, the default is to defer the remaining findings to a follow-up rather than spend the round. Deferring to a follow-up means a `bin/ds-defer` entry plus a one-line operator mention, never an unconfirmed ticket (`content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline). This gate applies per round, independent of whether the 2-round cap has been reached - a unit can be argued out of round 2 on value grounds alone.
+**2. Value-per-round gate.** Before spawning round N+1, the conductor states, in one line, what shipped value that round buys - e.g. `[round-value: round 3 fixes the auth-bypass Critical, ships]`. If the honest answer is only "hardens infrastructure" or "improves a gate" with no behavior change reaching a user, the default is to defer the remaining findings to a follow-up rather than spend the round. Deferring to a follow-up means a `bin/ds-defer` entry plus a one-line operator mention, never an unconfirmed ticket (`content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline). This gate applies per round, independent of whether the 3-round cap has been reached - a unit can be argued out of round 2 on value grounds alone.
 
 **3. Infrastructure-after-value ordering.** A unit whose sole output is enforcement (a gate, a pin, a spec test, a CI check with no accompanying behavior change) must NOT block the change it enforces. Ship the behavior-changing units first; enforcement follows in a later PR. A gate protecting a change that has not shipped protects nothing, and an inert gate is worse than no gate because it looks like coverage. When ordering a multi-unit plan, the conductor sequences enforcement-only units after every unit that changes shipped behavior, not before or interleaved.
 
@@ -7362,7 +7381,7 @@ The number of permitted Skeptic rounds scales with task complexity:
 
 **6. Continue-vs-reshape signal.** Before spawning round N+1, compare round N's findings to round N-1's by severity and site, not by count alone. Falling severity across rounds at novel sites is convergence and justifies continuing under item 1's normal per-round accounting. Constant severity with the same defect class relocating - the same kind of finding reappearing at a different site rather than resolving - means the artifact itself needs reshaping: stop spending rounds on another pass of the same review shape and change what is being reviewed (the plan, the test, the enforcement mechanism itself), not who reviews it. When neither pattern clearly holds - severity is mixed, or too few rounds exist to compare - default to convergence (continue), and let item 1's round cap and ship-or-escalate branch be the backstop if the ambiguity persists to the cap. When round N's Major is the same defect class as a round N-1 Major at a new site, the next fix-pass brief names the class and directs the engineer to find every instance (a grep, or a test exercising the class; on a third-or-later round item 7 applies, so remove the surface rather than add a test) and fix them all. Uncited instances are in scope for that pass.
 
-**7. Subtract surface on a third-or-later fix round.** When a fix round is the third or later on the same unit, the fix-round brief instructs the engineer to REMOVE redundant surface rather than add coverage for it. Four consecutive rounds on one unit each added surface that became the next round's defect site until subtraction broke the pattern (KNW-20260827-016). Fix-round briefs point here; they do not restate this rule. Under the default cap of 2 in item 1, a third-or-later round is reached only via an operator grant at the cap (item 1), never by continuing the loop.
+**7. Subtract surface on a third-or-later fix round.** When a fix round is the third or later on the same unit, the fix-round brief instructs the engineer to REMOVE redundant surface rather than add coverage for it. Four consecutive rounds on one unit each added surface that became the next round's defect site until subtraction broke the pattern (KNW-20260827-016). Fix-round briefs point here; they do not restate this rule. Under the default cap of 3 in item 1, a fourth-or-later round is reached only via an operator grant at the cap (item 1), never by continuing the loop.
 
 ### Prose-scoped re-check
 
@@ -8156,7 +8175,7 @@ Format: `[phase: label]` — one line, no surrounding prose required. Add parent
 | `cleanup` | /simplify pass running (Elevated + Cleanup path only) |
 | `cleanup-review` | Narrow Skeptic reviewing /simplify diff |
 | `qa-review` | QA engineer is verifying the change in a browser |
-| `[loop: skeptic \| iteration N/2 \| open findings: X Critical, Y Major]` | Emitted by the conductor during Phase 6 Skeptic loop iterations in `/ds-implement-ticket`; include current iteration count, max cap, and open finding counts |
+| `[loop: skeptic \| iteration N/3 \| open findings: X Critical, Y Major]` | Emitted by the conductor during Phase 6 Skeptic loop iterations in `/ds-implement-ticket`; include current iteration count, max cap, and open finding counts |
 | `[loop: qa \| iteration N/3 \| open failures: X]` | Emitted during Phase 6b QA loop iterations; include current iteration count, max cap, and open failure count |
 | `[phase: task-state-init \| N tasks written]` | Conductor initialized `.agentic/tasks.jsonl` with N pending task entries from the orchestration plan's JSONL block |
 | `profiling` | Perf analyst is measuring latency, memory, or throughput |
@@ -8167,7 +8186,7 @@ Format: `[phase: label]` — one line, no surrounding prose required. Add parent
 Example status update: "Skeptic spawned for round 1 review. [phase: skeptic-review (round 1)]"
 
 **Loop breadcrumb examples:**
-- `[loop: skeptic | iteration 1/2 | open findings: 2 Critical, 1 Major]`
+- `[loop: skeptic | iteration 1/3 | open findings: 2 Critical, 1 Major]`
 - `[loop: qa | iteration 2/3 | open failures: 1]`
 
 **Disk write accompaniment.** Emitting a `[loop: ...]` breadcrumb is paired with an atomic write to the ticket's own `.agentic/loop-state-<LOOP_KEY>.json` (tmp+rename) - loop state is keyed per ticket, so two sessions on two tickets in one checkout write different files; the unkeyed `.agentic/loop-state.json` is the legacy path, still read on resume but no longer written. The breadcrumb is the in-transcript crash-recovery signal; the disk write is the cross-session persistence mechanism. Both happen at the same phase transition event. The `last_phase` and `last_phase_action` fields in the disk file are the authoritative resume keys (not `loop_state.phase`, which is used only to reconstruct in-context state on resume). See `/ds-implement-ticket` Resume check and Phase 6 for the full schema and write-trigger list.
@@ -9492,7 +9511,7 @@ An open-goal loop is an iterative conductor flow where the operator declares a m
 
 **Hard-stop**: the loop exits on whichever of these is hit first:
 - `goal_condition` evaluates to true (success).
-- The existing re-route cap is reached: 2 fix passes per Skeptic loop, or an immediate convergence failure (same finding re-raised unchanged after the engineer claimed to have fixed it). See `content/references/skeptic-protocol.md` for the exact rules.
+- The existing re-route cap is reached: 3 fix passes per Skeptic loop, or an immediate convergence failure (same finding re-raised unchanged after the engineer claimed to have fixed it). See `content/references/skeptic-protocol.md` for the exact rules.
 - A hard blocker is encountered: permission denial, missing credential, irreversible destructive action without authorization, fundamental scope conflict, or a gate/threshold/validation floor that has rejected the same substantive attempt twice (see `content/references/delegation-detail.md` section Worker Autonomy Contract for the full rule).
 
 The open-goal loop REUSES the per-ticket `loop-state-<LOOP_KEY>.json` (legacy: `.agentic/loop-state.json`), resume, and clean-exit exactly as documented in `content/sections/07-cross-session-loop-resume.md`. No new loop engine is introduced. Cross-session resume, interruption recovery, and batch-state coexistence all apply unchanged.
@@ -9502,7 +9521,7 @@ The open-goal loop REUSES the per-ticket `loop-state-<LOOP_KEY>.json` (legacy: `
 Exits are non-negotiable. The loop MUST stop when any of these fire:
 
 1. `goal_condition` is true after an iteration's review-gate clean-exit (Skeptic sign-off for Elevated iterations; conductor-direct evaluation for Low/Trivial).
-2. Re-route cap reached: conductor has made 2 fix passes on a single Skeptic finding and it is still open. Escalate to human per `content/references/skeptic-protocol.md` §Re-route limits.
+2. Re-route cap reached: conductor has made 3 fix passes on a single Skeptic finding and it is still open. Escalate to human per `content/references/skeptic-protocol.md` §Re-route limits.
 3. Convergence failure: a Skeptic raises the same finding unchanged after the engineer claimed to have fixed it. Escalate immediately; bypass remaining iteration budget per `content/references/skeptic-protocol.md` §Convergence failure.
 4. Hard blocker: permission denial, missing credential, irreversible destructive action without authorization, fundamental scope conflict, or a gate/threshold/validation floor that has rejected the same substantive attempt twice (see `content/references/delegation-detail.md` section Worker Autonomy Contract). Return BLOCKED.
 5. **Cap exhaustion (mandatory, no default).** The operator MUST declare `max_iterations` (positive integer) and `max_wallclock_min` (positive integer) at `goal_mode=open_goal` invocation time; an optional `dry_run` boolean (default `false`) may also be declared. Neither cap field has a default - an invocation missing either is refused before Phase 1 with the verbatim message: `"goal_mode=open_goal requires max_iterations and max_wallclock_min to be declared - no unbounded default is permitted. Re-invoke with both fields set."` The loop exits with `termination_reason: cap_reached_iterations` or `cap_reached_wallclock` when EITHER (a) `batch-state.json.open_goal.iteration` reaches `max_iterations`, or (b) wallclock elapsed since `batch-state.json.wallclock_started_at` reaches `max_wallclock_min`. **The outer-loop cursor lives in `batch-state.json`, not in any loop-state file - each iteration's `loop-state-<LOOP_KEY>.json` is marked complete, not cleared, by that iteration's own Phase 12, and cannot hold cross-iteration state.** This cap sits above rules 2-3 (which bound Skeptic/QA fix-passes INSIDE a single iteration).
@@ -15754,14 +15773,17 @@ per session, hook denies per session, tokens per session, wall time per
 session, and (for a git-checkout `--repo` with a resolvable `gh` remote)
 commits per merged PR, for two equal-length windows either side of the
 cut point, from the same live telemetry stores `ds-cost`, `ds-evaluate`,
-`ds-hook-fire-report`, and `ds-branch-prune` already read.
+`ds-hook-fire-report`, and `ds-branch-prune` already read. The `eval`
+block adds the same comparison over `ds-eval`'s figures (cost-state
+dollars per session), split by entrypoint and stated with its
+confounders.
 
 Implementation: `bin/ds-change-delta` (Python 3 stdlib).
 
 ## Usage
 
 ```
-ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH] [--window-days N] [--pr-lookahead-days N] --repo PATH [--repo PATH ...] [--json]
+ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH] [--window-days N] [--pr-lookahead-days N] --repo PATH [--repo PATH ...] [--json] [--no-eval]
 ```
 
 - `--cut` (required): a git SHA (resolved to its **committer** date on
@@ -15787,6 +15809,7 @@ ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH] [--window-days N] [--pr-lo
   past a window's end still count for that window's tickets.
 - `--json` for the full machine-readable report; default is a fixed-width
   table.
+- `--no-eval` skips the `eval` side (see below) and omits its key.
 
 ## Spawn telemetry: `agent_model` and `per_ticket` (DS-246)
 
@@ -15806,11 +15829,14 @@ a store with no v2 rows is `ABSENT`, both with `null` values.
   in `tokens_null_runs`, never priced as zero.
 - `per_ticket`: one row per ticket whose first v2 spawn (else its ledger
   `opened_ts`) falls in the window, keyed by the hooks' `task_id`. Each
-  row reports Skeptic reviews, max iteration, Critical/Major/Minor totals,
+  row reports Skeptic reviews (every Skeptic run, with
+  `skeptic_reviews_with_findings` counting those that carry a findings
+  count), max iteration, Critical/Major/Minor totals,
   `re_raised` (`null` when no `findings_log` entry records it), QA runs and
   fail-backs (FAIL or PARTIAL), merged and follow-up PRs, re-entries more
   than 1h after the first merge, Critical+Major findings after it (`null`
-  when the review count fell back to the ledger's `skeptic_rounds`),
+  when the review count fell back to the ledger's `skeptic_rounds`, or when
+  any Skeptic run after the first merge carries no findings count),
   `ledger_skeptic_rounds` (shown beside a telemetry count so an undercount
   is visible), `unit_count` (from the ledger, default 1), rework loops
   (`max(skeptic_reviews - unit_count, 0) + qa_fail_backs +
@@ -15827,6 +15853,62 @@ a store with no v2 rows is `ABSENT`, both with `null` values.
   mentions T does not count, and one matching several tickets goes to
   `ambiguous_prs`. When `gh` is unavailable, only the PR-derived fields
   (and `loops`) are `null`.
+
+## Evaluation side: `eval`
+
+`bin/_eval.py`'s `evaluate()` (the `ds-eval` engine) runs once per window
+over every Claude Code profile's transcript store. Every figure uses its
+envelope `{status: OK|PARTIAL|ABSENT, value, coverage, missing}`: a
+missing input is `ABSENT` with `value: null` and a reason, never 0, and an
+after window still running is `PARTIAL` with "after window not yet
+elapsed".
+
+- `before` / `after`: `ds-eval`'s own window figures - `sessions`,
+  `cost_usd` (cost reconciled to the harness cost-state),
+  `usd_per_reconciled_session`, `straddling_sessions`. `evaluate()` lists a
+  session in every window it overlaps.
+- The figures below count each session once, on the side its first
+  timestamp falls in (`meta.sessions_assigned`). The figure is cost-state
+  dollars per session, over the sessions whose cost-state covers them.
+  Empty sessions (no usage record and no cost-state spend, i.e. sessions
+  that never reached the model) are left out of every rate, mix and prefix
+  figure and counted in `confounders.<side>.empty_sessions`.
+- Small samples: each rate carries its session count as `sessions`, and
+  each delta and `mix_shifted` carry `n` (`{before, after}`). Fewer than
+  10 sessions on either side makes the figure `PARTIAL` with reason
+  "n < 10", so a K=5 prefix figure is always `PARTIAL`.
+- `confounders.before` / `confounders.after`: session shares by
+  entrypoint, model and Claude Code version (the usage key with the most
+  conductor messages), `base_commits` (the first-parent commits on each
+  repo's base ref in the window) and `empty_sessions`.
+- `pooled` and `per_entrypoint` (`cli`, `sdk-cli`, ...): before, after and
+  delta. A pooled delta can carry the opposite sign of every entrypoint's
+  own delta when the mix moves, so read `per_entrypoint` first.
+- `mix_shifted`: `true` when any entrypoint's session share moved more
+  than 10 points (exactly 10 is not a shift); `points` gives each
+  entrypoint's movement.
+- `prefix_test` at K = 5, 25 and 100: the mean cost per session of the
+  last K sessions before the cut against the first K after it. A step
+  change (for example a one-time prompt-prefix removal) shows the same
+  delta at every K; a trend grows with K. It cannot tell a fixed
+  per-session saving from a per-turn rate change: both lower a session's
+  cost, and the test sees only whole-session cost. Fewer than K sessions
+  on a side is `PARTIAL`. The pooled
+  `prefix_test` mixes entrypoints, so when `mix_shifted` is true it
+  compares mostly one entrypoint before the cut against another after
+  it; `prefix_test_per_entrypoint` runs the same test within each
+  entrypoint and is the one to read then.
+
+A window still running is `PARTIAL` on its own side: the after window of
+a recent cut, and the before window too when `--cut` is in the future.
+The default table prints `n=<before>/<after>` and the `PARTIAL` reasons
+on each `eval` row.
+
+The `eval` side never calls `gh` or `ds-feedback`, and any failure inside
+it becomes an `ABSENT` `eval` block naming the error, never a non-zero
+exit. It costs two transcript passes: tens of seconds on a repo with
+hundreds of sessions in the two windows. `--no-eval` skips it and omits
+the `eval` key.
 
 ## Coverage and status
 
@@ -15894,7 +15976,12 @@ state. Every subprocess call is one of `git rev-parse --verify`,
 `git show`, `git remote get-url`, `gh repo view`, or `gh api graphql`
 (all read-only). See `bin/tests/test_ds_change_delta.py`'s R5 test for
 the enforced argv allowlist and a fixture-repo HEAD/status
-byte-identity assertion.
+byte-identity assertion. The `eval` side runs through `bin/_eval.py`'s
+own reads: `git log`, `git rev-list --count`, `git remote`, the base-ref
+lookups (`git show-ref`, `git symbolic-ref`, `git rev-parse`), all
+read-only, with no `gh` and no `ds-feedback` call. The tool writes
+nothing itself, under the home directory or anywhere else; `gh`, when
+present, is run for PR history and may write its own state there.
 
 ## Known limitation: PR-history window granularity
 
@@ -16644,32 +16731,38 @@ The command is direct-action eligible - no extra confirmation prompt.
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
 <!--
-Purpose: Evaluate the methodology's effectiveness against the North Star pillars. Reads the pillar
-         text LIVE from docs/overview/vision.md at runtime (never hardcoded), runs bin/ds-evaluate
-         (the deterministic signal collector) for measured telemetry, spawns parallel per-pillar
-         scoring subagents, and writes a date-stamped report.
+Purpose: Evaluate the methodology's effectiveness against the North Star pillars over a time
+         window, and end with ranked methodology-refinement proposals, each naming its evidence
+         figure and the route it goes to. Reads the pillar text LIVE from the DinoStack checkout's
+         docs/overview/vision.md at runtime (never hardcoded), runs bin/ds-evaluate (the
+         deterministic signal collector, over bin/_eval.py) for measured telemetry, spawns parallel
+         per-pillar scoring subagents, writes a date-stamped report, and offers the operator up to
+         5 samples per D2-flagged hook to label via ds-feedback.
 
-Public API: /ds-evaluate (conductor-invoked; no flags, no subcommands). Reads docs/overview/vision.md
-            and the bin/ds-evaluate JSON rollup; writes docs/planning/ds-evaluate-YYYY-MM-DD.md.
+Public API: /ds-evaluate [window] (conductor-invoked). One optional window argument: `Nd` (e.g.
+            `14d`) or an ISO8601 date; default `30d`. Reads vision.md and the bin/ds-evaluate
+            report; writes docs/planning/ds-evaluate-YYYY-MM-DD.md and, only for operator-labelled
+            samples, ds-feedback items carrying a fire_label.
 
-Upstream deps: docs/overview/vision.md (North Star pillar text); bin/ds-evaluate (signal collector,
-               sibling unit); METHODOLOGY.md (activation preflight); the operator's telemetry files
-               (read by the collector).
+Upstream deps: docs/overview/vision.md (North Star pillar text); bin/ds-evaluate (signal collector);
+               scripts/lib/repo-dir.sh (resolve_repo_dir); bin/ds-feedback (fire labels);
+               METHODOLOGY.md (activation preflight); the operator's telemetry files (read by the
+               collector).
 
 Downstream consumers: build-all.sh (regenerates this command into all 11 adapter dirs); the operator,
                       who reads the conductor-presented digest and docs/planning/ds-evaluate-YYYY-MM-DD.md.
 
-Failure modes: scores are advisory, never a gate. Sparse telemetry degrades to a finding, never a
-               false 0. Self-report bias when a scoring model evaluates the methodology it runs under
+Failure modes: scores and proposals are advisory, never a gate. Sparse telemetry degrades to a
+               finding or a telemetry gap, never a false 0. Self-report bias when a scoring model evaluates the methodology it runs under
                is mitigated by Step 3's non-dominant-model guidance.
 
 Performance: one deterministic collector run plus N parallel lens spawns (N = number of pillars),
              each ~15 tool calls. Negligible at the intended cadence.
 -->
 
-Evaluates the methodology's effectiveness against the North Star pillars. The conductor runs a deterministic signal collector (`bin/ds-evaluate --repo <repo>`) to gather measured telemetry, spawns one parallel scoring subagent per pillar, and merges the verdicts into a per-pillar scorecard. The pillar text is read LIVE from `docs/overview/vision.md` at runtime - it is never hardcoded here, so a pillar edit needs no command change.
+Evaluates the methodology's effectiveness against the North Star pillars over a time window, and ends with ranked refinement proposals the operator can route. The conductor runs a deterministic signal collector (`bin/ds-evaluate`) over the current project's telemetry, spawns one parallel scoring subagent per pillar, merges the verdicts into a per-pillar scorecard, and closes with the proposals, the telemetry gaps, and an optional labelling pass over flagged hook denies. The pillar text is read LIVE from the DinoStack checkout's `docs/overview/vision.md` at runtime - it is never hardcoded here, so a pillar edit needs no command change.
 
-**When to use:** periodically (quarterly), after a methodology change, or when the operator wants a pillar-by-pillar effectiveness snapshot grounded in measured signals rather than impression.
+**When to use:** periodically, after a methodology change, or when the operator wants to see what is working and what to refine, grounded in measured signals rather than impression. Run it from the project whose telemetry should be evaluated (its primary checkout - hook spawn rows land there, not in a linked worktree).
 
 **Do not use to:** categorize failure modes per model/harness (use `/ds-failure-audit`), count tokens (use `/ds-cost`), or gate a merge - the scores are advisory by design.
 
@@ -16692,26 +16785,36 @@ Run the Activation preflight from `METHODOLOGY.md`. If inactive, no-op and exit.
 
 ## Step 2 - Signal collection
 
-The conductor runs the deterministic collector and reads its JSON rollup (stdout):
+Write the window into the command below in place of `<window>`: the command's argument when one was given (`14d`, `30d`, or an ISO8601 date), else `30d`. `REPO_DIR` is the DinoStack checkout, resolved by `resolve_repo_dir` from `scripts/lib/repo-dir.sh`; the first line only locates that library through the same config file the resolver reads. The telemetry repo is the current project's git toplevel.
 
+```bash
+AE_BOOT="$(python3 -c 'import json, os; print(json.load(open(os.path.expanduser("~/.agentic/agentic-engineering-config.json"))).get("repo_dir", ""))' 2>/dev/null)"
+REPO_DIR=""
+. "${AE_BOOT:-$HOME/DinoStack}/scripts/lib/repo-dir.sh" && resolve_repo_dir --quiet && REPO_DIR="$AE_REPO_DIR"
+if [ -z "$REPO_DIR" ]; then
+  echo "ds-evaluate: cannot resolve the DinoStack checkout (repo_dir in ~/.agentic/agentic-engineering-config.json, else ~/DinoStack) - nothing was evaluated" >&2
+  false
+else
+  "$REPO_DIR/bin/ds-evaluate" --repo "$REPO_DIR" --telemetry-repo "$(git rev-parse --show-toplevel)" --since <window>
+fi
 ```
-bin/ds-evaluate --repo <repo>
-```
 
-The rollup is the single measured-signal input to every pillar lens. Pass it verbatim to each lens. Per-signal data-quality caveats - all documented facts; state them in the report rather than "fixing" the numbers:
+A "cannot resolve the DinoStack checkout" line means the collector never ran: report that as a collector failure (see Edge cases), never as an empty result.
 
-- **Tokens zero-filled:** token fields are zero when token attribution is unavailable (e.g. no opt-in pricing configured for `/ds-cost`). A 0 tokens signal is an absence of data, not a measurement of 0 - the report must say so.
-- **Enforcement-fires is repo-cumulative, not session-scoped:** the enforcement-fires tally the collector reads (`.agentic/.enforcement-fires.jsonl`) is a repo-wide cumulative count. Never present an enforcement-fires figure as a per-session count.
-- **Enforcement-fires figures count fires, not hook invocations:** `enforce-no-abdication.py` logs every verdict path it reaches, including plain `"allow"` rows for turns it evaluated and declined to fire. The collector excludes those rows from `newest_ts` and `last_10_days` (and they were never in `deny_total`/`allow_advisory_total`), so all four figures mean fires. A hook that logged only `"allow"` rows still appears under `by_hook` with its counts at 0 - read that as "ran, never fired", never as "absent". Do not re-derive a fire rate from raw line counts of that file; it also grows with conductor turns.
+The report (stdout) is the single measured-signal input to every pillar lens; pass it verbatim to each lens. It opens with the proposal and gap counts, then the window and one line per transcript store, the measured sections (`[cost]`, `[agents]`, `[skeptic_rounds]`, `[work_items]`, `[hooks]`, `[mix]`), the DinoStack checkout's `[methodology]` signals (budget gates, resident floor, vision pillars), and ends with `Refinement proposals` and `Telemetry gaps` (Steps 5-6). Data-quality rules - state them in the report rather than "fixing" the numbers:
 
-If the collector fails or returns an empty rollup, treat the invocation as a sparsity finding (see Edge cases) - never proceed with an invented signal baseline.
+- **Every metric carries a status:** `OK`, `PARTIAL` (a named source or sample is incomplete, with its coverage) or `ABSENT` (no input, value null). An ABSENT figure is an absence of data, never a measurement of 0 - the report must say so.
+- **Every figure is window-scoped:** sessions, spawns, hook denies and dollars count only the window; never present one as an all-time or per-session figure.
+- **Dollars are reconciled, not summed tokens:** `[cost]` reconciles against the harness's own cost-state; sessions with no cost-state are a separate group, reported PARTIAL rather than folded into the total.
+
+If the collector fails or prints no report, treat the invocation as a sparsity finding (see Edge cases) - never proceed with an invented signal baseline.
 
 ## Step 3 - Pillar-lens scoring
 
-Extract the North Star pillar list from `docs/overview/vision.md` (the "North Star" section) at runtime. Spawn ONE `investigator` subagent per pillar, in parallel (background), each briefed with:
+Extract the North Star pillar list from the DinoStack checkout's `docs/overview/vision.md` (the "North Star" section; the report's `[methodology]` line names that checkout) at runtime. Spawn ONE `investigator` subagent per pillar, in parallel (background), each briefed with:
 
 - the pillar's verbatim text (from the live vision.md read in this invocation - never from memory)
-- the signal JSON rollup verbatim
+- the Step 2 report verbatim
 - the compact verdict contract below
 - every section of that brief that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
 
@@ -16720,13 +16823,13 @@ Prefer a non-dominant model for at least one lens (self-report bias mitigation, 
 Keep the brief contract compact - this command's output is a report, not a PR. Each lens returns a structured verdict:
 
 - **score:** 1-5 (5 = the methodology fully serves this pillar)
-- **evidence:** file:line references where the signal rollup / telemetry grounds the score
+- **evidence:** the report figures (section and metric) that ground the score
 - **gaps:** concrete weaknesses against this pillar
 - **action:** ONE candidate action that would most improve this pillar's score
 
 ## Lens brief (verbatim - compact contract)
 
-"Score the dinostack methodology against this North Star pillar. Read the pillar text and the signal JSON rollup provided, and return a structured verdict: score (1-5), evidence with file:line references, gaps, and ONE action candidate. Ground every score in the signals; where the signal rollup does not cover a pillar, say 'insufficient data' instead of inventing a score. You are producing a report input, not a PR - keep the verdict to a few paragraphs."
+"Score the dinostack methodology against this North Star pillar. Read the pillar text and the signal report provided, and return a structured verdict: score (1-5), evidence naming the report figures used, gaps, and ONE action candidate. Ground every score in the signals; an ABSENT figure is missing data, not a 0, and where the report does not cover a pillar, say 'insufficient data' instead of inventing a score. You are producing a report input, not a PR - keep the verdict to a few paragraphs."
 
 ## Step 4 - Synthesis
 
@@ -16734,8 +16837,56 @@ After the lenses return, the conductor:
 
 1. Merges the verdicts into a per-pillar scorecard.
 2. Writes the report to `docs/planning/ds-evaluate-YYYY-MM-DD.md` (gitignored - never committed).
-3. Returns a compact digest inline: per-pillar scores, the top gap, and the top action candidate.
-4. Flags gaps as actionable findings - optionally filed via the tracker helper, mirroring `/ds-feedback-triage` (only operator-approved items are filed).
+3. Returns a compact digest inline that leads with the refinement proposals (Step 5), then the per-pillar scores and the top action candidate.
+
+## Step 5 - Refinement proposals
+
+Present the report's `Refinement proposals` verbatim and in its order - it is `bin/_eval.py`'s Decision rules order (priced proposals by `rank_usd` descending, then unpriced ones by evidence count descending); never re-rank or drop one. Each line names the rule (D1a-D3), subject, evidence figure, value and count, `rank_usd` (or `unpriced`), and route. Name the route as the operator acts on it:
+
+| Route | Where it goes |
+|---|---|
+| `update-agentic-engineering` | `/ds-update-agentic-engineering` (a methodology change: Skeptic round shape, D1a-D1c) |
+| `prune-harness` | `/ds-prune-harness`, which applies its own floor-vs-dial pre-filter, so a floor hook is excluded there (D2) |
+| `tracker-ticket` | a ticket in the project tracker, filed only on operator approval, as in `/ds-feedback-triage` (D3) |
+
+No route is taken without the operator. `none` means no rule fired in the window.
+
+## Step 6 - Telemetry gaps
+
+Then list the report's `Telemetry gaps`: each input metric that was ABSENT or PARTIAL and the rules it disables (`blocks`). A gap has no route and no rank and is never a proposal; it says which rule could not be evaluated, not that the rule passed.
+
+## Step 7 - Label flagged hook denies
+
+For each D2 proposal that lists label samples, ask the operator ONE question per hook: a plain prose message that lists the hook's samples numbered from 1 (up to 5, each with its `ts` and reason) and asks for FP (false positive), TP (true positive) or skip per sample, plus an optional note:
+
+```
+enforce-x - label each deny: FP (it should not have fired), TP (it was right to fire), or skip.
+  1. 2026-10-03T09:55:00Z  "reason text"
+  2. 2026-10-03T09:50:00Z  "reason text"
+Reply like "1 FP, 2 TP, 3 skip"; add a note after any answer if you want one recorded.
+```
+
+Ask in prose only. Never use a multiple-choice question tool for this, and never mark, order or word any answer as recommended or default: a suggested answer biases the labels, and five per-sample answers do not fit one single-select question. A sample the reply does not mention is a skip. A hook with no samples gets no question.
+
+Write every FP or TP answer from this run in ONE `ds-feedback append` batch; a skipped sample writes nothing, and when every answer is skip, do not call `ds-feedback` at all. One draft per labelled sample:
+
+- `category` `guardrail-fire`, `scope` `methodology`, `severity` `low`
+- `evidence`: the sample's reason (`-` when the reason is empty)
+- `suggested_title`: `fire label <hook> <verdict>`, where `<verdict>` is `false_positive` or `true_positive`
+- `suggested_body`: the operator's note, or `-`
+- `fire_label`: `{"hook": "<hook>", "fire_key": "<fire_key>", "fire_ts": "<ts>", "verdict": "<verdict>"}`
+
+Use the repo printed on the samples line as `--repo` - `ds-eval` matches a label to its deny by that exact path. Write the drafts array into the heredoc in place of the placeholder:
+
+```bash
+LABELS_TMP="$(mktemp "${TMPDIR:-/tmp}/eval-labels.XXXXXX")"
+cat > "$LABELS_TMP" << '__EVAL_LABELS_JSON__'
+[...the drafts array...]
+__EVAL_LABELS_JSON__
+ds-feedback append --repo "<repo from the samples line>" --session-uuid "${CLAUDE_CODE_SESSION_ID:-unknown}" --file "$LABELS_TMP"
+```
+
+A labelled item is born `triaged`, so `/ds-feedback-triage` never lists it; the next `ds-eval` or `/ds-evaluate` run counts it in `hooks[<hook>].labelled`.
 
 ## Report template
 
@@ -16743,22 +16894,26 @@ After the lenses return, the conductor:
 # /ds-evaluate - YYYY-MM-DD
 
 ## Signals
-- Collector rollup: [signals present, coverage]
-- Caveats: [tokens zero-filled / enforcement-fires repo-cumulative / enforcement-fires count fires not invocations - stated if used]
+- Window: [start .. end], telemetry repo, stores
+- Caveats: [ABSENT/PARTIAL figures used, stated if used]
 
 ## Per-pillar scorecard
 
 | Pillar | Score (1-5) | Evidence | Top gap | Action candidate |
 |---|---|---|---|---|
 
-## Gaps and actionable findings
-[one per gap; optionally filed via the tracker helper]
+## Refinement proposals
+[the report's proposals verbatim, in order: rule, subject, evidence figure = value, n, rank_usd or unpriced, route]
+
+## Telemetry gaps
+[the report's gaps verbatim: input, status, blocks - no route, no rank]
 ```
 
 ## Edge cases
 
 - **Signal sparsity:** insufficient data is a finding ("not enough telemetry to score this pillar"), never a false 0. A lens that cannot ground its score in the signal rollup says so, and the scorecard marks the pillar unrated.
-- **Collector failure:** if `bin/ds-evaluate` errors or returns an empty rollup, the report records the failure as a finding and stops - it does not proceed with fabricated signals.
+- **Collector failure:** if `bin/ds-evaluate` errors or prints no report, the report records the failure as a finding and stops - it does not proceed with fabricated signals.
+- **Not inside a git checkout:** `git rev-parse --show-toplevel` prints nothing, and `bin/ds-evaluate` exits 2 on the empty `--telemetry-repo`; run the command from the project's checkout.
 
 ## Non-goals
 
@@ -16967,7 +17122,10 @@ loop, not a multi-phase pipeline. No subagent spawns, no new config toggles.
 ## Step 1 - Load open items
 
 Run `ds-feedback list --status open` (prints a JSON array; empty store
-or file-absent prints `[]`). If the array is empty, print:
+or file-absent prints `[]`). Items carrying a `fire_label` (an operator
+verdict on one hook deny) are born `triaged`, so they never appear here;
+`ds-eval` reads them for a hook's labelled false-positive rate. If the
+array is empty, print:
 
 ```
 No open feedback items in ~/.agentic/feedback.jsonl.
@@ -19494,7 +19652,7 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
   "loop_state": {
     "phase": "skeptic",
     "iteration": 1,
-    "max_iterations": 2,
+    "max_iterations": 3,
     "tier": 2,
     "findings_log": [],
     "qa_failures_log": [],
@@ -19533,7 +19691,7 @@ The file is overwritten (not appended) on each iteration state update and at loo
 Emit the inline breadcrumb:
 
 ```
-[loop: skeptic | iteration 1/2 | open findings: -]
+[loop: skeptic | iteration 1/3 | open findings: -]
 ```
 
 **Loop entry (repeat until termination):**
@@ -19585,7 +19743,7 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 **Step 3. Termination check:**
 - If no Critical or Major findings: if any `Scope drift:` Minor, or any `Comment discipline:` Minor with a span in code, is open, run Steps 4-5 on those Minors only, then return here instead of to Step 1 (no Skeptic re-review). Then auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Do not set `termination_reason: clean` with `findings_log` empty if this loop had findings (Step 2 populates it first; a genuinely-zero round may still exit clean empty). Set `termination_reason: clean`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Set `SKEPTIC_ROUNDS` to this loop's final `loop_state.iteration` (in-context variable; see below). **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
 
-**`SKEPTIC_ROUNDS` must be captured here, at Phase 6 exit - not read back later.** Phase 6b **overwrites the Phase 6 state** with `phase: qa, iteration: 1`, and fires for every Elevated unit with `qa_skip == null` - the common case. By Phase 9, `loop_state.iteration` on disk is the QA count, not the Skeptic round count: 2 Skeptic rounds plus a first-pass QA reads back as `1`. This is the pattern Phase 6b already uses for `QA_RAN_AND_PASSED`. The Trivial path never reaches Phase 6 and never sets `SKEPTIC_ROUNDS`, which is why the ledger's `skeptic_rounds` is legitimately null there.
+**`SKEPTIC_ROUNDS` must be captured here, at Phase 6 exit - not read back later.** Phase 6b **overwrites the Phase 6 state** with `phase: qa, iteration: 1`, and fires for every Elevated unit with `qa_skip == null` - the common case. By Phase 9, `loop_state.iteration` on disk is the QA count, not the Skeptic round count: 3 Skeptic rounds plus a first-pass QA reads back as `1`. This is the pattern Phase 6b already uses for `QA_RAN_AND_PASSED`. The Trivial path never reaches Phase 6 and never sets `SKEPTIC_ROUNDS`, which is why the ledger's `skeptic_rounds` is legitimately null there.
 - If `iteration == max_iterations` AND Critical or Major findings remain: take one of the two actions in `content/sections/05-qa-gate.md` §Re-route limits; an unresolved Critical forces escalate. **Ship:** mark every remaining open or addressed `findings_log` entry `deferred` (this ship decision at cap is the explicit approval Step 2 requires; it is recorded by the deferred entries and the PR body, never in the hook's state file), set `termination_reason: clean`, and take the clean-exit branch above. **Escalate:** set `termination_reason: cap_reached`, overwrite `.agentic/loop-state-$LOOP_KEY.json`, apply the Batch-mode escalation routing subsection below, then emit the Escalation format. Phase 6b does NOT run.
 - If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below, then escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section's override note. One re-raise after a claimed fix suffices within the loop.)
 
@@ -19728,7 +19886,7 @@ Fires exactly once per ticket per `/ds-implement-ticket` invocation.
 
 **Phase 6b only runs if Phase 6 exits cleanly (Skeptic sign-off granted, `termination_reason: clean`).** If Phase 6 exits via `cap_reached`, `convergence_failure`, or `blocked` escalation, Phase 6b is skipped entirely. Running QA on a Skeptic-rejected implementation is wasteful - the Phase 6 escalation subsumes Phase 6b for that session.
 
-**Cap independence:** the Phase 6 Skeptic cap (2 fix passes) and the Phase 6b QA cap (3) are separate budgets.
+**Cap independence:** the Phase 6 Skeptic cap (3 fix passes) and the Phase 6b QA cap (3) are separate budgets.
 
 **Trigger:** Phase 6b QA fires for Elevated units IFF all of the following hold:
 1. The unit's `qa_criteria` block (from the Brief, or from the architect plan if no Brief) is present.
@@ -24333,7 +24491,8 @@ Downstream consumers: operator-invoked only (standalone) OR /ds-implement-ticket
                       session; they do not bypass risk classification or Skeptic
                       review.
                       Output item 8 hands off to content/references/
-                      runbook-conductor.md when the operator replies "conduct".
+                      runbook-conductor.md when the operator replies "conduct"
+                      or "launch".
 
 Output description: triage_result {lanes[], deferred[], in_progress_excluded[],
                     functional_duplicates[], conflict_warnings[], heuristic_only}
@@ -24373,7 +24532,7 @@ Performance: one tracker API call per ticket in Phase 1 (conductor-direct);
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
-Strategic triage for a set of tickets. Produces a lane-distributed game plan with paste-ready `/ds-implement-ticket` kickoff prompts. Stops at the plan; does not invoke `/ds-implement-ticket`, touch the tracker, or write any `.agentic/` state. Output item 8 may hand off to content/references/runbook-conductor.md, whose conductor writes its own state only after the operator replies "conduct"; triage itself still writes nothing.
+Strategic triage for a set of tickets. Produces a lane-distributed game plan with paste-ready `/ds-implement-ticket` kickoff prompts. Stops at the plan; does not invoke `/ds-implement-ticket`, touch the tracker, or write any `.agentic/` state. Output item 8 may hand off to content/references/runbook-conductor.md, whose conductor writes its own state only after the operator replies "conduct" or "launch"; triage itself still writes nothing.
 
 ## When to use
 
@@ -24763,7 +24922,7 @@ Otherwise: spawn a fresh background Skeptic on the artifact with this adversaria
 
 > "Review this triage artifact. Check: (1) Dependency ordering - are blockers placed before the tickets they block within each chain? (2) Parallel safety - are tickets in the same lane genuinely non-conflicting per the Phase 2b analysis? (3) Deferral justification - is each deferred ticket's reason accurate and not overcautious? (4) Kickoff prompt completeness - does every non-deferred, non-in-progress ticket appear in exactly one lane's kickoff prompt? (5) Cap reconciliation - if Rule 4 fired, was the merge post-pass applied correctly and documented? (6) Rework annotation - was every ticket with `IS_REWORK: true` given the `[REWORK xN]` badge and a Notes-cell annotation naming the prior PR? Is it placed in a chain, never `parallel` - either its own single-ticket rework-isolated chain, or the DAG-connected chain Rule 2 already assigned it, with the in-set blocker relationship preserved first in that case? (7) In-flight provenance - for every ticket reaching the In-progress tickets table (Notes-bearing) with `entry.IN_FLIGHT: true`, does its Notes cell render per the Notes-cell composition rule, correctly OMITTING the tracker-column qualifier whenever `entry.IN_PROGRESS_TRACKER` is also true? For every ticket Rule 1 deferred (no Notes cell in that table) that also carries `entry.IN_FLIGHT: true`, does its Reason cell in `## Deferred tickets` name the causing PR instead - see the Interaction-with-Rule-1-deferral note?"
 
-Max 2 fix passes, then escalate to the operator with open findings listed.
+Max 3 fix passes, then escalate to the operator with open findings listed.
 
 `[phase: ticket-triage | phase=skeptic-review]`
 
@@ -24778,7 +24937,7 @@ After Phase 4b sign-off (or after the skip condition triggers), print to chat:
 5. If any conflict warnings were emitted, restate the fixed caveat.
 6. If `HEURISTIC_ONLY=true`, restate the Level 1 stamp.
 7. **Zero lanes with in-flight exclusions.** When the artifact contains zero lanes AND zero chains AND every non-lane-assigned ticket is an IN_FLIGHT-sourced exclusion as defined in the Phase 4b skip condition above (equivalently: `## Deferred tickets` is empty AND every entry in `## In-progress tickets` carries `entry.IN_PROGRESS_TRACKER: false` AND `entry.IN_FLIGHT: true`) AND at least one such ticket exists, print: `All candidate tickets are already in flight (open PRs: <keys>). No lanes to recommend. Recommended next action: review those PRs before starting new work - or re-invoke with an explicit ticket id to override.` If `## Deferred tickets` is non-empty, or any In-progress ticket carries `entry.IN_PROGRESS_TRACKER: true` or lacks `entry.IN_FLIGHT: true`, use the ordinary one-line summary (item 4) instead - do not claim ALL tickets are in flight when some are not (a terminal-plus-open-PR ticket lands in `## Deferred tickets`, so its presence alone routes here, not to the special print; a ticket with both flags true reached the table via the tracker column regardless of IN_FLIGHT, so it is not IN_FLIGHT-sourced and also routes here). Note the Phase 4b Skeptic does still run in this case, per the extended skip condition.
-8. **Cross-session conductor offer.** Only when the artifact has at least one lane and both `ListAgents` and `SendMessage` are named among this session's callable tools or its deferred-tool list, print: `Cross-session tools available: reply "conduct" to have this session watch the sessions you open for these lanes (content/references/runbook-conductor.md).` Make no `ToolSearch` call for them unless the operator replies "conduct"; then load them with `ToolSearch select:` and follow that reference. If loading fails, print `Cross-session tools could not be loaded; use the kickoff prompts above.` Otherwise print nothing for this item; all other output is unchanged.
+8. **Cross-session conductor offer.** Only when the artifact has at least one lane and both `ListAgents` and `SendMessage` are named among this session's callable tools or its deferred-tool list, print: `Cross-session tools available: reply "conduct" to have this session watch the sessions you open for these lanes (content/references/runbook-conductor.md).` Make no `ToolSearch` call for them unless the operator replies "conduct"; then load them with `ToolSearch select:` and follow that reference. If loading fails, print `Cross-session tools could not be loaded; use the kickoff prompts above.` Independently of that offer, when the artifact has at least one lane, `command -v ds-lane` succeeds, and `CronCreate` is named among this session's callable tools or its deferred-tool list, also print: `reply "launch" to have this session start and watch one headless lane per triage lane (ds-lane)`. On "launch", load the cron tools with `ToolSearch select:` and follow §Launched lanes in content/references/runbook-conductor.md. If loading fails, print `Cron tools could not be loaded; use the kickoff prompts above.` When neither predicate holds, print nothing for this item; all other output is unchanged.
 
 `[phase: ticket-triage | phase=complete]`
 
@@ -26343,7 +26502,7 @@ Otherwise skip that target silently.
 
 3. Validate sign-off format the same way Step 3 does (the mandatory elements per `content/references/skeptic-protocol.md` Section 11 - the seven always-required lines; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply here). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
-   If Critical or Major findings remain: spawn a new curation Worker with the same target-file line (path and counts, never the content), the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 2 re-routes, then skip compression/curation for that target this session and log the failure in Step 6.
+   If Critical or Major findings remain: spawn a new curation Worker with the same target-file line (path and counts, never the content), the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 3 re-routes, then skip compression/curation for that target this session and log the failure in Step 6.
 
    **Re-route snapshot carry-forward (staleness guard integrity).** The FIRST curation Worker's read-time snapshot (byte size + mtime, from its "Classification report block") is the only one that matters - it reflects what the target file actually looked like when curation began. Every re-spawned Worker in a re-route round is handed that ORIGINAL snapshot alongside the target-file line, the prior draft, and the findings, and must report it back unchanged in its own "Classification report block" - a re-route Worker never re-stats the target file itself, since re-stating it would silently reset the staleness guard's baseline to whatever the file looks like mid-review, defeating the guard's purpose. The conductor's write-time re-stat at step 4 always compares against this one original snapshot, regardless of how many re-route rounds occurred.
 
@@ -26477,7 +26636,7 @@ Relay confirmation to the user. Include all paths written (`_wrap.md`, root `MEM
 
 **The confirmation message MUST explicitly state which Skeptic rounds ran.** State the Skeptic round count for Steps 2–3 (draft Worker review) and the on-disk Skeptic round count from the Step 4 preamble (mandatory Skeptic on hand-authored output, if it ran). If any draft Worker → Skeptic round was skipped — for example, the conductor authored outputs inline because the Worker hallucinated, the light path was taken, or the zero-substance path was taken — say so explicitly and explain why. A confirmation that omits the Skeptic-round summary is non-conforming.
 
-Include compression results from Part E: for each file compressed, list the file path with before and after byte counts (e.g. "memory.md compressed: 4821 -> 2103 bytes"). If Part E was skipped (no changes this session) write "No compression needed (no session changes)." If no targets crossed the gate write "No compression needed (targets below threshold)." If a target failed after 2 re-routes, write "Compression failed for [path] after 2 re-routes - skipped this session."
+Include compression results from Part E: for each file compressed, list the file path with before and after byte counts (e.g. "memory.md compressed: 4821 -> 2103 bytes"). If Part E was skipped (no changes this session) write "No compression needed (no session changes)." If no targets crossed the gate write "No compression needed (targets below threshold)." If a target failed after 3 re-routes, write "Compression failed for [path] after 3 re-routes - skipped this session."
 
 **Final reminder:** After `/ds-wrap` completes, close the session cleanly so the Stop hook can finish writing this session's activity shard and recomposing `context.md`. In the terminal CLI, use `/exit` rather than ctrl+c - ctrl+c can interrupt the hook and lose session state. In the Claude desktop or web app, `/exit` is not available; just close the window or tab normally rather than force-quitting. <!-- gate-reviewed: about context.md, unaffected by the loop-state/batch-state cadence split -->
 

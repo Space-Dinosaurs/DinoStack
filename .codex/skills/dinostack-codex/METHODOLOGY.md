@@ -339,7 +339,7 @@ The promotion gate that sits between orchestration-planner output and the first 
 
 **What blocks engineer spawn:**
 - Missing required artifact at any tier.
-- Brief or Plan Skeptic finds Critical or Major findings: same loop semantics as architect-plan Skeptic (re-route limits apply, max 2 fix passes).
+- Brief or Plan Skeptic finds Critical or Major findings: same loop semantics as architect-plan Skeptic (re-route limits apply, max 3 fix passes).
 - Brief or Plan Open Questions section non-empty: same hard gate as architect Open Questions ($AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation).
 - Verification gate field set to "cannot specify": blocks Skeptic sign-off until resolved.
 - Cross-artifact alignment check has an unresolved UNCOVERED success criterion: blocks the Skeptic-on-Brief from running until resolved.
@@ -551,7 +551,7 @@ For Low or Trivial units, the Skeptic applies its inline self-check. QA is not s
 
 ### Re-route limits
 
-**Re-route limits.** Within any loop (Skeptic re-route or QA re-route), the conductor applies a max of 2 fix passes in a Skeptic loop and 3 in a QA loop before escalating to the human. This applies to loops inside `$dinostack-codex-implement-ticket` Phase 6 and 6b, and to any ad-hoc Skeptic loop the conductor runs outside that command. The conductor tracks re-route count in-context.
+**Re-route limits.** Within any loop (Skeptic re-route or QA re-route), the conductor applies a max of 3 fix passes in a Skeptic loop and 3 in a QA loop before escalating to the human. This applies to loops inside `$dinostack-codex-implement-ticket` Phase 6 and 6b, and to any ad-hoc Skeptic loop the conductor runs outside that command. The conductor tracks re-route count in-context.
 
 **At the cap, the conductor takes exactly one of two actions - never silent continuation.** (a) Ship, recording every unresolved non-Critical finding in the PR body as explicit accepted debt; or (b) escalate to the human, stating cost-to-date (rounds consumed, wall-clock or token cost if available, and CI cycle time when the unit has an open PR - each additional round re-runs the full required-check suite) and what the next round is expected to buy. **An unresolved Critical always blocks - the cap never ships a Critical.** This ship-or-escalate choice governs ad-hoc Skeptic loops and `$dinostack-codex-implement-ticket` Phase 6 alike. **The round-count cap is mechanically enforced by `$AE_REPO_DIR/hooks/enforce-skeptic-round-cap.py` regardless of caller; the Critical-never-ships rule is not.** Full policy - including the hook's fail-open condition, its known residuals, the value-per-round gate that governs whether a round is spawned at all, and the ordering rule for enforcement-only units - is in `$AE_REPO_DIR/content/references/skeptic-protocol.md` §Round budget and value-per-round gate.
 

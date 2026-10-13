@@ -35,6 +35,8 @@
 #   --dry-run: print symlink actions, the CLAUDE.md managed-block update
 #              intent, and repo_dir write intent without executing them.
 #              Hook wiring, build, and permission phases still execute.
+#   AE_INSTALL_SKIP_BUILD=1 env (test harnesses only): skip the adapter build
+#     step; scripts/check-local.sh sets it once its own build has run.
 #
 # Upstream deps: bash 3.2+, python3, git, node (for hooks), ln, readlink.
 #   The CLAUDE.md managed-block table body is single-sourced from
@@ -2291,9 +2293,17 @@ fi
 # Run initial build
 # ---------------------------------------------------------------------------
 
-echo "Running initial build..."
-bash "$REPO_DIR/.claude/build.sh"
-bash "$REPO_DIR/.cursor/build.sh"
+# AE_INSTALL_SKIP_BUILD=1 is a test-harness opt-in (scripts/check-local.sh sets
+# it after its own build-all.sh gate): the build regenerates tracked files in
+# this checkout and is idempotent, so the installer tests re-running it on
+# every install add minutes and no coverage. Unset means build, as always.
+if [[ "${AE_INSTALL_SKIP_BUILD:-}" == "1" ]]; then
+  echo "  [skip] adapter build (AE_INSTALL_SKIP_BUILD=1)"
+else
+  echo "Running initial build..."
+  bash "$REPO_DIR/.claude/build.sh"
+  bash "$REPO_DIR/.cursor/build.sh"
+fi
 
 # ---------------------------------------------------------------------------
 # Install pre-commit hook

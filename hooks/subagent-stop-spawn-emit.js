@@ -66,9 +66,11 @@
  *            `description` and `toolUseId`.
  *          - qa-engineer: `qa_result` (PASS/FAIL/PARTIAL/INCONCLUSIVE/
  *            BLOCKED) and `qa_blocking_count` from the run's last text, or
- *            `qa_result_note`. The Skeptic and QA parses read the payload's
- *            `last_assistant_message` first, the transcript's last text
- *            only when the payload lacks it.
+ *            `qa_result_note`. The result comes from an unindented result
+ *            line: a `#`-heading beats a bare `result:` line, which beats a
+ *            bold one; last wins within a tier. The Skeptic and QA parses
+ *            read the payload's `last_assistant_message` first, the
+ *            transcript's last text only when the payload lacks it.
  *          - Label: sidecar `agentType`, then payload `agent_type`
  *            (`agent_source: "payload"`), then the paired start.
  *
@@ -1349,24 +1351,46 @@ function isInternalAgent(payload, sidecar) {
 
 // qa-engineer's pointer return (content/agents/qa-engineer.md) opens with a
 // top-level `result:` line; criteria[] entries repeat `result:` indented, so
-// only an unindented line counts. BLOCKED is accepted although the pointer
-// enum omits it, because the same file's "Overall result rules" define it as
-// an overall result - dropping it would leave a real run unrecorded.
-const _QA_RESULT_RE = /^result:[ \t]*(PASS|FAIL|PARTIAL|INCONCLUSIVE|BLOCKED)[ \t]*$/gm;
+// only an unindented line counts. Real runs instead end on the written
+// report's `## Result: PASS ...` heading (also `QA Result` or `Overall
+// verdict`), often with a bold value or trailing prose. Unindented bold
+// `**Result:** X` lines are also how per-criterion results are written, so
+// they rank last: a heading (up to `###`) wins over a bare `result:` line,
+// which wins over a bold one, and the last match wins within a tier. A value
+// followed by `|` is the contract's enum template, not a result. BLOCKED is
+// accepted although the pointer enum omits it, because the same file's
+// "Overall result rules" define it as an overall result - dropping it would
+// leave a real run unrecorded.
+const _QA_RESULT_RE =
+  /^(#{1,3}[ \t]*)?\**((?:qa[ \t]+)?result|overall[ \t]+verdict)\**:\**[ \t]*\**(PASS|FAIL|PARTIAL|INCONCLUSIVE|BLOCKED)(?![\w-])(?!\**[ \t]*\|)/gim;
 const _QA_BLOCKING_RE = /^blocking_count:[ \t]*(\d+)[ \t]*$/gm;
+
+// 0 heading, 1 bare `result:`, 2 bold `**Result:**`; null for a
+// `QA Result`/`Overall verdict` label outside a heading.
+function _qaResultTier(m) {
+  if (m[1] !== undefined) return 0;
+  if (!/^result$/i.test(m[2])) return null;
+  return m[0][0] === '*' ? 2 : 1;
+}
 
 /**
  * Parse one qa-engineer run's last assistant text. Returns
- * {qaResult, qaBlockingCount|null} from the LAST matching top-level lines,
- * or {qaResultNote} when no result line is present.
+ * {qaResult, qaBlockingCount|null} from the highest-ranked result line (the
+ * last within its tier) and the last top-level blocking_count line, or
+ * {qaResultNote} when no result line is present.
  */
 function parseQaResult(runLastText) {
   const text = typeof runLastText === 'string' ? runLastText : '';
-  const results = [...text.matchAll(_QA_RESULT_RE)];
-  if (!results.length) return { qaResultNote: 'unavailable (no top-level result line in run)' };
+  let best = null;
+  let bestTier = Infinity;
+  for (const m of text.matchAll(_QA_RESULT_RE)) {
+    const tier = _qaResultTier(m);
+    if (tier !== null && tier <= bestTier) { best = m; bestTier = tier; }
+  }
+  if (!best) return { qaResultNote: 'unavailable (no top-level result line in run)' };
   const counts = [...text.matchAll(_QA_BLOCKING_RE)];
   return {
-    qaResult: results[results.length - 1][1],
+    qaResult: best[3].toUpperCase(),
     qaBlockingCount: counts.length ? Number(counts[counts.length - 1][1]) : null,
   };
 }
