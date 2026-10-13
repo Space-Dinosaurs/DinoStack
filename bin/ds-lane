@@ -24,13 +24,19 @@
 #   macOS consent prompt; what only an Apple event could tell it (Automation
 #   and Accessibility consent) is reported `unverified`. One line per check,
 #   `<ok|FAIL|unverified> <check>: <detail>`, each FAIL line followed by one
-#   `fix:` line and each unverified line by one `note:` line, then
-#   `tabs: <unverified|unavailable>` and a last line `headless lanes:
+#   `fix:` line and each unverified line by one `note:` line, then three
+#   summary lines. `tabs: <unverified|unavailable>` reflects only what a tab
+#   needs (every check except `ds-lane on PATH`). `launch offer:
+#   <available|unavailable: ds-lane not on PATH>` reflects only that check: a
+#   session offers to launch lanes only when `command -v ds-lane` succeeds,
+#   though tabs still open by absolute path. Last, `headless lanes:
 #   <available|unavailable>` (available whenever claude, python3 and jq
-#   resolve). Exit 1 when any check is FAIL, else 0. --json:
-#   {checks: [{check, status, detail, fix}], tabs, headless}.
+#   resolve). Exit 1 when tabs or the launch offer is unavailable, i.e. on
+#   any FAIL; else 0. --json: {checks: [{check, status, detail, fix}], tabs,
+#   launch_offer, headless}.
 #   `start` and `resume` print the lane pid, then one line `tab: <outcome>`
-#   (the new tab.log lines joined by "; ", `disabled (DS_LANE_NO_TAB=1)`, or
+#   (the new tab.log open lines joined by "; ", never a `close ...` line a
+#   previous watch tab's closer appends meanwhile, `disabled (DS_LANE_NO_TAB=1)`, or
 #   `unknown (no outcome after <N>s)`) and, unless a tab opened with focus
 #   kept, one `fix:` line for the operator. `open` prints `lane <name>:
 #   <outcome>` and the same `fix:` line. A tab outcome never changes the exit
@@ -134,6 +140,8 @@ SELF="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${BAS
 
 TAB_WAIT_S="${DS_LANE_TAB_WAIT_S:-8}"
 [[ "$TAB_WAIT_S" =~ ^[0-9]+$ ]] || TAB_WAIT_S=8
+# Base 10: a leading zero (08, 09) is otherwise an invalid octal constant in arithmetic.
+TAB_WAIT_S=$((10#$TAB_WAIT_S))
 
 # Sets PRIMARY, STATE and RUN_DIR; creates the self-ignoring state dir.
 init_state() {
@@ -906,7 +914,7 @@ tab_fix() { # tab_fix <name> <outcome>
   tabless="the lane is running without a tab: follow it with \`ds-lane tail $name\`, and set DS_LANE_NO_TAB=1 to skip tabs"
   case "$2" in
     *"tab error:"*-1743*|*"tab error:"*[Nn]"ot authorized"*)
-      fix="macOS blocked the Apple event. Open System Settings > Privacy & Security > Automation, find the app this session runs in (Terminal) and turn on both Terminal and System Events under it, then run \`ds-lane open $name\`; until then $tabless." ;;
+      fix="macOS blocked the Apple event. Open System Settings > Privacy & Security > Automation, find the app this session runs in and allow it to control Terminal and System Events. If no entry is listed, run \`ds-lane open $name\` once and answer Allow when macOS asks. Until then $tabless." ;;
     *"tab error:"*)
       fix="the tab opener failed with the message above. Retry with \`ds-lane open $name\`; if it names a permission, check System Settings > Privacy & Security > Automation; until then $tabless." ;;
     *"no conductor tty"*)
@@ -922,7 +930,7 @@ tab_fix() { # tab_fix <name> <outcome>
     *"tab orphaned"*)
       fix="Cmd-T answered late and left an extra empty Terminal tab open; close that tab by hand." ;;
     *"tab misplaced"*)
-      fix="the lane opened in a new window because Cmd-T produced no tab, most often because Accessibility is off. Open System Settings > Privacy & Security > Accessibility and turn on the app this session runs in (Terminal); later lanes then open as tabs." ;;
+      fix="the lane opened in a new window because Cmd-T produced no tab, most often because Accessibility is off. Open System Settings > Privacy & Security > Accessibility and turn on the app this session runs in; if it is not listed, add it with the + button. Later lanes then open as tabs." ;;
     *"focus: NOT kept"*)
       fix="opening the tab moved your focus; click back to the window you were using, and set DS_LANE_NO_TAB=1 if that keeps happening." ;;
   esac
@@ -943,7 +951,8 @@ open_tab_bg() { # open_tab_bg <name> <conductor-tty>
   nohup "$SELF" __open-tab "$1" "$2" < /dev/null > /dev/null 2>&1 &
   disown $! 2>/dev/null || true
   while :; do
-    new="$(tail -n "+$((before + 1))" "$log" 2>/dev/null || true)"
+    # A previous watch tab's closer appends its `close ...` line to the same log.
+    new="$(tail -n "+$((before + 1))" "$log" 2>/dev/null | grep -v '^close' || true)"
     # `opened: <how>` is written first; the outcome line follows it.
     if [[ -n "$new" && "${new##*$'\n'}" != "opened: "* ]]; then break; fi
     new=""
@@ -1016,13 +1025,21 @@ doc_row() { # doc_row <check> <ok|FAIL|unverified> <detail> [fix]
   D_CHECK+=("$1"); D_STATUS+=("$2"); D_DETAIL+=("$3"); D_FIX+=("${4:-}")
 }
 
-json_str() { local s="$1"; s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; printf '"%s"' "$s"; }
+json_str() {
+  local s="$1"
+  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"
+  s="${s//$'\t'/\\t}"; s="${s//$'\n'/\\n}"; s="${s//$'\r'/\\r}"
+  s="${s//[[:cntrl:]]/}"
+  printf '"%s"' "$s"
+}
 
 # Reports whether this machine and session can open watch tabs and run lanes. Runs no osascript:
 # an Apple event is the only thing that can raise a macOS consent prompt, so none is sent and
-# consent stays `unverified`.
+# consent stays `unverified`. `tabs:` counts every FAIL except `ds-lane on PATH`, which only the
+# `launch offer:` line reports (tabs open by absolute path without it). Returns 1 when tabs or the
+# launch offer is unavailable, i.e. on any FAIL.
 cmd_doctor() {
-  local json=0 os p c t tp i fails=0 headless=1 tabs sep=""
+  local json=0 os p c t tp i fails=0 headless=1 offer=1 tabs sep=""
   local lb="$HOME/.local/bin" lb_state="is not"
   local tabless='lanes still run without tabs: start them with DS_LANE_NO_TAB=1 and follow each with `ds-lane tail <name>`'
   case "${1:-}" in
@@ -1067,11 +1084,13 @@ cmd_doctor() {
   if p="$(command -v ds-lane 2>/dev/null)"; then
     doc_row "ds-lane on PATH" ok "$p"
   elif [[ "$lb_state" == is ]]; then
+    offer=0
     doc_row "ds-lane on PATH" FAIL "not found on PATH (~/.local/bin is on PATH but holds no ds-lane)" \
       "Run \`$(dirname "$SELF")/ds-doctor --fix\` to create the ~/.local/bin links; a session offers to launch lanes only when ds-lane is on PATH."
   else
+    offer=0
     doc_row "ds-lane on PATH" FAIL "not found on PATH (~/.local/bin is not on PATH)" \
-      "A session offers to launch lanes only when ds-lane is on PATH. Run \`$(dirname "$SELF")/ds-doctor --fix\`, then add this line to your shell profile (~/.zshrc or ~/.bashrc) and start a new terminal and session: export PATH=\"\$HOME/.local/bin:\$PATH\""
+      "A session offers to launch lanes only when ds-lane is on PATH. Run \`$(dirname "$SELF")/ds-doctor --fix\`, then add this line to your shell profile (~/.zshrc for zsh, the macOS default; ~/.bash_profile for bash) and start a new terminal and session: export PATH=\"\$HOME/.local/bin:\$PATH\""
   fi
 
   t="$(conductor_tty)"
@@ -1095,13 +1114,13 @@ cmd_doctor() {
 
   if [[ "$os" == Darwin ]]; then
     doc_row "Automation consent" unverified "unverified until first tab open" \
-      "macOS asks on the first tab open: answer Allow. When a lane start prints a \`tab: tab error\` naming -1743 or \"Not authorized\", open System Settings > Privacy & Security > Automation and turn on both Terminal and System Events under the app the conductor runs in (Terminal)."
+      "macOS asks on the first tab open: answer Allow. When a lane start prints a \`tab: tab error\` naming -1743 or \"Not authorized\", open System Settings > Privacy & Security > Automation, find the app the conductor runs in and allow it to control Terminal and System Events; an entry appears there only after macOS has asked once."
     doc_row "Accessibility consent" unverified "unverified until first tab open" \
-      "When a lane opens in a new window instead of a tab, open System Settings > Privacy & Security > Accessibility and turn on the app the conductor runs in (Terminal)."
+      "When a lane opens in a new window instead of a tab, open System Settings > Privacy & Security > Accessibility and turn on the app the conductor runs in; if it is not listed, add it with the + button."
   fi
 
   for i in "${!D_STATUS[@]}"; do
-    if [[ "${D_STATUS[$i]}" == FAIL ]]; then fails=$((fails + 1)); fi
+    if [[ "${D_STATUS[$i]}" == FAIL && "${D_CHECK[$i]}" != "ds-lane on PATH" ]]; then fails=$((fails + 1)); fi
   done
   if (( fails > 0 )); then tabs=unavailable; else tabs=unverified; fi
 
@@ -1112,7 +1131,8 @@ cmd_doctor() {
         "$(json_str "${D_STATUS[$i]}")" "$(json_str "${D_DETAIL[$i]}")" "$(json_str "${D_FIX[$i]}")"
       sep=","
     done
-    printf '],"tabs":"%s","headless":%s}\n' "$tabs" "$( (( headless )) && echo true || echo false)"
+    printf '],"tabs":"%s","launch_offer":%s,"headless":%s}\n' "$tabs" \
+      "$( (( offer )) && echo true || echo false)" "$( (( headless )) && echo true || echo false)"
   else
     for i in "${!D_CHECK[@]}"; do
       printf '%-10s %s: %s\n' "${D_STATUS[$i]}" "${D_CHECK[$i]}" "${D_DETAIL[$i]}"
@@ -1127,13 +1147,18 @@ cmd_doctor() {
     else
       echo "tabs: unverified (no check failed; Automation and Accessibility consent show only on the first tab open)"
     fi
+    if (( offer )); then
+      echo "launch offer: available (ds-lane is on PATH)"
+    else
+      echo "launch offer: unavailable: ds-lane not on PATH"
+    fi
     if (( headless )); then
       echo "headless lanes: available (claude, python3 and jq resolve; $tabless)"
     else
       echo "headless lanes: unavailable (claude, python3 and jq must all resolve)"
     fi
   fi
-  (( fails == 0 ))
+  (( fails == 0 && offer ))
 }
 
 cmd_resume_hint() {

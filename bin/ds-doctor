@@ -1130,7 +1130,7 @@ def check_local_bin_on_path(doc: Doctor) -> None:
     doc.warn(
         "local_bin_path",
         f"{local_bin} is not on PATH, so no ds-* command resolves by name: add "
-        'this line to your shell profile (~/.zshrc or ~/.bashrc) and start a new '
+        'this line to your shell profile (~/.zshrc for zsh, the macOS default; ~/.bash_profile for bash) and start a new '
         'terminal: export PATH="$HOME/.local/bin:$PATH" (ds-doctor does not edit '
         "shell profiles, in --fix or otherwise)",
     )

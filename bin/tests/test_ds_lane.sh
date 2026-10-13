@@ -138,6 +138,8 @@ case "${STUB_OSA_MODE:-kept}" in
   close-notfront) echo "notfront" ;;
   fail) echo "execution error: stub refused (-1743)" >&2; echo "second line" >&2; exit 1 ;;
   fail-other) echo "execution error: stub syntax error (-2741)" >&2; exit 1 ;;
+  # A previous watch tab's closer appends to the same tab log while this open is still running.
+  close-first) echo "close skipped: tab busy" >> "$STUB_TAB_LOG"; sleep 1; echo "ok|tab|0|42|$4|Terminal|42|$4|Terminal|$4|$4" ;;
 esac
 EOF
 chmod +x "$OSA_DIR/osascript"
@@ -452,7 +454,7 @@ open_in_pty t1 STUB_OSA_MODE=nomatch
 check "tab.log: no matching tab" tab_line_is t1 "tab skipped: no matching tab"
 open_in_pty t1 STUB_OSA_MODE=fail
 check "tab.log: osascript exit 1" tab_line_is t1 "tab error: execution error: stub refused (-1743); focus: unknown"
-check "open prints the Automation fix for an authorization error" contains "$(cat "$TMP/open.out")" "fix: macOS blocked the Apple event. Open System Settings > Privacy & Security > Automation"
+check "open prints the Automation fix for an authorization error" contains "$(cat "$TMP/open.out")" "fix: macOS blocked the Apple event. Open System Settings > Privacy & Security > Automation, find the app this session runs in and allow it to control Terminal and System Events. If no entry is listed, run \`ds-lane open t1\` once and answer Allow when macOS asks."
 
 SANDBOX="$TMP/sandbox-bin"
 mkdir -p "$SANDBOX"
@@ -643,7 +645,7 @@ lane stop o2 > /dev/null
 
 start_pty o3 STUB_OSA_MODE=fail
 check "start: authorization error" eq "$(tab_of "$SO")" "tab: tab error: execution error: stub refused (-1743); focus: unknown"
-check "start: authorization error -> Automation settings path" contains "$(fix_of "$SO")" "fix: macOS blocked the Apple event. Open System Settings > Privacy & Security > Automation, find the app this session runs in (Terminal) and turn on both Terminal and System Events under it, then run \`ds-lane open o3\`"
+check "start: authorization error -> Automation settings path" contains "$(fix_of "$SO")" "fix: macOS blocked the Apple event. Open System Settings > Privacy & Security > Automation, find the app this session runs in and allow it to control Terminal and System Events. If no entry is listed, run \`ds-lane open o3\` once and answer Allow when macOS asks. Until then the lane is running without a tab: follow it with \`ds-lane tail o3\`"
 check "start: exit 0 on a tab error" eq "$(rc_of "$SO")" 0
 check "start: lane launched despite the tab error" state_is o3 alive
 lane stop o3 > /dev/null
@@ -655,7 +657,7 @@ lane stop o4 > /dev/null
 
 start_pty o5 STUB_OSA_MODE=guard
 check "start: new-window fallback" eq "$(tab_of "$SO")" "tab: opened: window; tab misplaced (new window, no new tab found); focus: kept"
-check "start: new-window fallback -> Accessibility settings path" contains "$(fix_of "$SO")" "Open System Settings > Privacy & Security > Accessibility and turn on the app this session runs in (Terminal)"
+check "start: new-window fallback -> Accessibility settings path" contains "$(fix_of "$SO")" "Open System Settings > Privacy & Security > Accessibility and turn on the app this session runs in; if it is not listed, add it with the + button. Later lanes then open as tabs."
 check "start: exit 0 on the new-window fallback" eq "$(rc_of "$SO")" 0
 lane stop o5 > /dev/null
 
@@ -665,6 +667,13 @@ check "start: no conductor tty -> headless session, use ds-lane tail" contains "
 check "start: exit 0 with no conductor tty" eq "$(rc_of "$SO")" 0
 check "start: lane launched with no conductor tty" state_is o6 alive
 lane stop o6 > /dev/null
+
+lane stop o3 > /dev/null
+before_close="$(tab_lines o3)"
+pty_capture "$SO" env DS_LANE_TAB_WAIT_S=10 STUB_OSA_MODE=close-first STUB_TAB_LOG="$RUN/o3.tab.log" "$TOOL" resume o3
+check "the stub wrote a close line before the open outcome" eq "$(tail -n "+$((before_close + 1))" "$RUN/o3.tab.log" | head -n1)" "close skipped: tab busy"
+check "resume: a close line from the previous watch tab is not reported as the outcome" eq "$(tab_of "$SO")" "tab: opened: tab; focus: kept"
+lane stop o3 > /dev/null
 
 out="$(lane start o7 "$PROMPT" 2>&1)"; rc=$?
 check "start: DS_LANE_NO_TAB=1 says tabs are disabled" eq "$(printf '%s\n' "$out" | grep '^tab: ')" "tab: disabled (DS_LANE_NO_TAB=1)"
@@ -680,6 +689,17 @@ check "start: exit 0 and lane launched with the outcome unknown" eq "$(rc_of "$S
 touch "$LOG/osa-go"
 wait_until 15 has_file "$RUN/o8.tab.log"
 lane stop o8 > /dev/null
+
+# A leading zero must not be read as octal: 08 is 8 seconds, and the bound still fires.
+rm -f "$LOG/osa-go"
+t0=$SECONDS
+pty_capture "$SO" env STUB_OSA_GATE=1 DS_LANE_TAB_WAIT_S=08 "$TOOL" start o9 "$PROMPT"
+check "start: DS_LANE_TAB_WAIT_S=08 is 8 seconds" eq "$(tab_of "$SO")" "tab: unknown (no outcome after 8s)"
+check "start: DS_LANE_TAB_WAIT_S=08 raises no arithmetic error" bash -c '! grep -qE "value too great|syntax error|invalid" "$1"' _ "$SO"
+check "start: the 08 wait is bounded (init 5s + tab 8s + slack)" test $((SECONDS - t0)) -lt 18
+touch "$LOG/osa-go"
+wait_until 15 has_file "$RUN/o9.tab.log"
+lane stop o9 > /dev/null
 
 # doctor: every case runs on a hermetic PATH (stub uname and osascript, the symlink sandbox), so
 # neither the host's tools nor its real osascript are reachable.
@@ -712,15 +732,16 @@ check "doctor all-ok: macOS" doc_has "ok         platform: macOS"
 check "doctor all-ok: claude resolved as start resolves it" doc_has "ok         claude: $STUB/claude"
 check "doctor all-ok: ds-lane found on PATH" doc_has "ok         ds-lane on PATH: $FAKEHOME/.local/bin/ds-lane"
 check "doctor all-ok: Terminal.app" doc_has "ok         Terminal.app: TERM_PROGRAM=Apple_Terminal"
-check "doctor: Automation consent is unverified, with the settings path" contains "$(fix_after 'unverified Automation consent: unverified until first tab open')" "open System Settings > Privacy & Security > Automation and turn on both Terminal and System Events"
-check "doctor: Accessibility consent is unverified, with the settings path" contains "$(fix_after 'unverified Accessibility consent: unverified until first tab open')" "open System Settings > Privacy & Security > Accessibility and turn on the app the conductor runs in (Terminal)"
+check "doctor: Automation consent is unverified, with the settings path" contains "$(fix_after 'unverified Automation consent: unverified until first tab open')" "open System Settings > Privacy & Security > Automation, find the app the conductor runs in and allow it to control Terminal and System Events; an entry appears there only after macOS has asked once."
+check "doctor: Accessibility consent is unverified, with the settings path" contains "$(fix_after 'unverified Accessibility consent: unverified until first tab open')" "open System Settings > Privacy & Security > Accessibility and turn on the app the conductor runs in; if it is not listed, add it with the + button."
 check "doctor all-ok: tabs unverified, never claimed working" doc_has "tabs: unverified (no check failed;"
+check "doctor all-ok: launch offer available" eq "$(tail -n2 "$DO" | head -n1)" "launch offer: available (ds-lane is on PATH)"
 check "doctor all-ok: last line says lanes run headless" eq "$(tail -n1 "$DO")" "headless lanes: available (claude, python3 and jq resolve; $TABLESS)"
 
 doctor_pty STUB_UNAME=Linux
 check "doctor non-macOS: exit 1" eq "$(rc_of "$DO")" 1
 check "doctor non-macOS: platform FAIL with the tab-less path" eq "$(fix_after 'FAIL       platform: Linux; watch tabs open only in macOS Terminal.app')" "           fix: Tabs cannot open on this platform; $TABLESS."
-check "doctor non-macOS: tabs unavailable, lanes still headless" eq "$(tail -n2 "$DO" | cut -c1-25 | tr '\n' '|')" "tabs: unavailable (1 chec|headless lanes: available|"
+check "doctor non-macOS: tabs unavailable, lanes still headless" eq "$(tail -n3 "$DO" | cut -c1-25 | tr '\n' '|')" "tabs: unavailable (1 chec|launch offer: available (|headless lanes: available|"
 
 doctor_pty PATH="$FAKEHOME/.local/bin:$DOCBIN:$SANDBOX"
 check "doctor no osascript: exit 1" eq "$(rc_of "$DO")" 1
@@ -733,8 +754,9 @@ check "doctor no claude: lanes cannot run headless either" eq "$(tail -n1 "$DO")
 
 doctor_pty PATH="$DOCBIN:$OSA_DIR:$SANDBOX"
 check "doctor ~/.local/bin off PATH: exit 1" eq "$(rc_of "$DO")" 1
+check "doctor ~/.local/bin off PATH: tabs are not called unavailable, the launch offer is" eq "$(tail -n3 "$DO" | head -n2 | sed 's/ (.*//' | tr '\n' '|')" "tabs: unverified|launch offer: unavailable: ds-lane not on PATH|"
 path_fix="$(fix_after 'FAIL       ds-lane on PATH: not found on PATH (~/.local/bin is not on PATH)')"
-check "doctor ~/.local/bin off PATH: fix names ds-doctor --fix and the export line" contains "$path_fix" "Run \`$(dirname "$TOOL_REAL")/ds-doctor --fix\`, then add this line to your shell profile (~/.zshrc or ~/.bashrc) and start a new terminal and session: export PATH=\"\$HOME/.local/bin:\$PATH\""
+check "doctor ~/.local/bin off PATH: fix names ds-doctor --fix and the export line" contains "$path_fix" "Run \`$(dirname "$TOOL_REAL")/ds-doctor --fix\`, then add this line to your shell profile (~/.zshrc for zsh, the macOS default; ~/.bash_profile for bash) and start a new terminal and session: export PATH=\"\$HOME/.local/bin:\$PATH\""
 # The printed export line is pasted into the operator's shell profile: it must work in both shells.
 export_line="export PATH=${path_fix##*export PATH=}"
 check "the printed export line puts ds-lane on PATH under bash" eq "$("$ENV_BIN" HOME="$FAKEHOME" PATH="$SANDBOX" "$SANDBOX/bash" -c "$export_line; command -v ds-lane" 2>&1)" "$FAKEHOME/.local/bin/ds-lane"
@@ -757,9 +779,14 @@ doctor_pty TERM_PROGRAM=
 check "doctor unknown terminal app: unverified, not guessed, exit 0" eq "$(rc_of "$DO")|$(grep -c '^unverified Terminal.app: TERM_PROGRAM is not set' "$DO")" "0|1"
 
 pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" "$TOOL" doctor --json
-check "doctor --json all-ok: parses, exit 0, tabs unverified, every non-ok check carries a fix" eq "$(rc_of "$DO")|$(jq -r '[.tabs, .headless, (.checks | length), (all(.checks[]; .status != "FAIL")), (all(.checks[]; (.status == "ok") == (.fix == "")))] | join(",")' "$DO" 2>&1)" "0|unverified,true,10,true,true"
+check "doctor --json all-ok: parses, exit 0, tabs unverified, every non-ok check carries a fix" eq "$(rc_of "$DO")|$(jq -r '[.tabs, .launch_offer, .headless, (.checks | length), (all(.checks[]; .status != "FAIL")), (all(.checks[]; (.status == "ok") == (.fix == "")))] | join(",")' "$DO" 2>&1)" "0|unverified,true,true,10,true,true"
 pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" STUB_UNAME=Linux DS_LANE_CLAUDE_BIN= "$TOOL" doctor --json
 check "doctor --json failing: parses, exit 1, tabs unavailable, not headless" eq "$(rc_of "$DO")|$(jq -r '[.tabs, .headless, ([.checks[] | select(.status == "FAIL") | .check] | join("+"))] | join(",")' "$DO" 2>&1)" "1|unavailable,false,platform+claude"
+pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" PATH="$DOCBIN:$OSA_DIR:$SANDBOX" "$TOOL" doctor --json
+check "doctor --json ds-lane off PATH: exit 1, tabs unverified, launch offer false" eq "$(rc_of "$DO")|$(jq -r '[.tabs, .launch_offer, .headless] | join(",")' "$DO" 2>&1)" "1|unverified,false,true"
+# No pty: JSON validity does not depend on a terminal, and a pty wrapper would requote the value.
+out="$("$ENV_BIN" "${doctor_env[@]}" TERM_PROGRAM=$'a\tb\001"c\\\nd' "$TOOL" doctor --json 2> /dev/null)"
+check "doctor --json stays valid with control characters, quotes and backslashes in a value" eq "$(printf '%s\n' "$out" | jq -r '.checks[] | select(.check == "Terminal.app") | .detail | startswith("TERM_PROGRAM=a\tb\"c\\\nd; tabs")' 2>&1)" "true"
 out="$(cd "$TMP/norepo" && GIT_CEILING_DIRECTORIES="$TMP" "$ENV_BIN" "${doctor_env[@]}" "$TOOL" doctor 2>&1)"
 check "doctor runs outside a git repo" contains "$out" "ok         platform: macOS"
 check "doctor never ran osascript (no Apple event, no consent prompt)" eq "$(ls "$LOG" | grep -c '^osa-')" 0

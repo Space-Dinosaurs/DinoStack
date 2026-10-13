@@ -45,6 +45,7 @@ def test_off_path_warns_with_the_exact_export_line(tmp_path):
     assert finding["status"] == "WARN", finding
     assert f"{local_bin} is not on PATH" in finding["message"]
     assert _EXPORT_LINE in finding["message"]
+    assert "~/.zshrc for zsh, the macOS default; ~/.bash_profile for bash" in finding["message"]
 
 
 def test_on_path_is_ok(tmp_path):
