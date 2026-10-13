@@ -1904,7 +1904,7 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
   "loop_state": {
     "phase": "skeptic",
     "iteration": 1,
-    "max_iterations": 2,
+    "max_iterations": 3,
     "tier": 2,
     "findings_log": [],
     "qa_failures_log": [],
@@ -1943,7 +1943,7 @@ The file is overwritten (not appended) on each iteration state update and at loo
 Emit the inline breadcrumb:
 
 ```
-[loop: skeptic | iteration 1/2 | open findings: -]
+[loop: skeptic | iteration 1/3 | open findings: -]
 ```
 
 **Loop entry (repeat until termination):**
@@ -1995,7 +1995,7 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 **Step 3. Termination check:**
 - If no Critical or Major findings: if any `Scope drift:` Minor, or any `Comment discipline:` Minor with a span in code, is open, run Steps 4-5 on those Minors only, then return here instead of to Step 1 (no Skeptic re-review). Then auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Do not set `termination_reason: clean` with `findings_log` empty if this loop had findings (Step 2 populates it first; a genuinely-zero round may still exit clean empty). Set `termination_reason: clean`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Set `SKEPTIC_ROUNDS` to this loop's final `loop_state.iteration` (in-context variable; see below). **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
 
-**`SKEPTIC_ROUNDS` must be captured here, at Phase 6 exit - not read back later.** Phase 6b **overwrites the Phase 6 state** with `phase: qa, iteration: 1`, and fires for every Elevated unit with `qa_skip == null` - the common case. By Phase 9, `loop_state.iteration` on disk is the QA count, not the Skeptic round count: 2 Skeptic rounds plus a first-pass QA reads back as `1`. This is the pattern Phase 6b already uses for `QA_RAN_AND_PASSED`. The Trivial path never reaches Phase 6 and never sets `SKEPTIC_ROUNDS`, which is why the ledger's `skeptic_rounds` is legitimately null there.
+**`SKEPTIC_ROUNDS` must be captured here, at Phase 6 exit - not read back later.** Phase 6b **overwrites the Phase 6 state** with `phase: qa, iteration: 1`, and fires for every Elevated unit with `qa_skip == null` - the common case. By Phase 9, `loop_state.iteration` on disk is the QA count, not the Skeptic round count: 3 Skeptic rounds plus a first-pass QA reads back as `1`. This is the pattern Phase 6b already uses for `QA_RAN_AND_PASSED`. The Trivial path never reaches Phase 6 and never sets `SKEPTIC_ROUNDS`, which is why the ledger's `skeptic_rounds` is legitimately null there.
 - If `iteration == max_iterations` AND Critical or Major findings remain: take one of the two actions in `content/sections/05-qa-gate.md` §Re-route limits; an unresolved Critical forces escalate. **Ship:** mark every remaining open or addressed `findings_log` entry `deferred` (this ship decision at cap is the explicit approval Step 2 requires; it is recorded by the deferred entries and the PR body, never in the hook's state file), set `termination_reason: clean`, and take the clean-exit branch above. **Escalate:** set `termination_reason: cap_reached`, overwrite `.agentic/loop-state-$LOOP_KEY.json`, apply the Batch-mode escalation routing subsection below, then emit the Escalation format. Phase 6b does NOT run.
 - If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below, then escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section's override note. One re-raise after a claimed fix suffices within the loop.)
 
@@ -2138,7 +2138,7 @@ Fires exactly once per ticket per `/ds-implement-ticket` invocation.
 
 **Phase 6b only runs if Phase 6 exits cleanly (Skeptic sign-off granted, `termination_reason: clean`).** If Phase 6 exits via `cap_reached`, `convergence_failure`, or `blocked` escalation, Phase 6b is skipped entirely. Running QA on a Skeptic-rejected implementation is wasteful - the Phase 6 escalation subsumes Phase 6b for that session.
 
-**Cap independence:** the Phase 6 Skeptic cap (2 fix passes) and the Phase 6b QA cap (3) are separate budgets.
+**Cap independence:** the Phase 6 Skeptic cap (3 fix passes) and the Phase 6b QA cap (3) are separate budgets.
 
 **Trigger:** Phase 6b QA fires for Elevated units IFF all of the following hold:
 1. The unit's `qa_criteria` block (from the Brief, or from the architect plan if no Brief) is present.
