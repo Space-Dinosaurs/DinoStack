@@ -1479,7 +1479,12 @@ def test_two_tier_new_shards_diagnostic_reaches_stderr(tmp_path, shell):
     shell = _shell_or_skip(shell)
     fixture = git_fixture.build_knowledge_consumer_shape(tmp_path)
     _seed_shards(fixture, indexed=True)
-    fixture.env["PATH"] = fixture.env["PATH"].replace(f"{REPO_ROOT / 'bin'}{os.pathsep}", "", 1)
+    # An installed copy (e.g. ~/.local/bin) keeps the helper resolvable after
+    # the repo's bin/ is dropped, so drop every PATH dir that carries it.
+    fixture.env["PATH"] = os.pathsep.join(
+        d for d in fixture.env["PATH"].split(os.pathsep)
+        if not (Path(d) / "ds-memory-capture").exists()
+    )
 
     result = _run(fixture, shell)
     _assert_completed(result)
