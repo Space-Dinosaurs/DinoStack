@@ -184,7 +184,12 @@ Failure modes: never raises on a missing or malformed fires log - an
                row, and this tool cannot tell which - so
                `fire_count_window` is a measured live-session figure only
                for the part that is not `no-sid`. Status is still derived
-               from `fire_count_window` alone.
+               from `fire_count_window` alone, so each row also carries
+               `window_all_unjoinable`: true when the window has fires and
+               every one of them is `no-sid` (table: status `ACTIVE*`). Such
+               a hook is ACTIVE on rows that prove no live session, which
+               is how a hook whose only fires are its own test fixtures
+               reads; `meta.legend` explains both fields.
                A log that is present, not effectively empty, but
                either too sparse (below MIN_PARSED_LINES_FOR_CONFIDENCE
                real records) or too corrupted (malformed-line ratio above
@@ -257,7 +262,21 @@ _LEGEND = {
         "of zero invocations, since a silent allow is never logged."
     ),
     "ACTIVE": "fire_count_window > 0 - the hook fired at least once in the requested window.",
+    "fire_count_window_no_session_id": (
+        "The part of fire_count_window whose rows carry no session_id, so "
+        "they cannot be tied to a live session: a hook test fixture, a "
+        "synthetic invocation, or a row written before fire-log rows "
+        "carried session_id. Only fire_count_window minus this figure is "
+        "measured live-session activity."
+    ),
+    "window_all_unjoinable": (
+        "True when fire_count_window > 0 and every one of those rows lacks "
+        "a session_id. Status is then ACTIVE on rows that prove no live "
+        "session - read it as 'no live fire measured in the window', not "
+        "as evidence the hook is in use."
+    ),
 }
+_STATUS_LEGEND_KEYS = ("UNMEASURED", "ZERO_INVOCATIONS", "ZERO_ACTION_IN_WINDOW", "ACTIVE")
 
 
 def _load_enforcer_facts():
@@ -577,6 +596,7 @@ def build_report(repo_root: Path, days: int, hooks_root: Path | None = None) -> 
                 "posture": posture,
                 "fire_count_window": fire_count_window,
                 "fire_count_window_no_session_id": fire_count_window_no_session_id,
+                "window_all_unjoinable": 0 < fire_count_window == fire_count_window_no_session_id,
                 "fire_count_all_time": fire_count_all_time,
                 "fire_count_unparsed_ts": fire_count_unparsed_ts,
                 "status": status,
@@ -609,8 +629,8 @@ def _print_table(report: dict) -> None:
     rows = report["hooks"]
     print(f"repo={meta['repo']} hooks_dir={meta['hooks_dir']}")
     print("Legend:")
-    for status, text in _LEGEND.items():
-        print(f"  {status}: {text}")
+    for status in _STATUS_LEGEND_KEYS:
+        print(f"  {status}: {_LEGEND[status]}")
     print()
     print(
         f"log_present={meta['log_present']} "
@@ -640,11 +660,16 @@ def _print_table(report: dict) -> None:
         "cannot be tied to a live session (a hook test fixture, or a row "
         "written before fire-log rows carried session_id)."
     )
+    print(
+        "ACTIVE*: every `window` row is no-sid (window_all_unjoinable), so "
+        "the status proves no live fire."
+    )
     print(header)
     print("-" * len(header))
     for row in rows:
         print(
-            f"{row['hook']:<38} {row['posture']:<14} {row['status']:<22} "
+            f"{row['hook']:<38} {row['posture']:<14} "
+            f"{row['status'] + ('*' if row['window_all_unjoinable'] else ''):<22} "
             f"{row['fire_count_window']:>8} "
             f"{row['fire_count_window_no_session_id']:>8} "
             f"{row['fire_count_all_time']:>9} "

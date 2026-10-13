@@ -50,6 +50,22 @@ Public API:
         metric's input set is non-empty and every source it reads was
         available (coverage < 1 then says the input set is a subset, and
         `missing` names what it excludes).
+    Additive figures (none feeds a decision rule):
+        cost.reconciled.empty_sessions / empty_session_ids: reconciled
+        sessions with a $0 cost-state record and no assistant usage. They
+        stay in reconciled.sessions and add $0 to reconciled.usd, and are
+        left out of both sides of cost.window_total.coverage (which names
+        the count as coverage_excludes_empty_sessions) and of
+        cost.attributed_share.coverage's denominator.
+        skeptic_rounds.by_iteration.iteration_tagged_share (equal to its
+        `coverage`) and findings_carrying_share (returns carrying
+        signed_off or findings_count), with their counts in `returns`.
+        work_items.items rows carry `tiers` (the key tiers of the item's
+        spawns), `wall_spawns` (spawns with a wall time; wall_seconds is
+        their sum and None when there is none) and `pr_history` (False
+        when the repo has no readable merged-PR history);
+        work_items.summary is {items, usd_median, wall_seconds_median},
+        the two medians as metric envelopes.
     session_summary(session, repo) -> dict
         {session_id, repo, first_ts (ISO), entrypoint, model, version,
         cost_usd}. entrypoint/model/version are the (model, entrypoint,
@@ -899,6 +915,11 @@ def _skeptic_section(returns: list[dict]) -> dict:
     missing = [f"{len(returns) - with_iter} returns carry no iteration"] if with_iter < len(returns) else []
     by_iteration = metric(OK, dict(sorted(by_iter.items(), key=lambda kv: (kv[0] == "unknown", kv[0].zfill(4)))),
                           _ratio(with_iter, len(returns)), missing)
+    with_verdict = sum(1 for r in returns if r["signed_off"] is not None or r["findings"] is not None)
+    by_iteration["returns"] = {"total": len(returns), "iteration_tagged": with_iter,
+                               "findings_carrying": with_verdict}
+    by_iteration["iteration_tagged_share"] = _ratio(with_iter, len(returns))
+    by_iteration["findings_carrying_share"] = _ratio(with_verdict, len(returns))
 
     late = [r for r in returns if r["iteration"] is not None and r["iteration"] >= 2]
     so = [r for r in late if r["signed_off"] is not None]
@@ -1053,11 +1074,14 @@ def _work_items(spawns: list[dict], inputs: list[dict], returns: list[dict], key
         inp = sp["inp"]
         it = items.setdefault((inp["repo"], sp["key"]), {
             "repo": inp["repo"], "key": sp["key"], "ticket": sp["ticket"], "spawns": 0, "usd_list": [],
-            "wall_seconds": 0.0, "max_iteration": None, "types": set(), "prs": set(), "repo_inferred": False,
+            "walls": [], "tiers": set(), "max_iteration": None, "types": set(), "prs": set(),
+            "repo_inferred": False,
         })
         it["spawns"] += 1
         it["usd_list"].append(sp["usd"])
-        it["wall_seconds"] += sp["sub"].wall_seconds or 0.0
+        if sp["sub"].wall_seconds is not None:
+            it["walls"].append(sp["sub"].wall_seconds)
+        it["tiers"].add(sp["tier"])
         it["types"].add(sp["type"])
         it["repo_inferred"] |= sp["repo_inferred"]
         if sp["pr"] is not None:
@@ -1086,7 +1110,9 @@ def _work_items(spawns: list[dict], inputs: list[dict], returns: list[dict], key
         rows.append({
             "repo": repo, "key": it["key"], "ticket": it["ticket"], "spawns": it["spawns"],
             "usd": _usd(sum(known)) if known else None, "usd_basis": "priced",
-            "wall_seconds": round(it["wall_seconds"], 3), "max_iteration": it["max_iteration"],
+            "wall_seconds": round(sum(it["walls"]), 3) if it["walls"] else None,
+            "wall_spawns": len(it["walls"]), "tiers": sorted(it["tiers"]),
+            "pr_history": inp["prs"] is not None, "max_iteration": it["max_iteration"],
             "types": sorted(it["types"]), "pr_numbers": [pr["number"] for pr in merged],
             "first_merged_pr": first["number"] if first else None,
             "follow_up_prs": follow_ups, "reverted": reverted,
@@ -1122,7 +1148,23 @@ def _work_items(spawns: list[dict], inputs: list[dict], returns: list[dict], key
             "merged_prs_in_window": sum(1 for i in inputs for pr in i["prs"] or [] if pr["in_window"]),
         }, _ratio(len(merged_rows), len(rows)), miss)
     return {"coverage": coverage, "tier_agreement": keying["agreement"], "tier4_disabled": keying["tier4_disabled"],
-            "items": items_metric, "pr_outcome": outcome, "rework": rework}
+            "items": items_metric, "summary": _items_summary(rows), "pr_outcome": outcome, "rework": rework}
+
+
+def _items_summary(rows: list[dict]) -> dict:
+    """Keyed-item count with the median priced dollars and median summed
+    spawn wall, each over the items that carry the figure."""
+    def median(key, what):
+        known = [r[key] for r in rows if r[key] is not None]
+        if not known:
+            return _absent(f"no keyed work item with {what}" if rows else "no keyed work items")
+        return metric(OK if len(known) == len(rows) else PARTIAL, round(statistics.median(known), 6),
+                      _ratio(len(known), len(rows)),
+                      [f"{len(rows) - len(known)} of {len(rows)} items without {what}"]
+                      if len(known) < len(rows) else [])
+
+    return {"items": len(rows), "usd_median": median("usd", "priced usage"),
+            "wall_seconds_median": median("wall_seconds", "a spawn wall time")}
 
 
 def _engineer_value(spawns: list[dict], inputs: list[dict]) -> dict:
@@ -1239,10 +1281,18 @@ def _agents_section(inputs, spawns, rates, skeptic, work, start, end) -> dict:
     return agents
 
 
+def _is_empty_session(s) -> bool:
+    """A $0 cost-state record and no assistant usage, conductor or subagent:
+    the session never reached the model."""
+    return (s.cost_covers_session and s.cost_usd == 0 and not s.conductor
+            and not any(sub.usage for sub in s.subagents))
+
+
 def _cost_section(inputs, rates, start, end) -> dict:
     sessions = [s for inp in inputs for s in inp["sessions"]]
     reconciled = sorted((s for s in sessions if s.cost_covers_session and s.cost_usd is not None),
                         key=lambda s: s.session_id)
+    empty = [s for s in reconciled if _is_empty_session(s)]
     partial = [s for s in sessions if s.cost_state_usd is not None and not s.cost_covers_session]
     no_state = [s for s in sessions if s.cost_state_usd is None]
 
@@ -1258,7 +1308,9 @@ def _cost_section(inputs, rates, start, end) -> dict:
     rec_usd = _ordered_sum(s.cost_usd for s in reconciled)
     cost: dict = {
         "reconciled": {"status": OK if reconciled else ABSENT, "usd": rec_usd if reconciled else None,
-                       "sessions": len(reconciled), "session_ids": sorted(s.session_id for s in reconciled)},
+                       "sessions": len(reconciled), "session_ids": sorted(s.session_id for s in reconciled),
+                       "empty_sessions": len(empty),
+                       "empty_session_ids": sorted(s.session_id for s in empty)},
         "partial_process": {"status": PARTIAL if partial else OK, "sessions": len(partial),
                             "last_process_usd_lower_bound":
                                 _ordered_sum(s.cost_state_usd for s in sorted(partial, key=lambda s: s.session_id))
@@ -1276,8 +1328,9 @@ def _cost_section(inputs, rates, start, end) -> dict:
         gaps = len(partial) + len(no_state)
         cost["window_total"] = metric(
             PARTIAL if gaps else OK, rec_usd if reconciled else None,
-            _ratio(len(reconciled), len(sessions)),
+            _ratio(len(reconciled) - len(empty), len(sessions) - len(empty)),
             [f"partial_process: {len(partial)}", f"no_cost_state: {len(no_state)}"] if gaps else [])
+        cost["window_total"]["coverage_excludes_empty_sessions"] = len(empty)
         if not reconciled:
             cost["window_total"]["value"] = None
     cost["straddling_sessions"] = sum(1 for s in sessions if s.first_ts < start or s.last_ts > end)
@@ -1310,7 +1363,7 @@ def _cost_section(inputs, rates, start, end) -> dict:
         cost["attributed_share"] = metric(PARTIAL if miss else OK,
                                           {"share": _ratio(sum(known), rec_usd), "priced_visible_usd": _usd(sum(known)),
                                            "reconciled_usd": rec_usd},
-                                          _ratio(len(known), len(reconciled)), miss)
+                                          _ratio(len(known), len(reconciled) - len(empty)), miss)
         cost["attributed_share"]["basis"] = "priced / cost-state"
     cost["models_absent_from_transcripts"] = {m: _usd(v) for m, v in sorted(absent_models.items())}
     cost["visible_exceeds_cost_state"] = {"sessions": len(exceed), "session_ids": sorted(exceed)}

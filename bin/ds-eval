@@ -9,7 +9,8 @@ Purpose: CLI over bin/_eval.py's evaluate(): one read-only evaluation of
          see what is working. Retire with bin/_eval.py (see its manifest).
 
 Public API: ds-eval --repo P [P ...] [--since S] [--until U] [--base REF]
-            [--store D ...] [--ticket-pattern RE] [--no-gh] [--json]
+            [--store D ...] [--ticket-pattern RE] [--no-gh] [--top N]
+            [--json]
             --since/--until: an ISO8601 date or datetime (UTC when naive),
             or `Nd` (N days before --until). Defaults: --until now,
             --since 14d. --store (a config dir or projects dir, repeatable)
@@ -18,10 +19,15 @@ Public API: ds-eval --repo P [P ...] [--since S] [--until U] [--base REF]
             (sessions null), never 0. --no-gh skips every gh call.
             Default output is a compact table; --json prints the full
             evaluate() dict (the binding shape; see bin/_eval.py).
+            [work_items] lists the --top N (default 10) keyed items by
+            priced cost (key, tier, priced usd, summed spawn wall, Skeptic
+            rounds, PR outcome) and one summary line; a figure with no
+            input prints `n/a (<reason>)`, never 0. --json always carries
+            every item.
             Exit 0 on any well-formed run, including one whose metrics are
             all ABSENT. Exit 2 on a usage error: an unparseable date, an
-            empty or inverted window, an invalid --ticket-pattern, or a
-            --repo that is not a directory.
+            empty or inverted window, an invalid --ticket-pattern, a
+            negative --top, or a --repo that is not a directory.
 
 Upstream deps: bin/_eval.py (loaded by resolved path), which reads each
             repo's .agentic/events.jsonl and .agentic/.enforcement-fires.jsonl,
@@ -58,6 +64,7 @@ def _load_eval():
 
 _EVAL = _load_eval()
 DEFAULT_SINCE = "14d"
+DEFAULT_TOP = 10
 _DAYS_RE = re.compile(r"^(\d+)d$")
 _HOOK_INPUT_RE = re.compile(r"^hooks\[(.+)\]\.(\w+)$")
 
@@ -95,13 +102,94 @@ def print_header(r: dict, prog: str) -> None:
         print(_EVAL._TRANSCRIPTS.store_line(entry))
 
 
-def print_sections(r: dict) -> None:
+def _fmt_wall(seconds: float) -> str:
+    minutes, sec = divmod(int(round(seconds)), 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m {sec:02d}s"
+
+
+def _fmt_median(m: dict, fmt) -> str:
+    if m["status"] == "ABSENT":
+        return f"n/a ({'; '.join(m['missing'])})"
+    return fmt(m["value"]) + (f" ({'; '.join(m['missing'])})" if m["missing"] else "")
+
+
+def _item_cells(r: dict, row: dict) -> tuple:
+    """One work item as text cells; a figure with no input is n/a plus why."""
+    usd = f"${row['usd']:,.2f}" if row["usd"] is not None else "n/a (no priced usage)"
+    if row["wall_seconds"] is None:
+        wall = "n/a (no spawn wall time)"
+    else:
+        wall = _fmt_wall(row["wall_seconds"])
+        if row["wall_spawns"] < row["spawns"]:
+            wall += f" ({row['wall_spawns']}/{row['spawns']} spawns)"
+    if row["max_iteration"] is not None:
+        rounds = str(row["max_iteration"])
+    elif "skeptic" in row["types"]:
+        rounds = "n/a (no iteration-tagged return)"
+    else:
+        rounds = "n/a (no skeptic spawn)"
+    if not row["pr_history"]:
+        outcome = "n/a (no merged-PR history)"
+    elif row["first_merged_pr"] is None:
+        outcome = "not merged"
+    else:
+        outcome = f"merged #{row['first_merged_pr']}"
+        if row["follow_up_prs"]:
+            outcome += f", {len(row['follow_up_prs'])} follow-up"
+        if row["reverted"]:
+            outcome += ", reverted"
+    return (f"{_tag(r, row)}{row['key']}", ",".join(str(t) for t in row["tiers"]), usd, wall, rounds, outcome)
+
+
+def _print_items(r: dict, top: int) -> None:
+    """Top `top` keyed work items by priced cost, then a summary line."""
+    w = r["work_items"]
+    items = w["items"]
+    if items["status"] == "ABSENT":
+        print(f"  items: n/a ({'; '.join(items['missing'])})")
+        return
+    rows = sorted(items["value"], key=lambda x: (x["usd"] is None, -(x["usd"] or 0), x["repo"], x["key"]))
+    shown = rows[:top]
+    note = f"; {'; '.join(items['missing'])}" if items["missing"] else ""
+    print(f"  items: top {len(shown)} of {len(rows)} by priced cost "
+          f"(spawn wall = summed spawn time, not end-to-end{note})")
+    if shown:
+        table = [("key", "tier", "priced usd", "spawn wall", "skeptic rounds", "PR outcome")]
+        table += [_item_cells(r, row) for row in shown]
+        for line in _EVAL._LIB.format_columns(table, left=len(table[0])):
+            print(f"    {line}")
+    sm = w["summary"]
+    print(f"  items summary: {sm['items']} keyed items, "
+          f"median priced usd {_fmt_median(sm['usd_median'], lambda v: f'${v:,.2f}')}, "
+          f"median spawn wall {_fmt_median(sm['wall_seconds_median'], _fmt_wall)}")
+
+
+def _fmt_by_iteration(m: dict) -> str:
+    """by_iteration with its two coverages named: `coverage` alone is the
+    iteration-tagged share and says nothing about findings."""
+    if m["status"] == "ABSENT":
+        return _fmt_metric(m)
+    n = m["returns"]
+    parts = [m["status"],
+             f"iteration-tagged {m['iteration_tagged_share']:.0%} ({n['iteration_tagged']}/{n['total']})",
+             f"findings-carrying {m['findings_carrying_share']:.0%} ({n['findings_carrying']}/{n['total']} "
+             "returns with signed_off or findings_count)",
+             json.dumps(m["value"], default=str)]
+    if m["missing"]:
+        parts.append("missing: " + "; ".join(m["missing"]))
+    return " | ".join(parts)
+
+
+def print_sections(r: dict, top: int = DEFAULT_TOP) -> None:
     """The measured sections, [cost] through [mix]."""
     print("\n[cost]")
     c = r["cost"]
     rec = c["reconciled"]
     usd = f"${rec['usd']:,.2f}" if rec["usd"] is not None else "n/a"
-    print(f"  reconciled       {rec['status']}  {usd} over {rec['sessions']} sessions")
+    empty = (f" ({rec['empty_sessions']} empty: $0 cost-state and no assistant turn, excluded from coverage)"
+             if rec["empty_sessions"] else "")
+    print(f"  reconciled       {rec['status']}  {usd} over {rec['sessions']} sessions{empty}")
     pp = c["partial_process"]
     lb = pp["last_process_usd_lower_bound"]
     print(f"  partial_process  {pp['status']}  {pp['sessions']} sessions, lower bound "
@@ -126,7 +214,7 @@ def print_sections(r: dict) -> None:
 
     print("\n[skeptic_rounds]")
     for key, m in r["skeptic_rounds"].items():
-        print(f"  {key}: {_fmt_metric(m)}")
+        print(f"  {key}: {_fmt_by_iteration(m) if key == 'by_iteration' else _fmt_metric(m)}")
 
     print("\n[work_items]")
     w = r["work_items"]
@@ -135,6 +223,7 @@ def print_sections(r: dict) -> None:
                                                                    else ""))
     print(f"  pr_outcome: {_fmt_metric(w['pr_outcome'])}")
     print(f"  rework: {_fmt_metric(w['rework'])}")
+    _print_items(r, top)
 
     print("\n[hooks]  (deny / joinable / repeat_share / labelled n)")
     for name, h in r["hooks"].items():
@@ -174,9 +263,9 @@ def gap_lines(r: dict) -> list[str]:
     return lines
 
 
-def _print_table(r: dict) -> None:
+def _print_table(r: dict, top: int = DEFAULT_TOP) -> None:
     print_header(r, "ds-eval")
-    print_sections(r)
+    print_sections(r, top)
 
     print("\n[decisions]")
     if not r["decisions"]:
@@ -200,6 +289,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--store", nargs="+", action="extend", default=[], help="Transcript store(s); replaces the default set")
     p.add_argument("--ticket-pattern", default=None, help="Ticket id regex (default: learned prefixes)")
     p.add_argument("--no-gh", action="store_true", help="Make no gh calls")
+    p.add_argument("--top", type=int, default=DEFAULT_TOP,
+                   help=f"Work items listed in the text report, by priced cost (default {DEFAULT_TOP})")
     p.add_argument("--json", action="store_true", help="Print the full evaluate() dict as JSON")
     args = p.parse_args(argv)
 
@@ -210,6 +301,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if since >= until:
         print("ds-eval: --since must be before --until", file=sys.stderr)
+        return 2
+    if args.top < 0:
+        print("ds-eval: --top must be 0 or more", file=sys.stderr)
         return 2
     if args.ticket_pattern is not None:
         try:
@@ -228,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(report, indent=2, default=str))
     else:
-        _print_table(report)
+        _print_table(report, args.top)
     return 0
 
 

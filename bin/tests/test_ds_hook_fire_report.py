@@ -714,8 +714,11 @@ def test_legend_present_in_json_and_table(tmp_path):
         "ZERO_INVOCATIONS",
         "ZERO_ACTION_IN_WINDOW",
         "ACTIVE",
+        "fire_count_window_no_session_id",
+        "window_all_unjoinable",
     }
     assert "NOT proof" in report["meta"]["legend"]["ZERO_ACTION_IN_WINDOW"]
+    assert "session_id" in report["meta"]["legend"]["fire_count_window_no_session_id"]
 
     table_proc = _run(repo)
     assert "Legend:" in table_proc.stdout
@@ -1047,3 +1050,31 @@ def test_consumer_repo_missing_fires_log_is_absent_not_zero(tmp_path):
     assert report["meta"]["log_present"] is False
     assert report["hooks"], "expected rows from the tool's own hooks/"
     assert all(r["status"] == "UNMEASURED" for r in report["hooks"])
+
+
+def test_window_all_unjoinable_marks_a_hook_whose_window_rows_all_lack_session_id(tmp_path):
+    """Mutation: drop the `0 <` bound on window_all_unjoinable - a hook with
+    no window fires then reads as all-unjoinable."""
+    repo = _make_repo(tmp_path)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    fixture_only = {"ts": now, "hook": "enforce-fake-abdication", "decision": "deny", "reason": "fixture"}
+    lines = [json.dumps(fixture_only), json.dumps({**fixture_only, "session_id": ""})]
+    _write(repo / ".agentic" / ".enforcement-fires.jsonl", "\n".join(lines) + "\n")
+    report = _run_json(repo, "--days", "14")
+    row = _row_for(report, "enforce-fake-abdication.py")
+    assert (row["status"], row["fire_count_window"], row["window_all_unjoinable"]) == ("ACTIVE", 2, True)
+    quiet = _row_for(report, "enforce-fake-action.py")
+    assert (quiet["fire_count_window"], quiet["window_all_unjoinable"]) == (0, False)
+    assert "session_id" in report["meta"]["legend"]["window_all_unjoinable"]
+    table = _run(repo, "--days", "14").stdout
+    cells = next(l for l in table.splitlines() if l.startswith("enforce-fake-abdication.py")).split()
+    assert cells[2] == "ACTIVE*", cells
+    assert "ACTIVE*:" in table
+
+    lines.append(json.dumps({**fixture_only, "session_id": "sess-live"}))
+    _write(repo / ".agentic" / ".enforcement-fires.jsonl", "\n".join(lines) + "\n")
+    live = _row_for(_run_json(repo, "--days", "14"), "enforce-fake-abdication.py")
+    assert (live["fire_count_window"], live["window_all_unjoinable"]) == (3, False)
+    cells = next(l for l in _run(repo, "--days", "14").stdout.splitlines()
+                 if l.startswith("enforce-fake-abdication.py")).split()
+    assert cells[2] == "ACTIVE", cells

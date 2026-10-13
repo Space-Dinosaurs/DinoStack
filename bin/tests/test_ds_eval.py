@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import subprocess
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -787,7 +788,8 @@ def test_evaluate_end_to_end_and_cli_no_gh(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(ev, "_gh_pr_states", lambda *a: calls.append(a))
     report = ev.evaluate([repo], START, END, base="main", use_gh=False, stores=[store], rates=RATES)
     assert calls == []
-    assert report["cost"]["reconciled"] == {"status": "OK", "usd": 3.5, "sessions": 1, "session_ids": ["sess1"]}
+    assert report["cost"]["reconciled"] == {"status": "OK", "usd": 3.5, "sessions": 1, "session_ids": ["sess1"],
+                                            "empty_sessions": 0, "empty_session_ids": []}
     assert report["agents"]["skeptic"]["usd"]["value"] == 1.0
     assert report["work_items"]["coverage"]["value"]["1"] == 1
     assert report["work_items"]["items"]["value"][0]["pr_numbers"] == [10, 11]
@@ -902,3 +904,134 @@ def test_evaluate_leaves_home_untouched_and_use_feedback_false_skips_the_read(tm
     monkeypatch.setattr(ev, "_feedback_items", lambda r: calls.append(r) or [])
     skipped = ev.evaluate([str(repo)], START, END, base="main", use_gh=False, rates=RATES, use_feedback=False)
     assert calls == [] and skipped["meta"]["inputs"][str(repo)]["labels"] is None
+
+
+# ---------------------------------------------------------------------------
+# Empty sessions, the two Skeptic coverages, the per-ticket block
+# ---------------------------------------------------------------------------
+
+
+def _text(monkeypatch, capsys, inputs, top=cli.DEFAULT_TOP):
+    """(report, text report) for one fixture repo through evaluate() and the CLI printer."""
+    monkeypatch.setattr(ev, "_load_repo", lambda r, *a: inputs)
+    report = ev.evaluate([inputs["repo"]], START, END, use_gh=False, stores=[], rates=RATES)
+    cli._print_table(report, top)
+    return report, capsys.readouterr().out
+
+
+def _no_usage(s):
+    return replace(s, conductor=tr.Usage())
+
+
+def test_empty_sessions_are_counted_apart_and_left_out_of_coverage(tmp_path, monkeypatch, capsys):
+    sessions = [
+        session(tmp_path, "a", cost=10.25),
+        session(tmp_path, "z", cost=0.0),
+        session(tmp_path, "d", cost=None),
+        _no_usage(session(tmp_path, "n", cost=None)),
+        _no_usage(session(tmp_path, "e0", cost=0.0)),
+        _no_usage(session(tmp_path, "e1", cost=0.0)),
+    ]
+    report, out = _text(monkeypatch, capsys, inp(sessions))
+    cost = report["cost"]
+    rec = cost["reconciled"]
+    assert (rec["sessions"], rec["usd"]) == (4, 10.25)
+    assert (rec["empty_sessions"], rec["empty_session_ids"]) == (2, ["e0", "e1"])
+    assert cost["no_cost_state"]["sessions"] == 2
+    wt = cost["window_total"]
+    assert wt["coverage"] == 0.5, wt
+    assert wt["value"] == 10.25 and wt["coverage_excludes_empty_sessions"] == 2
+    assert cost["attributed_share"]["coverage"] == 1.0
+    line = next(x for x in out.splitlines() if x.strip().startswith("reconciled"))
+    assert "over 4 sessions (2 empty: $0 cost-state and no assistant turn, excluded from coverage)" in line
+    summary = ev.session_summary(sessions[-1], "/r")
+    assert summary["model"] is None and summary["cost_usd"] == 0.0
+
+
+def test_no_empty_sessions_prints_no_empty_note(tmp_path, monkeypatch, capsys):
+    report, out = _text(monkeypatch, capsys, inp([session(tmp_path, "a", cost=2.0)]))
+    assert report["cost"]["reconciled"]["empty_sessions"] == 0
+    assert "empty" not in next(x for x in out.splitlines() if x.strip().startswith("reconciled"))
+
+
+def test_by_iteration_names_iteration_tagged_and_findings_carrying_shares(monkeypatch, capsys):
+    rows = [skeptic_row(T(2), "a", iteration=1), skeptic_row(T(2), "b", iteration=1),
+            skeptic_row(T(2), "c", iteration=1, signed_off=True, findings={"critical": 0, "major": 1, "minor": 0}),
+            skeptic_row(T(2), "d")]
+    report, out = _text(monkeypatch, capsys, inp(hook_rows=rows, fires=[]))
+    m = report["skeptic_rounds"]["by_iteration"]
+    assert m["coverage"] == m["iteration_tagged_share"] == 0.75
+    assert m["findings_carrying_share"] == 0.25
+    assert m["returns"] == {"total": 4, "iteration_tagged": 3, "findings_carrying": 1}
+    line = next(x for x in out.splitlines() if x.strip().startswith("by_iteration:"))
+    assert "iteration-tagged 75% (3/4)" in line and "findings-carrying 25% (1/4 " in line, line
+    assert "cov " not in line, line
+
+
+def test_by_iteration_absent_prints_its_reason(monkeypatch, capsys):
+    _report, out = _text(monkeypatch, capsys, inp(fires=[]))
+    line = next(x for x in out.splitlines() if x.strip().startswith("by_iteration:"))
+    assert line.strip() == "by_iteration: ABSENT | missing: no Skeptic spawn_complete hook rows in the window"
+
+
+def _items_fixture(tmp_path, prs=()):
+    """AUT-1: priced, a Skeptic round 2, merged with a follow-up. AUT-2: one
+    spawn on an unpriced model with no wall time. AUT-3: priced, never merged."""
+    bare = tr.Sub("b1", "architect", "AUT-2 plan", None, usage(model="no-such-model"), None, [])
+    subs = [sub("e1", description="AUT-1 build", output=2_000_000),
+            sub("k1", "skeptic", "AUT-1 review"), bare, sub("e3", description="AUT-3 build", output=100_000)]
+    return inp([session(tmp_path, "s", subs, cost=1.0)], hook_rows=[skeptic_row(T(2, 5), "k1", iteration=2)],
+               fires=[], prs=prs)
+
+
+_ITEM_PRS = (pr(7, T(3), "feat: AUT-1 thing (#7)"), pr(8, T(4), "fix: AUT-1 again (#8)"))
+
+
+def _item_lines(out):
+    block = out.split("  items: ")[1].split("  items summary:")[0].splitlines()
+    return block[0], [[c.strip() for c in line.strip().split("  ") if c.strip()] for line in block[1:]]
+
+
+def test_work_items_block_lists_top_items_with_absent_figures_as_na(tmp_path, monkeypatch, capsys):
+    report, out = _text(monkeypatch, capsys, _items_fixture(tmp_path, _ITEM_PRS))
+    head, rows = _item_lines(out)
+    assert head == "top 3 of 3 by priced cost (spawn wall = summed spawn time, not end-to-end)"
+    assert rows[0] == ["key", "tier", "priced usd", "spawn wall", "skeptic rounds", "PR outcome"]
+    assert rows[1] == ["AUT-1", "1", "$60.00", "2m 00s", "2", "merged #7, 1 follow-up"]
+    assert rows[2] == ["AUT-3", "1", "$2.00", "1m 00s", "n/a (no skeptic spawn)", "not merged"]
+    assert rows[3] == ["AUT-2", "1", "n/a (no priced usage)", "n/a (no spawn wall time)",
+                       "n/a (no skeptic spawn)", "not merged"]
+    by_key = {r["key"]: r for r in report["work_items"]["items"]["value"]}
+    assert by_key["AUT-2"]["usd"] is None and by_key["AUT-2"]["wall_seconds"] is None
+    assert (by_key["AUT-2"]["wall_spawns"], by_key["AUT-1"]["wall_spawns"], by_key["AUT-1"]["tiers"]) == (0, 2, [1])
+    summary = report["work_items"]["summary"]
+    assert summary["items"] == 3
+    assert (summary["usd_median"]["status"], summary["usd_median"]["value"]) == ("PARTIAL", 31.0)
+    assert summary["wall_seconds_median"]["value"] == 90.0
+    assert ("  items summary: 3 keyed items, median priced usd $31.00 (1 of 3 items without priced usage), "
+            "median spawn wall 1m 30s (1 of 3 items without a spawn wall time)") in out
+
+
+def test_work_items_top_limits_rows_and_keeps_the_summary(tmp_path, monkeypatch, capsys):
+    _report, out = _text(monkeypatch, capsys, _items_fixture(tmp_path, _ITEM_PRS), top=1)
+    head, rows = _item_lines(out)
+    assert head.startswith("top 1 of 3 by priced cost") and [r[0] for r in rows] == ["key", "AUT-1"]
+    assert "items summary: 3 keyed items" in out
+    assert cli.main(["--repo", str(tmp_path), "--top", "-1"]) == 2
+
+
+def test_work_items_without_merged_pr_history_or_iteration_are_na_with_reason(tmp_path, monkeypatch, capsys):
+    fixture = _items_fixture(tmp_path, prs=None)
+    fixture["hook_rows"] = []
+    _report, out = _text(monkeypatch, capsys, fixture)
+    head, rows = _item_lines(out)
+    assert head.endswith("not end-to-end; no merged-PR history (git) for /r)")
+    assert rows[1][4:] == ["n/a (no iteration-tagged return)", "n/a (no merged-PR history)"]
+
+
+def test_no_keyed_work_items_is_na_never_an_empty_table(monkeypatch, capsys):
+    report, out = _text(monkeypatch, capsys, inp(fires=[]))
+    assert "  items: n/a (no keyed work items)" in out and "items summary" not in out
+    summary = report["work_items"]["summary"]
+    assert summary["items"] == 0 and summary["usd_median"]["value"] is None
+    assert summary["usd_median"]["status"] == "ABSENT"

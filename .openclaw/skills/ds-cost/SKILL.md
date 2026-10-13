@@ -28,17 +28,20 @@ The CLI reads `.agentic/events.jsonl` from the current working directory.
 Run from a linked worktree, it also reads the hook `spawn_start`/`spawn_complete`
 rows in the primary checkout's `.agentic/events.jsonl`, where the hooks write
 them since DS-246.
-Output is a fixed-width table sorted by agent name, with a TOTAL row.
+Output is a table sorted by agent name, with a TOTAL row. Every column
+is as wide as its widest value, with two spaces between columns, so two
+large token counts never run together; `team` and `operator` lay out their
+tables the same way.
 Every output ends with the V1 disclosure footer (see "V1 scope" below).
 
 ## Output: pricing absent
 
 ```
-agent       spawns   in       out      cache_cr  cache_rd  wall(s)
-engineer    6        21044    9120     88421     311009    612.4
-skeptic     7        4012     1840     21001     94221     401.2
-qa-engineer 1        801      244      3001      9100      88.0
-TOTAL       14       25857    11204    112423    414330    1101.6
+agent        spawns     in    out  cache_cr  cache_rd  wall(s)
+engineer          6  21044   9120     88421    311009    612.4
+qa-engineer       1    801    244      3001      9100     88.0
+skeptic           7   4012   1840     21001     94221    401.2
+TOTAL            14  25857  11204    112423    414330   1101.6
 
 Pricing not configured. Create ~/.agentic/pricing.yml to enable dollar columns.
 Note: all agent types are counted (hook-emitted spawn_start for ad-hoc sessions; conductor spawn_complete for /ds-implement-ticket sessions). Hook-spawn tokens render as n/a in the unpriced table (zeros in the priced table) UNLESS a paired hook-emitted spawn_complete resolved a real subagent transcript (post-DS-160 token resolution), in which case the real summed tokens are shown. Hook-spawn wall-time renders as n/a (unpriced table) or 0.0 (priced table) UNLESS a paired DS-246 hook spawn_complete supplied per-run wall_seconds for that spawn, in which case the summed run durations are shown.
@@ -138,17 +141,17 @@ with a confirmed identity to populate." and exits 0.
 **Options:**
 
 - `--since YYYY-MM-DD` - filter to sessions whose `ts` is on or after the given date
-- `--json` - emit machine-readable JSON instead of the fixed-width table
+- `--json` - emit machine-readable JSON instead of the table
 
 **Example output:**
 
 ```
 Operator rollup (all projects)
-developer/project        sessions    in_tok   out_tok  cache_cr  cache_rd   wall(s)
------------------------------------------------------------------------------------
-alice/my-project                1     84210     37440      9200     41000    4812.1
-bob/my-project                  1     31022     14200      3900     16100    2100.0
-alice/side-project              1     21004      9310      2100      8800    1204.3
+developer/project   sessions  in_tok  out_tok  cache_cr  cache_rd  wall(s)
+--------------------------------------------------------------------------
+alice/my-project           1   84210    37440      9200     41000   4812.1
+bob/my-project             1   31022    14200      3900     16100   2100.0
+alice/side-project         1   21004     9310      2100      8800   1204.3
 ```
 
 Rows are sorted by total tokens descending, keyed by a single

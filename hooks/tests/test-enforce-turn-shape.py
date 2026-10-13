@@ -117,6 +117,7 @@ the deleted identity-check cases):
 
 from __future__ import annotations
 
+import atexit
 import importlib.util
 import io
 import json
@@ -144,6 +145,7 @@ failed = 0
 # from the hook process's own cwd - which, run from a checkout, is that
 # checkout's (or its primary's) real .agentic/.enforcement-fires.jsonl.
 _HOOK_CWD = tempfile.mkdtemp(prefix="test-turn-shape-cwd-")
+atexit.register(shutil.rmtree, _HOOK_CWD, ignore_errors=True)
 
 
 def run_hook(payload: str, env: dict | None = None) -> tuple[int, str, str]:

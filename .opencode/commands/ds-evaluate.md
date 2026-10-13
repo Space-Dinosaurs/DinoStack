@@ -81,7 +81,9 @@ The report (stdout) is the single measured-signal input to every pillar lens; pa
 
 - **Every metric carries a status:** `OK`, `PARTIAL` (a named source or sample is incomplete, with its coverage) or `ABSENT` (no input, value null). An ABSENT figure is an absence of data, never a measurement of 0 - the report must say so.
 - **Every figure is window-scoped:** sessions, spawns, hook denies and dollars count only the window; never present one as an all-time or per-session figure.
-- **Dollars are reconciled, not summed tokens:** `[cost]` reconciles against the harness's own cost-state; sessions with no cost-state are a separate group, reported PARTIAL rather than folded into the total.
+- **Dollars are reconciled, not summed tokens:** `[cost]` reconciles against the harness's own cost-state; sessions with no cost-state are a separate group, reported PARTIAL rather than folded into the total. Empty sessions (a $0 cost-state record and no assistant turn) are counted on the `reconciled` line and left out of coverage: they add no dollars.
+- **`by_iteration` has two coverages:** iteration-tagged (returns carrying an iteration) and findings-carrying (returns carrying `signed_off` or `findings_count`). A high first and a low second means the rounds are counted but most verdicts are not recorded - do not read yield from it.
+- **`[work_items]` lists the top 10 keyed items by priced cost**, with one summary line. `spawn wall` is summed spawn time, not end-to-end duration, and `n/a (<reason>)` is an absent figure, never 0.
 
 If the collector fails or prints no report, treat the invocation as a sparsity finding (see Edge cases) - never proceed with an invented signal baseline.
 

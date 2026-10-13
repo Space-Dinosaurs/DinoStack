@@ -348,6 +348,18 @@ class TestRunLaunchFailure(unittest.TestCase):
         self.assertEqual(proc.returncode, 127)
 
 
+class TestFormatColumns(unittest.TestCase):
+    def test_columns_fit_the_widest_cell_two_spaces_apart(self):
+        lines = _lib.format_columns([("name", "a", "b"), ("x", 231155171, 3560900854), ("longer-name", 1, 2)])
+        self.assertEqual(lines, ["name                 a           b",
+                                 "x            231155171  3560900854",
+                                 "longer-name          1           2"])
+
+    def test_left_columns_and_empty_input(self):
+        self.assertEqual(_lib.format_columns([("k", "tier"), ("AUT-1", "1")], left=2), ["k      tier", "AUT-1  1"])
+        self.assertEqual(_lib.format_columns([]), [])
+
+
 # ---------------------------------------------------------------------------
 # Standalone runner (matches existing test pattern in bin/tests/)
 # ---------------------------------------------------------------------------

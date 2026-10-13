@@ -202,6 +202,7 @@ def test_consumer_repo_exits_0_and_ends_with_proposals_then_gaps(tmp_path):
     assert proposals[1] == f"       label samples for repo {_real(consumer)} (fire_key  ts  reason):"
     assert [line.split()[0] for line in proposals[2:]] == ["tu-11", "tu-10", "tu-9", "tu-8", "tu-7"]
     assert proposals[2].endswith('"blocked 11"')
+    assert "  items: n/a (no keyed work items)" in out
 
     data = _json(tmp_path, "--since", SINCE, "--until", UNTIL, cwd=consumer)
     d2 = data["decisions"][0]

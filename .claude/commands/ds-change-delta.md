@@ -103,10 +103,26 @@ missing input is `ABSENT` with `value: null` and a reason, never 0, and an
 after window still running is `PARTIAL` with "after window not yet
 elapsed".
 
+- Session counts: the report carries four, over different populations, so
+  they differ on the same window. Each is labelled where it prints, and in
+  JSON by `metrics.sessions.basis` and `eval.meta.session_counts`
+  (`definitions` plus the per-side figures):
+  - `session_log` - the metrics table's `sessions`: one row per
+    `session_uuid` in `.agentic/session-log/`, placed by that row's own
+    `ts`. It is the denominator of the per-session metrics.
+  - `transcript_overlapping_window` - `eval.before/after.sessions`:
+    transcript sessions whose first..last timestamp overlaps the window. A
+    session that crosses the cut counts on both sides.
+  - `transcript_assigned_by_first_ts` - `eval.meta.sessions_assigned`: the
+    same sessions placed once, on the side their first timestamp falls in.
+  - `transcript_assigned_non_empty` - the assigned sessions minus empty
+    ones: the `n` of the pooled, per-entrypoint, mix and prefix figures.
 - `before` / `after`: `ds-eval`'s own window figures - `sessions`,
   `cost_usd` (cost reconciled to the harness cost-state),
   `usd_per_reconciled_session`, `straddling_sessions`. `evaluate()` lists a
-  session in every window it overlaps.
+  session in every window it overlaps. `usd_per_reconciled_session` divides
+  by the reconciled sessions that are not empty, and `cost_usd`'s coverage
+  leaves empty sessions out of both sides.
 - The figures below count each session once, on the side its first
   timestamp falls in (`meta.sessions_assigned`). The figure is cost-state
   dollars per session, over the sessions whose cost-state covers them.
