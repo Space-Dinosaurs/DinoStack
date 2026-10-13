@@ -459,6 +459,16 @@ check "close reports a conductor tab left unraised after closing a one-tab windo
 check "close returns before selecting or raising a window that is not on this Space" osa_before "$close_run" 'if winSpace is not "on" then return "spaceunknown"' 'set selected of aTab to true'
 check "close checks the Space of the window it would raise" osa_before "$close_run" 'set winSpace to my spaceOf(id of aWin)' 'if winSpace is "off" then return "offscreen"'
 check "close's only window raises are the three Space-gated ones" eq "$(printf '%s\n' "$close_script" | grep -c 'set index of')" 3
+# Every raise and Terminal activation follows a fresh mayRaise reading within a few lines, so no
+# per-tab Apple-event loop runs between the check and the raise.
+raises_fresh() { # raises_fresh <run handler>: prints each raise lacking a mayRaise in the 5 lines before it
+  printf '%s\n' "$1" | awk '/mayRaise/ { last = NR } /set index of|^ *activate$/ && (last == 0 || NR - last > 5) { print NR ": " $0 }'
+}
+check "open: every raise and activate is right after a fresh mayRaise" eq "$(raises_fresh "$open_run")" ""
+check "close: every raise and activate is right after a fresh mayRaise" eq "$(raises_fresh "$close_run")" ""
+check "open: the conductor raise needs a fresh mayRaise, not only the early reading" osa_before "$open_run" 'if condSpace is "on" and not (my mayRaise(condWinId)) then set condSpace to "unknown"' 'set index of window id condWinId to 1'
+check "close: the multi-tab window raise needs a fresh mayRaise" osa_before "$close_run" 'if not (my mayRaise(id of aWin)) then return "spaceunknown"' 'set index of aWin to 1'
+check "open and close each activate Terminal only once" eq "$(printf '%s\n' "$open_run" | grep -c '^ *activate$')|$(printf '%s\n' "$close_run" | grep -c '^ *activate$')" "1|1"
 check "open and close read the on-screen query from their third argument" eq "$(printf '%s\n' "$open_run" "$close_run" | grep -c 'set onScreenJxa to item 3 of argv')" 2
 check "the on-screen query is passed to osascript" contains "$(cat "$LOG/osa-jxa")" '$.kCGWindowListOptionOnScreenOnly'
 # A CoreGraphics query, not an Apple event: it reads the window list and touches no app.

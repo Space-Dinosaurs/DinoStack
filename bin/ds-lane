@@ -75,7 +75,8 @@
 #   Space, minimized or a background tab; new window used); ` or
 #   `conductor window not raised (could not tell whether it is on this
 #   Space; new window used); ` when the conductor's window was not on screen
-#   in the current Space or the CoreGraphics query for that failed, else
+#   in the current Space, or the CoreGraphics query for that failed or no
+#   longer showed the window just before the raise, else
 #   `tab misplaced (new window, no new tab found); ` on the window path;
 #   otherwise one of `tab skipped: <no conductor tty|no osascript|no
 #   matching tab|lock busy|lock unavailable>` (no matching tab also when
@@ -87,12 +88,16 @@
 #   conductor's tab is not raised because it cannot be shown to be in the
 #   same group on this Space), `close skipped: <no osascript|lock busy|lock
 #   unavailable|tab busy|no matching tab|Terminal not frontmost|window not
-#   on screen in this Space|Space unknown>` or `close error: <first stderr
+#   on screen in this Space|Space unknown (query failed, or the window left
+#   the screen before the raise)>` or `close error: <first stderr
 #   line or osascript output>`. Spaces: no Terminal window is raised, and
-#   Terminal is not re-activated, unless the window was on screen in the
-#   current Space both when the command started and just before the raise
-#   (raising one on another Space pulls it into this Space or switches
-#   Space); a failed query counts as not on screen.
+#   Terminal is not activated, unless the window was on screen in the
+#   current Space both when the command started and in a fresh query just
+#   before the raise (raising one on another Space pulls it into this Space
+#   or switches Space); a failed query counts as not on screen. Deliberate
+#   trade-off: a conductor tab that is a background tab of a native tab
+#   group shown on this Space also reads as not on screen, so the open uses
+#   a new window and the close reports the conductor tab not reselected.
 #
 # Upstream deps: git, python3 (os.setsid detach, getmtime, realpath), jq, ps,
 #   tail; claude CLI resolved as DS_LANE_CLAUDE_BIN, then `command -v claude`,
@@ -809,6 +814,7 @@ on run argv
   set condWinRef to condWinId
   set targetTty to ""
   set termFront to false
+  if condSpace is "on" and not (my mayRaise(condWinId)) then set condSpace to "unknown"
   if condSpace is "on" then
     tell application "Terminal"
       set index of window id condWinId to 1
@@ -888,7 +894,8 @@ end run'
 # AppleScript (argv: own tty, conductor tty, ON_SCREEN_JXA). Terminal cannot close a single tab
 # by script, only a window: a one-tab window is closed; a tab in a multi-tab window is selected
 # and closed with Cmd-W (Accessibility), only when that window is on screen in the current Space
-# (else offscreen, or spaceunknown when the query failed, with nothing touched). Acts only once
+# (else offscreen, or spaceunknown when a query failed or a fresh one just before the raise no
+# longer shows it, with nothing touched). Acts only once
 # the tab has no processes left, so it never prompts and never hits a reused tty that a new shell
 # already owns. Cmd-W is pressed only while Terminal is frontmost with this tab selected. Then
 # restores that window's previously selected tab (the conductor's tab when that was the tab being
@@ -937,6 +944,7 @@ on run argv
             set winSpace to my spaceOf(id of aWin)
             if winSpace is "off" then return "offscreen"
             if winSpace is not "on" then return "spaceunknown"
+            if not (my mayRaise(id of aWin)) then return "spaceunknown"
             set winSel to tty of selected tab of aWin
             set selected of aTab to true
             set index of aWin to 1
