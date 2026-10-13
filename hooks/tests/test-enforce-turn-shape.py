@@ -139,6 +139,12 @@ failed = 0
 # ---------------------------------------------------------------------------
 
 
+# Most payloads here carry no `cwd`, and log_fire then resolves the fire log
+# from the hook process's own cwd - which, run from a checkout, is that
+# checkout's (or its primary's) real .agentic/.enforcement-fires.jsonl.
+_HOOK_CWD = tempfile.mkdtemp(prefix="test-turn-shape-cwd-")
+
+
 def run_hook(payload: str, env: dict | None = None) -> tuple[int, str, str]:
     merged_env = os.environ.copy()
     merged_env.pop("AE_TURN_SHAPE_GUARD_DISABLE", None)
@@ -151,6 +157,7 @@ def run_hook(payload: str, env: dict | None = None) -> tuple[int, str, str]:
         text=True,
         env=merged_env,
         timeout=10,
+        cwd=_HOOK_CWD,
     )
     return result.returncode, result.stdout, result.stderr
 
