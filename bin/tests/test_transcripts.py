@@ -594,3 +594,50 @@ def test_repo_given_through_a_symlink_matches_sessions_recorded_by_realpath(tmp_
     _write(_session_dir(store, resolved) / "sess.jsonl", [_user("2026-10-01T10:00:00Z", str(resolved))])
     got = tr.sessions(str(link / "r"), START, END, [store])
     assert [s.session_id for s in got] == ["sess"]
+
+
+def _ping(ts, cwd):
+    return {"type": "user", "isMeta": True, "turnOrigin": "scheduled", "promptSource": "system",
+            "timestamp": ts, "cwd": cwd, "message": {"role": "user", "content": tr._ck.LG.PING_PROMPT}}
+
+
+def _prompt_hook(ts, text):
+    return {"type": "attachment", "timestamp": ts,
+            "attachment": {"type": "hook_success", "hookEvent": "UserPromptSubmit", "content": text}}
+
+
+def test_passed_ping_usage_is_kept_out_of_conductor(tmp_path):
+    repo, store = tmp_path / "r", tmp_path / "store"
+    cwd = str(repo)
+    _write(_session_dir(store, repo) / "sess.jsonl", [
+        _user("2026-10-01T10:00:00Z", cwd),
+        _asst("m1", 5, "2026-10-01T10:00:01Z", cwd),
+        _ping("2026-10-01T11:00:00Z", cwd),
+        _prompt_hook("2026-10-01T11:00:00Z", tr._ck.LG.GATE_NOTE),
+        _asst("m2", 3, "2026-10-01T11:00:01Z", cwd),
+    ])
+    (s,) = tr.sessions(cwd, START, END, [store])
+    key = ("claude-opus-5-5", "cli", "2.1.287")
+    assert s.conductor[key]["output"] == 5 and s.conductor[key]["messages"] == 1
+    assert s.keepalive[key]["output"] == 3 and s.keepalive[key]["messages"] == 1
+    assert [t.outcome for t in s.turns if t.kind == "ping"] == ["passed"]
+
+
+def test_dropped_ping_costs_nothing_and_ends_at_the_next_turn(tmp_path):
+    repo, store = tmp_path / "r", tmp_path / "store"
+    cwd = str(repo)
+    notification = _user("2026-10-01T11:05:00Z", cwd, content="<task-notification>done</task-notification>")
+    notification["turnOrigin"] = "task_notification"
+    stopped = _user("2026-10-01T11:00:00Z", cwd, content="Operation stopped by hook")
+    stopped["isMeta"] = True
+    _write(_session_dir(store, repo) / "sess.jsonl", [
+        _ping("2026-10-01T11:00:00Z", cwd),
+        _prompt_hook("2026-10-01T11:00:00Z", "blocked"),
+        stopped,
+        notification,
+        _asst("m1", 5, "2026-10-01T11:05:01Z", cwd),
+    ])
+    (s,) = tr.sessions(cwd, START, END, [store])
+    assert s.keepalive == {}
+    assert s.conductor[("claude-opus-5-5", "cli", "2.1.287")]["messages"] == 1
+    assert [(t.kind, t.outcome) for t in s.turns] == [("ping", "dropped"), ("other", None)]

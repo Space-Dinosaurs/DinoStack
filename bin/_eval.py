@@ -22,7 +22,7 @@ Public API:
              stores=None, rates=None, include_sessions=False,
              use_feedback=True) -> dict
         Keys: meta, agents, skeptic_rounds, work_items, hooks, cost, mix,
-        decisions, gaps, plus `session_rows` (one session_summary() per
+        keepalive, decisions, gaps, plus `session_rows` (one session_summary() per
         in-window session) when include_sessions is True, so ds-change-delta
         can split a window by entrypoint without a second transcript pass.
         use_feedback=False skips the `ds-feedback list` read (labels are
@@ -50,6 +50,29 @@ Public API:
         metric's input set is non-empty and every source it reads was
         available (coverage < 1 then says the input set is a subset, and
         `missing` names what it excludes).
+    keepalive: {repo: section}, one per repo (never pooled). A section is
+        pings {fired, passed, dropped, deleted, wrapped, unclassified}
+        (_transcripts.Turn.outcome, ping turns timestamped in the window);
+        passed_ping_usage {input, output, cache_read, cache_creation, usd};
+        returns {"20-60"|"60-120"|"120-240"|"over 240": {with_ping,
+        no_ping}}, each {returns, cold, avg_cache_read,
+        avg_cache_creation}: a return is a human turn in the window more
+        than 20 min after the previous non-ping main-chain request (any
+        turn's request, a task notification's included), with_ping when a
+        passed ping fell in that gap, cold when its first request created
+        more than it read; and estimated_net_usd {usd,
+        avoided_creation_tokens, avoided_creation_usd, passed_ping_usd},
+        basis "estimate": each warm with-ping return's cache_read x the
+        same bucket's no-ping cold rate, priced at (1h write - read), minus
+        passed-ping dollars. Never a measured saving. A bucket with
+        1-9 returns is PARTIAL "n < 10", with none ABSENT; with no ping
+        turn in the window every figure is ABSENT, never 0.
+    Ping usage: agents.conductor (usd and by_entrypoint) excludes keepalive
+        ping turns; it included them before keepalive was split out, so a
+        window with passed pings now reads lower by their usage. cost, mix
+        and is_empty_session still count it, as visible spend the
+        cost-state also records. ds-change-delta inherits only this; a
+        keepalive cut should be the first real ping fire, not the merge.
     Additive figures (none feeds a decision rule):
         Empty session (is_empty_session, the one definition, also used by
         bin/ds-change-delta through session_rows[].empty): no usage record,
@@ -208,7 +231,11 @@ ROUTES = {
     "D2": "prune-harness",
     "D3": "tracker-ticket",
 }
-SECTIONS = ("agents", "skeptic_rounds", "work_items", "hooks", "cost", "mix", "decisions", "gaps")
+SECTIONS = ("agents", "skeptic_rounds", "work_items", "hooks", "cost", "mix", "keepalive", "decisions", "gaps")
+IDLE_RETURN = timedelta(minutes=20)
+RETURN_BUCKETS = (("20-60", 60), ("60-120", 120), ("120-240", 240), ("over 240", None))
+MIN_BUCKET_N = 10
+PING_OUTCOMES = ("passed", "dropped", "deleted", "wrapped", "unclassified")
 
 _PR_SUBJECT_RE = re.compile(r"\(#(\d+)\)\s*$")
 _REVERT_SUBJECT_RE = re.compile(r'^Revert "(.*)"\s*$')
@@ -597,7 +624,7 @@ def session_summary(session, repo) -> dict:
 def is_empty_session(session) -> bool:
     """No usage record, conductor or subagent, and no cost-state spend (the
     record is absent or $0): the session never reached the model."""
-    return (not session.conductor and not any(sub.usage for sub in session.subagents)
+    return (not session.conductor and not session.keepalive and not any(sub.usage for sub in session.subagents)
             and not session.cost_state_usd)
 
 
@@ -1387,6 +1414,118 @@ def _agents_section(inputs, spawns, rates, skeptic, work, start, end) -> dict:
     return agents
 
 
+def _visible_usages(s) -> list:
+    """Every usage a session's transcripts record: conductor, keepalive pings
+    and subagents. Ping usage is real spend, so it stays in reconciliation."""
+    return [s.conductor, s.keepalive] + [sub.usage for sub in s.subagents]
+
+
+def _sum_usage(usages) -> dict:
+    total: dict = {}
+    for usage in usages:
+        for key, tokens in usage.items():
+            bucket = total.setdefault(key, dict.fromkeys(tokens, 0))
+            for name, value in tokens.items():
+                bucket[name] = None if bucket[name] is None or value is None else bucket[name] + value
+    return total
+
+
+def _returns(session) -> list[dict]:
+    """Human turns more than IDLE_RETURN after the previous non-ping
+    main-chain request. Any turn (task notification, agent hand-back) that
+    made a request moves that point; a passed ping does not, and is recorded
+    as preceding the return instead."""
+    out, prev, pinged = [], None, False
+    for turn in session.turns:
+        if (turn.kind == "human" and turn.first is not None and prev is not None
+                and turn.ts is not None and turn.ts - prev > IDLE_RETURN):
+            out.append({"ts": turn.ts, "gap": turn.ts - prev, "with_ping": pinged, **turn.first})
+        if turn.kind == "ping":
+            pinged = pinged or turn.outcome == "passed"
+        elif turn.last_ts is not None:
+            prev, pinged = turn.last_ts, False
+    return out
+
+
+def _bucket(gap: timedelta) -> str:
+    minutes = gap.total_seconds() / 60
+    return next(name for name, upper in RETURN_BUCKETS if upper is None or minutes < upper)
+
+
+def _return_metric(rows: list[dict]) -> dict:
+    if not rows:
+        return _absent("no returns")
+    n = len(rows)
+    value = {"returns": n, "cold": sum(1 for r in rows if r["cache_creation"] > r["cache_read"]),
+             "avg_cache_read": round(sum(r["cache_read"] for r in rows) / n),
+             "avg_cache_creation": round(sum(r["cache_creation"] for r in rows) / n)}
+    return metric(PARTIAL, value, None, ["n < 10"]) if n < MIN_BUCKET_N else metric(OK, value)
+
+
+def _avoided_usd(model, tokens: float, rates: dict) -> float | None:
+    """Price of `tokens` at (1h cache write - cache read) for `model`."""
+    write = _TELEMETRY.price_tokens(model, {"cache_creation": tokens, "cache_creation_1h": tokens}, rates)
+    read = _TELEMETRY.price_tokens(model, {"cache_read": tokens}, rates)
+    if write is None or read is None or write["total"] is None or read["total"] is None:
+        return None
+    return write["by_kind"]["cache_creation_1h"] - read["by_kind"]["cache_read"]
+
+
+def _keepalive_section(inputs, rates, start, end) -> dict:
+    """Keepalive pings in the window, what the passed ones cost, how warm
+    the operator's returns after idle were, and an estimated net."""
+    sessions = [s for inp in inputs for s in inp["sessions"]]
+    pings = [t for s in sessions for t in s.turns if t.kind == "ping" and _in(t.ts, start, end)]
+    if not pings:
+        none = _absent("no keepalive ping in window")
+        return {"pings": none, "passed_ping_usage": none,
+                "returns": {name: {"with_ping": none, "no_ping": none} for name, _ in RETURN_BUCKETS},
+                "estimated_net_usd": none}
+    counts = {"fired": len(pings), **{o: sum(1 for t in pings if t.outcome == o) for o in PING_OUTCOMES}}
+    passed = _sum_usage(t.usage for t in pings if t.outcome == "passed")
+    passed_usd, unpriced = _price_usage(passed, rates) if passed else (0.0, [])
+    tokens = {k: sum(t[k] for t in passed.values()) for k in ("input", "output", "cache_read", "cache_creation")}
+    usage_m = (metric(PARTIAL, {**tokens, "usd": None}, None, ["unpriced models: " + ", ".join(unpriced)])
+               if passed_usd is None else metric(OK, {**tokens, "usd": _usd(passed_usd)}))
+
+    rows = [r for s in sessions for r in _returns(s) if _in(r["ts"], start, end)]
+    returns, missing, avoided_tokens, avoided_usd = {}, [], 0.0, 0.0
+    for name, _ in RETURN_BUCKETS:
+        mine = [r for r in rows if _bucket(r["gap"]) == name]
+        with_ping = [r for r in mine if r["with_ping"]]
+        no_ping = [r for r in mine if not r["with_ping"]]
+        returns[name] = {"with_ping": _return_metric(with_ping), "no_ping": _return_metric(no_ping)}
+        warm = [r for r in with_ping if r["cache_creation"] <= r["cache_read"]]
+        if not warm:
+            continue
+        if not no_ping:
+            missing.append(f"{name}: no no-ping returns (no counterfactual)")
+            continue
+        if len(with_ping) < MIN_BUCKET_N or len(no_ping) < MIN_BUCKET_N:
+            missing.append(f"{name}: n < 10")
+        cold_rate = sum(1 for r in no_ping if r["cache_creation"] > r["cache_read"]) / len(no_ping)
+        for r in warm:
+            usd = _avoided_usd(r["model"], r["cache_read"] * cold_rate, rates)
+            if usd is None:
+                missing.append(f"{name}: unpriced model {r['model']}")
+                continue
+            avoided_tokens += r["cache_read"] * cold_rate
+            avoided_usd += usd
+    if passed_usd is None:
+        net = _absent("passed pings unpriced")
+    else:
+        if not rows:
+            missing.append("no returns after idle")
+        net = metric(PARTIAL if missing else OK,
+                     {"usd": _usd(avoided_usd - passed_usd), "avoided_creation_tokens": round(avoided_tokens),
+                      "avoided_creation_usd": _usd(avoided_usd), "passed_ping_usd": _usd(passed_usd)},
+                     None, sorted(set(missing)))
+    net["basis"] = ("estimate, not a measured saving: warm returns after a passed ping x the no-ping "
+                    "cold rate of the same bucket x cache_read, priced at (1h write - read), minus passed pings")
+    return {"pings": metric(OK, counts), "passed_ping_usage": usage_m, "returns": returns,
+            "estimated_net_usd": net}
+
+
 def _cost_section(inputs, rates, start, end) -> dict:
     sessions = [s for inp in inputs for s in inp["sessions"]]
     reconciled = sorted((s for s in sessions if s.cost_covers_session and s.cost_usd is not None),
@@ -1399,7 +1538,7 @@ def _cost_section(inputs, rates, start, end) -> dict:
 
     def visible(s):
         usds, unpriced = [], set()
-        for usage in [s.conductor] + [sub.usage for sub in s.subagents]:
+        for usage in _visible_usages(s):
             usd, up = _price_usage(usage, rates)
             usds.append(usd)
             unpriced.update(up)
@@ -1444,8 +1583,7 @@ def _cost_section(inputs, rates, start, end) -> dict:
         usd, unpriced = visible(s)
         attributed.append(usd)
         unpriced_all |= unpriced
-        seen = {_model_base(key[0]) for usage in [s.conductor] + [sub.usage for sub in s.subagents]
-                for key in usage}
+        seen = {_model_base(key[0]) for usage in _visible_usages(s) for key in usage}
         state_tokens = 0
         for model, mu in (s.model_usage or {}).items():
             if not isinstance(mu, dict):
@@ -1455,7 +1593,7 @@ def _cost_section(inputs, rates, start, end) -> dict:
             if _model_base(model) not in seen and isinstance(mu.get("costUSD"), (int, float)):
                 absent_models[model] = absent_models.get(model, 0.0) + float(mu["costUSD"])
         vis_tokens = sum(t["input"] + t["output"] + t["cache_read"] + t["cache_creation"]
-                         for usage in [s.conductor] + [sub.usage for sub in s.subagents] for t in usage.values())
+                         for usage in _visible_usages(s) for t in usage.values())
         if s.model_usage is not None and vis_tokens > state_tokens:
             exceed.append(s.session_id)
     known = [u for u in attributed if u is not None]
@@ -1479,7 +1617,7 @@ def _mix_section(inputs, rates) -> dict:
     unpriced: set = set()
     for inp in inputs:
         for s in inp["sessions"]:
-            for usage in [s.conductor] + [sub.usage for sub in s.subagents]:
+            for usage in _visible_usages(s):
                 for key, tokens in usage.items():
                     usd, up = _price_usage({key: tokens}, rates)
                     unpriced.update(up)
@@ -1737,8 +1875,9 @@ def evaluate(repos, start: datetime, end: datetime, *, base=None, ticket_re=None
     repos = [Path(os.path.abspath(str(r))) for r in repos]
     inputs = [_load_repo(r, start, end, base, ticket_re, use_gh, stores, use_feedback) for r in repos]
 
-    decisions, gaps, per_repo = [], [], []
+    decisions, gaps, per_repo, keepalive = [], [], [], {}
     for inp in inputs:
+        keepalive[inp["repo"]] = _keepalive_section([inp], rates, start, end)
         sections, spawns, returns = _sections([inp], rates, start, end)
         d, g = _decide(inp["repo"], sections, spawns, returns, pricing_ok)
         decisions.extend(d)
@@ -1772,7 +1911,8 @@ def evaluate(repos, start: datetime, end: datetime, *, base=None, ticket_re=None
                    for inp in inputs},
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
-    report = {"meta": meta, **_public(combined), "decisions": order_decisions(decisions), "gaps": gaps}
+    report = {"meta": meta, **_public(combined), "keepalive": keepalive,
+              "decisions": order_decisions(decisions), "gaps": gaps}
     if include_sessions:
         report["session_rows"] = [session_summary(s, inp["repo"]) for inp in inputs for s in inp["sessions"]]
     return report

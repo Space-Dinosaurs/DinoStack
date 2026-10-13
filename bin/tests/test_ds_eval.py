@@ -1167,3 +1167,40 @@ def test_a_priced_zero_dollar_item_sorts_before_an_unpriced_one(tmp_path, monkey
     _report, out = _text(monkeypatch, capsys, inp([session(tmp_path, "s", subs, cost=1.0)], fires=[]))
     _head, rows = _item_lines(out)
     assert [(r[0], r[2]) for r in rows[1:]] == [("AUT-5", "$0.00"), ("AUT-1", "n/a (no priced usage)")]
+
+
+def _turn(kind, ts, last=None, first=None, gated=False):
+    return tr.Turn(kind, ts, gated=gated, requests=1 if last else 0, first=first, last_ts=last)
+
+
+def test_return_gap_runs_from_the_previous_non_ping_request(tmp_path):
+    first = {"model": "claude-opus-5-5", "cache_read": 900, "cache_creation": 10}
+    s = replace(session(tmp_path, "s"), turns=[
+        _turn("human", T(2, 10), last=T(2, 10, 1)),
+        _turn("other", T(2, 10, 50), last=T(2, 10, 51)),
+        _turn("ping", T(2, 11, 10), last=T(2, 11, 10), gated=True),
+        _turn("human", T(2, 11, 40), last=T(2, 11, 41), first=first),
+    ])
+    (row,) = ev._returns(s)
+    assert row["gap"] == timedelta(minutes=49)
+    assert ev._bucket(row["gap"]) == "20-60"
+    assert row["with_ping"] is True
+
+
+def test_return_buckets_and_n_below_10_is_partial():
+    assert [ev._bucket(timedelta(minutes=m)) for m in (59.9, 60, 239.9, 240)] == [
+        "20-60", "60-120", "120-240", "over 240"]
+    cold = {"cache_read": 1, "cache_creation": 5}
+    nine = ev._return_metric([cold] * 9)
+    assert nine["status"] == "PARTIAL" and nine["missing"] == ["n < 10"] and nine["value"]["cold"] == 9
+    assert ev._return_metric([cold] * 10)["status"] == "OK"
+
+
+def test_keepalive_without_pings_is_absent_never_zero(tmp_path, capsys):
+    k = ev._keepalive_section([{"sessions": [session(tmp_path, "s")]}], RATES, START, END)
+    envelopes = [k["pings"], k["passed_ping_usage"], k["estimated_net_usd"]]
+    envelopes += [m for split in k["returns"].values() for m in split.values()]
+    assert all(m["status"] == "ABSENT" and m["value"] is None for m in envelopes)
+    cli._print_keepalive({"meta": {"repos": ["/r"]}, "keepalive": {"/r": k}})
+    out = capsys.readouterr().out
+    assert "ABSENT (no keepalive ping in window)" in out and " 0" not in out

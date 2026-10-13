@@ -62,7 +62,7 @@ Public API:
         UTC.
     Session: session_id, store, path, cost_usd, cost_state_usd,
         cost_covers_session, cost_start_ts, model_usage, conductor,
-        subagents, first_ts, last_ts, pr_created.
+        subagents, first_ts, last_ts, pr_created, keepalive, turns.
         first_ts/last_ts are the top-level records' own `timestamp` values
         (a file-history-snapshot's nested snapshot time is not one).
         cost_state_usd/model_usage are the raw figures from the LAST
@@ -75,7 +75,19 @@ Public API:
         cost_state_usd when it covers the session and is None otherwise -
         never a 0 standing in for spend an earlier process made.
         conductor counts the top-level transcript's non-sidechain assistant
-        records; pr_created lists the conductor's own PR creations.
+        records outside keepalive ping turns; keepalive counts those inside
+        them (the two never overlap). pr_created lists the conductor's own PR
+        creations.
+    Turn: kind ("ping" | "human" | "other"), ts, gated, wrap, cron_delete,
+        requests, first ({model, cache_read, cache_creation} of the
+        turn's first request, or None), last_ts, usage. A turn opens at every
+        user record cache_keepalive's LG.starts_turn accepts (human, task
+        notification, agent hand-back, scheduled), not only at human ones;
+        a ping is LG.is_ping_record. outcome (pings only): dropped (no
+        request), wrapped (WRAP_MARKER in its UserPromptSubmit hook output),
+        passed (LG.GATE_NOTE there), deleted (a CronDelete tool_use), else
+        unclassified. A request belongs to the turn its first record falls
+        in; requests before any turn opener form an "other" turn.
     Sub: agent_id, agent_type, description, tool_use_id, usage,
         wall_seconds, pr_created. Meta fields are None without a
         `.meta.json`; wall_seconds is None without a timestamp.
@@ -98,15 +110,16 @@ Public API:
         cache_creation_5m/_1h are None once any record in the bucket lacks
         the 5m/1h split.
 
-Upstream deps: Python 3 stdlib; bin/_lib.py (CONFIG_DIR_ENV), loaded by
-    resolved path. Transcript layout: <store>/<project-dir>/<session>.jsonl,
+Upstream deps: Python 3 stdlib; bin/_lib.py (CONFIG_DIR_ENV) and
+    hooks/lib/cache_keepalive.py (its LG ping and turn predicates, GATE_NOTE,
+    WRAP_MARKER), both loaded by resolved path. Transcript layout: <store>/<project-dir>/<session>.jsonl,
     subagents at <store>/<project-dir>/<session>/subagents/agent-<id>.jsonl
     plus agent-<id>.meta.json (agentType, description, toolUseId).
 
 Downstream consumers: bin/ds-skill-load-rate, bin/ds-learnings-retrieval-rate,
     bin/ds-measure-conductor-tool-calls (store set and repo-to-dir mapping);
     bin/_eval.py (ds-eval: resolve_stores, store_entry, project_dirs_checked,
-    sessions); bin/tests/test_transcripts.py.
+    sessions, Session.keepalive and Session.turns); bin/tests/test_transcripts.py.
 
 Failure modes: never raises on a missing store, an unreadable file, a
     malformed line or a missing or wrongly-typed field - such a record is
@@ -136,6 +149,10 @@ _LIB_PATH = Path(__file__).resolve().parent / "_lib.py"
 _lib_loader = importlib.machinery.SourceFileLoader("_transcripts_lib", str(_LIB_PATH))
 _lib = importlib.util.module_from_spec(importlib.util.spec_from_loader(_lib_loader.name, _lib_loader))
 _lib_loader.exec_module(_lib)
+_CK_PATH = Path(__file__).resolve().parent.parent / "hooks" / "lib" / "cache_keepalive.py"
+_ck_loader = importlib.machinery.SourceFileLoader("_transcripts_cache_keepalive", str(_CK_PATH))
+_ck = importlib.util.module_from_spec(importlib.util.spec_from_loader(_ck_loader.name, _ck_loader))
+_ck_loader.exec_module(_ck)
 
 SYNTHETIC_MODEL = "<synthetic>"
 COST_START_TOLERANCE_S = 5.0
@@ -189,6 +206,34 @@ class Usage(dict):
 
 
 @dataclass
+class Turn:
+    """One main-chain turn: a user record that opens a turn (LG.starts_turn)
+    and the assistant requests after it, up to the next such record."""
+    kind: str
+    ts: Optional[datetime]
+    gated: bool = False
+    wrap: bool = False
+    cron_delete: bool = False
+    requests: int = 0
+    first: Optional[dict] = None
+    last_ts: Optional[datetime] = None
+    usage: Usage = field(default_factory=Usage)
+
+    @property
+    def outcome(self) -> Optional[str]:
+        """A ping turn's outcome; None for any other turn."""
+        if self.kind != "ping":
+            return None
+        if not self.requests:
+            return "dropped"
+        if self.wrap:
+            return "wrapped"
+        if self.gated:
+            return "passed"
+        return "deleted" if self.cron_delete else "unclassified"
+
+
+@dataclass
 class Sub:
     agent_id: str
     agent_type: Optional[str]
@@ -214,6 +259,8 @@ class Session:
     first_ts: Optional[datetime]
     last_ts: Optional[datetime]
     pr_created: List[PrRef] = field(default_factory=list)
+    keepalive: Usage = field(default_factory=Usage)
+    turns: List[Turn] = field(default_factory=list)
 
 
 def _int(value) -> int:
@@ -529,14 +576,26 @@ def _dedupe_prs(prs: List[PrRef]) -> List[PrRef]:
     return list(seen.values())
 
 
+def _turn_kind(rec: dict) -> str:
+    if _ck.LG.is_ping_record(rec):
+        return "ping"
+    return "human" if rec.get("turnOrigin") == "human" else "other"
+
+
 def _scan(path: Path, want_cost: bool, skip_sidechain: bool) -> dict:
-    """One pass over a transcript: deduped usage, timestamps, cost, PRs."""
+    """One pass over a transcript: deduped usage, timestamps, cost, PRs.
+    The main transcript (skip_sidechain) is also split into turns; usage of
+    keepalive ping turns goes to `keepalive`, never to `usage`."""
     best: dict = {}
     first = last = first_assistant = None
     cost_rec = None
     pr_uses: set = set()
     prs: List[PrRef] = []
-    empty: dict = {"usage": Usage(), "first": None, "last": None, "first_assistant": None, "cost": None, "prs": []}
+    turns: List[Turn] = []
+    turn_of: dict = {}
+    first_ts: dict = {}
+    empty: dict = {"usage": Usage(), "first": None, "last": None, "first_assistant": None, "cost": None, "prs": [],
+                   "keepalive": Usage(), "turns": []}
     try:
         handle = path.open("r", encoding="utf-8", errors="replace")
     except OSError:
@@ -549,6 +608,16 @@ def _scan(path: Path, want_cost: bool, skip_sidechain: bool) -> dict:
                     first = ts
                 if last is None or ts > last:
                     last = ts
+            if skip_sidechain and '"type":"user"' in line and '"type":"tool_result"' not in line:
+                rec = _loads(line) or {}
+                if rec.get("type") == "user" and rec.get("isSidechain") is not True and _ck.LG.starts_turn(rec):
+                    turns.append(Turn(_turn_kind(rec), ts))
+            elif turns and turns[-1].kind == "ping" and '"UserPromptSubmit"' in line:
+                att = _dict((_loads(line) or {}).get("attachment"))
+                if att.get("hookEvent") == "UserPromptSubmit":
+                    blob = json.dumps(att)
+                    turns[-1].wrap = turns[-1].wrap or _ck.WRAP_MARKER in blob
+                    turns[-1].gated = turns[-1].gated or _ck.LG.GATE_NOTE in blob
             if '"usage"' in line and '"assistant"' in line:
                 rec = _loads(line) or {}
                 msg = rec.get("message")
@@ -561,6 +630,15 @@ def _scan(path: Path, want_cost: bool, skip_sidechain: bool) -> dict:
                             and all(v is None or isinstance(v, str) for v in key[1:])):
                         if ts is not None and (first_assistant is None or ts < first_assistant):
                             first_assistant = ts
+                        if skip_sidechain:
+                            if not turns:
+                                turns.append(Turn("other", None))
+                            turn_of.setdefault(mid, len(turns) - 1)
+                            first_ts.setdefault(mid, ts)
+                            if turns[turn_of[mid]].kind == "ping" and '"CronDelete"' in line:
+                                turns[turn_of[mid]].cron_delete = turns[turn_of[mid]].cron_delete or any(
+                                    _dict(b).get("type") == "tool_use" and _dict(b).get("name") == "CronDelete"
+                                    for b in (msg.get("content") if isinstance(msg.get("content"), list) else []))
                         out_tok = _int(msg["usage"].get("output_tokens"))
                         prev = best.get(mid)
                         if prev is None or out_tok >= prev[0]:
@@ -574,11 +652,22 @@ def _scan(path: Path, want_cost: bool, skip_sidechain: bool) -> dict:
                 rec = _loads(line)
                 if rec:
                     prs.extend(_pr_refs(rec, pr_uses))
-    usage = Usage()
-    for _out, key, u in best.values():
-        usage.add(key, u)
+    usage, keepalive = Usage(), Usage()
+    for mid, (_out, key, u) in best.items():
+        turn = turns[turn_of[mid]] if mid in turn_of else None
+        (keepalive if turn is not None and turn.kind == "ping" else usage).add(key, u)
+        if turn is None:
+            continue
+        turn.usage.add(key, u)
+        turn.requests += 1
+        ts = first_ts.get(mid)
+        if turn.first is None:
+            turn.first = {"model": key[0], "cache_read": _int(u.get("cache_read_input_tokens")),
+                          "cache_creation": _int(u.get("cache_creation_input_tokens"))}
+        if ts is not None and (turn.last_ts is None or ts > turn.last_ts):
+            turn.last_ts = ts
     return {"usage": usage, "first": first, "last": last, "first_assistant": first_assistant,
-            "cost": cost_rec, "prs": _dedupe_prs(prs)}
+            "cost": cost_rec, "prs": _dedupe_prs(prs), "keepalive": keepalive, "turns": turns}
 
 
 def _read_meta(path: Path) -> dict:
@@ -651,5 +740,6 @@ def sessions(repo, start: datetime, end: datetime, stores: Iterable[Path]) -> Li
                     model_usage=model_usage if isinstance(model_usage, dict) else None,
                     conductor=scan["usage"], subagents=[_sub(f) for f in sub_files],
                     first_ts=first, last_ts=last, pr_created=scan["prs"],
+                    keepalive=scan["keepalive"], turns=scan["turns"],
                 ))
     return out
