@@ -115,7 +115,10 @@ Upstream deps: Python 3 stdlib only (json, os). Imports the sibling
 Downstream consumers: hooks/lib/cache_keepalive.py and
                        hooks/cache-keepalive.py (the ping literals and
                        read_tail_records); enforce-turn-shape.py also calls
-                       is_ping_ack_turn. hooks/enforce-no-abdication.py (counter filename
+                       is_ping_ack_turn. bin/_transcripts.py (through
+                       cache_keepalive's LG: starts_turn, is_ping_record,
+                       GATE_NOTE, to tag ping turns for ds-eval).
+                       hooks/enforce-no-abdication.py (counter filename
                        .abdication-guard-fire-count, cap 2) and
                        hooks/enforce-turn-shape.py (counter filename
                        .turn-shape-guard-fire-count, cap 2). Both load this

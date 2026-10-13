@@ -1167,3 +1167,110 @@ def test_a_priced_zero_dollar_item_sorts_before_an_unpriced_one(tmp_path, monkey
     _report, out = _text(monkeypatch, capsys, inp([session(tmp_path, "s", subs, cost=1.0)], fires=[]))
     _head, rows = _item_lines(out)
     assert [(r[0], r[2]) for r in rows[1:]] == [("AUT-5", "$0.00"), ("AUT-1", "n/a (no priced usage)")]
+
+
+def _turn(kind, ts, last=None, first=None, gated=False, wrap=False):
+    return tr.Turn(kind, ts, gated=gated, wrap=wrap, requests=1 if last else 0, first=first, last_ts=last,
+                   origin="human" if kind == "human" else None)
+
+
+WARM = {"model": "claude-opus-5-5", "cache_read": 900, "cache_creation": 10}
+
+
+def test_return_gap_runs_from_the_previous_non_ping_request(tmp_path):
+    first = {"model": "claude-opus-5-5", "cache_read": 900, "cache_creation": 10}
+    s = replace(session(tmp_path, "s"), turns=[
+        _turn("human", T(2, 10), last=T(2, 10, 1)),
+        _turn("other", T(2, 10, 50), last=T(2, 10, 51)),
+        _turn("ping", T(2, 11, 10), last=T(2, 11, 10), gated=True),
+        _turn("human", T(2, 11, 40), last=T(2, 11, 41), first=first),
+    ])
+    (row,) = ev._returns(s)
+    assert row["gap"] == timedelta(minutes=49)
+    assert ev._bucket(row["gap"]) == "20-60"
+    assert row["with_ping"] is True
+
+
+def test_return_buckets_and_n_below_10_is_partial():
+    assert [ev._bucket(timedelta(minutes=m)) for m in (59.9, 60, 239.9, 240)] == [
+        "20-60", "60-120", "120-240", "over 240"]
+    cold = {"cache_read": 1, "cache_creation": 5}
+    nine = ev._return_metric([cold] * 9)
+    assert nine["status"] == "PARTIAL" and nine["missing"] == ["n < 10"] and nine["value"]["cold"] == 9
+    assert ev._return_metric([cold] * 10)["status"] == "OK"
+
+
+def test_keepalive_without_pings_is_absent_never_zero(tmp_path, capsys):
+    k = ev._keepalive_section([{"sessions": [session(tmp_path, "s")]}], RATES, START, END)
+    envelopes = [k["pings"], k["ping_usage"], k["estimated_net_usd"]]
+    envelopes += [m for split in k["returns"].values() for m in split.values()]
+    assert all(m["status"] == "ABSENT" and m["value"] is None for m in envelopes)
+    cli._print_keepalive({"meta": {"repos": ["/r"]}, "keepalive": {"/r": k}})
+    out = capsys.readouterr().out
+    assert "ABSENT (no keepalive ping in window)" in out and " 0" not in out
+
+
+def test_a_window_without_pings_still_reports_returns(tmp_path):
+    s = replace(session(tmp_path, "s"), turns=[
+        _turn("human", T(2, 10), last=T(2, 10, 1)),
+        _turn("human", T(2, 10, 31), last=T(2, 10, 32), first=WARM),
+    ])
+    k = ev._keepalive_section([{"sessions": [s]}], RATES, START, END)
+    assert k["pings"]["status"] == "ABSENT"
+    assert k["returns"]["20-60"]["no_ping"]["value"]["returns"] == 1
+
+
+def test_a_passed_ping_with_no_return_leaves_the_net_absent_not_negative(tmp_path):
+    s = replace(session(tmp_path, "s"), turns=[
+        _turn("human", T(2, 10), last=T(2, 10, 1)),
+        _turn("ping", T(2, 10, 47), last=T(2, 10, 47), gated=True),
+    ])
+    s.turns[1].usage.update(usage(10))
+    k = ev._keepalive_section([{"sessions": [s]}], RATES, START, END)
+    assert k["ping_usage"]["value"]["passed"]["usd"] > 0
+    assert k["estimated_net_usd"]["status"] == "ABSENT" and k["estimated_net_usd"]["value"] is None
+
+
+def test_a_wrapped_ping_marks_the_next_return_with_ping(tmp_path):
+    s = replace(session(tmp_path, "s"), turns=[
+        _turn("human", T(2, 10), last=T(2, 10, 1)),
+        _turn("ping", T(2, 11, 7), last=T(2, 11, 8), wrap=True),
+        _turn("human", T(2, 11, 30), last=T(2, 11, 31), first=WARM),
+    ])
+    (row,) = ev._returns(s)
+    assert row["with_ping"] is True
+
+
+def _priced_ping_session(tmp_path, middle, cold_baseline=True):
+    cold = {"model": "claude-opus-5-5", "cache_read": 0, "cache_creation": 500}
+    warm = {"model": "claude-opus-5-5", "cache_read": 1_000_000, "cache_creation": 0}
+    turns = [_turn("human", T(2, 10), last=T(2, 10, 1))]
+    if cold_baseline:
+        turns.append(_turn("human", T(2, 10, 40), last=T(2, 10, 41), first=cold))
+    turns += [middle, _turn("human", T(2, 11, 30), last=T(2, 11, 31), first=warm)]
+    return replace(session(tmp_path, "s"), turns=turns)
+
+
+def _passed_ping():
+    ping = _turn("ping", T(2, 11), last=T(2, 11), gated=True)
+    ping.usage.update(usage(10))
+    return ping
+
+
+def test_a_warm_with_ping_return_without_counterfactual_leaves_the_net_absent(tmp_path):
+    s = _priced_ping_session(tmp_path, _passed_ping(), cold_baseline=False)
+    net = ev._keepalive_section([{"sessions": [s]}], RATES, START, END)["estimated_net_usd"]
+    assert net["status"] == "ABSENT" and "no counterfactual" in net["missing"][0]
+
+
+def test_a_dropped_ping_does_not_mark_the_next_return_with_ping(tmp_path):
+    s = _priced_ping_session(tmp_path, _turn("ping", T(2, 11)))
+    assert [r["with_ping"] for r in ev._returns(s)] == [False, False]
+
+
+def test_estimated_net_is_avoided_minus_ping_usd(tmp_path):
+    s = _priced_ping_session(tmp_path, _passed_ping())
+    net = ev._keepalive_section([{"sessions": [s]}], RATES, START, END)["estimated_net_usd"]
+    assert net["value"]["avoided_creation_usd"] == 7.8
+    assert net["value"]["ping_usd"] == 0.0002
+    assert net["value"]["usd"] == 7.7998

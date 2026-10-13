@@ -132,7 +132,9 @@ Upstream deps: Python 3 stdlib; sibling loop_guard.py (ping literals,
 Downstream consumers: hooks/cache-keepalive.py; bin/ds-cache-keepalive-sim
     imports the constants; bin/ds-keepalive-wrap imports RESUME_DIR,
     RESUME_MAX_BYTES and RESUME_RETENTION_DAYS and is the command
-    wrap_command() names; hooks/tests/test-cache-keepalive.py.
+    wrap_command() names; bin/_transcripts.py imports LG, WRAP_MARKER
+    and (through LG) GATE_NOTE to tag ping turns for ds-eval;
+    hooks/tests/test-cache-keepalive.py.
 
 Failure modes: never writes. is_active, and so is_enabled, is False when
     bin/ds-status cannot be loaded or raises; with the project active, an

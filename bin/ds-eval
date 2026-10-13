@@ -45,6 +45,12 @@ Public API: ds-eval --repo P [P ...] [--since S] [--until U] [--base REF]
               `no merge found` - the base ref's first-parent history has
                 neither. A PR that is open, closed, or merged to another
                 branch reads this way too.
+            [keepalive] (per repo): pings fired/passed/dropped/deleted/
+            wrapped/unclassified, ping tokens and priced usd per outcome,
+            returns after idle per gap bucket with and without a ping that
+            made a request (always shown: a window with no pings is the
+            baseline), and estimated_net_usd, labelled ESTIMATE; a figure
+            with no input prints ABSENT with the reason, never 0.
             In a multi-repo run an item
             is prefixed with its repo's owner/name (else its directory
             name). --json always carries every item.
@@ -289,6 +295,46 @@ def print_sections(r: dict, top: int = DEFAULT_TOP) -> None:
         print(f"  {key}: {m['status']}  {shares}")
 
 
+def _print_keepalive(r: dict) -> None:
+    """[keepalive] per repo; an ABSENT figure prints its reason, never 0."""
+    print("\n[keepalive]")
+    for repo, k in r["keepalive"].items():
+        if len(r["meta"]["repos"]) > 1:
+            print(f"  {repo}")
+        p = k["pings"]
+        if p["status"] == "ABSENT":
+            print(f"  pings  ABSENT ({'; '.join(p['missing'])})")
+        else:
+            v = p["value"]
+            print(f"  pings  fired {v['fired']}, passed {v['passed']}, dropped {v['dropped']}, "
+                  f"deleted {v['deleted']}, wrapped {v['wrapped']}, unclassified {v['unclassified']}")
+        u = k["ping_usage"]
+        if u["status"] == "ABSENT":
+            print(f"  ping_usage  ABSENT ({'; '.join(u['missing'])})")
+        else:
+            for name, t in u["value"].items():
+                usd = f"${t['usd']:,.2f}" if t["usd"] is not None else "unpriced"
+                print(f"  ping_usage {name:<13} read {t['cache_read']:,} creation {t['cache_creation']:,} "
+                      f"output {t['output']:,}  {usd}")
+        print("  returns after idle (gap since previous non-ping request; with_ping = a ping made a request in "
+              "the gap; cold = creation > read on first request; needs turnOrigin, Claude Code 2.1.280+; "
+              "a session file's first human turn is never counted)")
+        print("  estimate skew: a return's ping may predate --since, but only in-window pings are costed; "
+              "compare windows of similar length")
+        for bucket, split in k["returns"].items():
+            for side in ("with_ping", "no_ping"):
+                m = split[side]
+                if m["status"] == "ABSENT":
+                    cell = f"ABSENT ({'; '.join(m['missing'])})"
+                else:
+                    b = m["value"]
+                    cell = (f"{m['status']}  n={b['returns']} cold={b['cold']} avg read {b['avg_cache_read']:,} "
+                            f"avg creation {b['avg_cache_creation']:,}"
+                            + (f" ({'; '.join(m['missing'])})" if m["missing"] else ""))
+                print(f"    {bucket + ' min':<14} {side:<10} {cell}")
+        print(f"  estimated_net_usd (ESTIMATE)  {_fmt_metric(k['estimated_net_usd'])}")
+
+
 def decision_line(r: dict, d: dict) -> str:
     """One proposal: rule, subject, evidence figure/value/count, rank_usd or unpriced, route."""
     rank = f"${d['rank_usd']:,.2f}" if d["rank_usd"] is not None else "unpriced"
@@ -315,6 +361,7 @@ def gap_lines(r: dict) -> list[str]:
 def _print_table(r: dict, top: int = DEFAULT_TOP) -> None:
     print_header(r, "ds-eval")
     print_sections(r, top)
+    _print_keepalive(r)
 
     print("\n[decisions]")
     if not r["decisions"]:
