@@ -1,92 +1,104 @@
 #!/usr/bin/env python3
 """
-Purpose: /ds-evaluate signal collector. Reads the live signal sources of a
-         DinoStack checkout and emits a single JSON rollup on stdout that
-         scoring subagents then rate per North Star pillar. This unit builds
-         ONLY the deterministic collector CLI - the /ds-evaluate command file
-         that hands this rollup to scoring subagents is a sibling unit.
+Purpose: /ds-evaluate signal collector. Evaluates one or more telemetry repos
+         over one window through bin/_eval.py's evaluate() (the same engine
+         as bin/ds-eval) and adds the DinoStack checkout's own methodology
+         signals, then ends with the ranked refinement proposals and the
+         telemetry gaps. Catches /ds-evaluate scoring the methodology from
+         all-time, unwindowed counts (the legacy session-log sum counted
+         every cumulative pre-2026-08-08 row of a session as a session) and
+         ending on scores the operator cannot act on.
 
-Signal sources and what is extracted:
-  1. .agentic/session-log/<dev>.jsonl  - aggregate session_total events:
-       sessions (line count), wall_seconds (sum), spawn_count (sum). The
-       data.tokens field is known zero-filled (data-quality gap): when every
-       token figure across the file is zero, the token fields are OMITTED and
-       a "tokens_data_quality":"zero-filled" note is emitted instead.
-  2. .agentic/events.jsonl             - counts by top-level `phase` and by
-       top-level `event`, plus spawn_start vs spawn_complete (reported both;
-       they are known unequal).
-  3. .agentic/.enforcement-fires.jsonl - per-hook counts of
-       decision==allow_advisory vs decision==deny, the newest FIRE timestamp,
-       and a per-calendar-day count of FIRES over the last 10 days measured
-       from that newest fire timestamp. Rows with decision=="allow" are
-       excluded from newest_ts and last_10_days: they are
-       enforce-no-abdication.py's every-verdict rows (one per conductor turn
-       the guard evaluated and declined to fire), not enforcement actions, so
-       counting them would turn last_10_days into a conductor-turn histogram
-       (see content/references/events-log.md, Consumer rule). Such a hook
-       still appears in by_hook, with its deny/allow_advisory counts at 0.
-       Any OTHER free-form decision value is counted under neither named
-       total but does feed newest_ts/last_10_days, since it is still a fire.
-  4. Budget gates                      - runs every script named in
-       BUDGET_SCRIPTS below via subprocess from the repo root; captures the
-       exit code and the tail of stdout for each. A missing script omits
-       that gate.
-  5. Resident floor                    - byte sizes of the always-loaded set:
-       ~/.claude/CLAUDE.md, <repo>/CLAUDE.md, <repo>/AGENTS.md,
-       <repo>/MEMORY.md, <repo>/.agentic/memory/MEMORY.md. Individual missing
-       files are omitted; the sum is over the present files.
-  6. Vision pillars                    - numbered North Star pillars read LIVE
-       from docs/overview/vision.md via a regex over the "N. **Title.**" lines
-       (the file lists 1. through 7.). Never hardcoded.
-
-Output discipline: every signal key is present ONLY when data exists - a
-missing or empty source OMITS its key rather than emitting a false 0 (the
-project's green-often-means-the-check-did-not-run discipline: a subagent must
-never read an empty object as "signal present, value zero").
+Report (default output, plain text, in this order):
+  1. One lead line: the proposal count and the gap line count (the number
+     of lines section 6 prints).
+  2. Header: telemetry repos, window, session count, one line per
+     transcript store (bin/ds-eval's print_header).
+  3. The measured evaluate() sections [cost] [agents] [skeptic_rounds]
+     [work_items] [hooks] [mix] (bin/ds-eval's print_sections).
+  4. [methodology]: signals of the --repo checkout, read only when it is a
+     DinoStack checkout (has content/sections); otherwise one ABSENT line:
+       budget_gates   - runs every script in BUDGET_SCRIPTS from the repo
+                        root; exit code and last stdout line per gate. A
+                        missing or unrunnable script omits that gate.
+       resident_floor - byte sizes of the always-loaded set (RESIDENT_FILES);
+                        missing files are omitted.
+       vision_pillars - numbered North Star pillars read LIVE from
+                        docs/overview/vision.md, never hardcoded.
+     A signal with no data prints ABSENT, never a 0.
+  5. "Refinement proposals": evaluate()'s decisions in their own order
+     (_eval.order_decisions), numbered, one line each naming rule, subject,
+     evidence figure, value, count, rank_usd or "unpriced", and route. A D2
+     proposal with a non-empty label_sample lists its samples (fire_key,
+     ts, reason) and the repo to stamp on an operator label.
+  6. "Telemetry gaps": evaluate()'s gaps (per-hook inputs grouped), each
+     naming the rules it blocks; no route, no rank.
 
 Public API:
-  ds-evaluate [--repo <path>] [--json]
-    --repo   path to the DinoStack checkout (default: cwd). Use the main
-             checkout: hook spawn rows land there, not in a linked worktree.
-    --json   emit JSON (the default output; accepted for symmetry)
-    --help   print usage and exit 0
-  Exit 0 on success. Exit 1 when invoked outside a DinoStack checkout (no
-  content/sections dir). argparse exits 2 on a usage error.
+  ds-evaluate [--repo <path>] [--telemetry-repo <path> ...] [--since S]
+              [--until U] [--json]
+    --repo            the DinoStack checkout whose methodology signals are
+                      read (default: cwd).
+    --telemetry-repo  a repo whose telemetry is evaluated; repeatable.
+                      Default: `git rev-parse --show-toplevel` of the cwd,
+                      else --repo outside a git work tree.
+    --since/--until   an ISO8601 date or datetime (UTC when naive), or `Nd`
+                      (N days before --until). Defaults: --until now,
+                      --since 30d.
+    --json            print evaluate()'s dict plus a `methodology` key
+                      instead of the report.
+  Exit 0 on any well-formed run, including a consumer repo with no hooks/
+  and no DinoStack checkout as cwd, and a run whose metrics are all ABSENT.
+  Exit 2 on a usage error: an unparseable or inverted window, or a --repo
+  or --telemetry-repo that is empty or not a directory.
 
-Upstream deps: Python 3 stdlib only (argparse, datetime, json, os, pathlib,
-               re, subprocess, sys). Read-only apart from the budget-gate
-               subprocess runs listed in BUDGET_SCRIPTS (themselves
-               read-only). No locking.
+Upstream deps: bin/ds-eval (loaded by resolved path for its window parser
+               and report printers) and through it bin/_eval.py, which reads
+               each telemetry repo's .agentic/events.jsonl and
+               .agentic/.enforcement-fires.jsonl, the transcript stores, git,
+               gh and ds-feedback; Python 3 stdlib. Read-only apart from the
+               budget-gate subprocess runs (themselves read-only).
 
-Downstream consumers: the /ds-evaluate command file (content/commands/
-                      ds-evaluate.md, sibling unit) which passes this rollup
-                      to per-pillar scoring subagents.
+Downstream consumers: content/commands/ds-evaluate.md (Step 2 runs it; the
+                      pillar lenses read the report; the proposals, gaps and
+                      labelling steps read its last two sections);
+                      bin/tests/test_ds_evaluate.py.
 
-Failure modes: every file read is wrapped and tolerates a missing/unreadable
-               file; a malformed JSONL line is skipped. A missing or empty
-               signal source omits its key (never a crash, never a false 0).
-               A missing budget script omits that gate. A subprocess failure
-               of a budget gate (non-executable script, timeout) omits that
-               gate. Timestamps that do not parse are ignored for time-based
-               computations (newest_ts, last_10_days) but the line's hook/
-               decision tallies are still counted.
+Failure modes: never raises on missing telemetry - evaluate() degrades each
+               missing input to an ABSENT or PARTIAL metric with a reason; a
+               missing methodology source prints ABSENT. No session-log file
+               is read.
+
+Performance: dominated by evaluate() (about 1 min per 280 sessions per
+             telemetry repo) plus the budget-gate scripts (60 s timeout
+             each).
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.machinery
+import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
+
+def _load_ds_eval():
+    path = Path(__file__).resolve().parent / "ds-eval"
+    loader = importlib.machinery.SourceFileLoader("_ds_evaluate_ds_eval", str(path))
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(mod)
+    return mod
+
+
+_DS_EVAL = _load_ds_eval()
+_EVAL = _DS_EVAL._EVAL
+DEFAULT_SINCE = "30d"
 
 
 def _home() -> Path:
@@ -104,223 +116,8 @@ def _read_lines(path: Path) -> list[str]:
         return []
 
 
-def _parse_ts(value) -> datetime | None:
-    """Parse an ISO8601 UTC timestamp, tolerating optional .mmm precision.
-
-    Accepts both "2026-05-28T12:00:00Z" and "2026-07-27T12:00:00.000Z".
-    Returns None for anything unparseable.
-    """
-    if not value:
-        return None
-    s = str(value).strip()
-    if not s:
-        return None
-    try:
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        return datetime.fromisoformat(s)
-    except ValueError:
-        return None
-
-
-def _load_jsonl(path: Path) -> list[dict]:
-    """Parse a JSONL file into dicts, skipping blank/malformed lines."""
-    records: list[dict] = []
-    for line in _read_lines(path):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rec = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(rec, dict):
-            records.append(rec)
-    return records
-
-
 # ---------------------------------------------------------------------------
-# Signal 1: .agentic/session-log/<dev>.jsonl
-# ---------------------------------------------------------------------------
-
-
-def _collect_session_log(repo: Path) -> dict | None:
-    """Aggregate session_total events across .agentic/session-log/*.jsonl.
-
-    Returns None when no session-log file carries a session_total event.
-    data.tokens is known zero-filled; when every token figure is zero the
-    token fields are omitted and tokens_data_quality="zero-filled" is set.
-    """
-    log_dir = repo / ".agentic" / "session-log"
-    if not log_dir.is_dir():
-        return None
-    files = sorted(log_dir.glob("*.jsonl"))
-    sessions = 0
-    wall_seconds = 0
-    spawn_count = 0
-    tokens = {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0}
-    any_tokens_nonzero = False
-
-    for path in files:
-        for rec in _load_jsonl(path):
-            if rec.get("event") != "session_total":
-                continue
-            sessions += 1
-            data = rec.get("data") or {}
-            try:
-                wall_seconds += int(data.get("wall_seconds") or 0)
-            except (TypeError, ValueError):
-                pass
-            try:
-                spawn_count += int(data.get("spawn_count") or 0)
-            except (TypeError, ValueError):
-                pass
-            tok = data.get("tokens")
-            if isinstance(tok, dict):
-                for key in tokens:
-                    try:
-                        val = int(tok.get(key) or 0)
-                    except (TypeError, ValueError):
-                        val = 0
-                    tokens[key] += val
-                    if val:
-                        any_tokens_nonzero = True
-            elif isinstance(tok, (int, float)):
-                val = int(tok)
-                tokens["input"] += val
-                if val:
-                    any_tokens_nonzero = True
-
-    if sessions == 0:
-        return None
-
-    out: dict = {
-        "files": len(files),
-        "sessions": sessions,
-        "wall_seconds": wall_seconds,
-        "spawn_count": spawn_count,
-    }
-    if any_tokens_nonzero:
-        out["tokens"] = tokens
-    else:
-        out["tokens_data_quality"] = "zero-filled"
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Signal 2: .agentic/events.jsonl
-# ---------------------------------------------------------------------------
-
-
-def _collect_events(repo: Path) -> dict | None:
-    """Count events.jsonl records by phase and by event, plus spawn counts."""
-    path = repo / ".agentic" / "events.jsonl"
-    records = _load_jsonl(path)
-    if not records:
-        return None
-
-    by_phase: dict[str, int] = {}
-    by_event: dict[str, int] = {}
-    spawn_start = 0
-    spawn_complete = 0
-    for rec in records:
-        phase = rec.get("phase")
-        if phase is not None:
-            key = str(phase)
-            by_phase[key] = by_phase.get(key, 0) + 1
-        event = rec.get("event")
-        if event is not None:
-            key = str(event)
-            by_event[key] = by_event.get(key, 0) + 1
-            if key == "spawn_start":
-                spawn_start += 1
-            elif key == "spawn_complete":
-                spawn_complete += 1
-
-    return {
-        "by_phase": dict(sorted(by_phase.items())),
-        "by_event": dict(sorted(by_event.items())),
-        "spawn_start": spawn_start,
-        "spawn_complete": spawn_complete,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Signal 3: .agentic/.enforcement-fires.jsonl
-# ---------------------------------------------------------------------------
-
-
-def _collect_enforcement_fires(repo: Path) -> dict | None:
-    """Tally enforcement fires per hook by decision, newest ts, last 10 days.
-
-    `decision == "allow"` rows (enforce-no-abdication.py's every-verdict
-    posture) are excluded from newest_ts and last_10_days - see the module
-    docstring, signal 3.
-    """
-    path = repo / ".agentic" / ".enforcement-fires.jsonl"
-    records = _load_jsonl(path)
-
-    by_hook: dict[str, dict[str, int]] = {}
-    deny_total = 0
-    advisory_total = 0
-    parsed_ts: list[datetime] = []
-    newest: datetime | None = None
-
-    for rec in records:
-        hook = rec.get("hook")
-        if not hook:
-            continue
-        entry = by_hook.setdefault(str(hook), {"deny": 0, "allow_advisory": 0})
-        decision = rec.get("decision")
-        if decision == "deny":
-            entry["deny"] += 1
-            deny_total += 1
-        elif decision == "allow_advisory":
-            entry["allow_advisory"] += 1
-            advisory_total += 1
-        # Any other decision value is free-form by design (see events-log.md):
-        # counted under neither named total, but still a guardrail FIRE, so it
-        # does feed newest_ts/last_10_days.
-        #
-        # `decision == "allow"` is the one exception and is excluded from the
-        # time-based figures entirely: it is the every-verdict posture of
-        # enforce-no-abdication.py (one row per conductor turn the guard
-        # evaluated and declined to fire), not an enforcement action. Counting
-        # it would make last_10_days measure conductor turns rather than fires
-        # - see events-log.md's Consumer rule.
-        if decision == "allow":
-            continue
-        ts = _parse_ts(rec.get("ts"))
-        if ts is not None:
-            parsed_ts.append(ts)
-            if newest is None or ts > newest:
-                newest = ts
-
-    if not by_hook:
-        return None
-
-    out: dict = {
-        "by_hook": {k: dict(sorted(v.items())) for k, v in sorted(by_hook.items())},
-        "deny_total": deny_total,
-        "allow_advisory_total": advisory_total,
-    }
-    if newest is not None:
-        out["newest_ts"] = newest.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-        start_day = (newest - timedelta(days=9)).date()
-        counts: dict[str, int] = {}
-        for ts in parsed_ts:
-            d = ts.date()
-            if start_day <= d <= newest.date():
-                counts[str(d)] = counts.get(str(d), 0) + 1
-        out["last_10_days"] = {
-            str(start_day + timedelta(days=i)): counts.get(str(start_day + timedelta(days=i)), 0)
-            for i in range(10)
-        }
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Signal 4: budget gates
+# Methodology signal: budget gates
 # ---------------------------------------------------------------------------
 
 BUDGET_SCRIPTS: tuple[str, ...] = (
@@ -359,7 +156,7 @@ def _collect_budget_gates(repo: Path) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# Signal 5: resident floor
+# Methodology signal: resident floor
 # ---------------------------------------------------------------------------
 
 RESIDENT_FILES: tuple[str, ...] = (
@@ -390,7 +187,7 @@ def _collect_resident_floor(repo: Path) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# Signal 6: vision pillars (read live, never hardcoded)
+# Methodology signal: vision pillars (read live, never hardcoded)
 # ---------------------------------------------------------------------------
 
 _PILLAR_RE = re.compile(r"^\s*(\d+)\.\s+\*\*(.+?)\*\*")
@@ -414,28 +211,17 @@ def _collect_vision_pillars(repo: Path) -> list[str] | None:
     return pillars if pillars else None
 
 
+
+
 # ---------------------------------------------------------------------------
 # Assembly
 # ---------------------------------------------------------------------------
 
-_COLLECTORS: tuple[tuple[str, Callable[[Path], object]], ...] = (
-    ("session_log", _collect_session_log),
-    ("events", _collect_events),
-    ("enforcement_fires", _collect_enforcement_fires),
+_METHODOLOGY_COLLECTORS = (
     ("budget_gates", _collect_budget_gates),
     ("resident_floor", _collect_resident_floor),
     ("vision_pillars", _collect_vision_pillars),
 )
-
-
-def collect_all(repo: Path) -> dict:
-    """Run every signal collector; keep only keys with actual data."""
-    result: dict = {}
-    for key, collector in _COLLECTORS:
-        value = collector(repo)
-        if value is not None:
-            result[key] = value
-    return result
 
 
 def _is_dinostack(repo: Path) -> bool:
@@ -443,42 +229,145 @@ def _is_dinostack(repo: Path) -> bool:
     return (repo / "content" / "sections").is_dir()
 
 
+def collect_methodology(repo: Path) -> dict:
+    """The --repo checkout's methodology signals; keys present only with data."""
+    out: dict = {"repo": str(repo)}
+    if not _is_dinostack(repo):
+        out["absent"] = "not a DinoStack checkout (no content/sections dir)"
+        return out
+    for key, collector in _METHODOLOGY_COLLECTORS:
+        value = collector(repo)
+        if value is not None:
+            out[key] = value
+    return out
+
+
+def _git_toplevel(cwd: Path) -> Path | None:
+    try:
+        proc = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(cwd),
+                              capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    top = proc.stdout.strip()
+    return Path(top) if proc.returncode == 0 and top else None
+
+
+# ---------------------------------------------------------------------------
+# Report
+# ---------------------------------------------------------------------------
+
+
+def _print_methodology(m: dict) -> None:
+    print(f"\n[methodology]  {m['repo']}")
+    if "absent" in m:
+        print(f"  ABSENT: {m['absent']}")
+        return
+    gates = m.get("budget_gates")
+    if gates is None:
+        print("  budget_gates: ABSENT")
+    else:
+        print("  budget_gates")
+        for name, g in gates.items():
+            print(f"    {name:<36} exit {g['exit']}  {g['summary']}")
+    floor = m.get("resident_floor")
+    if floor is None:
+        print("  resident_floor: ABSENT")
+    else:
+        files = ", ".join(f"{k} {v}" for k, v in floor["files"].items())
+        print(f"  resident_floor: {floor['sum']} B  ({files})")
+    pillars = m.get("vision_pillars")
+    if pillars is None:
+        print("  vision_pillars: ABSENT")
+    else:
+        print("  vision_pillars")
+        for pillar in pillars:
+            print(f"    {pillar}")
+
+
+def print_report(r: dict) -> None:
+    decisions, gap_lines = r["decisions"], _DS_EVAL.gap_lines(r)
+    print(f"ds-evaluate: {len(decisions)} refinement proposals, {len(gap_lines)} telemetry gap lines"
+          " - listed at the end, after the measured sections")
+    _DS_EVAL.print_header(r, "ds-evaluate")
+    _DS_EVAL.print_sections(r)
+    _print_methodology(r["methodology"])
+
+    print("\nRefinement proposals")
+    if not decisions:
+        print("  none")
+    for i, d in enumerate(decisions, 1):
+        print(f"  {i}. {_DS_EVAL.decision_line(r, d)}")
+        if d.get("label_sample"):
+            print(f"       label samples for repo {d['repo']} (fire_key  ts  reason):")
+            for s in d["label_sample"]:
+                print(f"         {s['fire_key']}  {s['ts']}  {json.dumps(s['reason'])}")
+
+    print("\nTelemetry gaps")
+    if not gap_lines:
+        print("  none")
+    for line in gap_lines:
+        print(f"  {line}")
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
+
+def _usage_error(message: str) -> int:
+    print(f"ds-evaluate: {message}", file=sys.stderr)
+    return 2
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="ds-evaluate",
         description=(
-            "Signal collector for /ds-evaluate: read the live signal sources "
-            "of a DinoStack checkout and emit a JSON rollup on stdout."
+            "Signal collector for /ds-evaluate: evaluate telemetry repos over a window "
+            "(bin/_eval.py), add the DinoStack checkout's methodology signals, and end "
+            "with ranked refinement proposals and telemetry gaps."
         ),
     )
-    parser.add_argument(
-        "--repo",
-        default=".",
-        help="path to the DinoStack checkout (default: cwd); use the main checkout, not a linked worktree - hook spawn rows are written there",
-    )
-    parser.add_argument(
-        "--json",
-        action="store_true",
-        help="emit JSON (the default output; accepted for symmetry)",
-    )
+    parser.add_argument("--repo", default=".",
+                        help="the DinoStack checkout whose methodology signals are read (default: cwd)")
+    parser.add_argument("--telemetry-repo", action="append", default=None,
+                        help="repo whose telemetry is evaluated; repeatable (default: the cwd's git "
+                             "toplevel, else --repo outside a git work tree)")
+    parser.add_argument("--since", default=DEFAULT_SINCE,
+                        help=f"ISO8601 date/datetime or Nd (default {DEFAULT_SINCE})")
+    parser.add_argument("--until", default=None, help="ISO8601 date/datetime (default now)")
+    parser.add_argument("--json", action="store_true",
+                        help="print evaluate()'s dict plus a methodology key instead of the report")
     args = parser.parse_args(argv)
 
-    repo = Path(args.repo).expanduser().resolve()
-    if not _is_dinostack(repo):
-        print(
-            f"ds-evaluate: error: {repo} is not a DinoStack checkout "
-            "(no content/sections dir)",
-            file=sys.stderr,
-        )
-        return 1
+    until = datetime.now(timezone.utc) if args.until is None else _DS_EVAL._parse_when(args.until, None)
+    since = _DS_EVAL._parse_when(args.since, until) if until is not None else None
+    if until is None or since is None:
+        return _usage_error("--since/--until must be an ISO8601 date/datetime or Nd")
+    if since >= until:
+        return _usage_error("--since must be before --until")
 
-    rollup = collect_all(repo)
-    print(json.dumps(rollup, indent=2, sort_keys=True))
+    if not args.repo or not Path(args.repo).expanduser().is_dir():
+        return _usage_error(f"--repo {args.repo!r} is not a directory")
+    repo = Path(args.repo).expanduser().resolve()
+    if args.telemetry_repo is None:
+        telemetry = [_git_toplevel(Path.cwd()) or repo]
+    else:
+        telemetry = []
+        for value in args.telemetry_repo:
+            if not value or not Path(value).expanduser().is_dir():
+                return _usage_error(f"--telemetry-repo {value!r} is not a directory")
+            telemetry.append(Path(value).expanduser())
+    telemetry = [str(t.resolve()) for t in telemetry]
+
+    report = _EVAL.evaluate(telemetry, since, until)
+    decisions, gaps = report.pop("decisions"), report.pop("gaps")
+    report["methodology"] = collect_methodology(repo)
+    report["decisions"], report["gaps"] = decisions, gaps
+    if args.json:
+        print(json.dumps(report, indent=2, default=str))
+    else:
+        print_report(report)
     return 0
 
 

@@ -4,7 +4,7 @@
 
 This ledger is fed by exactly two commands: **`/ds-prune-harness`** and **`/ds-representation-audit`**. Both write candidate proposals to `docs/planning/` (gitignored, ephemeral) and, once the user approves or rejects a candidate, record a standing entry here.
 
-`/ds-evaluate` and `/ds-failure-audit` are deliberately **not** in scope. They produce whole-report scorecards, not standing per-item candidates, and their `docs/planning/` output stays ephemeral - a later reader must not assume either of those commands feeds this ledger.
+`/ds-evaluate` and `/ds-failure-audit` are deliberately **not** in scope, and their `docs/planning/` output stays ephemeral - a later reader must not assume either of those commands feeds this ledger. `/ds-failure-audit` produces a whole-report audit. `/ds-evaluate` does end with ranked per-item refinement proposals, but it only routes them: a hook-deny proposal (D2) goes to `/ds-prune-harness`, and a standing entry is recorded here only when that command's own pass approves or rejects the candidate.
 
 ## Path resolution
 

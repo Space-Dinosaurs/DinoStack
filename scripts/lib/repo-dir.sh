@@ -46,9 +46,9 @@
 #   Prints nothing.
 # ---------------------------------------------------------------------------
 validate_repo_dir() {
-  local path="$1"
+  local repo_path="$1"
   local rc=0
-  git -C "$path" rev-parse --git-dir >/dev/null 2>&1 || rc=$?
+  git -C "$repo_path" rev-parse --git-dir >/dev/null 2>&1 || rc=$?
   # git returns 128 for "not a git repo" and 1 for other errors; normalise both to 1
   [[ "$rc" -eq 0 ]]
 }

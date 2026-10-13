@@ -85,9 +85,10 @@ Upstream deps: Python 3 stdlib; bin/_lib.py (resolve_base_branch, _run),
     always read), and, unless use_gh is False, `gh pr list` (open/closed
     state of engineer PRs not shown merged on the base ref).
 
-Downstream consumers: bin/ds-eval (CLI); bin/ds-change-delta (moved
-    helpers); bin/tests/test_ds_eval.py. Planned: /ds-evaluate (its signal
-    collection) and an evaluation side in ds-change-delta.
+Downstream consumers: bin/ds-eval (CLI); bin/ds-evaluate (/ds-evaluate's
+    signal collection, via bin/ds-eval); bin/ds-change-delta (moved
+    helpers); bin/tests/test_ds_eval.py. Planned: an evaluation side in
+    ds-change-delta.
 
 Failure modes: never raises on a missing store, file, ref, gh or pricing;
     each degrades to an ABSENT or PARTIAL metric whose `missing` names the
