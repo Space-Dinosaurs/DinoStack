@@ -116,10 +116,13 @@ Read-only guarantee (AC7): every filesystem open() call in this module is
             `git rev-list --count` (_base_commit_count), `git remote`,
             `git show-ref`/`symbolic-ref`/`rev-parse` (base resolution),
             all read-only; no gh call and no `ds-feedback list` (the block
-            reads no label). Nothing under the home directory is created or
-            changed: test_eval_side_in_cli_json_and_its_subprocesses_are_read_only
-            runs the real path against a scratch HOME and compares it
-            byte for byte.
+            reads no label). This tool writes nothing itself, under the home
+            directory or anywhere else; `gh`, when present, is run by the
+            pr_history side and may write its own state there (it creates
+            ~/.local/state/gh/device-id on a fresh HOME).
+            test_eval_side_in_cli_json_and_its_subprocesses_are_read_only
+            runs the real path with no gh on PATH against a scratch HOME
+            and compares it byte for byte.
 
 Multi-repo aggregation: session-log and fires-log ROWS from every --repo
             are merged into ONE combined row set for counting (see

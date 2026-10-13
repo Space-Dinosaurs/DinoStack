@@ -216,8 +216,9 @@ the enforced argv allowlist and a fixture-repo HEAD/status
 byte-identity assertion. The `eval` side runs through `bin/_eval.py`'s
 own reads: `git log`, `git rev-list --count`, `git remote`, the base-ref
 lookups (`git show-ref`, `git symbolic-ref`, `git rev-parse`), all
-read-only, with no `gh` and no `ds-feedback` call. Nothing under the home
-directory is created or changed.
+read-only, with no `gh` and no `ds-feedback` call. The tool writes
+nothing itself, under the home directory or anywhere else; `gh`, when
+present, is run for PR history and may write its own state there.
 
 ## Known limitation: PR-history window granularity
 
