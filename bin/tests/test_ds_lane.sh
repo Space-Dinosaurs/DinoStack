@@ -6,6 +6,8 @@
 #          `osascript` whose reply is chosen by STUB_OSA_MODE. Never launches
 #          a real claude session and never runs AppleScript against Terminal
 #          (osacompile reads Terminal's static sdef without launching it).
+#          On macOS it runs the real on-screen window query (a JXA
+#          CoreGraphics call that sends no Apple event) by absolute path.
 #
 # Public API: bash bin/tests/test_ds_lane.sh   (exit 0 all pass, 1 any fail)
 #
@@ -107,39 +109,48 @@ chmod +x "$STUB/shebang/claude"
 
 cat > "$OSA_DIR/osascript" << 'EOF'
 #!/bin/bash
-# argv: -e <script> <command> <conductor tty>  (close: -e <script> <own tty> <conductor tty>)
+# argv: -e <script> <command> <conductor tty> <on-screen JXA>
+#   (close: -e <script> <own tty> <conductor tty> <on-screen JXA>)
 printf '%s' "$2" > "$STUB_LOG_DIR/osa-script"
 printf '%s' "$3" > "$STUB_LOG_DIR/osa-cmd"
 printf '%s' "$4" > "$STUB_LOG_DIR/osa-tty"
+printf '%s' "$5" > "$STUB_LOG_DIR/osa-jxa"
 if [ "${STUB_OSA_GATE:-}" = 1 ]; then
   n=0
   while [ ! -e "$STUB_LOG_DIR/osa-go" ] && [ $n -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
   [ -e "$STUB_LOG_DIR/osa-go" ] || { echo "gate never opened" >&2; exit 1; }
 fi
 # Open replies: ok|how|orphans|front window|its tab|app (observed), the same three recorded, then
-# the conductor window's selected tab observed and recorded. native-*: a native-tab Terminal, where
-# every tab is a one-tab window, so the conductor window's selected tab is always the conductor's.
+# the conductor window's selected tab observed and recorded, then whether the conductor window is on
+# screen in the current Space. native-*: a native-tab Terminal, where every tab is a one-tab
+# window, so the conductor window's selected tab is always the conductor's.
 case "${STUB_OSA_MODE:-kept}" in
-  kept) echo "ok|tab|0|42|$4|Terminal|42|$4|Terminal|$4|$4" ;;
-  guard) echo "ok|window|0|42|$4|Terminal|42|$4|Terminal|$4|$4" ;;
-  orphan) echo "ok|tab|1|42|$4|Terminal|42|$4|Terminal|$4|$4" ;;
-  orphan-window) echo "ok|window|2|42|$4|Terminal|42|$4|Terminal|$4|$4" ;;
+  kept) echo "ok|tab|0|42|$4|Terminal|42|$4|Terminal|$4|$4|on" ;;
+  guard) echo "ok|window|0|42|$4|Terminal|42|$4|Terminal|$4|$4|on" ;;
+  orphan) echo "ok|tab|1|42|$4|Terminal|42|$4|Terminal|$4|$4|on" ;;
+  orphan-window) echo "ok|window|2|42|$4|Terminal|42|$4|Terminal|$4|$4|on" ;;
   eight-fields) echo "ok|window|42|$4|Terminal|42|$4|Terminal" ;;
   nine-fields) echo "ok|tab|0|42|$4|Terminal|42|$4|Terminal" ;;
-  notkept-window) echo "ok|tab|0|43|$4|Terminal|42|$4|Terminal|$4|$4" ;;
-  notkept-tty) echo "ok|tab|0|42|/dev/ttys999|Terminal|42|$4|Terminal|$4|$4" ;;
-  notkept-app) echo "ok|tab|0|42|$4|Safari|42|$4|Terminal|$4|$4" ;;
-  notkept-cond) echo "ok|tab|0|43|/dev/ttys900|Terminal|43|/dev/ttys900|Terminal|/dev/ttys999|$4" ;;
-  native-other-front) echo "ok|tab|0|51|/dev/ttys900|Terminal|51|/dev/ttys900|Terminal|$4|$4" ;;
-  native-moved) echo "ok|tab|0|52|/dev/ttys999|Terminal|51|/dev/ttys900|Terminal|$4|$4" ;;
+  notkept-window) echo "ok|tab|0|43|$4|Terminal|42|$4|Terminal|$4|$4|on" ;;
+  notkept-tty) echo "ok|tab|0|42|/dev/ttys999|Terminal|42|$4|Terminal|$4|$4|on" ;;
+  notkept-app) echo "ok|tab|0|42|$4|Safari|42|$4|Terminal|$4|$4|on" ;;
+  notkept-cond) echo "ok|tab|0|43|/dev/ttys900|Terminal|43|/dev/ttys900|Terminal|/dev/ttys999|$4|on" ;;
+  native-other-front) echo "ok|tab|0|51|/dev/ttys900|Terminal|51|/dev/ttys900|Terminal|$4|$4|on" ;;
+  native-moved) echo "ok|tab|0|52|/dev/ttys999|Terminal|51|/dev/ttys900|Terminal|$4|$4|on" ;;
+  eleven-fields) echo "ok|tab|0|42|$4|Terminal|42|$4|Terminal|$4|$4" ;;
+  bad-space) echo "ok|tab|0|42|$4|Terminal|42|$4|Terminal|$4|$4|maybe" ;;
+  offscreen) echo "ok|window|0|42|$4|Terminal|42|$4|Terminal|$4|$4|off" ;;
+  space-unknown) echo "ok|window|0|42|$4|Terminal|42|$4|Terminal|$4|$4|unknown" ;;
   nomatch) echo "nomatch" ;;
   close-ok) echo "ok" ;;
   close-busy) echo "busy" ;;
   close-notfront) echo "notfront" ;;
+  close-offscreen) echo "offscreen" ;;
+  close-spaceunknown) echo "spaceunknown" ;;
   fail) echo "execution error: stub refused (-1743)" >&2; echo "second line" >&2; exit 1 ;;
   fail-other) echo "execution error: stub syntax error (-2741)" >&2; exit 1 ;;
   # A previous watch tab's closer appends to the same tab log while this open is still running.
-  close-first) echo "close skipped: tab busy" >> "$STUB_TAB_LOG"; sleep 1; echo "ok|tab|0|42|$4|Terminal|42|$4|Terminal|$4|$4" ;;
+  close-first) echo "close skipped: tab busy" >> "$STUB_TAB_LOG"; sleep 1; echo "ok|tab|0|42|$4|Terminal|42|$4|Terminal|$4|$4|on" ;;
 esac
 EOF
 chmod +x "$OSA_DIR/osascript"
@@ -402,7 +413,7 @@ check "open then re-selects the recorded front tab" osa_before "$open_run" 'set 
 # Native tabs: a one-tab window's selected tab cannot be changed, so the conductor's tab is
 # reselected in its tab group by raising its window, before the recorded front window is raised.
 select_handler="$(printf '%s\n' "$osa_script" | sed -n '/^on selectTty/,/^end selectTty/p' | tr -s ' ' | tr '\n' '|')"
-check "selectTty raises a one-tab window and selects only within multi-tab windows" contains "$select_handler" "| if tty of aTab is t then| if (count of tabs of aWin) is 1 then| set index of aWin to 1| else if not loneOnly then| set selected of aTab to true| end if| return|"
+check "selectTty raises a one-tab window only when it is on this Space and selects only within multi-tab windows" contains "$select_handler" "| if tty of aTab is t then| if (count of tabs of aWin) is 1 then| if my spaceOf(id of aWin) is \"on\" then set index of aWin to 1| else if not loneOnly then| set selected of aTab to true| end if| return|"
 check "open and close share the same selectTty handler" eq "$(printf '%s\n' "$close_script" | sed -n '/^on selectTty/,/^end selectTty/p' | tr -s ' ' | tr '\n' '|')" "$select_handler"
 check "open restores the conductor window's tab with one-tab windows raised" contains "$open_run" 'my selectTty(condWinSel, false)'
 check "close selects the conductor's lone tab after closing a one-tab window" contains "$(printf '%s\n' "$close_run" | grep -A3 -F 'close aWin' | tr -s ' ' | tr '\n' '|')" ' close aWin| set outcome to "ok"| set winSel to condTty| set loneOnly to true|'
@@ -410,14 +421,37 @@ check "close restores that selection before raising the recorded front window" o
 check "close leaves loneOnly off unless a one-tab window was closed" eq "$(printf '%s\n' "$close_run" | grep -c 'set loneOnly to')" 2
 check "open observes the conductor window's selected tab after restoring the app" osa_before "$open_run" 'whose unix id is recPid) to true' 'if tty of aTab is condTty then set obsCond to tty of selected tab of aWin'
 check "open reports observed then recorded conductor window tab" contains "$open_run" '& "|" & recApp & "|" & obsCond & "|" & condWinSel'
-check "close raises the recorded front window after Cmd-W" osa_before "$close_run" 'keystroke "w"' 'set index of window id recFrontId to 1'
-check "close raises no other window after Cmd-W" eq "$(printf '%s\n' "$close_run" | sed -n '/keystroke "w"/,$p' | grep -c 'set index of')" 1
 osa_encloses() { # osa_encloses <script> <if-line> <inner>: inner follows the if with no end if between
   local a b
   osa_before "$1" "$2" "$3" || return 1
   a="$(osa_line "$1" "$2")"; b="$(osa_line "$1" "$3")"
   ! printf '%s\n' "$1" | sed -n "${a},${b}p" | grep -q 'end if'
 }
+# Spaces: raising or activating onto a window that is not on screen in the current Space pulls it
+# into this Space or switches Space, so every raise is gated on spaceOf.
+space_handler="$(printf '%s\n' "$osa_script" | sed -n '/^on spaceOf/,/^end spaceOf/p' | tr -s ' ' | tr '\n' '|')"
+check "spaceOf answers unknown when the on-screen query fails" contains "$space_handler" '| on error| return "unknown"| end try| if shown is "" then return "unknown"|'
+check "spaceOf answers on only for an id in the on-screen list" contains "$space_handler" '| if ("," & shown & ",") contains ("," & (winId as text) & ",") then return "on"| return "off"|'
+check "open and close share the same spaceOf handler" eq "$(printf '%s\n' "$close_script" | sed -n '/^on spaceOf/,/^end spaceOf/p' | tr -s ' ' | tr '\n' '|')" "$space_handler"
+check "open raises the conductor window only when it is on this Space" osa_encloses "$open_run" 'if condSpace is "on" then' 'set index of window id condWinId to 1'
+check "open activates Terminal only when the conductor window is on this Space" osa_encloses "$open_run" 'if condSpace is "on" then' 'activate'
+check "open activates Terminal exactly once" eq "$(printf '%s\n' "$open_run" | grep -c 'activate')" 1
+check "Cmd-T is never sent unless the conductor window was raised (termFront starts false)" osa_before "$open_run" 'set termFront to false' 'if condSpace is "on" then'
+check "open raises the recorded front window only when it is on this Space" osa_encloses "$open_run" 'if my spaceOf(recFrontId) is "on" then' 'set index of window id recFrontId to 1'
+check "open reports the conductor window's Space last" contains "$open_run" '& "|" & condWinSel & "|" & condSpace'
+check "open's only window raises are the three Space-gated ones" eq "$(printf '%s\n' "$osa_script" | grep -c 'set index of')" 3
+check "close raises the recorded front window only when it is on this Space" osa_encloses "$close_run" 'if my spaceOf(recFrontId) is "on" then' 'set index of window id recFrontId to 1'
+check "close returns before selecting or raising a window that is not on this Space" osa_before "$close_run" 'if winSpace is not "on" then return "spaceunknown"' 'set selected of aTab to true'
+check "close checks the Space of the window it would raise" osa_before "$close_run" 'set winSpace to my spaceOf(id of aWin)' 'if winSpace is "off" then return "offscreen"'
+check "close's only window raises are the three Space-gated ones" eq "$(printf '%s\n' "$close_script" | grep -c 'set index of')" 3
+check "open and close read the on-screen query from their third argument" eq "$(printf '%s\n' "$open_run" "$close_run" | grep -c 'set onScreenJxa to item 3 of argv')" 2
+check "the on-screen query is passed to osascript" contains "$(cat "$LOG/osa-jxa")" '$.kCGWindowListOptionOnScreenOnly'
+# A CoreGraphics query, not an Apple event: it reads the window list and touches no app.
+if [[ -x /usr/bin/osascript ]]; then
+  check "the on-screen query prints comma-separated window ids" bash -c '[[ "$(/usr/bin/osascript -l JavaScript -e "$1")" =~ ^[0-9]+(,[0-9]+)*$ ]]' _ "$(cat "$LOG/osa-jxa")"
+fi
+check "close raises the recorded front window after Cmd-W" osa_before "$close_run" 'keystroke "w"' 'set index of window id recFrontId to 1'
+check "close raises no other window after Cmd-W" eq "$(printf '%s\n' "$close_run" | sed -n '/keystroke "w"/,$p' | grep -c 'set index of')" 1
 check "Cmd-T sent only while Terminal is frontmost" osa_encloses "$osa_script" 'if termFront then' 'keystroke "t"'
 check "Cmd-W sent only for our tab in a frontmost Terminal" osa_encloses "$close_script" 'if termFront and selTty is myTty then' 'keystroke "w"'
 check "open restores the frontmost app by process id" contains "$osa_script" 'whose unix id is recPid) to true'
@@ -438,6 +472,17 @@ open_in_pty t1 STUB_OSA_MODE=eight-fields
 check "tab.log: output without an orphan count is an error" contains "$(last_tab_line t1)" "tab error: unexpected osascript output 'ok|window|42|"
 open_in_pty t1 STUB_OSA_MODE=nine-fields
 check "tab.log: output without the conductor window's tab is an error" contains "$(last_tab_line t1)" "tab error: unexpected osascript output 'ok|tab|0|42|"
+open_in_pty t1 STUB_OSA_MODE=eleven-fields
+check "tab.log: output without the conductor window's Space is an error" contains "$(last_tab_line t1)" "tab error: unexpected osascript output 'ok|tab|0|42|"
+open_in_pty t1 STUB_OSA_MODE=bad-space
+check "tab.log: a Space value other than on, off or unknown is an error" contains "$(last_tab_line t1)" "tab error: unexpected osascript output 'ok|tab|0|42|"
+open_in_pty t1 STUB_OSA_MODE=offscreen
+check "tab.log: conductor window not on this Space -> not raised, new window" eq "$(tail -n2 "$RUN/t1.tab.log" | tr '\n' '|')" "opened: window|conductor window not raised (not on screen in this Space: another Space, minimized or a background tab; new window used); focus: kept|"
+check "open prints the not-on-this-Space fix" contains "$(cat "$TMP/open.out")" "fix: the conductor's Terminal window was not on screen in your current Space (it is on another Space, minimized, or a background tab of its window), so it was left where it is and the lane opened in a new window here. To get a tab instead, bring the conductor's tab to the front in your current Space and run \`ds-lane open t1\`."
+check "open does not blame Accessibility for a window left on another Space" bash -c '! grep -q Accessibility "$1"' _ "$TMP/open.out"
+open_in_pty t1 STUB_OSA_MODE=space-unknown
+check "tab.log: Space query failed -> not raised, new window" eq "$(tail -n2 "$RUN/t1.tab.log" | tr '\n' '|')" "opened: window|conductor window not raised (could not tell whether it is on this Space; new window used); focus: kept|"
+check "open prints the Space-query fix" contains "$(cat "$TMP/open.out")" "fix: the query for windows on your current Space failed, so the conductor's Terminal window was left where it is and the lane opened in a new window here. Retry with \`ds-lane open t1\`."
 open_in_pty t1 STUB_OSA_MODE=notkept-cond
 check "tab.log: focus NOT kept (conductor window's selected tab changed)" contains "$(last_tab_line t1)" "focus: NOT kept (front window 43, tab /dev/ttys900, app Terminal, conductor window tab /dev/ttys999; was 43, /dev/ttys900, Terminal, /dev/"
 open_in_pty t1 STUB_OSA_MODE=native-other-front
@@ -499,6 +544,8 @@ close_tab() { # close_tab <osa mode> [env assignments...]
 check "close: ok" eq "$(close_tab close-ok)" "close: ok"
 check "close: tab busy" eq "$(close_tab close-busy)" "close skipped: tab busy"
 check "close: Terminal not frontmost" eq "$(close_tab close-notfront)" "close skipped: Terminal not frontmost"
+check "close: window not on this Space" eq "$(close_tab close-offscreen)" "close skipped: window not on screen in this Space"
+check "close: Space query failed" eq "$(close_tab close-spaceunknown)" "close skipped: Space unknown"
 check "close: no matching tab" eq "$(close_tab nomatch)" "close skipped: no matching tab"
 check "close: osascript exit 1" eq "$(close_tab fail)" "close error: execution error: stub refused (-1743)"
 check "close: no osascript" eq "$(close_tab close-ok PATH="$SANDBOX")" "close skipped: no osascript"

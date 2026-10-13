@@ -67,13 +67,21 @@
 #   window, so the last check cannot fail there) or `focus: NOT kept
 #   (<observed>; was <recorded>)`, prefixed `tab orphaned (<n> other new
 #   tab(s) after Cmd-T, left open); ` when stray new tabs remain (never closed: they cannot be
-#   proven ours), else `tab misplaced (new window, no new tab found); ` on
-#   the window path; otherwise one of `tab skipped: <no conductor tty|no
+#   proven ours), else `conductor window not raised (not on screen in this
+#   Space: another Space, minimized or a background tab; new window used); `
+#   or `conductor window not raised (could not tell whether it is on this
+#   Space; new window used); ` when the conductor's window was not on screen
+#   in the current Space or the CoreGraphics query for that failed (no
+#   window that is not on screen in the current Space is ever raised, since
+#   that would pull it into this Space or switch Space), else `tab
+#   misplaced (new window, no new tab found); ` on the window path;
+#   otherwise one of `tab skipped: <no conductor tty|no
 #   osascript|no matching tab|lock busy|lock unavailable>` (no matching tab
 #   also when Terminal is not running: it is never launched) or `tab error:
 #   <first stderr line>; focus: unknown`. When the watch tab closes itself:
 #   `close: ok`, `close skipped: <no osascript|lock busy|lock unavailable|tab
-#   busy|no matching tab|Terminal not frontmost>` or `close error: <first
+#   busy|no matching tab|Terminal not frontmost|window not on screen in this
+#   Space|Space unknown>` or `close error: <first
 #   stderr line or osascript output>`.
 #
 # Upstream deps: git, python3 (os.setsid detach, getmtime, realpath), jq, ps,
@@ -84,7 +92,8 @@
 #   (last `permission-mode` record, else last `permissionMode` on a
 #   `type:"user"` record). CLAUDE_CONFIG_DIR is inherited, never set.
 #   macOS Terminal.app + osascript for watch tabs (System Events keystrokes
-#   need Accessibility permission); tab open/close is serialized by a flock
+#   need Accessibility permission; /usr/bin/osascript -l JavaScript queries
+#   CoreGraphics for the windows on screen in the current Space); tab open/close is serialized by a flock
 #   on the per-user file /tmp/ds-lane-tab-<uid>.lock (released by the kernel
 #   when its holder exits, so it never goes stale).
 #
@@ -628,18 +637,42 @@ sys.exit(subprocess.call(cmd))
 ' "$TAB_LOCK" "${DS_LANE_TAB_LOCK_WAIT_S:-30}" "$@"
 }
 
-# AppleScript handler shared by both scripts: selects the tab whose tty is t, if any. Selecting a tab
+# JXA printing the ids of every window on screen in the current Space of each display, comma
+# separated. Terminal's `id of window` is the window's CGWindowID, and this list leaves out
+# windows on another Space, minimized windows, hidden apps' windows and a native-tab group's
+# background tabs. Passed to both scripts as their last argument.
+ON_SCREEN_JXA='ObjC.import("CoreGraphics"); ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, $.kCGNullWindowID))).map(function (w) { return w.kCGWindowNumber; }).join(",")'
+
+# AppleScript handlers shared by both scripts. Raising (or activating Terminal onto) a window that
+# is not on screen in the current Space pulls it into this Space or switches Space, so nothing
+# raises a window unless spaceOf says "on". spaceOf returns "on", "off" (another Space,
+# minimized, a hidden app or a native-tab group's background tab) or "unknown" (the query
+# failed, treated as off). selectTty selects the tab whose tty is t, if any. Selecting a tab
 # does not raise its window, but a native-tab Terminal reports each tab as its own one-tab window,
-# where selecting has no effect: such a tab is selected in its tab group only by raising its window,
-# so callers raise the recorded front window afterwards. loneOnly leaves a multi-tab window alone.
-SELECT_TTY_OSA='on selectTty(t, loneOnly)
+# where selecting has no effect: such a tab is selected in its tab group only by raising its
+# window, so callers raise the recorded front window afterwards. loneOnly leaves a multi-tab
+# window alone.
+SELECT_TTY_OSA='property onScreenJxa : ""
+
+on spaceOf(winId)
+  try
+    set shown to do shell script "/usr/bin/osascript -l JavaScript -e " & quoted form of onScreenJxa
+  on error
+    return "unknown"
+  end try
+  if shown is "" then return "unknown"
+  if ("," & shown & ",") contains ("," & (winId as text) & ",") then return "on"
+  return "off"
+end spaceOf
+
+on selectTty(t, loneOnly)
   if t is "" then return
   tell application "Terminal"
     repeat with aWin in windows
       repeat with aTab in tabs of aWin
         if tty of aTab is t then
           if (count of tabs of aWin) is 1 then
-            set index of aWin to 1
+            if my spaceOf(id of aWin) is "on" then set index of aWin to 1
           else if not loneOnly then
             set selected of aTab to true
           end if
@@ -650,11 +683,13 @@ SELECT_TTY_OSA='on selectTty(t, loneOnly)
   end tell
 end selectTty'
 
-# AppleScript (argv: command, conductor tty). Returns "nomatch" at once when Terminal is not
-# running, so a conductor in another terminal app never launches it (Terminal's static sdef lets
-# the script compile without launching it). Records the front Terminal window, its selected tab and
-# the conductor window's selected tab, then selects the conductor's tab, raises its window and,
-# only while Terminal is frontmost, presses Cmd-T. The new tab is found by comparing every tab's
+# AppleScript (argv: command, conductor tty, ON_SCREEN_JXA). Returns "nomatch" at once when
+# Terminal is not running, so a conductor in another terminal app never launches it (Terminal's
+# static sdef lets the script compile without launching it). Records the front Terminal window, its
+# selected tab and the conductor window's selected tab, then selects the conductor's tab. Only when
+# the conductor's window is on screen in the current Space does it raise that window, activate
+# Terminal and, only while Terminal is frontmost, press Cmd-T; otherwise it raises nothing and the
+# command goes to a new window. The new tab is found by comparing every tab's
 # tty in every window before and after Cmd-T (a native-tab Terminal reports each tab as its own
 # one-tab window); the command goes to it only when exactly one new tty appeared. Otherwise
 # (Accessibility denied, Cmd-T lost or late, Terminal not frontmost, ambiguous) it goes to a new
@@ -663,10 +698,11 @@ end selectTty'
 # tab that arrived after the 3 s poll), restores the conductor window's selected tab (in native-tab
 # mode by raising the conductor's window), raises the recorded front window (not the conductor's:
 # the operator may be looking at another window), re-selects its recorded tab and re-activates the
-# previously frontmost app by process id. Returns "nomatch" or "ok|<tab|window>|<orphans>|<front
-# window id>|<selected tty>|<front app>" observed afterwards, followed by the same three values
-# recorded beforehand, then the conductor window's selected tab observed afterwards and recorded
-# beforehand (11 fields; in native-tab mode both are the conductor's own tty).
+# previously frontmost app by process id; each of those raises happens only for a window on screen
+# in the current Space. Returns "nomatch" or "ok|<tab|window>|<orphans>|<front window id>|<selected
+# tty>|<front app>" observed afterwards, followed by the same three values recorded beforehand, then
+# the conductor window's selected tab observed afterwards and recorded beforehand (in native-tab
+# mode both are the conductor's own tty), then the conductor window's spaceOf result (12 fields).
 OPEN_TAB_OSA="$SELECT_TTY_OSA"'
 
 on newTtys(beforeTtys)
@@ -686,6 +722,7 @@ on run argv
   if application "Terminal" is not running then return "nomatch"
   set theCmd to item 1 of argv
   set condTty to item 2 of argv
+  set onScreenJxa to item 3 of argv
   tell application "System Events"
     set recProc to first application process whose frontmost is true
     set recApp to name of recProc
@@ -714,12 +751,18 @@ on run argv
       end repeat
     end repeat
     if condWinId is missing value then return "nomatch"
-    set index of window id condWinId to 1
-    activate
   end tell
-  delay 0.2
+  set condSpace to my spaceOf(condWinId)
   set targetTty to ""
-  tell application "System Events" to set termFront to frontmost of application process "Terminal"
+  set termFront to false
+  if condSpace is "on" then
+    tell application "Terminal"
+      set index of window id condWinId to 1
+      activate
+    end tell
+    delay 0.2
+    tell application "System Events" to set termFront to frontmost of application process "Terminal"
+  end if
   if termFront then
     try
       tell application "System Events" to keystroke "t" using command down
@@ -755,11 +798,13 @@ on run argv
   end repeat
   my selectTty(condWinSel, false)
   if recFrontId is not missing value then
-    tell application "Terminal"
-      try
-        set index of window id recFrontId to 1
-      end try
-    end tell
+    if my spaceOf(recFrontId) is "on" then
+      tell application "Terminal"
+        try
+          set index of window id recFrontId to 1
+        end try
+      end tell
+    end if
   end if
   my selectTty(recTty, false)
   try
@@ -777,25 +822,27 @@ on run argv
       end repeat
     end repeat
   end tell
-  return "ok|" & how & "|" & orphans & "|" & obsFront & "|" & obsTty & "|" & obsApp & "|" & recFront & "|" & recTty & "|" & recApp & "|" & obsCond & "|" & condWinSel
+  return "ok|" & how & "|" & orphans & "|" & obsFront & "|" & obsTty & "|" & obsApp & "|" & recFront & "|" & recTty & "|" & recApp & "|" & obsCond & "|" & condWinSel & "|" & condSpace
 end run'
 
-# AppleScript (argv: own tty, conductor tty). Terminal cannot close a single tab by script, only a
-# window: a one-tab window is closed; a tab in a multi-tab window is selected and closed with Cmd-W
-# (Accessibility). Acts only once the tab has no processes left, so it never prompts and never
+# AppleScript (argv: own tty, conductor tty, ON_SCREEN_JXA). Terminal cannot close a single tab by
+# script, only a window: a one-tab window is closed; a tab in a multi-tab window is selected and
+# closed with Cmd-W (Accessibility), only when that window is on screen in the current Space (else
+# offscreen, or spaceunknown when the query failed, with nothing touched). Acts only once the tab has no processes left, so it never prompts and never
 # hits a reused tty that a new shell already owns. Cmd-W is pressed only while Terminal is
 # frontmost with this tab selected. Then restores that window's previously selected tab (the
 # conductor's tab when that was the tab being closed; after closing a one-tab window, the
 # conductor's tab if it too is alone in its window, since closing a native tab selects a
 # neighbour in its tab group), raises the recorded front window if it
-# still exists, re-selects its recorded tab and re-activates the previously frontmost app by
-# process id. Returns ok, busy, nomatch (also when Terminal is not running, so it is never
-# launched) or notfront.
+# still exists and is on screen in the current Space, re-selects its recorded tab and re-activates
+# the previously frontmost app by process id. Returns ok, busy, nomatch (also when Terminal is not
+# running, so it is never launched), notfront, offscreen or spaceunknown.
 CLOSE_TAB_OSA="$SELECT_TTY_OSA"'
 
 on run argv
   set myTty to item 1 of argv
   set condTty to item 2 of argv
+  set onScreenJxa to item 3 of argv
   delay 2
   if application "Terminal" is not running then return "nomatch"
   tell application "System Events" to set recPid to unix id of first application process whose frontmost is true
@@ -819,6 +866,9 @@ on run argv
             set winSel to condTty
             set loneOnly to true
           else
+            set winSpace to my spaceOf(id of aWin)
+            if winSpace is "off" then return "offscreen"
+            if winSpace is not "on" then return "spaceunknown"
             set winSel to tty of selected tab of aWin
             set selected of aTab to true
             set index of aWin to 1
@@ -847,11 +897,13 @@ on run argv
   if winSel is myTty then set winSel to condTty
   my selectTty(winSel, loneOnly)
   if recFrontId is not missing value then
-    tell application "Terminal"
-      try
-        set index of window id recFrontId to 1
-      end try
-    end tell
+    if my spaceOf(recFrontId) is "on" then
+      tell application "Terminal"
+        try
+          set index of window id recFrontId to 1
+        end try
+      end tell
+    end if
   end if
   if recTty is not myTty then my selectTty(recTty, false)
   try
@@ -863,7 +915,7 @@ end run'
 # Opens a watch tab for <name> next to the conductor's tab; prints the outcome and appends it to
 # run/<name>.tab.log.
 open_tab() { # open_tab <name> <conductor-tty>
-  local name="$1" ctty="$2" cmd out rc=0 err outcome="" st how orphans ofront otty oapp rfront rtty rapp ocond rcond
+  local name="$1" ctty="$2" cmd out rc=0 err outcome="" st how orphans ofront otty oapp rfront rtty rapp ocond rcond space
   cmd="$(printf 'cd %q && ' "$PRIMARY")"
   if [[ -n "${DS_LANE_RUN_DIR:-}" ]]; then cmd="${cmd}DS_LANE_RUN_DIR=$(printf '%q' "$DS_LANE_RUN_DIR") "; fi
   cmd="${cmd}$(printf 'DS_LANE_WATCH_CLOSE_TAB=1 DS_LANE_CONDUCTOR_TTY=%q %q watch %q; exit' "$ctty" "$SELF" "$name")"
@@ -873,7 +925,7 @@ open_tab() { # open_tab <name> <conductor-tty>
     outcome="tab skipped: no osascript"
   else
     err="$(mktemp "${TMPDIR:-/tmp}/ds-lane-osa.XXXXXX")"
-    out="$(with_tab_lock osascript -e "$OPEN_TAB_OSA" "$cmd" "$ctty" 2> "$err")" || rc=$?
+    out="$(with_tab_lock osascript -e "$OPEN_TAB_OSA" "$cmd" "$ctty" "$ON_SCREEN_JXA" 2> "$err")" || rc=$?
     if (( rc == 200 )); then
       outcome="tab skipped: lock busy"
     elif (( rc == 201 )); then
@@ -883,8 +935,8 @@ open_tab() { # open_tab <name> <conductor-tty>
     elif [[ "$out" == nomatch ]]; then
       outcome="tab skipped: no matching tab"
     else
-      IFS='|' read -r st how orphans ofront otty oapp rfront rtty rapp ocond rcond <<< "$out"
-      if [[ "$st" != ok || ! "$orphans" =~ ^[0-9]+$ || ! "$out" =~ ^([^|]*\|){10}[^|]*$ ]]; then
+      IFS='|' read -r st how orphans ofront otty oapp rfront rtty rapp ocond rcond space <<< "$out"
+      if [[ "$st" != ok || ! "$orphans" =~ ^[0-9]+$ || ! "$space" =~ ^(on|off|unknown)$ || ! "$out" =~ ^([^|]*\|){11}[^|]*$ ]]; then
         outcome="tab error: unexpected osascript output '$out'; focus: unknown"
       else
         echo "opened: $how" >> "$RUN_DIR/$name.tab.log"
@@ -895,6 +947,10 @@ open_tab() { # open_tab <name> <conductor-tty>
         fi
         if (( orphans > 0 )); then
           outcome="tab orphaned ($orphans other new tab(s) after Cmd-T, left open); $outcome"
+        elif [[ "$space" == off ]]; then
+          outcome="conductor window not raised (not on screen in this Space: another Space, minimized or a background tab; new window used); $outcome"
+        elif [[ "$space" == unknown ]]; then
+          outcome="conductor window not raised (could not tell whether it is on this Space; new window used); $outcome"
         elif [[ "$how" != tab ]]; then
           outcome="tab misplaced (new window, no new tab found); $outcome"
         fi
@@ -931,6 +987,10 @@ tab_fix() { # tab_fix <name> <outcome>
       fix="Cmd-T answered late and left an extra empty Terminal tab open; close that tab by hand." ;;
     *"tab misplaced"*)
       fix="the lane opened in a new window because Cmd-T produced no tab, most often because Accessibility is off. Open System Settings > Privacy & Security > Accessibility and turn on the app this session runs in; if it is not listed, add it with the + button. Later lanes then open as tabs." ;;
+    *"conductor window not raised (not on screen"*)
+      fix="the conductor's Terminal window was not on screen in your current Space (it is on another Space, minimized, or a background tab of its window), so it was left where it is and the lane opened in a new window here. To get a tab instead, bring the conductor's tab to the front in your current Space and run \`ds-lane open $name\`." ;;
+    *"conductor window not raised (could not tell"*)
+      fix="the query for windows on your current Space failed, so the conductor's Terminal window was left where it is and the lane opened in a new window here. Retry with \`ds-lane open $name\`." ;;
     *"focus: NOT kept"*)
       fix="opening the tab moved your focus; click back to the window you were using, and set DS_LANE_NO_TAB=1 if that keeps happening." ;;
   esac
@@ -985,7 +1045,7 @@ close_tab_now() { # close_tab_now <own-tty> <conductor-tty> <tab-log>
     outcome="close skipped: no osascript"
   else
     err="$(mktemp "${TMPDIR:-/tmp}/ds-lane-osa.XXXXXX")"
-    out="$(with_tab_lock osascript -e "$CLOSE_TAB_OSA" "$1" "${2:-}" 2> "$err")" || rc=$?
+    out="$(with_tab_lock osascript -e "$CLOSE_TAB_OSA" "$1" "${2:-}" "$ON_SCREEN_JXA" 2> "$err")" || rc=$?
     case "$rc:$out" in
       200:*) outcome="close skipped: lock busy" ;;
       201:*) outcome="close skipped: lock unavailable" ;;
@@ -993,6 +1053,8 @@ close_tab_now() { # close_tab_now <own-tty> <conductor-tty> <tab-log>
       0:busy) outcome="close skipped: tab busy" ;;
       0:nomatch) outcome="close skipped: no matching tab" ;;
       0:notfront) outcome="close skipped: Terminal not frontmost" ;;
+      0:offscreen) outcome="close skipped: window not on screen in this Space" ;;
+      0:spaceunknown) outcome="close skipped: Space unknown" ;;
       0:*) outcome="close error: $out" ;;
       *) outcome="close error: $(head -n1 "$err")" ;;
     esac
