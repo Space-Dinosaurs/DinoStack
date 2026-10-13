@@ -758,6 +758,27 @@ def test_days_window_is_respected(tmp_path):
     assert row["status"] == "ZERO_INVOCATIONS"
 
 
+def test_window_rows_without_session_id_are_reported_separately(tmp_path):
+    repo = _make_repo(tmp_path)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    base = {"ts": now, "hook": "enforce-fake-abdication", "decision": "deny", "reason": "r"}
+    lines = [
+        json.dumps({**base, "reason": "live", "session_id": "sess-1"}),
+        json.dumps({**base, "reason": "no sid 1"}),
+        json.dumps({**base, "reason": "no sid 2", "session_id": ""}),
+        json.dumps({**base, "reason": "old no sid", "ts": "2020-01-01T00:00:00Z"}),
+    ]
+    _write(repo / ".agentic" / ".enforcement-fires.jsonl", "\n".join(lines) + "\n")
+    row = _row_for(_run_json(repo, "--days", "14"), "enforce-fake-abdication.py")
+    assert row["fire_count_window"] == 3
+    assert row["fire_count_window_no_session_id"] == 2
+
+    table = _run(repo, "--days", "14").stdout
+    assert "no-sid" in table
+    cells = next(l for l in table.splitlines() if l.startswith("enforce-fake-abdication.py")).split()
+    assert cells[3:5] == ["3", "2"], cells
+
+
 # ---------------------------------------------------------------------------
 # DS: enforcement-fire-log aggregation - stranded worktree-local copies are
 # merged into the report at query time.

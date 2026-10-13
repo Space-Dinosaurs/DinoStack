@@ -682,10 +682,14 @@ console.log('\nTest 14: standard-exit-path-call-site-arity (run() integration)')
   // Drive the real hook via subprocess so run()'s actual call site executes.
   // Payload routes through the STANDARD exit path (no /wrap-authored context.md).
   const payload = JSON.stringify({ cwd, session_id: sessionId, transcript: [] });
+  // The standard exit path writes session telemetry under $HOME/.agentic, so
+  // an inherited HOME puts this fixture session in the operator's real log.
+  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ae-test-home-'));
   let ran = true;
   try {
     execSync(`node ${JSON.stringify(hookPath)}`, {
       input: payload, cwd, timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, HOME: fakeHome },
     });
   } catch (e) {
     // The hook calls process.exit(0); execSync only throws on non-zero exit.
@@ -708,6 +712,7 @@ console.log('\nTest 14: standard-exit-path-call-site-arity (run() integration)')
     );
   }
   cleanup(cwd);
+  cleanup(fakeHome);
 }
 
 // ---------------------------------------------------------------------------
