@@ -720,6 +720,10 @@ def _repo_with_history(tmp_path):
 
 def test_git_merged_prs_reads_first_parent_pr_commits(tmp_path):
     repo = _repo_with_history(tmp_path)
+    assert [(p["number"], p["ids"]) for p in ev.git_pr_merges(repo, "main", {12}, {"AUT-1"}, PATTERN)] == [
+        (10, ["AUT-1"]), (11, ["AUT-1"]), (12, [])]
+    assert ev.git_pr_merges(repo, "main", {1}, {"AUT-9"}, PATTERN) == []
+    assert ev.git_pr_merges(repo, "no-such-ref", {12}, set(), PATTERN) is None
     prs = ev.git_merged_prs(repo, "main", START, END + ev.LOOKAHEAD)
     assert [(p["number"], p["subject"]) for p in prs] == [
         (10, "feat(AUT-1): a (#10)"), (11, "fix(AUT-1): b (#11)"), (12, "feat(AUT-2): c (#12)")]
@@ -857,7 +861,7 @@ def test_session_summary_dominant_key_and_include_sessions(tmp_path, monkeypatch
                                                                    messages=3)
     row = ev.session_summary(s, "/r1")
     assert row == {"session_id": "s1", "repo": "/r1", "first_ts": T(2).isoformat(), "model": "claude-opus-5-5",
-                   "entrypoint": "sdk-cli", "version": "2.1.290", "cost_usd": 7.5}
+                   "entrypoint": "sdk-cli", "version": "2.1.290", "cost_usd": 7.5, "empty": False}
     bare = session(tmp_path, "s2", subs=[sub("a1")], cost=None)
     bare.conductor = tr.Usage()
     assert ev.session_summary(bare, "/r1")["entrypoint"] == "cli"
@@ -905,17 +909,21 @@ def test_evaluate_leaves_home_untouched_and_use_feedback_false_skips_the_read(tm
     skipped = ev.evaluate([str(repo)], START, END, base="main", use_gh=False, rates=RATES, use_feedback=False)
     assert calls == [] and skipped["meta"]["inputs"][str(repo)]["labels"] is None
 
-
 # ---------------------------------------------------------------------------
 # Empty sessions, the two Skeptic coverages, the per-ticket block
 # ---------------------------------------------------------------------------
 
 
-def _text(monkeypatch, capsys, inputs, top=cli.DEFAULT_TOP):
-    """(report, text report) for one fixture repo through evaluate() and the CLI printer."""
+def _text(monkeypatch, capsys, inputs, top=cli.DEFAULT_TOP, wide=()):
+    """(report, text report) for one fixture repo through evaluate() and the
+    CLI printer. `wide` is what the undated base-ref search returns: a list
+    of merges, or None for unreadable history."""
+    calls = []
+    monkeypatch.setattr(ev, "git_pr_merges", lambda *a: calls.append(a) or (None if wide is None else list(wide)))
     monkeypatch.setattr(ev, "_load_repo", lambda r, *a: inputs)
     report = ev.evaluate([inputs["repo"]], START, END, use_gh=False, stores=[], rates=RATES)
     cli._print_table(report, top)
+    report["_wide_calls"] = calls
     return report, capsys.readouterr().out
 
 
@@ -924,6 +932,7 @@ def _no_usage(s):
 
 
 def test_empty_sessions_are_counted_apart_and_left_out_of_coverage(tmp_path, monkeypatch, capsys):
+    """Empty: no usage record (conductor or subagent) and no cost-state spend."""
     sessions = [
         session(tmp_path, "a", cost=10.25),
         session(tmp_path, "z", cost=0.0),
@@ -931,40 +940,45 @@ def test_empty_sessions_are_counted_apart_and_left_out_of_coverage(tmp_path, mon
         _no_usage(session(tmp_path, "n", cost=None)),
         _no_usage(session(tmp_path, "e0", cost=0.0)),
         _no_usage(session(tmp_path, "e1", cost=0.0)),
+        _no_usage(session(tmp_path, "c", cost=5.0)),
+        _no_usage(session(tmp_path, "s", subs=[sub("x1")], cost=0.0)),
     ]
+    assert [ev.is_empty_session(s) for s in sessions] == [False, False, False, True, True, True, False, False]
     report, out = _text(monkeypatch, capsys, inp(sessions))
     cost = report["cost"]
-    rec = cost["reconciled"]
-    assert (rec["sessions"], rec["usd"]) == (4, 10.25)
+    rec, nc = cost["reconciled"], cost["no_cost_state"]
+    assert (rec["sessions"], rec["usd"]) == (6, 15.25)
     assert (rec["empty_sessions"], rec["empty_session_ids"]) == (2, ["e0", "e1"])
-    assert cost["no_cost_state"]["sessions"] == 2
+    assert (nc["sessions"], nc["empty_sessions"], nc["empty_session_ids"]) == (2, 1, ["n"])
     wt = cost["window_total"]
-    assert wt["coverage"] == 0.5, wt
-    assert wt["value"] == 10.25 and wt["coverage_excludes_empty_sessions"] == 2
-    assert cost["attributed_share"]["coverage"] == 1.0
-    line = next(x for x in out.splitlines() if x.strip().startswith("reconciled"))
-    assert "over 4 sessions (2 empty: $0 cost-state and no assistant turn, excluded from coverage)" in line
-    summary = ev.session_summary(sessions[-1], "/r")
-    assert summary["model"] is None and summary["cost_usd"] == 0.0
+    assert wt["coverage"] == 0.8, wt
+    assert wt["value"] == 15.25 and wt["coverage_excludes_empty_sessions"] == 3
+    assert cost["attributed_share"]["coverage"] == 0.75
+    lines = {x.split()[0]: x for x in out.splitlines() if x.startswith("  ")}
+    assert "over 6 sessions (2 empty: $0 cost-state and no usage, excluded from coverage)" in lines["reconciled"]
+    assert lines["no_cost_state"].endswith("(1 empty: no usage, excluded from coverage)")
+    assert [ev.session_summary(s, "/r")["empty"] for s in sessions] == [ev.is_empty_session(s) for s in sessions]
 
 
 def test_no_empty_sessions_prints_no_empty_note(tmp_path, monkeypatch, capsys):
-    report, out = _text(monkeypatch, capsys, inp([session(tmp_path, "a", cost=2.0)]))
+    report, out = _text(monkeypatch, capsys, inp([session(tmp_path, "a", cost=2.0), session(tmp_path, "d", cost=None)]))
     assert report["cost"]["reconciled"]["empty_sessions"] == 0
-    assert "empty" not in next(x for x in out.splitlines() if x.strip().startswith("reconciled"))
+    assert report["cost"]["no_cost_state"]["empty_sessions"] == 0
+    assert "empty" not in out.split("[agents]")[0]
 
 
 def test_by_iteration_names_iteration_tagged_and_findings_carrying_shares(monkeypatch, capsys):
     rows = [skeptic_row(T(2), "a", iteration=1), skeptic_row(T(2), "b", iteration=1),
             skeptic_row(T(2), "c", iteration=1, signed_off=True, findings={"critical": 0, "major": 1, "minor": 0}),
+            skeptic_row(T(2), "e", iteration=1, signed_off=False),
             skeptic_row(T(2), "d")]
     report, out = _text(monkeypatch, capsys, inp(hook_rows=rows, fires=[]))
     m = report["skeptic_rounds"]["by_iteration"]
-    assert m["coverage"] == m["iteration_tagged_share"] == 0.75
-    assert m["findings_carrying_share"] == 0.25
-    assert m["returns"] == {"total": 4, "iteration_tagged": 3, "findings_carrying": 1}
+    assert m["coverage"] == m["iteration_tagged_share"] == 0.8
+    assert m["findings_carrying_share"] == 0.4
+    assert m["returns"] == {"total": 5, "iteration_tagged": 4, "findings_carrying": 2}
     line = next(x for x in out.splitlines() if x.strip().startswith("by_iteration:"))
-    assert "iteration-tagged 75% (3/4)" in line and "findings-carrying 25% (1/4 " in line, line
+    assert "iteration-tagged 80% (4/5)" in line and "findings-carrying 40% (2/5 " in line, line
     assert "cov " not in line, line
 
 
@@ -974,12 +988,14 @@ def test_by_iteration_absent_prints_its_reason(monkeypatch, capsys):
     assert line.strip() == "by_iteration: ABSENT | missing: no Skeptic spawn_complete hook rows in the window"
 
 
-def _items_fixture(tmp_path, prs=()):
+def _items_fixture(tmp_path, prs=(), extra=()):
     """AUT-1: priced, a Skeptic round 2, merged with a follow-up. AUT-2: one
-    spawn on an unpriced model with no wall time. AUT-3: priced, never merged."""
+    spawn on an unpriced model with no wall time. AUT-3: priced, its own PR
+    #99 never merged in the window."""
     bare = tr.Sub("b1", "architect", "AUT-2 plan", None, usage(model="no-such-model"), None, [])
     subs = [sub("e1", description="AUT-1 build", output=2_000_000),
-            sub("k1", "skeptic", "AUT-1 review"), bare, sub("e3", description="AUT-3 build", output=100_000)]
+            sub("k1", "skeptic", "AUT-1 review"), bare,
+            sub("e3", description="AUT-3 build", output=100_000, prs=[("acme/w", 99, T(2, 6))]), *extra]
     return inp([session(tmp_path, "s", subs, cost=1.0)], hook_rows=[skeptic_row(T(2, 5), "k1", iteration=2)],
                fires=[], prs=prs)
 
@@ -998,18 +1014,46 @@ def test_work_items_block_lists_top_items_with_absent_figures_as_na(tmp_path, mo
     assert head == "top 3 of 3 by priced cost (spawn wall = summed spawn time, not end-to-end)"
     assert rows[0] == ["key", "tier", "priced usd", "spawn wall", "skeptic rounds", "PR outcome"]
     assert rows[1] == ["AUT-1", "1", "$60.00", "2m 00s", "2", "merged #7, 1 follow-up"]
-    assert rows[2] == ["AUT-3", "1", "$2.00", "1m 00s", "n/a (no skeptic spawn)", "not merged"]
+    assert rows[2] == ["AUT-3", "1", "$2.00", "1m 00s", "n/a (no skeptic spawn)", "no merge found"]
     assert rows[3] == ["AUT-2", "1", "n/a (no priced usage)", "n/a (no spawn wall time)",
-                       "n/a (no skeptic spawn)", "not merged"]
+                       "n/a (no skeptic spawn)", "no merge found"]
+    assert "not merged" not in out
     by_key = {r["key"]: r for r in report["work_items"]["items"]["value"]}
     assert by_key["AUT-2"]["usd"] is None and by_key["AUT-2"]["wall_seconds"] is None
     assert (by_key["AUT-2"]["wall_spawns"], by_key["AUT-1"]["wall_spawns"], by_key["AUT-1"]["tiers"]) == (0, 2, [1])
+    assert (by_key["AUT-1"]["merged_outside_window"], by_key["AUT-3"]["merged_outside_window"]) == (None, [])
+    assert all("_pr_candidates" not in r for r in by_key.values())
     summary = report["work_items"]["summary"]
     assert summary["items"] == 3
     assert (summary["usd_median"]["status"], summary["usd_median"]["value"]) == ("PARTIAL", 31.0)
     assert summary["wall_seconds_median"]["value"] == 90.0
     assert ("  items summary: 3 keyed items, median priced usd $31.00 (1 of 3 items without priced usage), "
             "median spawn wall 1m 30s (1 of 3 items without a spawn wall time)") in out
+
+
+def test_pr_merged_outside_the_window_is_reported_as_merged(tmp_path, monkeypatch, capsys):
+    """One undated base-ref search covers every item with no in-window merge:
+    AUT-3 by its own PR number, AUT-2 by its ticket id."""
+    wide = [{"number": 99, "merged_at": START - timedelta(days=4), "ids": []},
+            {"number": 7, "merged_at": T(3), "ids": ["AUT-2"]},
+            {"number": 300, "merged_at": END + timedelta(days=20), "ids": ["AUT-2"]}]
+    report, out = _text(monkeypatch, capsys, _items_fixture(tmp_path, _ITEM_PRS), wide=wide)
+    _head, rows = _item_lines(out)
+    assert rows[2][0::5] == ["AUT-3", "merged #99 (before window)"]
+    assert rows[3][0::5] == ["AUT-2", "merged #300 (after window)"]
+    by_key = {r["key"]: r for r in report["work_items"]["items"]["value"]}
+    assert by_key["AUT-3"]["merged_outside_window"] == [
+        {"number": 99, "merged_at": (START - timedelta(days=4)).isoformat(), "when": "before"}]
+    assert by_key["AUT-3"]["first_merged_pr"] is None and by_key["AUT-3"]["pr_numbers"] == []
+    (call,) = report["_wide_calls"]
+    assert call[1:4] == ("main", {99}, {"AUT-2", "AUT-3"})
+
+
+def test_unreadable_wider_history_never_reads_as_not_merged(tmp_path, monkeypatch, capsys):
+    report, out = _text(monkeypatch, capsys, _items_fixture(tmp_path, _ITEM_PRS), wide=None)
+    _head, rows = _item_lines(out)
+    assert rows[2][5] == "no merge found in window (wider base history unreadable)"
+    assert {r["key"]: r["merged_outside_window"] for r in report["work_items"]["items"]["value"]}["AUT-3"] is None
 
 
 def test_work_items_top_limits_rows_and_keeps_the_summary(tmp_path, monkeypatch, capsys):
@@ -1023,10 +1067,44 @@ def test_work_items_top_limits_rows_and_keeps_the_summary(tmp_path, monkeypatch,
 def test_work_items_without_merged_pr_history_or_iteration_are_na_with_reason(tmp_path, monkeypatch, capsys):
     fixture = _items_fixture(tmp_path, prs=None)
     fixture["hook_rows"] = []
-    _report, out = _text(monkeypatch, capsys, fixture)
+    report, out = _text(monkeypatch, capsys, fixture)
     head, rows = _item_lines(out)
     assert head.endswith("not end-to-end; no merged-PR history (git) for /r)")
     assert rows[1][4:] == ["n/a (no iteration-tagged return)", "n/a (no merged-PR history)"]
+    assert report["_wide_calls"] == []
+
+
+def test_reverted_item_and_partial_spawn_wall_are_stated(tmp_path, monkeypatch, capsys):
+    no_wall = tr.Sub("w1", "engineer", "AUT-3 more", None, usage(100_000), None, [])
+    prs = (pr(7, T(3), "feat: AUT-1 thing (#7)"), pr(9, T(4), 'Revert "feat: AUT-1 thing" (#9)'))
+    _report, out = _text(monkeypatch, capsys, _items_fixture(tmp_path, prs, extra=[no_wall]))
+    _head, rows = _item_lines(out)
+    assert rows[1][0::5] == ["AUT-1", "merged #7, 1 follow-up, reverted"]
+    assert rows[2][:4] == ["AUT-3", "1", "$4.00", "1m 00s (1/2 spawns)"]
+
+
+def test_items_summary_is_a_median_not_a_mean():
+    rows = [{"usd": 1.0, "wall_seconds": 10.0}, {"usd": 2.0, "wall_seconds": 20.0},
+            {"usd": 30.0, "wall_seconds": 300.0}]
+    summary = ev._items_summary(rows)
+    assert (summary["usd_median"]["value"], summary["wall_seconds_median"]["value"]) == (2.0, 20.0)
+    assert summary["usd_median"]["status"] == "OK"
+
+
+def test_multi_repo_item_rows_carry_a_short_repo_label(tmp_path, monkeypatch, capsys):
+    (tmp_path / "one").mkdir()
+    (tmp_path / "two").mkdir()
+    inputs = {"/x/r1": _items_fixture(tmp_path / "one", _ITEM_PRS),
+              "/x/deep/r2": _items_fixture(tmp_path / "two", _ITEM_PRS)}
+    inputs["/x/r1"]["repo"] = "/x/r1"
+    inputs["/x/deep/r2"].update(repo="/x/deep/r2", slug=None)
+    monkeypatch.setattr(ev, "git_pr_merges", lambda *a: [])
+    monkeypatch.setattr(ev, "_load_repo", lambda r, *a: inputs[str(r)])
+    report = ev.evaluate(list(inputs), START, END, use_gh=False, stores=[], rates=RATES)
+    cli._print_table(report)
+    _head, rows = _item_lines(capsys.readouterr().out)
+    assert [r[0] for r in rows[1:]] == ["[r2] AUT-1", "[acme/w] AUT-1", "[r2] AUT-3", "[acme/w] AUT-3",
+                                        "[r2] AUT-2", "[acme/w] AUT-2"]
 
 
 def test_no_keyed_work_items_is_na_never_an_empty_table(monkeypatch, capsys):

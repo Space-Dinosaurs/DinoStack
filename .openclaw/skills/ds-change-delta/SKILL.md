@@ -125,8 +125,9 @@ elapsed".
 - The figures below count each session once, on the side its first
   timestamp falls in (`meta.sessions_assigned`). The figure is cost-state
   dollars per session, over the sessions whose cost-state covers them.
-  Empty sessions (no usage record and no cost-state spend, i.e. sessions
-  that never reached the model) are left out of every rate, mix and prefix
+  Empty sessions (no usage record and no cost-state spend - the cost-state
+  record is absent or $0 - i.e. sessions that never reached the model; the
+  same definition `ds-eval` uses) are left out of every rate, mix and prefix
   figure and counted in `confounders.<side>.empty_sessions`.
 - Small samples: each rate carries its session count as `sessions`, and
   each delta and `mix_shifted` carry `n` (`{before, after}`). Fewer than

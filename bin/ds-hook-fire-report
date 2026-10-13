@@ -82,11 +82,13 @@ Status enum (binding contract, see content/commands/ds-prune-harness.md
                             is never logged under this posture.
   - ACTIVE                - fire_count_window > 0.
 
-  The legend text above (one sentence per status, matching this
-  docstring) is also emitted in BOTH output modes - `meta.legend` in
-  --json, and a printed legend block before the table otherwise - so a
-  JSON consumer never has to fall back to reading this docstring to
-  understand what a zero count does and does not prove.
+  `meta.legend` in --json carries one entry per status above plus one
+  per derived row field (`fire_count_window_no_session_id`,
+  `window_all_unjoinable`, `window_predates_session_ids`). The table
+  prints the four status entries as its legend block and the row-field
+  notes as the `no-sid` and `ACTIVE*` lines above the header - so neither
+  consumer has to fall back to reading this docstring to understand what
+  a zero count does and does not prove.
 
 Upstream deps: Python 3 stdlib only (argparse, datetime, json, sys,
                pathlib). Loads scripts/lib/enforcer_facts.py via
@@ -185,11 +187,18 @@ Failure modes: never raises on a missing or malformed fires log - an
                `fire_count_window` is a measured live-session figure only
                for the part that is not `no-sid`. Status is still derived
                from `fire_count_window` alone, so each row also carries
-               `window_all_unjoinable`: true when the window has fires and
-               every one of them is `no-sid` (table: status `ACTIVE*`). Such
-               a hook is ACTIVE on rows that prove no live session, which
-               is how a hook whose only fires are its own test fixtures
-               reads; `meta.legend` explains both fields.
+               two flags about an ACTIVE hook none of whose window rows
+               has a session_id. `window_predates_session_ids`: every such
+               row is at or before `meta.first_session_id_ts`, the
+               earliest row in the whole log that carries a session_id
+               (or no row carries one), so the rows come from before ids
+               were logged and say nothing either way. Otherwise
+               `window_all_unjoinable` (table: status `ACTIVE*`): at
+               least one row is later than that, so ids were being logged
+               and these rows still cannot be attributed to a session.
+               They may be test or tool-driven invocations; that is
+               unknown, not zero-fire evidence. `meta.legend` explains
+               all three fields.
                A log that is present, not effectively empty, but
                either too sparse (below MIN_PARSED_LINES_FOR_CONFIDENCE
                real records) or too corrupted (malformed-line ratio above
@@ -270,10 +279,19 @@ _LEGEND = {
         "measured live-session activity."
     ),
     "window_all_unjoinable": (
-        "True when fire_count_window > 0 and every one of those rows lacks "
-        "a session_id. Status is then ACTIVE on rows that prove no live "
-        "session - read it as 'no live fire measured in the window', not "
-        "as evidence the hook is in use."
+        "True when fire_count_window > 0, none of those rows has a "
+        "session_id, and at least one is later than the log's first "
+        "id-bearing row (meta.first_session_id_ts). These rows cannot be "
+        "attributed to a session. They may be test or tool-driven "
+        "invocations. Treat it as unknown and check the rows: it is never "
+        "zero-fire evidence and never grounds to prune."
+    ),
+    "window_predates_session_ids": (
+        "True when fire_count_window > 0, none of those rows has a "
+        "session_id, and none is later than the log's first id-bearing row "
+        "(or no row in the log has one). The rows were written before "
+        "fire-log rows carried session_id, so their missing id says nothing "
+        "about whether they came from a live session."
     ),
 }
 _STATUS_LEGEND_KEYS = ("UNMEASURED", "ZERO_INVOCATIONS", "ZERO_ACTION_IN_WINDOW", "ACTIVE")
@@ -529,6 +547,7 @@ def build_report(repo_root: Path, days: int, hooks_root: Path | None = None) -> 
     by_hook_all: dict[str, list[datetime | None]] = {}
     by_hook_no_session_id: dict[str, list[datetime | None]] = {}
     all_parsed_timestamps: list[datetime] = []
+    first_session_id_ts: datetime | None = None
     for rec in records:
         hook = rec.get("hook")
         if not hook:
@@ -541,6 +560,8 @@ def build_report(repo_root: Path, days: int, hooks_root: Path | None = None) -> 
         session_id = rec.get("session_id")
         if not (isinstance(session_id, str) and session_id):
             by_hook_no_session_id.setdefault(bare, []).append(ts)
+        elif ts is not None and (first_session_id_ts is None or ts < first_session_id_ts):
+            first_session_id_ts = ts
         if ts is not None:
             all_parsed_timestamps.append(ts)
 
@@ -565,10 +586,14 @@ def build_report(repo_root: Path, days: int, hooks_root: Path | None = None) -> 
         fire_count_all_time = len(timestamps)
         fire_count_unparsed_ts = len(timestamps) - len(parsed)
         fire_count_window = sum(1 for t in parsed if t >= window_start)
-        fire_count_window_no_session_id = sum(
-            1
-            for t in by_hook_no_session_id.get(bare_hook_name, [])
+        window_no_session_id = [
+            t for t in by_hook_no_session_id.get(bare_hook_name, [])
             if t is not None and t >= window_start
+        ]
+        fire_count_window_no_session_id = len(window_no_session_id)
+        none_joinable = 0 < fire_count_window == fire_count_window_no_session_id
+        after_ids_began = first_session_id_ts is not None and any(
+            t > first_session_id_ts for t in window_no_session_id
         )
         earliest_ts = min(parsed).isoformat().replace("+00:00", "Z") if parsed else None
         latest_ts = max(parsed).isoformat().replace("+00:00", "Z") if parsed else None
@@ -596,7 +621,8 @@ def build_report(repo_root: Path, days: int, hooks_root: Path | None = None) -> 
                 "posture": posture,
                 "fire_count_window": fire_count_window,
                 "fire_count_window_no_session_id": fire_count_window_no_session_id,
-                "window_all_unjoinable": 0 < fire_count_window == fire_count_window_no_session_id,
+                "window_all_unjoinable": none_joinable and after_ids_began,
+                "window_predates_session_ids": none_joinable and not after_ids_began,
                 "fire_count_all_time": fire_count_all_time,
                 "fire_count_unparsed_ts": fire_count_unparsed_ts,
                 "status": status,
@@ -617,6 +643,9 @@ def build_report(repo_root: Path, days: int, hooks_root: Path | None = None) -> 
         "log_effectively_empty": log_effectively_empty,
         "log_coverage_days": log_coverage_days,
         "log_confidence_eligible": log_confidence_eligible,
+        "first_session_id_ts": (
+            first_session_id_ts.isoformat().replace("+00:00", "Z") if first_session_id_ts else None
+        ),
         "stranded_worktree_logs_merged": stranded_files_merged,
         "stranded_worktree_records_merged": stranded_records_merged,
         "legend": _LEGEND,
@@ -661,8 +690,10 @@ def _print_table(report: dict) -> None:
         "written before fire-log rows carried session_id)."
     )
     print(
-        "ACTIVE*: every `window` row is no-sid (window_all_unjoinable), so "
-        "the status proves no live fire."
+        "ACTIVE*: no `window` row has a session_id although ids were being "
+        "logged (window_all_unjoinable). These rows cannot be attributed to "
+        "a session; they may be test or tool-driven invocations. Unknown - "
+        "check the rows. Never zero-fire evidence."
     )
     print(header)
     print("-" * len(header))

@@ -79,8 +79,10 @@ Public API: ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH]
             makes the figure PARTIAL with reason "n < 10" (so K=5 prefix
             figures are always PARTIAL). The per-entrypoint, pooled, mix
             and prefix figures count each session once, on the side its
-            first_ts falls in, and exclude empty sessions (no usage record
-            and no cost-state spend, counted in empty_sessions). A window
+            first_ts falls in, and exclude empty sessions (bin/_eval.py's
+            is_empty_session, the one definition both tools use: no usage
+            record and no cost-state spend, the cost-state record absent
+            or $0; counted in empty_sessions). A window
             still running is PARTIAL on its own side: the after window of
             a recent cut, and the before window too when --cut is in the
             future.
@@ -1486,9 +1488,9 @@ def _window_figures(report: dict) -> dict:
 
 
 def _is_empty(row: dict) -> bool:
-    """No usage record at all and no cost-state spend: a session that never
-    reached the model, which would otherwise pull every mean toward $0."""
-    return row.get("model") is None and not row.get("cost_usd")
+    """bin/_eval.py's is_empty_session, carried on the row: left out here
+    because such a session would pull every mean toward $0."""
+    return row["empty"]
 
 
 def _assign_sessions(reports: dict, before_start: datetime, cut_dt: datetime,

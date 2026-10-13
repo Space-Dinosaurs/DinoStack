@@ -1279,7 +1279,7 @@ _EVAL_REPO = "/r"
 def _srow(sid: str, ts: datetime, ep: str | None, cost: float | None, model="claude-opus-5-5",
           version="2.1.287") -> dict:
     return {"session_id": sid, "repo": _EVAL_REPO, "first_ts": ts.isoformat(), "entrypoint": ep,
-            "model": model, "version": version, "cost_usd": cost}
+            "model": model, "version": version, "cost_usd": cost, "empty": model is None and not cost}
 
 
 def _side_rows(side: str, specs: list[tuple[str | None, float | None]]) -> list[dict]:

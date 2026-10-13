@@ -22,8 +22,13 @@ Public API: ds-eval --repo P [P ...] [--since S] [--until U] [--base REF]
             [work_items] lists the --top N (default 10) keyed items by
             priced cost (key, tier, priced usd, summed spawn wall, Skeptic
             rounds, PR outcome) and one summary line; a figure with no
-            input prints `n/a (<reason>)`, never 0. --json always carries
-            every item.
+            input prints `n/a (<reason>)`, never 0. PR outcome reads
+            `merged #N` (in the window or its 7-day lookahead),
+            `merged #N (before window)` / `(after window)` when the base
+            ref shows the merge at another date, else `no merge found`:
+            it never asserts a PR is unmerged. In a multi-repo run an item
+            is prefixed with its repo's owner/name (else its directory
+            name). --json always carries every item.
             Exit 0 on any well-formed run, including one whose metrics are
             all ABSENT. Exit 2 on a usage error: an unparseable date, an
             empty or inverted window, an invalid --ticket-pattern, a
@@ -114,6 +119,14 @@ def _fmt_median(m: dict, fmt) -> str:
     return fmt(m["value"]) + (f" ({'; '.join(m['missing'])})" if m["missing"] else "")
 
 
+def _item_tag(r: dict, row: dict) -> str:
+    """Repo prefix for an item row of a multi-repo run: owner/name when the
+    origin slug resolved, else the repo directory's basename."""
+    if len(r["meta"]["repos"]) < 2:
+        return ""
+    return f"[{r['meta']['repo_slug'].get(row['repo']) or Path(row['repo']).name}] "
+
+
 def _item_cells(r: dict, row: dict) -> tuple:
     """One work item as text cells; a figure with no input is n/a plus why."""
     usd = f"${row['usd']:,.2f}" if row["usd"] is not None else "n/a (no priced usage)"
@@ -131,15 +144,20 @@ def _item_cells(r: dict, row: dict) -> tuple:
         rounds = "n/a (no skeptic spawn)"
     if not row["pr_history"]:
         outcome = "n/a (no merged-PR history)"
+    elif row["first_merged_pr"] is None and row["merged_outside_window"] is None:
+        outcome = "no merge found in window (wider base history unreadable)"
+    elif row["first_merged_pr"] is None and not row["merged_outside_window"]:
+        outcome = "no merge found"
     elif row["first_merged_pr"] is None:
-        outcome = "not merged"
+        outcome = ", ".join(f"merged #{pr['number']} ({pr['when']} window)" for pr in row["merged_outside_window"])
     else:
         outcome = f"merged #{row['first_merged_pr']}"
         if row["follow_up_prs"]:
             outcome += f", {len(row['follow_up_prs'])} follow-up"
         if row["reverted"]:
             outcome += ", reverted"
-    return (f"{_tag(r, row)}{row['key']}", ",".join(str(t) for t in row["tiers"]), usd, wall, rounds, outcome)
+    return (f"{_item_tag(r, row)}{row['key']}", ",".join(str(t) for t in row["tiers"]), usd, wall, rounds,
+            outcome)
 
 
 def _print_items(r: dict, top: int) -> None:
@@ -187,7 +205,7 @@ def print_sections(r: dict, top: int = DEFAULT_TOP) -> None:
     c = r["cost"]
     rec = c["reconciled"]
     usd = f"${rec['usd']:,.2f}" if rec["usd"] is not None else "n/a"
-    empty = (f" ({rec['empty_sessions']} empty: $0 cost-state and no assistant turn, excluded from coverage)"
+    empty = (f" ({rec['empty_sessions']} empty: $0 cost-state and no usage, excluded from coverage)"
              if rec["empty_sessions"] else "")
     print(f"  reconciled       {rec['status']}  {usd} over {rec['sessions']} sessions{empty}")
     pp = c["partial_process"]
@@ -197,7 +215,8 @@ def print_sections(r: dict, top: int = DEFAULT_TOP) -> None:
     nc = c["no_cost_state"]
     pv = nc["priced_visible_usd"]
     print(f"  no_cost_state    {nc['status']}  {nc['sessions']} sessions, priced visible "
-          + (f"${pv:,.2f}" if pv is not None else "n/a"))
+          + (f"${pv:,.2f}" if pv is not None else "n/a")
+          + (f" ({nc['empty_sessions']} empty: no usage, excluded from coverage)" if nc["empty_sessions"] else ""))
     print(f"  window_total     {_fmt_metric(c['window_total'])}")
     print(f"  attributed_share {_fmt_metric(c['attributed_share'])}")
     print(f"  straddling {c['straddling_sessions']}, visible > cost-state "
