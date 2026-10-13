@@ -1152,18 +1152,12 @@ def _loops_row(reviews: int, qa_fails: int, prs: int, ledger: dict | None) -> di
     return _rows_by_ticket(report["per_ticket"]["after"])["AUT-800"]
 
 
-def test_loops_clean_single_unit_ticket_is_zero():
-    """Skeptic Major 2: one review and one PR is no rework."""
-    t = _loops_row(reviews=1, qa_fails=0, prs=1, ledger=None)
-    assert t["unit_count"] == 1 and t["skeptic_reviews"] == 1 and t["prs_merged"] == 1
-    assert t["loops"] == 0, t
-
-
-def test_loops_clean_two_unit_ticket_is_zero():
+def test_loops_clean_ticket_is_zero():
     """Skeptic Major 2: one review and one PR per planned unit is no rework."""
-    t = _loops_row(reviews=2, qa_fails=0, prs=2, ledger={"unit_count": 2, "skeptic_rounds": 2})
-    assert t["unit_count"] == 2 and t["skeptic_reviews"] == 2 and t["prs_merged"] == 2
-    assert t["loops"] == 0, t
+    for units, ledger in ((1, None), (2, {"unit_count": 2, "skeptic_rounds": 2})):
+        t = _loops_row(reviews=units, qa_fails=0, prs=units, ledger=ledger)
+        assert t["unit_count"] == units and t["skeptic_reviews"] == units and t["prs_merged"] == units
+        assert t["loops"] == 0, t
 
 
 def test_loops_count_only_rework_beyond_units_and_surface_ledger_rounds():

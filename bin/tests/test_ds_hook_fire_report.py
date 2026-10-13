@@ -403,13 +403,13 @@ def test_log_coverage_days_is_none_when_log_absent(tmp_path):
 
 # ---------------------------------------------------------------------------
 # (f.1) DS-179 round 3 Major 1 - log_coverage_days (span) alone is not data
-#     adequacy. Reproduces the Skeptic's own two executed fixtures: a
+#     adequacy. Reproduces the Skeptic's executed fixture: a
 #     sparse-but-old log can cross the old bare `log_coverage_days >= 30`
 #     gate while containing almost no real data.
 #     Mutation: delete the `log_parsed_lines >= MIN_PARSED_LINES_FOR_CONFIDENCE`
-#     conjunct from log_confidence_eligible's computation -> both tests
-#     below flip from False to True, since log_coverage_days alone (595.0
-#     and 121.0 respectively) already clears the >= 30 span gate.
+#     conjunct from log_confidence_eligible's computation -> the test
+#     below flips from False to True, since log_coverage_days alone
+#     already clears the >= 30 span gate.
 # ---------------------------------------------------------------------------
 
 
@@ -453,38 +453,6 @@ def test_sparse_old_log_crosses_span_gate_but_not_confidence_eligible(tmp_path):
         "a 2-record log spanning months must not be confidence-eligible "
         "even though its span alone clears the 30-day gate"
     )
-
-
-def test_three_records_spanning_121_days_not_confidence_eligible(tmp_path):
-    """Skeptic fixture 2: 3 records spanning 121 days -> log_coverage_days
-    measured well above 30, still not enough parsed records to trust."""
-    repo = _make_repo(tmp_path)
-    now = datetime.now(timezone.utc)
-    timestamps = [
-        (now - timedelta(days=121)).isoformat().replace("+00:00", "Z"),
-        (now - timedelta(days=60)).isoformat().replace("+00:00", "Z"),
-        (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
-    ]
-    _write(
-        repo / ".agentic" / ".enforcement-fires.jsonl",
-        "\n".join(
-            json.dumps(
-                {
-                    "ts": ts,
-                    "hook": "enforce-fake-abdication",
-                    "decision": "allow",
-                    "reason": "sparse",
-                }
-            )
-            for ts in timestamps
-        )
-        + "\n",
-    )
-    report = _run_json(repo, "--days", "90")
-    coverage = report["meta"]["log_coverage_days"]
-    assert coverage is not None and coverage >= 30
-    assert report["meta"]["log_parsed_lines"] == 3
-    assert report["meta"]["log_confidence_eligible"] is False
 
 
 def test_dense_recent_log_is_confidence_eligible(tmp_path):

@@ -58,12 +58,6 @@ def _marker_and_next(path, marker):
     return lines[i + 1]
 
 
-def test_marker_present_in_both_prose_files():
-    marker = _hook_marker()
-    for path in PROSE:
-        _marker_and_next(path, marker)
-
-
 def test_pointer_identical_in_both_prose_files():
     marker = _hook_marker()
     pointers = [_marker_and_next(path, marker) for path in PROSE]

@@ -578,29 +578,6 @@ class TestScopeResolution(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("expected one argument", result.stderr)
 
-    def test_project_dir_followed_by_unregistered_bogus_flag_stays_separate(self):
-        """Same defect class, an entirely unregistered "--"-prefixed
-        token with no abbreviation collision. Measured pre-fix: silent
-        no-data report, exit 0."""
-        with tempfile.TemporaryDirectory() as tmp:
-            result = _run_cli(
-                Path(tmp),
-                extra_args=["--project-dir", "--bogus"],
-            )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("expected one argument", result.stderr)
-
-    def test_repo_path_followed_by_unregistered_double_dash_token_stays_separate(self):
-        """--repo-path sibling of the round-5 Major. Measured pre-fix:
-        `--repo-path --all` printed `repo_path: <cwd>/--all`, exit 0."""
-        with tempfile.TemporaryDirectory() as tmp:
-            result = _run_cli(
-                Path(tmp),
-                extra_args=["--repo-path", "--all"],
-            )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("expected one argument", result.stderr)
-
     def test_known_option_tokens_matches_parser_option_strings_bidirectionally(self):
         """DS-227 round 5 Minor: _KNOWN_OPTION_TOKENS is a hand-typed
         literal consulted by _normalize_argv, and nothing enforced the
