@@ -122,8 +122,9 @@ if [ "${STUB_OSA_GATE:-}" = 1 ]; then
 fi
 # Open replies: ok|how|orphans|front window|its tab|app (observed), the same three recorded, then
 # the conductor window's selected tab observed and recorded, then whether the conductor window is on
-# screen in the current Space and 1 when the recorded front window was left unraised. native-*: a native-tab Terminal, where every tab is a one-tab
-# window, so the conductor window's selected tab is always the conductor's.
+# screen in the current Space and 1 when the recorded front window was left unraised. native-*: a
+# native-tab Terminal, where every tab is a one-tab window, so the conductor window's selected tab
+# is always the conductor's.
 case "${STUB_OSA_MODE:-kept}" in
   kept) echo "ok|tab|0|42|$4|Terminal|42|$4|Terminal|$4|$4|on|0" ;;
   guard) echo "ok|window|0|42|$4|Terminal|42|$4|Terminal|$4|$4|on|0" ;;
@@ -447,25 +448,27 @@ check "open activates Terminal only when the conductor window is on this Space" 
 check "open activates Terminal exactly once" eq "$(printf '%s\n' "$open_run" | grep -c 'activate')" 1
 check "Cmd-T is never sent unless the conductor window was raised (termFront starts false)" osa_before "$open_run" 'set termFront to false' 'if condSpace is "on" then'
 check "open raises the recorded front window only when it is on this Space" osa_encloses "$open_run" 'if my mayRaise(recFrontId) then' 'set index of window id recFrontId to 1'
-check "open re-activates Terminal only after raising its recorded front window" osa_encloses "$open_run" 'if recPid is not termPid or (recFrontId is not missing value and frontLeft is 0) then' 'whose unix id is recPid) to true'
+check "open re-activates Terminal only after raising its recorded front window" osa_encloses "$open_run" 'if recPid is not termPid or (frontLeft is 0 and recFrontId is not missing value and my mayRaise(recFrontId)) then' 'whose unix id is recPid) to true'
 check "open marks the front window left when mayRaise refuses it" eq "$(printf '%s\n' "$open_run" | grep -A7 -F 'if my mayRaise(recFrontId) then' | tail -n2 | tr -s ' ' | tr '\n' '|')" ' else| set frontLeft to 1|'
 check "open counts the watch tab's window as the conductor group's front only on the tab path" contains "$open_run" 'if how is "tab" then set watchWinRef to my winOfTty(cmdTty)'
 check "open reports whether the front window was left last" contains "$open_run" '& "|" & condSpace & "|" & frontLeft'
 check "open reports the conductor window's Space" contains "$open_run" '& "|" & condWinSel & "|" & condSpace'
 check "open's only window raises are the three Space-gated ones" eq "$(printf '%s\n' "$osa_script" | grep -c 'set index of')" 3
 check "close raises the recorded front window only when it is on this Space" osa_encloses "$close_run" 'if my mayRaise(recFrontId) then' 'set index of window id recFrontId to 1'
-check "close re-activates Terminal only after raising its recorded front window" osa_encloses "$close_run" 'if recPid is not termPid or frontRaised then' 'whose unix id is recPid) to true'
+check "close re-activates Terminal only after raising its recorded front window" osa_encloses "$close_run" 'if recPid is not termPid or (frontRaised and my mayRaise(recFrontId)) then' 'whose unix id is recPid) to true'
 check "close reports a conductor tab left unraised after closing a one-tab window" contains "$close_run" 'if outcome is "ok" and loneOnly and condLeft then return "ok-condleft"'
 check "close returns before selecting or raising a window that is not on this Space" osa_before "$close_run" 'if winSpace is not "on" then return "spaceunknown"' 'set selected of aTab to true'
 check "close checks the Space of the window it would raise" osa_before "$close_run" 'set winSpace to my spaceOf(id of aWin)' 'if winSpace is "off" then return "offscreen"'
 check "close's only window raises are the three Space-gated ones" eq "$(printf '%s\n' "$close_script" | grep -c 'set index of')" 3
 # Every raise and Terminal activation follows a fresh mayRaise reading within a few lines, so no
 # per-tab Apple-event loop runs between the check and the raise.
-raises_fresh() { # raises_fresh <run handler>: prints each raise lacking a mayRaise in the 5 lines before it
-  printf '%s\n' "$1" | awk '/mayRaise/ { last = NR } /set index of|^ *activate$/ && (last == 0 || NR - last > 5) { print NR ": " $0 }'
+# raises_fresh <run handler>: prints each raise or activation lacking a mayRaise in the 5 lines
+# before it.
+raises_fresh() {
+  printf '%s\n' "$1" | awk '/mayRaise/ { last = NR } /set index of|^ *activate$|set frontmost/ && (last == 0 || NR - last > 5) { print NR ": " $0 }'
 }
-check "open: every raise and activate is right after a fresh mayRaise" eq "$(raises_fresh "$open_run")" ""
-check "close: every raise and activate is right after a fresh mayRaise" eq "$(raises_fresh "$close_run")" ""
+check "open: every raise, activate and set frontmost is right after a fresh mayRaise" eq "$(raises_fresh "$open_run")" ""
+check "close: every raise, activate and set frontmost is right after a fresh mayRaise" eq "$(raises_fresh "$close_run")" ""
 check "open: the conductor raise needs a fresh mayRaise, not only the early reading" osa_before "$open_run" 'if condSpace is "on" and not (my mayRaise(condWinId)) then set condSpace to "unknown"' 'set index of window id condWinId to 1'
 check "close: the multi-tab window raise needs a fresh mayRaise" osa_before "$close_run" 'if not (my mayRaise(id of aWin)) then return "spaceunknown"' 'set index of aWin to 1'
 check "open and close each activate Terminal only once" eq "$(printf '%s\n' "$open_run" | grep -c '^ *activate$')|$(printf '%s\n' "$close_run" | grep -c '^ *activate$')" "1|1"
@@ -507,7 +510,8 @@ if [ "$line" = FAIL ]; then exit 1; fi
 echo "$line"
 SH
   seq_jxa="var a = Application.currentApplication(); a.includeStandardAdditions = true; a.doShellScript($(python3 -c 'import json, sys; print(json.dumps("/bin/sh " + sys.argv[1]))' "$TMP/space-seq.sh"))"
-  may_raise() { # may_raise <readings, comma lists joined by space> <window> [conductor window] [watch window]
+  # may_raise <readings: comma lists joined by spaces> <window> [conductor window] [watch window]
+  may_raise() {
     printf '%s\n' $1 > "$TMP/space-seq"
     rm -f "$TMP/seq-calls"
     /usr/bin/osascript -e "$space_handlers
@@ -569,13 +573,13 @@ check "open prints the not-on-this-Space fix" contains "$(cat "$TMP/open.out")" 
 check "open does not blame Accessibility for a window left on another Space" bash -c '! grep -q Accessibility "$1"' _ "$TMP/open.out"
 open_in_pty t1 STUB_OSA_MODE=space-unknown
 check "tab.log: Space query failed -> not raised, new window" eq "$(tail -n2 "$RUN/t1.tab.log" | tr '\n' '|')" "opened: window|conductor window not raised (could not tell whether it is on this Space; new window used); focus: kept|"
-check "open prints the Space-query fix" contains "$(cat "$TMP/open.out")" "fix: the query for windows on your current Space failed, so the conductor's Terminal window was left where it is and the lane opened in a new window here. Retry with \`ds-lane open t1\`."
+check "open prints the Space-query fix" contains "$(cat "$TMP/open.out")" "fix: ds-lane could not confirm the conductor's Terminal window is on your current Space (the window query failed, or the window left the screen while the tab was opening, e.g. you switched Space), so it was left where it is and the lane opened in a new window here. Retry with \`ds-lane open t1\`."
 open_in_pty t1 STUB_OSA_MODE=twelve-fields
 check "tab.log: output without the front-window-left flag is an error" contains "$(last_tab_line t1)" "tab error: unexpected osascript output 'ok|tab|0|42|"
 open_in_pty t1 STUB_OSA_MODE=bad-left
 check "tab.log: a front-window-left flag other than 0 or 1 is an error" contains "$(last_tab_line t1)" "tab error: unexpected osascript output 'ok|tab|0|42|"
 open_in_pty t1 STUB_OSA_MODE=front-left
-check "tab.log: front window left on another Space, app kept -> focus kept, said so" tab_line_is t1 "conductor window not raised (not on screen in this Space: another Space, minimized or a background tab; new window used); focus: kept (Terminal's front window left as is: it was not on screen in this Space)"
+check "tab.log: front window left on another Space, app kept -> focus kept, said so" tab_line_is t1 "conductor window not raised (not on screen in this Space: another Space, minimized or a background tab; new window used); focus: kept (Terminal's front window left as is: not confirmed on screen in this Space)"
 open_in_pty t1 STUB_OSA_MODE=front-left-app
 check "tab.log: front window left and app not restored -> focus NOT kept" contains "$(last_tab_line t1)" "focus: NOT kept (front window 77, tab /dev/ttys950, app Terminal, "
 open_in_pty t1 STUB_OSA_MODE=notkept-cond

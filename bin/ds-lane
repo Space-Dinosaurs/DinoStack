@@ -65,7 +65,7 @@
 #   frontmost app and the conductor window's selected tab match what was
 #   recorded beforehand; in a native-tab Terminal each tab is its own
 #   window, so the last check cannot fail there), `focus: kept (Terminal's
-#   front window left as is: it was not on screen in this Space)` (the
+#   front window left as is: not confirmed on screen in this Space)` (the
 #   frontmost app and the conductor window's selected tab match; the
 #   recorded front window was not raised, so the front window and its tab
 #   are not compared) or `focus: NOT kept (<observed>; was <recorded>)`,
@@ -88,9 +88,9 @@
 #   conductor's tab is not raised because it cannot be shown to be in the
 #   same group on this Space), `close skipped: <no osascript|lock busy|lock
 #   unavailable|tab busy|no matching tab|Terminal not frontmost|window not
-#   on screen in this Space|Space unknown (query failed, or the window left
-#   the screen before the raise)>` or `close error: <first stderr
-#   line or osascript output>`. Spaces: no Terminal window is raised, and
+#   on screen in this Space|Space unknown>` (Space unknown: a query failed,
+#   or the window left the screen before the raise) or `close error: <first
+#   stderr line or osascript output>`. Spaces: no Terminal window is raised, and
 #   Terminal is not activated, unless the window was on screen in the
 #   current Space both when the command started and in a fresh query just
 #   before the raise (raising one on another Space pulls it into this Space
@@ -752,8 +752,8 @@ end selectTty'
 # recorded front window (not the conductor's: the operator may be looking at another window),
 # re-selects its recorded tab and re-activates the previously frontmost app by process id. Each
 # raise needs mayRaise, and Terminal is re-activated only after its recorded front window was
-# raised. Returns "nomatch" or "ok|<tab|window>|<orphans>|<front window id>|<selected
-# tty>|<front app>" observed afterwards, followed by the same three values recorded beforehand,
+# raised and mayRaise still holds for it. Returns "nomatch" or "ok|<tab|window>|<orphans>|<front
+# window id>|<selected tty>|<front app>" observed afterwards, then the same three recorded before,
 # then the conductor window's selected tab observed afterwards and recorded beforehand (in
 # native-tab mode both are the conductor's own tty), then the conductor window's spaceOf result,
 # then 1 when the recorded front window was left unraised, else 0 (13 fields).
@@ -871,7 +871,7 @@ on run argv
     end if
   end if
   my selectTty(recTty, false)
-  if recPid is not termPid or (recFrontId is not missing value and frontLeft is 0) then
+  if recPid is not termPid or (frontLeft is 0 and recFrontId is not missing value and my mayRaise(recFrontId)) then
     try
       tell application "System Events" to set frontmost of (first application process whose unix id is recPid) to true
     end try
@@ -903,9 +903,9 @@ end run'
 # since closing a native tab selects a neighbour in its tab group), raises the recorded front
 # window if it still exists, re-selects its recorded tab and re-activates the previously frontmost
 # app by process id. Each raise needs mayRaise, and Terminal is re-activated only after its
-# recorded front window was raised. Returns ok, ok-condleft (a one-tab window was closed but the
-# conductor's lone tab was left unraised), busy, nomatch (also when Terminal is not running, so
-# it is never launched), notfront, offscreen or spaceunknown.
+# recorded front window was raised and mayRaise still holds for it. Returns ok, ok-condleft (a
+# one-tab window was closed but the conductor's lone tab was left unraised), busy, nomatch (also
+# when Terminal is not running, so it is never launched), notfront, offscreen or spaceunknown.
 CLOSE_TAB_OSA="$SELECT_TTY_OSA"'
 
 on run argv
@@ -984,7 +984,7 @@ on run argv
     end if
   end if
   if recTty is not myTty then my selectTty(recTty, false)
-  if recPid is not termPid or frontRaised then
+  if recPid is not termPid or (frontRaised and my mayRaise(recFrontId)) then
     try
       tell application "System Events" to set frontmost of (first application process whose unix id is recPid) to true
     end try
@@ -1022,7 +1022,7 @@ open_tab() { # open_tab <name> <conductor-tty>
       else
         echo "opened: $how" >> "$RUN_DIR/$name.tab.log"
         if [[ "$fleft" == 1 && "$oapp" == "$rapp" && "$ocond" == "$rcond" ]]; then
-          outcome="focus: kept (Terminal's front window left as is: it was not on screen in this Space)"
+          outcome="focus: kept (Terminal's front window left as is: not confirmed on screen in this Space)"
         elif [[ "$ofront" == "$rfront" && "$otty" == "$rtty" && "$oapp" == "$rapp" && "$ocond" == "$rcond" ]]; then
           outcome="focus: kept"
         else
@@ -1073,7 +1073,7 @@ tab_fix() { # tab_fix <name> <outcome>
     *"conductor window not raised (not on screen"*)
       fix="the conductor's Terminal window was not on screen in your current Space (it is on another Space, minimized, or a background tab of its window), so it was left where it is and the lane opened in a new window here. To get a tab instead, bring the conductor's tab to the front in your current Space and run \`ds-lane open $name\`." ;;
     *"conductor window not raised (could not tell"*)
-      fix="the query for windows on your current Space failed, so the conductor's Terminal window was left where it is and the lane opened in a new window here. Retry with \`ds-lane open $name\`." ;;
+      fix="ds-lane could not confirm the conductor's Terminal window is on your current Space (the window query failed, or the window left the screen while the tab was opening, e.g. you switched Space), so it was left where it is and the lane opened in a new window here. Retry with \`ds-lane open $name\`." ;;
     *"focus: NOT kept"*)
       fix="opening the tab moved your focus; click back to the window you were using, and set DS_LANE_NO_TAB=1 if that keeps happening." ;;
   esac
