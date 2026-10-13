@@ -241,7 +241,28 @@ jobs:
           tar -xzf "$tarball" gitleaks
           sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
           gitleaks version
+      - name: build the adapters once (install.sh's own build, skipped below)
+        # The two builds .claude/install.sh runs. Run once here so the shell
+        # tests' installs can skip them; adapter-sync.yml gates the build
+        # output itself.
+        timeout-minutes: 2
+        run: bash .claude/build.sh && bash .cursor/build.sh
       - name: run shell bin tests
+        # AE_INSTALL_SKIP_BUILD=1 makes every .claude/install.sh call in
+        # these tests skip its adapter rebuild, as scripts/check-local.sh
+        # does after its own build. Measured locally 2026-10-13, same 81
+        # files both ways, every file exit 0 and identical PASS-line counts
+        # (2009): 1236 s without it, 706 s with it (the build step above
+        # included). .claude/tests/install-converge.test.sh case (n) unsets
+        # the variable for the one install whose build it asserts on.
+        #
+        # Before this, `bash scripts/ci-step-durations.sh` on 2026-10-13
+        # (n=95) gave median 726 s, p95 855 s, max 912 s for this step
+        # against its 15-minute bound, and main run 38404408273 was killed
+        # at the bound with two files left. The bound is unchanged; re-run
+        # the script once runs with the variable set have accumulated, and
+        # revisit the bound when its max passes 450 s, half the bound.
+        #
         # Bounded so a queue-starved or hung step fails as itself rather
         # than consuming the job backstop. Re-derive the current
         # distribution with `bash scripts/ci-step-durations.sh` before
@@ -256,6 +277,8 @@ jobs:
         # has a short shelf life. The job backstop above must stay above
         # this value.
         timeout-minutes: 25
+        env:
+          AE_INSTALL_SKIP_BUILD: '1'
         run: |
           set -e
           # bin/tests/test_codex_hooks_resolve.sh is also run by adapter-sync.yml -
