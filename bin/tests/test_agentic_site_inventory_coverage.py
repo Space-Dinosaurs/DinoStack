@@ -212,6 +212,12 @@ EXCLUDED_FILES = {
     # rather than a bare cwd, same rationale as bin/ds-doctor/ds-migrate/
     # ds-update above.
     "bin/ds-config",
+    # bin/ds-keepalive-wrap writes <root>/.agentic/{_wrap.md,memory.md,
+    # wrap/last-wrap,resume/<sid>.md}. Its root is an explicit, required
+    # --root argument (argparse required=True, no cwd default), which
+    # hooks/cache-keepalive.py fills from resolve_agentic_cwd - the same
+    # explicit-argument rationale as bin/ds-team (--workdir) below.
+    "bin/ds-keepalive-wrap",
     # Round-3 rework (Major 4): the round-2 comment above claimed bin/ds-team
     # is "exclusively human/CLI-invoked" - FALSE. hooks/enforce-background-
     # spawn.py:398,411,433,463 instructs the CONDUCTOR to run

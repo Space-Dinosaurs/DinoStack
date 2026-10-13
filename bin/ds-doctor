@@ -454,6 +454,7 @@ BIN_TOOL_PREFIXES: tuple[str, ...] = ("agentic-", "ds-")
 
 # Basenames of hook scripts that live in <repo_dir>/hooks/.
 MANAGED_HOOK_BASENAMES: frozenset[str] = frozenset([
+    "cache-keepalive.py",
     "enforce-askuserquestion-default.py",
     "enforce-background-spawn.py",
     "enforce-guarded-rm.py",

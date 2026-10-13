@@ -851,3 +851,59 @@ class TestScopeIgnoredNoteRegression:
         main(["agentic-config", "commit_telemetry", "false"])
         err = capsys.readouterr().err
         assert "note:" not in err
+
+
+# ---------------------------------------------------------------------------
+# cache_keepalive: project and --scope global writes, read back by the hook
+# library that consumes them (hooks/lib/cache_keepalive.py is_enabled)
+# ---------------------------------------------------------------------------
+
+def _load_keepalive():
+    path = Path(__file__).resolve().parents[2] / "hooks" / "lib" / "cache_keepalive.py"
+    spec = importlib.util.spec_from_file_location("cache_keepalive_cfg_rt", str(path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestCacheKeepaliveRoundTrip:
+    def _setup(self, tmp_path, monkeypatch):
+        (tmp_path / ".git").mkdir()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("AE_CACHE_KEEPALIVE_DISABLE", raising=False)
+        home = tmp_path / "home"
+        fake_global = home / ".claude" / "agentic-engineering.json"
+        monkeypatch.setattr(_mod, "CONFIG_PATH", fake_global)
+        # is_enabled resolves activation through <repo_dir>/bin/ds-status, and
+        # repo_dir comes from ~/.agentic/agentic-engineering-config.json: give
+        # the test its own HOME so it does not depend on this machine's install.
+        (home / ".agentic").mkdir(parents=True)
+        (home / ".agentic" / "agentic-engineering-config.json").write_text(
+            json.dumps({"repo_dir": str(Path(__file__).resolve().parents[2])}))
+        monkeypatch.setenv("HOME", str(home))
+        ck = _load_keepalive()
+        monkeypatch.setattr(ck, "GLOBAL_CONFIG", str(fake_global))
+        return ck, fake_global
+
+    def test_project_write_disables(self, tmp_path, monkeypatch):
+        ck, fake_global = self._setup(tmp_path, monkeypatch)
+        assert ck.is_enabled(str(tmp_path)) is True
+        assert main(["agentic-config", "cache_keepalive", "false"]) == 0
+        data = json.loads((tmp_path / ".agentic" / "config.json").read_text())
+        assert data["cache_keepalive"] is False
+        assert not fake_global.exists()
+        assert ck.is_enabled(str(tmp_path)) is False
+
+    def test_global_write_disables_and_project_wins(self, tmp_path, monkeypatch):
+        ck, fake_global = self._setup(tmp_path, monkeypatch)
+        assert main(["agentic-config", "cache_keepalive", "false", "--scope", "global"]) == 0
+        assert json.loads(fake_global.read_text())["cache_keepalive"] is False
+        assert not (tmp_path / ".agentic" / "config.json").exists()
+        assert ck.is_enabled(str(tmp_path)) is False
+        assert main(["agentic-config", "cache_keepalive", "true"]) == 0
+        assert ck.is_enabled(str(tmp_path)) is True
+
+    def test_kill_switch(self, tmp_path, monkeypatch):
+        ck, _ = self._setup(tmp_path, monkeypatch)
+        monkeypatch.setenv("AE_CACHE_KEEPALIVE_DISABLE", "1")
+        assert ck.is_enabled(str(tmp_path)) is False

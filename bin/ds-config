@@ -140,6 +140,9 @@ _SETTINGS: dict[str, dict] = {
     "rework_detection": {"target": "project_config", "type": "bool"},
     "tracker_state_diagnostic": {"target": "project_config", "type": "bool"},
     "turn_shape_guard_enabled": {"target": "project_config", "type": "bool"},
+    # Read by hooks/lib/cache_keepalive.py from the project config first, then
+    # the global JSON; --scope global writes the global JSON.
+    "cache_keepalive": {"target": "project_config", "type": "bool"},
     # .agentic/config.json enums
     "model_profile": {
         "target": "project_config",
@@ -522,6 +525,9 @@ def main(argv: list[str]) -> int:
                 effective_target = "agents_profile"
             else:
                 effective_target = "global_json"
+
+    elif setting == "cache_keepalive":
+        effective_target = "global_json" if scope == "global" else "project_config"
 
     elif effective_target == "project_config":
         # config.json settings are inherently project-scope; --scope is not applicable.

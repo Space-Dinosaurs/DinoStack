@@ -108,6 +108,7 @@ PREFIX_SOURCE_PATTERNS = tuple(tool._AGENTIC_DISPOSABLE_BASENAME_PATTERNS) + tup
 #: affect deletion behavior.
 REVIEWED_NOT_DISPOSABLE: Dict[str, str] = {
     "_wrap.md": "protected: curated wrap summary, source of the context.md rollup",
+    "resume": "protected: cache-keepalive in-session wrap hand-off files (.agentic/resume/<sid>.md), read by the operator's next session; pruned after 14 days by the wrap itself",
     "config.json": "protected: per-project behavioral toggles",
     "qa.md": "protected: authored QA runbook",
     "tracker.yml": "protected: operator tracker overlay",

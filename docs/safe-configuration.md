@@ -188,6 +188,15 @@ installed separately:
   a directive to Read the rest in full when small, else grep on demand) to the
   main session's context. Prints `{}`
   otherwise, including when any `CLAUDE.md` still imports `MEMORY.md`.
+- [`cache-keepalive.py`](../hooks/cache-keepalive.py)
+  - UserPromptSubmit; never writes. In an attended conductor session it asks
+  the model to create one session-only 20-minute cron that keeps the prompt
+  cache warm, and gates every fire: ping, block before any request, let the
+  model delete its own cron, or (after 2h idle with nothing in flight) start
+  the in-session wrap, which writes only under the project's `.agentic/`,
+  deletes the cron and leaves the session open for the operator to exit. Default on;
+  disable via `cache_keepalive: false` or `AE_CACHE_KEEPALIVE_DISABLE=1`. See
+  [configuration-reference.md](configuration-reference.md#cache-keepalive).
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.
 

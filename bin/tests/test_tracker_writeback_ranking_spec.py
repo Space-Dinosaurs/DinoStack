@@ -929,6 +929,13 @@ _SEED_KEYS_WITHOUT_OWN_BULLET = {
 }
 
 
+# Catalog keys that are deliberately NOT seeded. `cache_keepalive` has a
+# machine-wide fallback in ~/.claude/agentic-engineering.json and the project
+# value wins, so seeding an explicit `true` would make `ds-config
+# cache_keepalive false --scope global` a no-op in every new project.
+_CATALOG_KEYS_NOT_SEEDED = {"cache_keepalive"}
+
+
 def _catalog_toggle_keys() -> set:
     """Parse the '### Project config' catalog bullets in
     risk-config-and-tiers.md into a set of toggle key names, bounded to the
@@ -969,7 +976,8 @@ def test_toggle_catalog_key_set_matches_both_seed_sources():
     of the two seeds is named by file, not masked by comparing the seeds to
     each other."""
     catalog_keys = _catalog_toggle_keys()
-    expected_keys = catalog_keys | _SEED_KEYS_WITHOUT_OWN_BULLET
+    assert _CATALOG_KEYS_NOT_SEEDED <= catalog_keys, "a not-seeded exemption names a key the catalog lacks"
+    expected_keys = (catalog_keys - _CATALOG_KEYS_NOT_SEEDED) | _SEED_KEYS_WITHOUT_OWN_BULLET
 
     template_keys = set(json.loads(TEMPLATE_SEED_PATH.read_text(encoding="utf-8")).keys())
     init_project_keys = _fenced_json_object_keys(

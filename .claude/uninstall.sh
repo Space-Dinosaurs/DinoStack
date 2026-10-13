@@ -272,10 +272,11 @@ if new_stop_list != stop_list:
         del hooks["Stop"]
         print("  - Removed empty Stop key")
 
-# ---- Remove SubagentStop / SessionEnd / SessionStart hooks owned here -------
+# ---- Remove SubagentStop / SessionEnd / SessionStart / UserPromptSubmit hooks owned here
 # NOTE (Skeptic finding, Minor): subagent-stop-spawn-emit.js,
-# reap-agent-browsers.py and session-start-memory.py are the only
-# PreToolUse/PostToolUse/SessionStart/SubagentStop/SessionEnd-family
+# reap-agent-browsers.py, session-start-memory.py and cache-keepalive.py are
+# the only PreToolUse/PostToolUse/SessionStart/SubagentStop/SessionEnd/
+# UserPromptSubmit-family
 # hooks this script removes; the equivalent
 # removal logic for the other install.sh-wired hooks in those families
 # (pre-tool-use-spawn-emit.js, post-tool-use-capture-nudge.js, the
@@ -309,6 +310,9 @@ remove_hook("SubagentStop", "hooks/subagent-stop-spawn-emit.js", "subagent-stop-
 remove_hook("SubagentStop", "hooks/reap-agent-browsers.py", "reap-agent-browsers.py")
 remove_hook("SessionEnd", "hooks/reap-agent-browsers.py", "reap-agent-browsers.py")
 remove_hook("SessionStart", "hooks/session-start-memory.py", "session-start-memory.py")
+# A live session's keepalive cron outlives this removal; its next fire arrives
+# with no gate note and PING_PROMPT makes the model delete it.
+remove_hook("UserPromptSubmit", "hooks/cache-keepalive.py", "cache-keepalive.py")
 
 if hooks != settings.get("hooks", {}):
     if hooks:

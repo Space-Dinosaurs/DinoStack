@@ -1613,6 +1613,24 @@ def test_six_source_enumeration() -> int:
 # Main runner
 # ---------------------------------------------------------------------------
 
+def test_keepalive_ping_turns(tmp_dir: str) -> int:
+    """hooks/cache-keepalive.py ping answers ('ok') and the in-session wrap's
+    final line must not be blocked with the guard enabled: a block would add
+    a request to every ping."""
+    d = os.path.join(tmp_dir, "keepalive")
+    os.makedirs(d, exist_ok=True)
+    make_config_file(d, enabled=True)
+    ping = {"type": "user", "isMeta": True, "turnOrigin": "scheduled", "message": {"content": "[dinostack-cache-keepalive] ping"}}
+    path = make_transcript(d, [ping])
+    wrap_line = ("Session wrapped (idle 2h). Run /exit, then resume with: claude 'Resume wrapped session x: read "
+                 ".agentic/context.md first, then .agentic/resume/x.md.'")
+    print("\nRunning keepalive ping-turn cases...")
+    return run_cases([
+        ("keepalive ping answered 'ok' -> ALLOW", make_payload(d, "ok", transcript_path=path), "ALLOW", None),
+        ("keepalive wrap final line -> ALLOW", make_payload(d, wrap_line, transcript_path=path), "ALLOW", None),
+    ])
+
+
 def main() -> None:
     total_failed = 0
 
@@ -1647,6 +1665,9 @@ def main() -> None:
         # Transcript fallback.
         total_failed += test_transcript_fallback(tmp_dir)
 
+        # Cache-keepalive ping turns.
+        total_failed += test_keepalive_ping_turns(tmp_dir)
+
         # Smoke tests.
         total_failed += test_smoke(tmp_dir)
 
@@ -1663,6 +1684,7 @@ def main() -> None:
         + 5   # abdication-reason two-exit wording pin
         + 6   # six-source enumeration pin (2 constants x 3 assertions)
         + 2   # transcript fallback
+        + 2   # cache-keepalive ping turns
         + 3   # smoke checks
     )
     if total_failed == 0:
