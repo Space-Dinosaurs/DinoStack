@@ -58,8 +58,8 @@ a window the v2 rows do not fully bracket is `INSUFFICIENT_COVERAGE`, and
 a store with no v2 rows is `ABSENT`, both with `null` values.
 
 - `agent_model`: per agent x model, the runs ending in the window with
-  their tokens, wall time and dollars. Dollars use built-in rates from
-  the DS-246 ticket, overridden by `~/.agentic/pricing.yml`. An exact
+  their tokens, wall time and dollars. Dollars use built-in rates,
+  overridden by `~/.agentic/pricing.yml`. An exact
   model id goes to `dollars_exact`; an id priced by family (for example
   `claude-opus-5` at the Opus 5.5 rate) goes to `dollars_family_estimated`
   and is named in `family_priced_models`. A run with no tokens is counted
