@@ -231,7 +231,8 @@ loops are *not* consolidated (see `merged-hooks-js-tests`).
   earlier-sorting name would re-point `gate-provenance.sh docs/slides/<deck>.md`
   at the post-merge suite instead of the canonical PR gate.
 - `bin-tests.yml`'s header holds the repo's TIMEOUT POLICY (job-level timeouts
-  are a backstop; network and execution steps carry their own).
+  are a backstop set above the sum of that job's own step bounds; network and
+  execution steps carry their own).
   `verify-merged-tree.yml` follows it.
 - `bin-tests.yml`'s `bin-sh-tests` job builds the adapters once, then runs the
   shell tests with `AE_INSTALL_SKIP_BUILD=1`, as `scripts/check-local.sh` does,
