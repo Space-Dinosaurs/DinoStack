@@ -106,7 +106,7 @@ print("installed=%s latest=%s pending=%d pending_bytes=%d" % (kept[hits[-1]]["ta
 
 ## Analyze
 
-Spawn one `general-purpose` analyst per the methodology's delegation rules. Its prompt carries the `pending.md` path, `AE_REPO_DIR`, the harness id, and the Report format and Patch rules sections below verbatim.
+Spawn one `general-purpose` analyst per the methodology's delegation rules. Its prompt carries the `pending.md` path, `AE_REPO_DIR`, the harness id, the Report format and Patch rules sections below verbatim, and the rule that it modifies no file.
 
 The analyst reads `pending.md` to the end - headings, bullets, nested bullets and prose lines alike - and checks each change against `content/`, `hooks/`, `bin/`, `scripts/` and the hand-authored adapter sources (files in adapter dirs that no `build.sh` regenerates). Each affected surface gets its own `A<n>` block. Unaffected changes are grouped by topic with the search terms used. It returns the complete report, in the Report format, as its final message. The conductor writes that return to `RUN_DIR/report.md` unchanged.
 
@@ -138,7 +138,7 @@ The analyst reads `pending.md` to the end - headings, bullets, nested bullets an
 
 ## Review
 
-Run `/ds-skeptic` from its Step 2, skipping Step 1: `report.md` is the Worker output and `pending.md` is a review input. The contract is the Report format, the Patch rules, and completeness against `pending.md`: a change present in `pending.md` that appears in neither an Affected block nor an Unaffected group is a defect in the report, and the reviewer reads `pending.md` to check for one. Its Step 4 Worker returns the revised complete report, and the conductor writes it to `report.md` unchanged before the next round. Field 6 KEY: the `RUN_DIR` directory name, identical every round. `skeptic-protocol.md` §Stable unit key contract derives a KEY from a ticket or branch, and this review has neither. If `/ds-skeptic` ends without sign-off, exit `needs_human` with its findings. Approve is not reached.
+Run `/ds-skeptic` from its Step 2, skipping Step 1: `report.md` is the Worker output and `pending.md` is a review input. The contract is the Report format, the Patch rules, and completeness against `pending.md`: a change present in `pending.md` that appears in neither an Affected block nor an Unaffected group is a defect in the report, and the reviewer reads `pending.md` to check for one. Its Step 4 Worker modifies no file and returns the revised complete report, and the conductor writes it to `report.md` unchanged before the next round. Field 6 KEY: the `RUN_DIR` directory name, identical every round. `skeptic-protocol.md` §Stable unit key contract derives a KEY from a ticket or branch, and this review has neither. If `/ds-skeptic` ends without sign-off, exit `needs_human` with its findings. Approve is not reached.
 
 ## Approve
 
