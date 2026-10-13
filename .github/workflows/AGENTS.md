@@ -234,11 +234,13 @@ loops are *not* consolidated (see `merged-hooks-js-tests`).
   are a backstop; network and execution steps carry their own).
   `verify-merged-tree.yml` follows it.
 - `bin-tests.yml`'s two suite steps, measured 2026-10-13 with
-  `bash scripts/ci-step-durations.sh` (n=95, all conclusions). The pytest step:
-  median 209 s, max 301 s; its bound went from 5 to 15 minutes after a run was
-  killed at 5 with every test passed. The shell step: median 726 s, max 912 s
-  against a 15-minute bound, which killed a `main` run; it now runs with
-  `AE_INSTALL_SKIP_BUILD=1` after one explicit adapter build (1236 s to 706 s
-  locally, identical per-file results). Both steps' comments carry the detail
-  and say when to revisit. Neither change is mirrored in
+  `bash scripts/ci-step-durations.sh` (n=96, all conclusions). The pytest step:
+  median 214 s, max 301 s; its bound went from 5 to 15 minutes after a run was
+  killed at 5 with every test passed, and `python-bin-tests`' backstop from 20
+  to 30 so the step bounds fit inside it. The shell step: median 771 s, max
+  951 s, killed at its former 15-minute bound on `main`; its bound is now 25
+  minutes, and it runs with `AE_INSTALL_SKIP_BUILD=1` after one explicit
+  adapter build (1236 s to 706 s locally, identical per-file results). Both
+  steps' comments carry the detail and say when to revisit (pytest: max past
+  450 s; shell: max past 750 s). Neither change is mirrored in
   `verify-merged-tree.yml`, which does not run these jobs (the known gap above).

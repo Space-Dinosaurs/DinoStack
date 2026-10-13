@@ -2,8 +2,9 @@
 """
 Regression tests for hooks/enforce-skeptic-neutrality.py.
 
-Implements the 29 QA scenarios from the DS-187 architect plan (round 6
-FINAL, constraint-based) - `.agentic/ds-187-architect-plan.md` § QA
+Implements 26 of the 29 QA scenarios from the DS-187 architect plan (round 6
+FINAL, constraint-based; scenario 27 was removed and 28/29 run in their
+own suites, both noted near the end of this file) - `.agentic/ds-187-architect-plan.md` § QA
 criteria. Scenario numbers in test names/comments below match the plan's
 `id:` field 1:1.
 
@@ -977,10 +978,13 @@ def test_scenario_26_task_and_agent_matchers_identical(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Scenario 27 (hooks/tests/test-hooks-pep604-guard.py reports every check) is
-# not duplicated here: the hooks-python-tests CI job runs that guard directly
-# through its hooks/tests/test-*.py glob, and running it again from this file
-# re-executed every Python file under hooks/ a second time.
+# Scenario 27 was removed. It ran hooks/tests/test-hooks-pep604-guard.py (which
+# re-executes every Python file under hooks/) and asserted two things: exit 0,
+# and a printed check total equal to 2*scanned-1, with scanned counted from
+# disk across hooks/, hooks/tests/ and hooks/lib/. The hooks-python-tests CI
+# job still runs the guard and checks its exit code. The total check is
+# DROPPED and nothing else makes it: it caught the guard silently skipping a
+# directory such as hooks/lib/.
 # --------------------------------------------------------------------------- #
 
 

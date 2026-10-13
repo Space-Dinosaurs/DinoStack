@@ -17,8 +17,9 @@ permissions:
 # repo having recorded `steps: []` - no step ever ran - and bin-sh-tests was
 # cancelled the same way on main (run 31115638748, sha f81b63c0).
 #
-# So: job-level `timeout-minutes` is a BACKSTOP ONLY (20; 30 on bin-sh-tests,
-# whose test step is the one long step in this file), and every network
+# So: job-level `timeout-minutes` is a BACKSTOP ONLY (20 on hooks-python-tests;
+# 30 on python-bin-tests and bin-sh-tests, whose test steps are the long ones
+# in this file), and every network
 # install/download step and every test-execution step carries its own
 # `timeout-minutes`, which starts when the step starts and is therefore immune
 # to acquisition delay. Do not "fix" a queue-starvation cancellation by raising
@@ -30,7 +31,13 @@ permissions:
 jobs:
   python-bin-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 30, not 20: the pip (2), apt (10) and pytest (15) step bounds below sum
+    # to 27, so a 20-minute backstop could fire before a slow apt plus a slow
+    # pytest step reached their own bounds, and the step bounds would
+    # diagnose nothing. The five collected-count floor steps carry 2-minute
+    # bounds but measure about 1 s each. Move the two together, as on
+    # bin-sh-tests.
+    timeout-minutes: 30
     env:
       # Keep partial output if the job is force-killed anyway.
       PYTHONUNBUFFERED: '1'
@@ -69,7 +76,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y zsh jq
       - run: python3 -m pytest bin/tests/ -q --timeout=60 --timeout-method=thread
         # Measured 2026-10-13 with `bash scripts/ci-step-durations.sh` over
-        # the 95 most recent runs, all conclusions: median 209 s, p95 245 s,
+        # the 96 most recent runs, all conclusions: median 214 s, p95 248 s,
         # max 301 s. The prior 5-minute bound killed a run whose 3167 tests
         # had all passed in 299.79 s (run 38408803038). 15 minutes is about
         # 3x that max and stays inside the job backstop. Re-run the script
@@ -257,11 +264,12 @@ jobs:
         # the variable for the one install whose build it asserts on.
         #
         # Before this, `bash scripts/ci-step-durations.sh` on 2026-10-13
-        # (n=95) gave median 726 s, p95 855 s, max 912 s for this step
-        # against its 15-minute bound, and main run 38404408273 was killed
-        # at the bound with two files left. The bound is unchanged; re-run
-        # the script once runs with the variable set have accumulated, and
-        # revisit the bound when its max passes 450 s, half the bound.
+        # (n=96, runs without the variable) gave median 771 s, p95 882 s,
+        # max 951 s for this step; main run 38404408273 was killed at the
+        # then 15-minute bound with two files left. Against the 25-minute
+        # bound below, re-run the script once runs with the variable set
+        # have accumulated, and revisit the bound when its max passes 750 s,
+        # half the bound.
         #
         # Bounded so a queue-starved or hung step fails as itself rather
         # than consuming the job backstop. Re-derive the current
