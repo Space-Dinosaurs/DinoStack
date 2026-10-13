@@ -241,13 +241,13 @@
 #   an anchor.
 # ---------------------------------------------------------------------------
 _precommit_lexical_normalize() {
-  local path="$1"
-  case "$path" in
+  local input_path="$1"
+  case "$input_path" in
     /*) : ;;
-    *) echo "$path"; return 0 ;;
+    *) echo "$input_path"; return 0 ;;
   esac
 
-  local remaining="$path" stack="" seg
+  local remaining="$input_path" stack="" seg
   while [[ -n "$remaining" ]]; do
     seg="${remaining%%/*}"
     if [[ "$seg" == "$remaining" ]]; then

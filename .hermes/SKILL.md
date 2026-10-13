@@ -16720,9 +16720,17 @@ Write the window into the command below in place of `<window>`: the command's ar
 
 ```bash
 AE_BOOT="$(python3 -c 'import json, os; print(json.load(open(os.path.expanduser("~/.agentic/agentic-engineering-config.json"))).get("repo_dir", ""))' 2>/dev/null)"
-. "${AE_BOOT:-$HOME/DinoStack}/scripts/lib/repo-dir.sh" && resolve_repo_dir --quiet && REPO_DIR="$AE_REPO_DIR" \
-  && "$REPO_DIR/bin/ds-evaluate" --repo "$REPO_DIR" --telemetry-repo "$(git rev-parse --show-toplevel)" --since <window>
+REPO_DIR=""
+. "${AE_BOOT:-$HOME/DinoStack}/scripts/lib/repo-dir.sh" && resolve_repo_dir --quiet && REPO_DIR="$AE_REPO_DIR"
+if [ -z "$REPO_DIR" ]; then
+  echo "ds-evaluate: cannot resolve the DinoStack checkout (repo_dir in ~/.agentic/agentic-engineering-config.json, else ~/DinoStack) - nothing was evaluated" >&2
+  false
+else
+  "$REPO_DIR/bin/ds-evaluate" --repo "$REPO_DIR" --telemetry-repo "$(git rev-parse --show-toplevel)" --since <window>
+fi
 ```
+
+A "cannot resolve the DinoStack checkout" line means the collector never ran: report that as a collector failure (see Edge cases), never as an empty result.
 
 The report (stdout) is the single measured-signal input to every pillar lens; pass it verbatim to each lens. It opens with the proposal and gap counts, then the window and one line per transcript store, the measured sections (`[cost]`, `[agents]`, `[skeptic_rounds]`, `[work_items]`, `[hooks]`, `[mix]`), the DinoStack checkout's `[methodology]` signals (budget gates, resident floor, vision pillars), and ends with `Refinement proposals` and `Telemetry gaps` (Steps 5-6). Data-quality rules - state them in the report rather than "fixing" the numbers:
 
@@ -16780,7 +16788,16 @@ Then list the report's `Telemetry gaps`: each input metric that was ABSENT or PA
 
 ## Step 7 - Label flagged hook denies
 
-For each D2 proposal that lists label samples, ask the operator ONE question per hook showing its samples (up to 5, each with its `ts` and reason), to be answered per sample with FP (false positive), TP (true positive) or skip, plus an optional note. A hook with no samples gets no question.
+For each D2 proposal that lists label samples, ask the operator ONE question per hook: a plain prose message that lists the hook's samples numbered from 1 (up to 5, each with its `ts` and reason) and asks for FP (false positive), TP (true positive) or skip per sample, plus an optional note:
+
+```
+enforce-x - label each deny: FP (it should not have fired), TP (it was right to fire), or skip.
+  1. 2026-10-03T09:55:00Z  "reason text"
+  2. 2026-10-03T09:50:00Z  "reason text"
+Reply like "1 FP, 2 TP, 3 skip"; add a note after any answer if you want one recorded.
+```
+
+Ask in prose only. Never use a multiple-choice question tool for this, and never mark, order or word any answer as recommended or default: a suggested answer biases the labels, and five per-sample answers do not fit one single-select question. A sample the reply does not mention is a skip. A hook with no samples gets no question.
 
 Write every FP or TP answer from this run in ONE `ds-feedback append` batch; a skipped sample writes nothing, and when every answer is skip, do not call `ds-feedback` at all. One draft per labelled sample:
 

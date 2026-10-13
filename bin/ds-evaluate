@@ -10,7 +10,8 @@ Purpose: /ds-evaluate signal collector. Evaluates one or more telemetry repos
          ending on scores the operator cannot act on.
 
 Report (default output, plain text, in this order):
-  1. One lead line: the proposal and gap counts.
+  1. One lead line: the proposal count and the gap line count (the number
+     of lines section 6 prints).
   2. Header: telemetry repos, window, session count, one line per
      transcript store (bin/ds-eval's print_header).
   3. The measured evaluate() sections [cost] [agents] [skeptic_rounds]
@@ -284,8 +285,8 @@ def _print_methodology(m: dict) -> None:
 
 
 def print_report(r: dict) -> None:
-    decisions, gaps = r["decisions"], r["gaps"]
-    print(f"ds-evaluate: {len(decisions)} refinement proposals, {len(gaps)} telemetry gaps"
+    decisions, gap_lines = r["decisions"], _DS_EVAL.gap_lines(r)
+    print(f"ds-evaluate: {len(decisions)} refinement proposals, {len(gap_lines)} telemetry gap lines"
           " - listed at the end, after the measured sections")
     _DS_EVAL.print_header(r, "ds-evaluate")
     _DS_EVAL.print_sections(r)
@@ -302,10 +303,9 @@ def print_report(r: dict) -> None:
                 print(f"         {s['fire_key']}  {s['ts']}  {json.dumps(s['reason'])}")
 
     print("\nTelemetry gaps")
-    lines = _DS_EVAL.gap_lines(r)
-    if not lines:
+    if not gap_lines:
         print("  none")
-    for line in lines:
+    for line in gap_lines:
         print(f"  {line}")
 
 
