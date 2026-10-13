@@ -15,9 +15,8 @@ Public API: /ds-harness-upgrade-prep [harness] [--notes <local path>] [--install
 Upstream deps: content/commands/ds-update-agentic-engineering.md (AE_REPO_DIR resolver, in-repo comparison,
                Scope list, edit path); content/commands/ds-skeptic.md; the GitHub releases API; python3, curl.
 Downstream consumers: build-all.sh (regenerates this command into the adapter dirs); the operator.
-Failure modes: every stop is a `blocked:` line naming the flag that gets past it. Nothing mechanical confirms
-               the analyst read all of pending.md; the Review round is the check. The analyst's write
-               restriction is brief compliance. Only the newest 100 releases are fetched.
+Failure modes: nothing mechanical confirms the analyst read all of pending.md; the Review round is the check.
+               Only the newest 100 releases are fetched.
 Performance: one API fetch, one analyst spawn, and one review loop per invocation.
 -->
 
@@ -70,19 +69,23 @@ mkdir -p "$RUN_DIR" && echo "$RUN_DIR"
 
 1. `--notes` given: `cp` it to `$RUN_DIR/pending.md` and go to Analyze. A missing file exits `blocked: --notes file not found`.
 2. Releases repo `none`: exit `blocked: no known release-notes source for <harness>` and name `--notes`. This runs before any probe.
-3. Otherwise run the block below with the table's process token and releases repo written in place of `<token>` and `<repo>`, and `INSTALLED` set to the `--installed` value or left empty. The extract keeps stable releases in API order and compares no versions: a tag matches when, with its leading non-digit prefix removed, it equals a candidate exactly, and the last-listed match is the installed release.
+3. Otherwise run the block below with the table's process token and releases repo written in place of `<token>` and `<repo>`, and `INSTALLED` set to the `--installed` value or left empty. The extract keeps stable releases in API order and compares no versions: a tag matches when, with the leading non-digit prefix removed from both, it equals a candidate exactly, and the last-listed match is the installed release.
 
 ```bash
 INSTALLED=""
-[ -n "$INSTALLED" ] || PROBE="$(<token> --version 2>/dev/null | head -n 1)"
-echo "probe: ${PROBE:-skipped}"
+if [ -n "$INSTALLED" ]; then
+  echo "probe: skipped (--installed)"
+else
+  PROBE="$(<token> --version 2>/dev/null | head -n 1)"
+  echo "probe: ${PROBE:-failed (no output from <token> --version)}"
+fi
 CANDS="${INSTALLED:-$(printf '%s\n' "$PROBE" | grep -Eo '[0-9]+(\.[0-9]+)+' | tr '\n' ' ')}"
 [ -n "$CANDS" ] || { echo "blocked: installed version unknown"; exit 1; }
 curl -fsSL -o "$RUN_DIR/releases.json" "https://api.github.com/repos/<repo>/releases?per_page=100" \
   || { echo "blocked: release-notes fetch failed"; exit 1; }
 python3 -c '
 import json, re, sys
-run, cands = sys.argv[1], sys.argv[2].split()
+run, cands = sys.argv[1], [re.sub(r"^\D+", "", c) for c in sys.argv[2].split()]
 kept = [r for r in json.load(open(run + "/releases.json", encoding="utf-8")) if not r["draft"] and not r["prerelease"]]
 hits = [i for i, r in enumerate(kept) if re.sub(r"^\D+", "", r["tag_name"]) in cands]
 if not hits:
@@ -101,9 +104,9 @@ print("installed=%s latest=%s pending=%d pending_bytes=%d" % (kept[hits[-1]]["ta
 
 ## Analyze
 
-Spawn one `general-purpose` analyst per the methodology's delegation rules. Its prompt carries the `pending.md` path, `AE_REPO_DIR`, the harness id, the Report format and Patch rules sections below verbatim, and `RUN_DIR/report.md` as the only file it may create or modify.
+Spawn one `general-purpose` analyst per the methodology's delegation rules. Its prompt carries the `pending.md` path, `AE_REPO_DIR`, the harness id, and the Report format and Patch rules sections below verbatim.
 
-The analyst reads `pending.md` to the end - headings, bullets, nested bullets and prose lines alike - and checks each change against `content/`, `hooks/`, `bin/`, `scripts/` and the hand-authored adapter sources (files in adapter dirs that no `build.sh` regenerates). Each affected surface gets its own `A<n>` block. Unaffected changes are grouped by topic with the search terms used. It returns the report path, the Affected count by kind, and the Unaffected group count.
+The analyst reads `pending.md` to the end - headings, bullets, nested bullets and prose lines alike - and checks each change against `content/`, `hooks/`, `bin/`, `scripts/` and the hand-authored adapter sources (files in adapter dirs that no `build.sh` regenerates). Each affected surface gets its own `A<n>` block. Unaffected changes are grouped by topic with the search terms used. It returns the complete report, in the Report format, as its final message. The conductor writes that return to `RUN_DIR/report.md` unchanged.
 
 ### Report format
 
@@ -133,7 +136,7 @@ The analyst reads `pending.md` to the end - headings, bullets, nested bullets an
 
 ## Review
 
-Run `/ds-skeptic` from its Step 2, skipping Step 1: `report.md` is the Worker output and `pending.md` is a review input. The contract is the Report format, the Patch rules, and completeness against `pending.md`: a change present in `pending.md` that appears in neither an Affected block nor an Unaffected group is a defect in the report, and the reviewer reads `pending.md` to check for one. Its Step 4 Worker revises `report.md` in place. Field 6 KEY: the `RUN_DIR` directory name, identical every round. `skeptic-protocol.md` §Stable unit key contract derives a KEY from a ticket or branch, and this review has neither. If `/ds-skeptic` ends without sign-off, exit `needs_human` with its findings. Approve is not reached.
+Run `/ds-skeptic` from its Step 2, skipping Step 1: `report.md` is the Worker output and `pending.md` is a review input. The contract is the Report format, the Patch rules, and completeness against `pending.md`: a change present in `pending.md` that appears in neither an Affected block nor an Unaffected group is a defect in the report, and the reviewer reads `pending.md` to check for one. Its Step 4 Worker returns the revised complete report, and the conductor writes it to `report.md` unchanged before the next round. Field 6 KEY: the `RUN_DIR` directory name, identical every round. `skeptic-protocol.md` §Stable unit key contract derives a KEY from a ticket or branch, and this review has neither. If `/ds-skeptic` ends without sign-off, exit `needs_human` with its findings. Approve is not reached.
 
 ## Approve
 
@@ -143,7 +146,7 @@ For each finding whose Patch is a patch or a `decision`, the operator answers ap
 
 ## Apply
 
-If the session repo is not the DinoStack checkout (the canonical-path comparison in `/ds-update-agentic-engineering` Step 0a), apply nothing. Tell the operator to run `/ds-update-agentic-engineering` once per approved finding, quoting the finding block from `report.md`, from a session rooted in `AE_REPO_DIR`. This command is not re-entered at Apply.
+If the session repo is not the DinoStack checkout (the canonical-path comparison in `/ds-update-agentic-engineering` Step 0a), apply nothing. Tell the operator to take each approved finding, quoting its block from `report.md`, to a session rooted in `AE_REPO_DIR`: paths inside the Scope list of `/ds-update-agentic-engineering` go through that command, and any other path goes through that repo's normal Worker, review and PR workflow per its `AGENTS.md`. This command is not re-entered at Apply.
 
 Otherwise take one approved finding at a time, passing the finding block verbatim: paths inside the Scope list of `/ds-update-agentic-engineering` go through that command, and any other path goes through the repo's normal Worker, review and PR workflow per its `AGENTS.md`.
 
