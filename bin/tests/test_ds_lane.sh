@@ -76,17 +76,21 @@ LOG="$TMP/stublog"
 mkdir -p "$STUB" "$OSA_DIR" "$LOG"
 
 cat > "$STUB/claude-stub.sh" << 'EOF'
+[[ "${1:-}" == -p ]] || exit 71
 mode="" sid=""
 prev=""
 for a in "$@"; do
   case "$prev" in
     --permission-mode) mode="$a" ;;
     --resume) sid="$a" ;;
+    --input-format|--output-format) [[ "$a" == stream-json ]] || exit 72 ;;
+    *) case "$a" in -p|--verbose|--input-format|--output-format|--permission-mode|--resume) ;; *) exit 73 ;; esac ;;
   esac
   prev="$a"
 done
 printf '%s ' "$@" >> "$STUB_LOG_DIR/claude-args"
 echo >> "$STUB_LOG_DIR/claude-args"
+printf '%s|%s|%s\n' "${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS-unset}" "$CLAUDE_CONFIG_DIR" "$PWD" >> "$STUB_LOG_DIR/claude-runtime"
 [ -n "$sid" ] || sid="sess-$$"
 jq -cn --arg s "$sid" --arg c "$PWD" --arg m "$mode" '{type: "system", subtype: "init", session_id: $s, cwd: $c, permissionMode: $m}'
 while IFS= read -r line; do
@@ -168,7 +172,9 @@ export DS_LANE_PERMISSION_MODE=bypassPermissions
 export DS_LANE_TAB_LOCK_WAIT_S=1
 export DS_LANE_TAB_LOCK="$TAB_LOCK"
 export CLAUDE_CONFIG_DIR="$TMP/config"
-export CLAUDE_CODE_SESSION_ID="conductor-sid"
+export DS_LANE_HARNESS=claude
+unset CODEX_THREAD_ID CLAUDECODE CLAUDE_CODE_SESSION_ID AE_ADAPTER CODEX_HOME DS_LANE_CODEX_BIN DS_LANE_CODEX_CONTEXT_FILE
+mkdir -p "$CLAUDE_CONFIG_DIR"
 export DS_LANE_NO_TAB=1
 unset DS_LANE_RUN_DIR DS_LANE_MAX CLAUDE_CODE_EXECPATH STUB_OSA_MODE STUB_OSA_GATE
 
@@ -228,6 +234,10 @@ help_cmds="$("$TOOL" help | awk '/^  [a-z]/ { print $1 }' | tr '\n' ' ')"
 check "help lists all 15 commands" eq "$help_cmds" "start send close reap resume list tail watch open open-all stop resume-hint count path doctor "
 check "no host-specific literal in bin/ds-lane (R2)" bash -c '! grep -nE "/Users/|claude-moment8|authentic8" "$1"' _ "$TOOL"
 
+out="$(cd "$PRIMARY" && env -u DS_LANE_HARNESS "$TOOL" start no-harness "$PROMPT" 2>&1)"; rc=$?
+check "identity refusal precedes state initialization" died_with "$rc" "$out" 'cannot determine invoking harness'
+check "identity refusal creates no state directory" test ! -e "$PRIMARY/.agentic"
+
 # --- input validation and repo resolution ---
 out="$(lane start 'bad name' "$PROMPT" 2>&1)"; rc=$?
 check "invalid lane name refused" died_with "$rc" "$out" "invalid lane name 'bad name'"
@@ -239,6 +249,8 @@ git -C "$TMP/bare.git" worktree add -q "$TMP/barewt" 2> /dev/null
 out="$(cd "$TMP/barewt" && "$TOOL" list 2>&1)"; rc=$?
 check "bare primary dies" died_with "$rc" "$out" "is a bare repository"
 check "bare primary writes no state" eq "$(ls -a "$TMP/barewt" "$TMP/bare.git" | grep -c '^\.agentic$')" 0
+
+
 
 # --- lifecycle, marker contract, gitignore (R4, R5) ---
 lane start a "$PROMPT" > /dev/null 2>&1
@@ -292,16 +304,16 @@ lane stop sb > /dev/null
 check "stopped shebang lane goes down" wait_until 10 lane_down sb
 
 out="$(cd "$PRIMARY" && env -u CLAUDE_CONFIG_DIR "$TOOL" resume-hint a)"
-check "resume-hint without CLAUDE_CONFIG_DIR prints the bare resume command" eq "$out" "cd $(printf '%q' "$PRIMARY") && claude --resume $(init_field a session_id)"
+check "resume-hint ignores caller config removal and uses saved executable/config" eq "$out" "cd $(printf '%q' "$PRIMARY") && CLAUDE_CONFIG_DIR=$(printf '%q' "$CLAUDE_CONFIG_DIR") $(printf '%q' "$STUB/claude") --permission-mode bypassPermissions --resume $(init_field a session_id)"
 out="$(lane resume-hint a)"
-check "resume-hint names CLAUDE_CONFIG_DIR when set" contains "$out" "&& CLAUDE_CONFIG_DIR=$(printf '%q' "$CLAUDE_CONFIG_DIR") claude --resume "
+check "resume-hint names CLAUDE_CONFIG_DIR when set" contains "$out" "&& CLAUDE_CONFIG_DIR=$(printf '%q' "$CLAUDE_CONFIG_DIR") $(printf '%q' "$STUB/claude") --permission-mode bypassPermissions --resume "
 
 # --- worktree anchoring (R3) ---
 git -C "$PRIMARY" worktree add -q "$TMP/wt" -b wtb 2> /dev/null
 (cd "$TMP/wt" && "$TOOL" start wtl "$PROMPT" > /dev/null 2>&1)
 check "worktree call records state in the primary checkout" test -f "$RUN/wtl.meta"
 check "worktree call writes nothing in the worktree" test ! -e "$TMP/wt/.agentic"
-check "worktree-launched lane runs in the primary checkout" eq "$(init_field wtl cwd)" "$PRIMARY"
+check "worktree-launched lane runs in its original worktree" eq "$(init_field wtl cwd)" "$TMP/wt"
 lane stop wtl > /dev/null
 check "path from a worktree prints the primary checkout's state dir" eq "$(cd "$TMP/wt" && "$TOOL" path 2>&1)" "$PRIMARY/.agentic/lanes"
 
@@ -334,6 +346,7 @@ check "the recorded-path decoy is still alive" kill -0 "$decoy"
 kill "$decoy" 2> /dev/null
 
 # --- permission mode resolution (R6) ---
+export CLAUDE_CODE_SESSION_ID=conductor-sid
 PROJ="$CLAUDE_CONFIG_DIR/projects/-proj"
 mkdir -p "$PROJ"
 {
@@ -355,12 +368,14 @@ lane stop m1 > /dev/null
 (cd "$PRIMARY" && env -u DS_LANE_PERMISSION_MODE "$TOOL" start m2 "$PROMPT" > /dev/null 2>&1)
 check "mode from the user-record fallback" eq "$(init_field m2 permissionMode)" dontAsk
 lane stop m2 > /dev/null
-(cd "$PRIMARY" && DS_LANE_PERMISSION_MODE=plan "$TOOL" start m3 "$PROMPT" > /dev/null 2>&1)
-check "DS_LANE_PERMISSION_MODE wins over the transcript" eq "$(init_field m3 permissionMode)" plan
-lane stop m3 > /dev/null
+out="$(cd "$PRIMARY" && DS_LANE_PERMISSION_MODE=plan "$TOOL" start m3 "$PROMPT" 2>&1)"; rc=$?
+check "explicit permission mode cannot override the native mode" died_with "$rc" "$out" "conflicts with native"
+check "permission mismatch creates no lane files" test ! -e "$RUN/m3.meta"
 out="$(cd "$PRIMARY" && env -u DS_LANE_PERMISSION_MODE CLAUDE_CODE_SESSION_ID=no-such-session "$TOOL" start m4 "$PROMPT" 2>&1)"; rc=$?
-check "unresolvable mode dies" died_with "$rc" "$out" "cannot determine the conductor's permission mode; set DS_LANE_PERMISSION_MODE"
+check "unresolvable mode dies" died_with "$rc" "$out" "cannot determine the conductor's permission mode"
 check "unresolvable mode wrote no files" test ! -e "$RUN/m4.meta"
+
+unset CLAUDE_CODE_SESSION_ID
 
 # --- tab opener (R7, R8, R13) ---
 # The tty is resolved by `start` in the foreground and handed to the detached opener; the stub
@@ -682,6 +697,7 @@ lane stop t3 > /dev/null
 TOOL_COPY_DIR="$TMP/tool dir"
 mkdir -p "$TOOL_COPY_DIR"
 cp "$TOOL" "$TOOL_COPY_DIR/ds-lane"
+cp "$REPO_DIR/bin/_lane_runtime.py" "$TOOL_COPY_DIR/_lane_runtime.py"
 rm -f "$LOG"/osa-*
 run_in_pty "$TMP/pty2.out" env DS_LANE_RUN_DIR="$TMP/run dir" /bin/sh -c 'tty > "$1"; exec "$2" start t2 "$3"' sh "$TMP/pty2.tty" "$TOOL_COPY_DIR/ds-lane" "$PROMPT"
 check "run-dir override lane opened a tab" wait_until 10 has_file "$TMP/run dir/t2.tab.log"
@@ -872,14 +888,14 @@ check "doctor all-ok: exit 0" eq "$(rc_of "$DO")" 0
 check "doctor all-ok: no FAIL line" bash -c '! grep -q "^FAIL" "$1"' _ "$DO"
 check "doctor all-ok: the eight checkable lines are ok" eq "$(grep -c '^ok ' "$DO")" 8
 check "doctor all-ok: macOS" doc_has "ok         platform: macOS"
-check "doctor all-ok: claude resolved as start resolves it" doc_has "ok         claude: $STUB/claude"
+check "doctor all-ok: claude resolved as start resolves it" doc_has "ok         runtime: claude: $STUB/claude"
 check "doctor all-ok: ds-lane found on PATH" doc_has "ok         ds-lane on PATH: $FAKEHOME/.local/bin/ds-lane"
 check "doctor all-ok: Terminal.app" doc_has "ok         Terminal.app: TERM_PROGRAM=Apple_Terminal"
 check "doctor: Automation consent is unverified, with the settings path" contains "$(fix_after 'unverified Automation consent: unverified until first tab open')" "open System Settings > Privacy & Security > Automation, find the app the conductor runs in and allow it to control Terminal and System Events; an entry appears there only after macOS has asked once."
 check "doctor: Accessibility consent is unverified, with the settings path" contains "$(fix_after 'unverified Accessibility consent: unverified until first tab open')" "open System Settings > Privacy & Security > Accessibility and turn on the app the conductor runs in; if it is not listed, add it with the + button."
 check "doctor all-ok: tabs unverified, never claimed working" doc_has "tabs: unverified (no check failed;"
 check "doctor all-ok: launch offer available" eq "$(tail -n2 "$DO" | head -n1)" "launch offer: available (ds-lane is on PATH)"
-check "doctor all-ok: last line says lanes run headless" eq "$(tail -n1 "$DO")" "headless lanes: available (claude, python3 and jq resolve; $TABLESS)"
+check "doctor all-ok: last line says lanes run headless" eq "$(tail -n1 "$DO")" "headless lanes: available (claude runtime and permissions, python3 and jq ready; auth/quota unverified; $TABLESS)"
 
 doctor_pty STUB_UNAME=Linux
 check "doctor non-macOS: exit 1" eq "$(rc_of "$DO")" 1
@@ -892,8 +908,8 @@ check "doctor no osascript: FAIL names where it ships" contains "$(fix_after 'FA
 
 doctor_pty DS_LANE_CLAUDE_BIN=
 check "doctor no claude: exit 1" eq "$(rc_of "$DO")" 1
-check "doctor no claude: FAIL says how to point at it" contains "$(fix_after 'FAIL       claude: not found (DS_LANE_CLAUDE_BIN, PATH, CLAUDE_CODE_EXECPATH)')" "set DS_LANE_CLAUDE_BIN to the full path of the claude executable; no lane can start without it."
-check "doctor no claude: lanes cannot run headless either" eq "$(tail -n1 "$DO")" "headless lanes: unavailable (claude, python3 and jq must all resolve)"
+check "doctor no claude: FAIL names selected runtime and refuses fallback" doc_has "FAIL       runtime: ds-lane: claude CLI not found"
+check "doctor no claude: lanes cannot run headless either" eq "$(tail -n1 "$DO")" "headless lanes: unavailable (claude runtime, permissions, python3, jq and POSIX detachment required; auth/quota unverified)"
 
 doctor_pty PATH="$DOCBIN:$OSA_DIR:$SANDBOX"
 check "doctor ~/.local/bin off PATH: exit 1" eq "$(rc_of "$DO")" 1
@@ -924,7 +940,7 @@ check "doctor unknown terminal app: unverified, not guessed, exit 0" eq "$(rc_of
 pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" "$TOOL" doctor --json
 check "doctor --json all-ok: parses, exit 0, tabs unverified, every non-ok check carries a fix" eq "$(rc_of "$DO")|$(jq -r '[.tabs, .launch_offer, .headless, (.checks | length), (all(.checks[]; .status != "FAIL")), (all(.checks[]; (.status == "ok") == (.fix == "")))] | join(",")' "$DO" 2>&1)" "0|unverified,true,true,10,true,true"
 pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" STUB_UNAME=Linux DS_LANE_CLAUDE_BIN= "$TOOL" doctor --json
-check "doctor --json failing: parses, exit 1, tabs unavailable, not headless" eq "$(rc_of "$DO")|$(jq -r '[.tabs, .headless, ([.checks[] | select(.status == "FAIL") | .check] | join("+"))] | join(",")' "$DO" 2>&1)" "1|unavailable,false,platform+claude"
+check "doctor --json failing: parses, exit 1, tabs unavailable, not headless" eq "$(rc_of "$DO")|$(jq -r '[.tabs, .headless, ([.checks[] | select(.status == "FAIL") | .check] | join("+"))] | join(",")' "$DO" 2>&1)" "1|unavailable,false,platform+runtime"
 pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" PATH="$DOCBIN:$OSA_DIR:$SANDBOX" "$TOOL" doctor --json
 check "doctor --json ds-lane off PATH: exit 1, tabs unverified, launch offer false" eq "$(rc_of "$DO")|$(jq -r '[.tabs, .launch_offer, .headless] | join(",")' "$DO" 2>&1)" "1|unverified,false,true"
 # No pty: JSON validity does not depend on a terminal, and a pty wrapper would requote the value.
@@ -933,6 +949,286 @@ check "doctor --json stays valid with control characters, quotes and backslashes
 out="$(cd "$TMP/norepo" && GIT_CEILING_DIRECTORIES="$TMP" "$ENV_BIN" "${doctor_env[@]}" "$TOOL" doctor 2>&1)"
 check "doctor runs outside a git repo" contains "$out" "ok         platform: macOS"
 check "doctor never ran osascript (no Apple event, no consent prompt)" eq "$(ls "$LOG" | grep -c '^osa-')" 0
+
+# Harness selection and policy fixtures use a strict finite-input Codex executable.
+mkdir -p "$TMP/codex config" "$TMP/codex bin"
+CODEX_CONFIG="$TMP/codex config"
+CODEX_STUB="$TMP/codex bin/codex"
+CONTEXT="$TMP/codex-context.json"
+cat > "$CODEX_STUB" <<'PY'
+#!/usr/bin/env python3
+import json, os, sys, time
+args = sys.argv[1:]
+assert args.pop(0) == "exec", args
+resume = bool(args and args[0] == "resume")
+if resume: args.pop(0)
+assert args.pop(0) == "--json", args
+config = {}
+while args and args[0] == "-c":
+    args.pop(0)
+    key, value = args.pop(0).split("=", 1)
+    assert key in ("approval_policy", "sandbox_mode", "sandbox_workspace_write.writable_roots", "sandbox_workspace_write.network_access", "sandbox_workspace_write.exclude_tmpdir_env_var", "sandbox_workspace_write.exclude_slash_tmp"), key
+    config[key] = json.loads(value)
+assert config["approval_policy"] == "never", config
+sid = args.pop(0) if resume else "codex-" + str(os.getpid())
+assert args == ["-"], args
+assert not any(os.environ.get(k) for k in ("CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "CLAUDECODE"))
+prompt = sys.stdin.read()
+with open(os.environ["STUB_LOG_DIR"] + "/codex-runtime", "a") as f:
+    f.write(json.dumps(dict(argv=sys.argv[1:], config=config, cwd=os.getcwd(), home=os.environ["CODEX_HOME"], sid=sid, prompt=prompt)) + "\n")
+def emit(value): print(json.dumps(value), flush=True)
+def say(text): emit(dict(type="item.completed", item=dict(type="agent_message", text=text)))
+emit(dict(type="thread.started", thread_id=sid))
+if "NO-MARKER" in prompt:
+    say("ordinary response")
+elif "FATAL-FIRST" in prompt:
+    emit(dict(type="error", message="fatal first"))
+    print("malformed", flush=True)
+    say("LANE-DONE after fatal")
+elif "DONE-FAILED" in prompt or "FATAL-LIVE" in prompt:
+    say("LANE-DONE before failure")
+    print("malformed", flush=True)
+    emit(dict(type="turn.failed", error=dict(message="fatal failed")))
+elif "DONE-ERROR" in prompt:
+    say("LANE-DONE before error")
+    emit(dict(type="error", message="fatal error"))
+elif "BLOCK-ERROR" in prompt:
+    say("LANE-BLOCKED before fatal")
+    emit(dict(type="error", message="fatal blocked"))
+elif "LATEST-BLOCK" in prompt:
+    say("LANE-DONE old")
+    say("LANE-BLOCKED latest")
+else:
+    emit(dict(type="item.completed", item=dict(type="command_execution", output="LANE-BLOCKED nested tool error", error="tool failure")))
+    print('{"type":"item.completed","item":[]}', flush=True)
+    print("malformed", flush=True)
+    say("error-like text\nLANE-DONE codex stub finished")
+print("stub stderr", file=sys.stderr, flush=True)
+if "FATAL-LIVE" in prompt: time.sleep(15)
+if "STUB-LIVE" in prompt: time.sleep(30)
+emit(dict(type="turn.completed", usage=dict(input_tokens=1, output_tokens=1)))
+PY
+chmod +x "$CODEX_STUB"
+write_context() {
+  jq -cn --arg cwd "$1" '{cwd:$cwd, approval_policy:"on-request", sandbox_policy:{type:"danger-full-access"}}' > "$CONTEXT"
+}
+write_context "$PRIMARY"
+codex_lane() {
+  (cd "$PRIMARY" && env -u CLAUDE_CODE_SESSION_ID -u CLAUDECODE -u CODEX_THREAD_ID -u AE_ADAPTER DS_LANE_HARNESS=codex DS_LANE_CODEX_BIN="$CODEX_STUB" CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_CONTEXT_FILE="$CONTEXT" "$TOOL" "$@")
+}
+meta_value() { sed -n "s/^$2=//p" "$RUN/$1.meta" | tail -n1; }
+run_snapshot() { find "$RUN" -type f -exec shasum {} \; | sort; }
+assert_refusal() {
+  local label="$1" needle="$2" before out rc; shift 2
+  before="$(run_snapshot)"
+  out="$(cd "$PRIMARY" && "$@" "$TOOL" start rejected "$PROMPT" 2>&1)"; rc=$?
+  check "$label" died_with "$rc" "$out" "$needle"
+  check "$label leaves state unchanged" eq "$(run_snapshot)" "$before"
+}
+assert_refusal "missing harness is not inferred from binaries" "cannot determine invoking harness" env -u DS_LANE_HARNESS
+assert_refusal "unsupported explicit harness refuses" "unsupported invoking harness" env DS_LANE_HARNESS=gemini
+assert_refusal "native conflicts refuse" "conflicting native" env CODEX_THREAD_ID=caller CLAUDECODE=1
+assert_refusal "native overrides cannot conflict" "conflicting invoking harness" env CODEX_THREAD_ID=caller
+assert_refusal "adapter binding conflicts refuse" "conflicting invoking harness" env AE_ADAPTER=codex
+assert_refusal "missing native Claude policy cannot use explicit mode" "native transcript missing" env CLAUDE_CODE_SESSION_ID=missing
+
+codex_lane start cx "$PROMPT" > /dev/null 2>&1
+check "Codex records harness/executable/config/cwd" eq "$(meta_value cx harness)|$(meta_value cx executable)|$(meta_value cx config_dir)|$(meta_value cx runtime_cwd)" "codex|$CODEX_STUB|$CODEX_CONFIG|$PRIMARY"
+check "Codex finite execution naturally exits done" wait_until 10 state_is cx done
+check "Codex naturally exits down" lane_down cx
+check "Codex records exact thread id" contains "$(meta_value cx session_id)" "codex-"
+check "Codex does not create Claude feeder" test ! -e "$RUN/cx.tailpid"
+check "Codex saves original approval while denying unattended escalation" eq "$(meta_value cx codex_context | jq -r '[.approval_policy,.overrides[0]] | join("|")')" 'on-request|approval_policy="never"'
+check "Codex receives canonical marker contract and task" contains "$(cat "$RUN/cx.in")" 'When the whole task is finished print a final line starting exactly `LANE-DONE`'
+check "Codex strict stub accepted supported arguments" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r '.argv[0:2] | join(" ")')" 'exec --json'
+check "Codex tail includes raw terminal event and stderr" contains "$(codex_lane tail cx)" '"type": "turn.completed"'
+check "Codex tail retains stderr" contains "$(codex_lane tail cx)" 'stub stderr'
+check "Codex persists natural outcome" eq "$(meta_value cx status)" done
+out="$(DS_LANE_HARNESS=claude DS_LANE_CODEX_BIN=/missing CODEX_HOME=/missing DS_LANE_CODEX_CONTEXT_FILE=/missing lane resume cx 'successful resumed task' 2>&1)"; rc=$?
+check "opposite caller resumes original Codex runtime" eq "$rc" 0
+check "Codex resume uses exact saved session" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r .sid)" "$(meta_value cx session_id)"
+check "Codex resume ignores caller config/executable" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r .home)" "$CODEX_CONFIG"
+check "Codex resume appends session events" eq "$(jq -Rr 'fromjson? | select(.type == "thread.started") | .thread_id' "$RUN/cx.jsonl" | wc -l | tr -d ' ')" 2
+check "Codex resume hint uses original quoted runtime" contains "$(lane resume-hint cx)" "CODEX_HOME=$(printf '%q' "$CODEX_CONFIG") $(printf '%q' "$CODEX_STUB") -c "
+
+before="$(run_snapshot)"
+out="$(codex_lane send cx 'delivery' 2>&1)"; rc=$?
+check "Codex send refuses clearly" died_with "$rc" "$out" 'Codex live send is unsupported'
+check "Codex refused send changes no file" eq "$(run_snapshot)" "$before"
+
+for pattern in DONE-FAILED DONE-ERROR FATAL-FIRST BLOCK-ERROR NO-MARKER LATEST-BLOCK; do
+  printf '%s\n' "$pattern" > "$TMP/cxprompt"
+  codex_lane start "cx-$pattern" "$TMP/cxprompt" > /dev/null 2>&1
+  expected=dead
+  [[ "$pattern" != LATEST-BLOCK ]] || expected=blocked
+  check "$pattern honors fatal precedence/latest marker" wait_until 10 state_is "cx-$pattern" "$expected"
+  check "$pattern persists truthful outcome" eq "$(meta_value "cx-$pattern" status)" "$expected"
+done
+before="$(wc -l < "$RUN/cx-DONE-FAILED.jsonl")"
+codex_lane resume cx-DONE-FAILED 'success after failed run' > /dev/null 2>&1
+check "validated resume resets failed-run offset" wait_until 10 state_is cx-DONE-FAILED done
+check "resume resets offset to prior complete log" eq "$(meta_value cx-DONE-FAILED marker_offset)" "$(echo "$before" | tr -d ' ')"
+
+printf 'FATAL-LIVE\n' > "$TMP/cxprompt"
+codex_lane start cx-live-fatal "$TMP/cxprompt" > /dev/null 2>&1
+check "live fatal process remains alive/up" eq "$(list_col cx-live-fatal 3)|$(list_col cx-live-fatal 4)" 'alive|up'
+out="$(codex_lane reap)"
+check "reap never signals live fatal Codex process" eq "$(list_col cx-live-fatal 4)" up
+check "fatal raw event remains visible" contains "$(codex_lane tail cx-live-fatal)" 'fatal failed'
+check "live fatal becomes dead/down after natural exit" wait_until 15 state_is cx-live-fatal dead
+check "fatal natural outcome is persisted dead" eq "$(meta_value cx-live-fatal status)" dead
+
+printf 'STUB-LIVE\n' > "$TMP/cxprompt"
+codex_lane start cx-live "$TMP/cxprompt" > /dev/null 2>&1
+check "Codex interpreter/path-with-spaces ownership is live" eq "$(list_col cx-live 4)" up
+before="$(run_snapshot)"
+out="$(codex_lane close cx-live)"
+check "Codex close explains finite input" contains "$out" 'bounded input already closed'
+check "Codex close preserves all files and execution" eq "$(run_snapshot)" "$before"
+codex_lane reap > /dev/null
+check "Codex marked live process is not killed by reap" eq "$(list_col cx-live 4)" up
+DS_LANE_MAX=2 lane start mixed "$PROMPT" > /dev/null 2>&1
+out="$(DS_LANE_MAX=2 codex_lane start over "$PROMPT" 2>&1)"; rc=$?
+check "both harnesses share lane capacity" died_with "$rc" "$out" 'refusing: 2 lanes running'
+lane stop mixed > /dev/null
+out="$(codex_lane stop cx-live)"
+check "Codex explicit stop signals owned process" contains "$out" 'sent SIGTERM'
+check "Codex stopped process is down" wait_until 10 lane_down cx-live
+
+# A reused PID, an exec-shaped substring and a forged birth time cannot establish ownership.
+sleep 30 & decoy=$!
+cp "$RUN/cx-live.meta" "$TMP/original-meta"
+python3 - "$RUN/cx-live.meta" "$decoy" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); s=p.read_text(); s += "\npid="+sys.argv[2]+"\n"; p.write_text(s)
+PY
+printf '%s\n' "$decoy" > "$RUN/cx-live.pid"
+out="$(codex_lane stop cx-live)"
+check "Codex stop refuses mismatched/reused PID" contains "$out" 'not running'
+check "unrelated process survives Codex stop" kill -0 "$decoy"
+kill "$decoy" 2>/dev/null
+wait "$decoy" 2>/dev/null
+
+# Resume validates saved resources before touching offsets or lane files.
+mv "$CODEX_STUB" "$CODEX_STUB.saved"
+before="$(run_snapshot)"
+out="$(codex_lane resume cx again 2>&1)"; rc=$?
+check "resume missing original executable refuses no fallback" eq "$rc" 1
+check "failed saved-runtime validation leaves files unchanged" eq "$(run_snapshot)" "$before"
+mv "$CODEX_STUB.saved" "$CODEX_STUB"
+
+# Explicit and native Codex policy validation uses the same parser.
+write_context "$PRIMARY"
+assert_refusal "Codex missing executable never falls back to installed Claude" "No such file" env DS_LANE_HARNESS=codex CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_BIN=/missing DS_LANE_CODEX_CONTEXT_FILE="$CONTEXT"
+assert_refusal "Codex marker-less requires context file" "DS_LANE_CODEX_CONTEXT_FILE" env DS_LANE_HARNESS=codex CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_BIN="$CODEX_STUB" DS_LANE_CODEX_CONTEXT_FILE=
+for policy in '{"type":"external"}' '{"type":"read-only","restricted_read":true}' '{"type":"workspace-write"}' '{"type":"danger-full-access","extra":true}'; do
+  jq --argjson policy "$policy" '.sandbox_policy=$policy' "$CONTEXT" > "$CONTEXT.tmp"
+  mv "$CONTEXT.tmp" "$CONTEXT"
+  assert_refusal "unsupported policy $policy" 'unsupported' env DS_LANE_HARNESS=codex CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_BIN="$CODEX_STUB" DS_LANE_CODEX_CONTEXT_FILE="$CONTEXT"
+  write_context "$PRIMARY"
+done
+jq '.approval_policy={never:true}' "$CONTEXT" > "$CONTEXT.tmp"; mv "$CONTEXT.tmp" "$CONTEXT"
+assert_refusal "structured approval policy refuses" 'unsupported Codex approval_policy' env DS_LANE_HARNESS=codex CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_BIN="$CODEX_STUB" DS_LANE_CODEX_CONTEXT_FILE="$CONTEXT"
+printf 'bad json\n' > "$CONTEXT"
+assert_refusal "malformed explicit policy refuses" 'Expecting value' env DS_LANE_HARNESS=codex CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_BIN="$CODEX_STUB" DS_LANE_CODEX_CONTEXT_FILE="$CONTEXT"
+write_context "$PRIMARY"
+
+NATIVE_SID=caller-thread
+mkdir -p "$CODEX_CONFIG/sessions/day"
+ROLLOUT="$CODEX_CONFIG/sessions/day/rollout-$NATIVE_SID.jsonl"
+write_rollout() {
+  jq -cn --arg sid "$NATIVE_SID" '{type:"session_meta",payload:{id:$sid}}' > "$ROLLOUT"
+  jq -cn --argjson context "$(cat "$CONTEXT")" '{type:"turn_context",payload:$context}' >> "$ROLLOUT"
+}
+write_rollout
+(cd "$PRIMARY" && env -u DS_LANE_HARNESS CODEX_THREAD_ID="$NATIVE_SID" CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_BIN="$CODEX_STUB" DS_LANE_CLAUDE_BIN=/missing "$TOOL" start native "$PROMPT" > /dev/null 2>&1)
+check "native Codex identity wins independently of Claude binary" wait_until 10 state_is native done
+mkdir -p "$TMP/full-access-scratch"
+git -C "$TMP/full-access-scratch" init -q
+(cd "$TMP/full-access-scratch" && env -u DS_LANE_HARNESS CODEX_THREAD_ID="$NATIVE_SID" CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_BIN="$CODEX_STUB" "$TOOL" start scratch "$PROMPT" > /dev/null 2>&1)
+check "native full-access caller can launch in scratch cwd" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r .cwd)" "$TMP/full-access-scratch"
+check "scratch launch keeps original turn cwd provenance" eq "$(sed -n 's/^codex_context=//p' "$TMP/full-access-scratch/.agentic/lanes/run/scratch.meta" | jq -r .cwd)" "$PRIMARY"
+assert_refusal "native Codex missing exact rollout refuses explicit context fallback" 'rollout missing' env DS_LANE_HARNESS=codex CODEX_THREAD_ID=no-rollout CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_BIN="$CODEX_STUB" DS_LANE_CODEX_CONTEXT_FILE="$CONTEXT"
+cp "$ROLLOUT" "$CODEX_CONFIG/sessions/duplicate-$NATIVE_SID.jsonl"
+assert_refusal "ambiguous native rollout refuses" 'rollout missing/ambiguous' env DS_LANE_HARNESS=codex CODEX_THREAD_ID="$NATIVE_SID" CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_BIN="$CODEX_STUB"
+rm "$CODEX_CONFIG/sessions/duplicate-$NATIVE_SID.jsonl"
+printf 'bad json\n' >> "$ROLLOUT"
+assert_refusal "malformed native context refuses" 'malformed runtime context' env DS_LANE_HARNESS=codex CODEX_THREAD_ID="$NATIVE_SID" CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_BIN="$CODEX_STUB"
+write_rollout
+sed 's/caller-thread/wrong-thread/' "$ROLLOUT" > "$ROLLOUT.tmp"; mv "$ROLLOUT.tmp" "$ROLLOUT"
+assert_refusal "native session identity mismatch refuses" 'identity mismatch' env DS_LANE_HARNESS=codex CODEX_THREAD_ID="$NATIVE_SID" CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_BIN="$CODEX_STUB"
+write_rollout
+
+jq -cn --arg cwd "$TMP/wt" '{cwd:$cwd,approval_policy:"never",sandbox_policy:{type:"workspace-write",writable_roots:[],network_access:false,exclude_tmpdir_env_var:true,exclude_slash_tmp:true}}' > "$CONTEXT"
+(cd "$TMP/wt" && env DS_LANE_HARNESS=codex CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_BIN="$CODEX_STUB" DS_LANE_CODEX_CONTEXT_FILE="$CONTEXT" "$TOOL" start scoped "$PROMPT" > /dev/null 2>&1)
+check "linked-worktree Codex runtime keeps original cwd" eq "$(meta_value scoped runtime_cwd)" "$TMP/wt"
+check "workspace sandbox does not add primary checkout writable" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r '.config["sandbox_workspace_write.writable_roots"] | length')" 0
+check "workspace sandbox preserves network/temp exclusions" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r '[.config["sandbox_workspace_write.network_access"],.config["sandbox_workspace_write.exclude_tmpdir_env_var"],.config["sandbox_workspace_write.exclude_slash_tmp"]] | join(",")')" 'false,true,true'
+mkdir -p "$TMP/wt/descendant"
+(cd "$TMP/wt/descendant" && env DS_LANE_HARNESS=codex CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_BIN="$CODEX_STUB" DS_LANE_CODEX_CONTEXT_FILE="$CONTEXT" "$TOOL" start descendant "$PROMPT" > /dev/null 2>&1)
+check "workspace descendant launch preserves original implicit root" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r '.config["sandbox_workspace_write.writable_roots"] | join("|")')" "$TMP/wt"
+check "workspace descendant saves validated invocation cwd" eq "$(meta_value descendant runtime_cwd)" "$TMP/wt/descendant"
+(cd "$PRIMARY" && DS_LANE_HARNESS=claude "$TOOL" resume descendant again > /dev/null 2>&1)
+check "workspace resume ignores new caller cwd" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r .cwd)" "$TMP/wt/descendant"
+assert_refusal "Codex caller cannot move runtime outside original context cwd" 'differs from original context cwd' env DS_LANE_HARNESS=codex CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_BIN="$CODEX_STUB" DS_LANE_CODEX_CONTEXT_FILE="$CONTEXT"
+write_context "$PRIMARY"
+jq '.sandbox_policy={type:"read-only"}' "$CONTEXT" > "$CONTEXT.tmp"; mv "$CONTEXT.tmp" "$CONTEXT"
+codex_lane start readonly "$PROMPT" > /dev/null 2>&1
+check "read-only mode is preserved" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r '.config.sandbox_mode')" read-only
+write_context "$PRIMARY"
+
+# Claude saved runtime, fatal result precedence and explicit legacy recovery.
+lane start cf "$PROMPT" > /dev/null 2>&1
+cf_sid="$(meta_value cf session_id)"
+printf '%s\n' '{"type":"system","subtype":"init","parent_tool_use_id":"nested","session_id":"wrong-subagent"}' '{"type":"result","parent_tool_use_id":"nested","is_error":true,"subtype":"error_nested"}' '{"type":"assistant","message":{"content":[{"type":"text","text":"LANE-DONE nested-error positive control"}]}}' >> "$RUN/cf.jsonl"
+check "Claude nested terminal errors do not override main marker" state_is cf done
+check "Claude nested init cannot replace main session id" eq "$(meta_value cf session_id)" "$cf_sid"
+printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"LANE-DONE before fatal"}]}}' '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"fatal Claude"}' >> "$RUN/cf.jsonl"
+check "Claude fatal result suppresses DONE while live" eq "$(list_col cf 3)|$(list_col cf 4)" 'alive|up'
+lane reap > /dev/null
+check "Claude fatal result never closes feeder" test -s "$RUN/cf.tailpid"
+lane close cf > /dev/null
+check "Claude fatal result exits dead" wait_until 10 state_is cf dead
+check "Claude persists failure instead of prior marker" eq "$(meta_value cf status)" dead
+(cd "$PRIMARY" && env DS_LANE_HARNESS=codex DS_LANE_CLAUDE_BIN=/missing CLAUDE_CONFIG_DIR=/missing DS_LANE_PERMISSION_MODE=plan "$TOOL" resume cf 'STUB-FINISH recovered' > /dev/null 2>&1)
+check "opposite caller resumes saved Claude permissions" eq "$(init_field cf permissionMode)" bypassPermissions
+check "Claude successful resume resets fatal offset" wait_until 10 state_is cf done
+lane reap > /dev/null
+wait_until 10 lane_down cf
+cp "$RUN/cf.meta" "$RUN/legacy.meta"
+cp "$RUN/cf.jsonl" "$RUN/legacy.jsonl"
+sed -E '/^(harness|executable|config_dir|runtime_cwd|permission_mode|bg_ceiling)=/d' "$RUN/legacy.meta" > "$RUN/legacy.meta.tmp"; mv "$RUN/legacy.meta.tmp" "$RUN/legacy.meta"
+check "legacy claude_bin record remains Claude" eq "$(list_col legacy 5)" claude
+before="$(run_snapshot)"
+out="$(lane resume legacy 'STUB-FINISH legacy' 2>&1)"; rc=$?
+check "legacy resume refuses guessed config" died_with "$rc" "$out" 'DS_LANE_LEGACY_CLAUDE_CONFIG_DIR'
+check "legacy refusal preserves files" eq "$(run_snapshot)" "$before"
+DS_LANE_LEGACY_CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" lane resume legacy 'STUB-FINISH legacy' > /dev/null 2>&1
+check "legacy explicit config/init recovery succeeds" wait_until 10 state_is legacy done
+lane reap > /dev/null
+wait_until 10 lane_down legacy
+
+printf '%s\n' 'harness=codex' 'claude_bin=/contradictory' > "$RUN/unknown.meta"
+before="$(run_snapshot)"
+out="$(lane stop unknown 2>&1)"; rc=$?
+check "unknown/contradictory metadata refuses stop" died_with "$rc" "$out" 'unknown/contradictory'
+check "unknown lane refusal changes no metadata" eq "$(run_snapshot)" "$before"
+printf '%s\n' 'harness=claude' 'claude_bin=/contradictory' 'codex_context={}' > "$RUN/unknown.meta"
+out="$(lane stop unknown 2>&1)"; rc=$?
+check "Claude with Codex context refuses contradictory metadata" died_with "$rc" "$out" 'unknown/contradictory'
+rm "$RUN/unknown.meta"
+
+DS_LANE_BG_CEILING_MS=4321 lane start bg "$PROMPT" > /dev/null 2>&1
+lane close bg > /dev/null
+wait_until 10 lane_down bg
+DS_LANE_BG_CEILING_MS=1 lane resume bg 'STUB-FINISH bg' > /dev/null 2>&1
+check "Claude resume restores saved background ceiling" contains "$(tail -n1 "$LOG/claude-runtime")" '4321|'
+lane reap > /dev/null
+wait_until 10 lane_down bg
+
+orphan_capture "$DO" "$ENV_BIN" -u CLAUDE_CODE_SESSION_ID -u CLAUDECODE -u CODEX_THREAD_ID -u AE_ADAPTER DS_LANE_HARNESS=codex DS_LANE_CODEX_BIN="$CODEX_STUB" CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_CONTEXT_FILE="$CONTEXT" "$TOOL" doctor --json
+check "no-TTY Codex doctor reports headless separate from tabs" eq "$(jq -r '[.harness,.permissions_ready,.headless,.tabs] | join("|")' "$DO")" 'codex|true|true|unavailable'
 
 echo "ds-lane tests: $PASS passed, $FAIL failed"
 (( FAIL == 0 ))
