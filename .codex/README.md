@@ -197,3 +197,37 @@ approval_policy = "never"
 
 Use stricter settings for untrusted repositories or prompts. See
 [`docs/codex-permissions.md`](../docs/codex-permissions.md) for details.
+
+## Headless conductor lanes
+
+`ds-lane` launches the invoking harness: Codex native `CODEX_THREAD_ID` selects
+Codex; Claude native session markers select Claude. Installed binaries never
+choose the backend. `AE_ADAPTER` and `DS_LANE_HARNESS=codex|claude` must agree
+with native identity. Missing or conflicting identity or live policy refuses
+without fallback. `doctor [--json]` reports the selected harness and permission
+readiness separately from optional macOS Terminal watch tabs; headless lanes
+work without a controlling terminal. Auth and quota are unverified until a run.
+
+Claude uses streaming print mode and accepts live `send`. Codex uses finite
+`exec --json` input: live `send` refuses, `close` leaves execution running, and
+messages are delivered by `resume` after exit. Both support task markers,
+status, tail, reap, stop and exact-session resume. Fatal backend events override
+completion markers; a successful turn alone is not task completion.
+
+Resume uses the original saved executable, config, cwd and permission context,
+even when another harness invokes it. Claude preserves its live permission
+mode; explicit mode cannot override a different native mode. Codex preserves
+supported danger-full-access, read-only or workspace-write sandbox context and
+denies unattended escalation (`approval_policy=never`). Unknown policy shapes
+refuse. `CODEX_HOME` selects Codex runtime config; `AGENTIC_CONFIG_DIR` remains
+an activation binding. Marker-less callers require explicit harness binding
+plus Claude `DS_LANE_PERMISSION_MODE` or absolute `DS_LANE_CODEX_CONTEXT_FILE`
+containing `{cwd, approval_policy, sandbox_policy}`. Executable overrides are
+`DS_LANE_CODEX_BIN` and `DS_LANE_CLAUDE_BIN`.
+
+Legacy records with `claude_bin` remain Claude. Legacy resume requires
+`DS_LANE_LEGACY_CLAUDE_CONFIG_DIR` plus captured Claude init permission mode and
+cwd; there is no guessed migration. See the canonical
+[runbook conductor procedure](../content/references/runbook-conductor.md) for
+launch, pending ruling delivery, and optional watch tabs. Native Windows
+headless detachment and new bridge terminal UI are unsupported.

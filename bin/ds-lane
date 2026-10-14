@@ -1,19 +1,10 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # Module manifest
-# Purpose: Launch, watch and close headless Claude Code lane sessions (one per
-#          ticket) on behalf of a conductor session, so the operator does not
-#          open them by hand. A lane is `claude -p` in streaming-input mode:
-#          stdin is a `tail -f` of run/<name>.in, so the session stays up
-#          between turns and accepts follow-up messages (`send`). It ends when
-#          stdin is closed (`close` / `reap`) or it is stopped. The lane
-#          signals completion by printing a line starting LANE-DONE or
-#          LANE-BLOCKED in its own (non-subagent) assistant text.
-#          Catches: after an update on a second machine no watch tab opened and
-#          nothing said why, because every tab outcome went only to a log file
-#          no caller read. `doctor` reports what this machine can do before the
-#          first launch, and `start`/`resume`/`open` print the tab outcome with
-#          the operator's fix.
+# Purpose: Launch and track harness-matched headless conductor lanes. Claude
+#          streams follow-up input; Codex runs finite turns and resumes the
+#          exact saved session after exit. Task markers are assistant-only;
+#          fatal backend events override markers for the current run.
 #
 # Public API:
 #   ds-lane <start|send|close|reap|resume|list|tail|watch|open|open-all|
@@ -26,14 +17,14 @@
 #   `<ok|FAIL|unverified> <check>: <detail>`, each FAIL line followed by one
 #   `fix:` line and each unverified line by one `note:` line, then three
 #   summary lines. `tabs: <unverified|unavailable>` reflects only what a tab
-#   needs (every check except `ds-lane on PATH`). `launch offer:
+#   needs (platform, osascript, conductor terminal and Terminal.app). `launch offer:
 #   <available|unavailable: ds-lane not on PATH>` reflects only that check: a
 #   session offers to launch lanes only when `command -v ds-lane` succeeds,
 #   though tabs still open by absolute path. Last, `headless lanes:
-#   <available|unavailable>` (available whenever claude, python3 and jq
-#   resolve). Exit 1 when tabs or the launch offer is unavailable, i.e. on
+#   <available|unavailable>` (selected harness, permissions, python3, jq
+#   and POSIX detachment ready). Exit 1 when tabs or the launch offer is unavailable, i.e. on
 #   any FAIL; else 0. --json: {checks: [{check, status, detail, fix}], tabs,
-#   launch_offer, headless}.
+#   launch_offer, headless, harness, permissions_ready}.
 #   `start` and `resume` print the lane pid, then one line `tab: <outcome>`
 #   (the new tab.log open lines joined by "; ", never a `close ...` line a
 #   previous watch tab's closer appends meanwhile, `disabled (DS_LANE_NO_TAB=1)`, or
@@ -41,9 +32,9 @@
 #   kept, one `fix:` line for the operator. `open` prints `lane <name>:
 #   <outcome>` and the same `fix:` line. A tab outcome never changes the exit
 #   status.
-#   `start` prepends the marker contract (MARKER_CONTRACT below, the only
-#   canonical copy) to the prompt. `reap` closes stdin of every running lane
-#   that printed LANE-DONE or LANE-BLOCKED since its last message.
+#   `start` prepends the canonical MARKER_CONTRACT. `reap` closes marked
+#   Claude streams and records naturally exited Codex outcomes. Fatal events
+#   never authorize termination or completion.
 #   State: <primary>/.agentic/lanes/{.gitignore,prompts/,run/}, where
 #   <primary> is the first entry of `git worktree list --porcelain` for the
 #   cwd, so a call from any linked worktree lands in the primary checkout.
@@ -51,7 +42,8 @@
 #   run/<name>.{in,jsonl,err,meta,pid,tailpid,tab.log}.
 #   Env: DS_LANE_MAX (default 5, per repo), DS_LANE_RUN_DIR (overrides
 #   run/, propagated into the watch tab), DS_LANE_CLAUDE_BIN,
-#   DS_LANE_PERMISSION_MODE, DS_LANE_BG_CEILING_MS (default 0 = wait
+#   DS_LANE_HARNESS, DS_LANE_CODEX_BIN, DS_LANE_CODEX_CONTEXT_FILE,
+#   DS_LANE_LEGACY_CLAUDE_CONFIG_DIR, DS_LANE_PERMISSION_MODE, DS_LANE_BG_CEILING_MS (default 0 = wait
 #   indefinitely; "default" leaves the CLI default), DS_LANE_NO_TAB=1,
 #   DS_LANE_TAB_LOCK_WAIT_S (default 30), DS_LANE_TAB_LOCK (lock file path,
 #   for tests; not propagated into the watch tab), DS_LANE_TAB_WAIT_S (whole
@@ -99,49 +91,36 @@
 #   group shown on this Space also reads as not on screen, so the open uses
 #   a new window and the close reports the conductor tab not reselected.
 #
-# Upstream deps: git, python3 (os.setsid detach, getmtime, realpath), jq, ps,
-#   tail; claude CLI resolved as DS_LANE_CLAUDE_BIN, then `command -v claude`,
-#   then $CLAUDE_CODE_EXECPATH. Permission mode: DS_LANE_PERMISSION_MODE, else
-#   the conductor transcript
-#   ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/*/$CLAUDE_CODE_SESSION_ID.jsonl
-#   (last `permission-mode` record, else last `permissionMode` on a
-#   `type:"user"` record). CLAUDE_CONFIG_DIR is inherited, never set.
-#   macOS Terminal.app + osascript for watch tabs (System Events keystrokes
-#   need Accessibility permission; /usr/bin/osascript -l JavaScript queries
-#   CoreGraphics for the windows on screen in the current Space); tab
-#   open/close is serialized by a flock on the per-user file
-#   /tmp/ds-lane-tab-<uid>.lock (released by the kernel when its holder
-#   exits, so it never goes stale).
+# Upstream deps: git, python3, jq, ps, tail; _lane_runtime.py validates
+#   native identities (CODEX_THREAD_ID / CLAUDE_CODE_SESSION_ID / CLAUDECODE),
+#   agreeing AE_ADAPTER / DS_LANE_HARNESS bindings, exact original config/cwd
+#   and live policy evidence. Claude uses DS_LANE_CLAUDE_BIN > PATH >
+#   CLAUDE_CODE_EXECPATH; Codex uses DS_LANE_CODEX_BIN > PATH. Claude retains
+#   its live permission mode. Codex preserves supported sandbox fields and
+#   sets unattended approval_policy=never; source approval stays in metadata.
+#   No auth is copied. Optional Terminal tabs use osascript and the per-user
+#   flock; Automation/Accessibility consent remains unverified.
 #
-# Downstream consumers: content/references/runbook-conductor.md
-#   (§Launched lanes); bin/agentic-lane compat alias.
+# Downstream consumers: content/references/runbook-conductor.md;
+#   bin/agentic-lane compat alias; bin/tests/test_ds_lane.sh.
 #
-# Failure modes: dies (exit 1) with nothing written when not in a git repo or
-#   the primary checkout is bare. Every other refusal (invalid name,
-#   unreadable prompt, claude CLI not found, permission mode undeterminable,
-#   lane already running, DS_LANE_MAX live lanes; finished lanes hold a slot
-#   until `reap`/`close`) dies after .agentic/lanes/{.gitignore,prompts/,run/}
-#   exist but before any run/<name>.* file of that lane is written; the
-#   liveness sweep may already have pruned other lanes' dead .pid files. A
-#   pid is a live lane only while its start time equals the one recorded at
-#   launch and it runs the claude path recorded at launch (directly or under
-#   a shebang interpreter), so a reused pid never matches.
-#   Lanes run in the conductor's live permission mode: a lane in default,
-#   manual or acceptEdits mode has nobody to answer its prompts, so its tool
-#   calls are denied. DS_LANE_PERMISSION_MODE can exceed the conductor's own
-#   mode; that is the caller's responsibility (the runbook never sets it).
-#   Watch tabs are best-effort and never fail `start`; every open and close
-#   outcome is appended to run/<name>.tab.log (lines listed above). Tabs are
-#   macOS-only; elsewhere lanes work and tabs are skipped. Native Windows:
-#   os.setsid fails and `start` dies.
+# Failure modes: Unknown/conflicting harness, missing native policy evidence,
+#   unsupported policy, or unavailable saved runtime refuses without fallback.
+#   Start resolves runtime before state writes; resume validates saved runtime
+#   before changing files/offsets. Legacy records require claude_bin evidence;
+#   legacy resume requires explicit original config and captured init mode/cwd.
+#   Process ownership requires PID birth time and exact executable/CLI shape.
+#   Codex live send refuses without writes; close is nonterminating because
+#   finite stdin is already closed. Fatal current-run events suppress done and
+#   blocked: alive/up until exit, dead/down after. Native Windows detachment
+#   is unsupported. Tabs are optional and never fail a successful launch.
 #
 # Performance: `start` waits up to 5 s for the lane's init event, then up to
 #   DS_LANE_TAB_WAIT_S (default 8 s: a tab open with Cmd-T unanswered takes
 #   about 4.5 s) for the tab outcome; the lane is already running by then. Tab
 #   open runs detached and may wait DS_LANE_TAB_LOCK_WAIT_S for the lock.
 #
-# Retirement: delete when Claude Code ships native launch-and-track of
-#   headless sessions.
+# Retirement: delete when supported harnesses supply native conductor lanes.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -162,6 +141,8 @@ SELF="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "${BAS
   [[ "${1:-}" == doctor ]] || die "python3 not found (ds-lane needs it)"
   SELF="${BASH_SOURCE[0]}"
 }
+
+RUNTIME_HELPER="$(dirname "$SELF")/_lane_runtime.py"
 
 TAB_WAIT_S="${DS_LANE_TAB_WAIT_S:-8}"
 [[ "$TAB_WAIT_S" =~ ^[0-9]+$ ]] || TAB_WAIT_S=8
@@ -189,38 +170,37 @@ file_mtime() { python3 -c 'import os, sys; print(int(os.path.getmtime(sys.argv[1
 
 proc_start() { ps -p "$1" -o lstart= 2>/dev/null | tr -s ' ' || true; }
 
-# True only if pid is alive, started at the time recorded at launch, AND runs the lane's recorded
-# claude path followed by the `-p` launch() passes, as argv[0] or after an interpreter (a shebang
-# install runs as `node <path> -p ...`). The start time is what rules out a reused pid.
-is_live_claude() { # is_live_claude <pid> <claude-bin> <start-time>
-  local pid="$1" bin="${2:-}" start="${3:-}" args
-  [[ "$pid" =~ ^[0-9]+$ && -n "$bin" && -n "$start" ]] || return 1
-  kill -0 "$pid" 2>/dev/null || return 1
-  [[ "$(proc_start "$pid")" == "$start" ]] || return 1
-  args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
-  [[ "$args" == "$bin -p "* || "$args" == *" $bin -p "* ]]
-}
-
 # True only if the lane's recorded stdin feeder is still a `tail -f` of this lane's .in file.
 is_live_feeder() { # is_live_feeder <name>
-  local name="$1" pid args
+  local name="$1" pid="${2:-}" args recorded
   [[ -f "$RUN_DIR/$name.tailpid" ]] || return 1
-  pid="$(tr -dc '0-9' < "$RUN_DIR/$name.tailpid")"
-  [[ -n "$pid" ]] || return 1
+  recorded="$(cat "$RUN_DIR/$name.tailpid")"
+  [[ "$recorded" =~ ^[0-9]+$ ]] || return 1
+  [[ -n "$pid" ]] || pid="$recorded"
+  [[ "$pid" == "$recorded" ]] || return 1
   kill -0 "$pid" 2>/dev/null || return 1
   args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
-  [[ "$args" == tail\ * && "$args" == *"$RUN_DIR/$name.in" ]]
+  [[ "$args" == "tail -n +1 -f $RUN_DIR/$name.in" ]]
 }
 
 kill_feeder() { # closes the lane's stdin
-  local name="$1"
-  if is_live_feeder "$name"; then kill -TERM "$(tr -dc '0-9' < "$RUN_DIR/$name.tailpid")" 2>/dev/null || true; fi
+  local name="$1" pid
+  pid="$(cat "$RUN_DIR/$name.tailpid" 2>/dev/null || true)"
+  if is_live_feeder "$name" "$pid"; then kill -TERM "$pid" 2>/dev/null || true; fi
   rm -f "$RUN_DIR/$name.tailpid"
 }
 
-is_live_lane() { # is_live_lane <name>
-  [[ -f "$RUN_DIR/$1.pid" ]] && is_live_claude "$(tr -dc '0-9' < "$RUN_DIR/$1.pid")" "$(meta_get "$1" claude_bin)" "$(meta_get "$1" pid_start)"
+is_live_lane() {
+  local name="$1" pid="${2:-}" recorded
+  [[ -f "$RUN_DIR/$name.pid" ]] || return 1
+  recorded="$(cat "$RUN_DIR/$name.pid")"
+  [[ "$recorded" =~ ^[0-9]+$ ]] || return 1
+  [[ -n "$pid" ]] || pid="$recorded"
+  [[ "$pid" == "$recorded" ]] && python3 "$RUNTIME_HELPER" owns "$RUN_DIR/$name.meta" "$pid" 2>/dev/null
 }
+
+lane_harness() { python3 "$RUNTIME_HELPER" events "$RUN_DIR/$1.meta" harness; }
+lane_fatal() { [[ "$(python3 "$RUNTIME_HELPER" events "$RUN_DIR/$1.meta" fatal)" == 1 ]]; }
 
 meta_get() { # meta_get <name> <key>
   local f="$RUN_DIR/$1.meta"
@@ -230,6 +210,7 @@ meta_get() { # meta_get <name> <key>
 
 meta_set() { # meta_set <name> <key> <value>
   local f="$RUN_DIR/$1.meta" tmp
+  [[ "$3" != *$'\n'* && "$3" != *$'\r'* ]] || die "metadata value contains a newline"
   tmp="$(mktemp "$RUN_DIR/.meta.XXXXXX")"
   { [[ -f "$f" ]] && grep -v -E "^$2=" "$f" || true; echo "$2=$3"; } > "$tmp"
   mv "$tmp" "$f"
@@ -237,23 +218,30 @@ meta_set() { # meta_set <name> <key> <value>
 
 log_lines() { if [[ -f "$1" ]]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
 
-# Remove .pid files whose process is not a live claude; mark their lanes exited. Prints live count.
+persist_exit() {
+  local name="$1" end
+  if [[ -f "$RUN_DIR/$name.meta" ]] && { [[ "$(meta_get "$name" status)" == running ]] || lane_fatal "$name"; }; then
+    capture_session "$name"
+    meta_set "$name" status "$(lane_marker "$name" | sed 's/^$/dead/')"
+    [[ -n "$(meta_get "$name" status)" ]] || meta_set "$name" status dead
+    end="$(file_mtime "$RUN_DIR/$name.jsonl" || true)"
+    meta_set "$name" end_epoch "${end:-$(date +%s)}"
+  fi
+}
+
+# Prune exited lane PIDs and persist their current-run outcome.
 count_live() {
-  local n=0 f pid name end
+  local n=0 f name
   for f in "$RUN_DIR"/*.pid; do
     [[ -e "$f" ]] || continue
-    pid="$(tr -dc '0-9' < "$f")"
     name="$(basename "$f" .pid)"
-    if is_live_claude "$pid" "$(meta_get "$name" claude_bin)" "$(meta_get "$name" pid_start)"; then
+    if is_live_lane "$name"; then
       n=$((n + 1))
     else
+      lane_harness "$name" > /dev/null || exit 1
       rm -f "$f"
       kill_feeder "$name"
-      if [[ -f "$RUN_DIR/$name.meta" && "$(meta_get "$name" status)" == "running" ]]; then
-        meta_set "$name" status exited
-        end="$(file_mtime "$RUN_DIR/$name.jsonl" || true)"
-        meta_set "$name" end_epoch "${end:-$(date +%s)}"
-      fi
+      persist_exit "$name"
     fi
   done
   echo "$n"
@@ -263,7 +251,7 @@ count_live() {
 capture_session() {
   local name="$1" sid
   [[ -s "$RUN_DIR/$name.jsonl" ]] || return 0
-  sid="$(jq -r 'select(.type == "system" and .subtype == "init") | .session_id // empty' "$RUN_DIR/$name.jsonl" 2>/dev/null | tail -n1 || true)"
+  sid="$(python3 "$RUNTIME_HELPER" events "$RUN_DIR/$name.meta" session)"
   if [[ -n "$sid" && "$sid" != "$(meta_get "$name" session_id)" ]]; then meta_set "$name" session_id "$sid"; fi
   return 0
 }
@@ -274,7 +262,7 @@ fmt_elapsed() {
 }
 
 # jq filter: the lane's own assistant text (subagent messages carry parent_tool_use_id).
-MAIN_TEXT='select(.type == "assistant" and .parent_tool_use_id == null) | [.message.content[]? | select(.type == "text") | .text] | join("\n") | select(length > 0)'
+MAIN_TEXT='(select(.type == "assistant" and .parent_tool_use_id == null) | [.message.content[]? | select(.type == "text") | .text] | join("\n") | select(length > 0)), (select(.type == "item.completed" and .item.type == "agent_message") | .item.text)'
 
 # jq filter (-R, one raw jsonl line): `watch` view of the lane's own text, tool calls, tool
 # errors and results.
@@ -287,21 +275,12 @@ WATCH_FILTER='fromjson? | (
     | select(.type? == "tool_result" and .is_error == true)
     | "  ! tool error: " + ((.content | if type == "string" then . elif type == "array" then (map(.text? // "") | join(" ")) else tostring end)
       | gsub("[\r\n]+"; " ") | .[0:100])),
-  (select(.type == "result") | "=== result (\(.subtype // "-"), is_error: \(.is_error)) ===\n\(.result // "")")
+  (select(.type == "item.completed" and .item.type != "agent_message") | "  > " + (.item | tostring)),
+  (select(.type == "turn.completed" or .type == "turn.failed" or .type == "error") | tostring),
+  (select(.type == "result" and .parent_tool_use_id == null) | "=== result (\(.subtype // "-"), is_error: \(.is_error)) ===\n\(.result // "")")
 )'
 
-# Prints done|blocked if the lane printed a LANE-DONE / LANE-BLOCKED line since the last message
-# sent to it, else nothing. The latest marker wins.
-lane_marker() { # lane_marker <name>
-  local name="$1" log="$RUN_DIR/$1.jsonl" off
-  [[ -s "$log" ]] || return 0
-  off="$(meta_get "$name" marker_offset)"
-  tail -n "+$(( ${off:-0} + 1 ))" "$log" | jq -r "$MAIN_TEXT" 2>/dev/null | awk '
-    { sub(/^[ \t*#>`]+/, "") }
-    /^LANE-DONE/ { s = "done" }
-    /^LANE-BLOCKED/ { s = "blocked" }
-    END { if (s != "") print s }' || true
-}
+lane_marker() { python3 "$RUNTIME_HELPER" events "$RUN_DIR/$1.meta" marker; }
 
 # Append one stream-json user message to the lane's input file.
 write_input() { # write_input <name> <text>
@@ -311,40 +290,35 @@ write_input() { # write_input <name> <text>
 # Text argument, or the contents of a readable file.
 text_or_file() { if [[ -f "$1" && -r "$1" ]]; then cat "$1"; else printf '%s' "$1"; fi; }
 
-# Prints the claude CLI path `start` would use, or nothing.
-find_claude_bin() {
-  local c="${DS_LANE_CLAUDE_BIN:-}"
-  if [[ -z "$c" ]]; then c="$(command -v claude 2>/dev/null || true)"; fi
-  if [[ -z "$c" ]]; then c="${CLAUDE_CODE_EXECPATH:-}"; fi
-  printf '%s' "$c"
+load_runtime() {
+  RUNTIME="$1"
+  HARNESS="$(jq -r .harness <<< "$RUNTIME")"
+  EXECUTABLE="$(jq -r .executable <<< "$RUNTIME")"
+  CONFIG_DIR="$(jq -r .config_dir <<< "$RUNTIME")"
+  RUNTIME_CWD="$(jq -r .runtime_cwd <<< "$RUNTIME")"
+  PERMISSION_MODE="$(jq -r '.permission_mode // ""' <<< "$RUNTIME")"
+  BG_CEILING="$(jq -r '.bg_ceiling // ""' <<< "$RUNTIME")"
 }
 
-resolve_claude_bin() {
-  local c
-  c="$(find_claude_bin)"
-  [[ -n "$c" ]] || die "claude CLI not found (set DS_LANE_CLAUDE_BIN, or put claude on PATH)"
-  [[ -x "$c" ]] || die "claude CLI not executable at $c"
-  CLAUDE_BIN="$c"
+resolve_runtime() {
+  local runtime
+  runtime="$(python3 "$RUNTIME_HELPER" resolve)" || exit 1
+  load_runtime "$runtime"
 }
 
-# The conductor's live permission mode; lanes always run in it.
-resolve_permission_mode() {
-  local mode="${DS_LANE_PERMISSION_MODE:-}" sid="${CLAUDE_CODE_SESSION_ID:-}" f t
-  if [[ -z "$mode" && -n "$sid" ]]; then
-    for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$sid".jsonl; do
-      [[ -f "$f" ]] || continue
-      t="$f"
-      break
-    done
-    if [[ -n "${t:-}" ]]; then
-      mode="$(jq -R -r 'fromjson? | select(.type == "permission-mode") | .permissionMode // empty' "$t" 2>/dev/null | tail -n1 || true)"
-      if [[ -z "$mode" ]]; then
-        mode="$(jq -R -r 'fromjson? | select(.type == "user") | .permissionMode // empty' "$t" 2>/dev/null | tail -n1 || true)"
-      fi
-    fi
-  fi
-  [[ -n "$mode" ]] || die "cannot determine the conductor's permission mode; set DS_LANE_PERMISSION_MODE"
-  PERMISSION_MODE="$mode"
+saved_runtime() {
+  local runtime
+  runtime="$(python3 "$RUNTIME_HELPER" saved "$RUN_DIR/$1.meta")" || exit 1
+  load_runtime "$runtime"
+}
+
+save_runtime() {
+  local name="$1" key value
+  for key in harness executable config_dir runtime_cwd permission_mode bg_ceiling codex_context; do
+    value="$(jq -r --arg k "$key" '.[$k] // ""' <<< "$RUNTIME")"
+    [[ -z "$value" ]] || meta_set "$name" "$key" "$value"
+  done
+  if [[ "$HARNESS" == claude ]]; then meta_set "$name" claude_bin "$EXECUTABLE"; fi
 }
 
 # /dev/<tty> of the first ancestor process that has a controlling terminal, else empty.
@@ -363,7 +337,18 @@ cmd_reap() {
   for f in "$RUN_DIR"/*.pid; do
     [[ -e "$f" ]] || continue
     name="$(basename "$f" .pid)"
-    is_live_lane "$name" || continue
+    if ! is_live_lane "$name"; then
+      capture_session "$name"
+      state="$(lane_marker "$name")"
+      meta_set "$name" status "${state:-dead}"
+      rm -f "$RUN_DIR/$name.pid"
+      kill_feeder "$name"
+      meta_set "$name" end_epoch "$(file_mtime "$RUN_DIR/$name.jsonl" || date +%s)"
+      echo "reaped $name (${state:-dead}): exited"
+      n=$((n + 1))
+      continue
+    fi
+    [[ "$(lane_harness "$name")" == claude ]] || continue
     is_live_feeder "$name" || continue
     state="$(lane_marker "$name")"
     [[ -n "$state" ]] || continue
@@ -376,12 +361,8 @@ cmd_reap() {
   echo "reaped $n lane(s)"
 }
 
-# Refuse before touching any lane file: claude missing, mode unknown, name already running, or cap
-# reached.
 check_capacity() { # check_capacity <name>
   local live
-  resolve_claude_bin
-  resolve_permission_mode
   live="$(count_live)"
   if [[ -f "$RUN_DIR/$1.pid" ]]; then
     die "lane '$1' is already running (pid $(cat "$RUN_DIR/$1.pid"))"
@@ -394,31 +375,46 @@ launch() {
   local name="$1" text="$2" sid="${3:-}" pid
   local -a args env_extra=()
 
-  args=(-p --input-format stream-json --output-format stream-json --verbose --permission-mode "$PERMISSION_MODE")
-  if [[ -n "$sid" ]]; then args+=(--resume "$sid"); fi
-  if [[ "$BG_CEILING" != "default" ]]; then env_extra=("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=$BG_CEILING"); fi
+  save_runtime "$name"
+  env_extra=(-u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID -u CLAUDECODE -u CLAUDE_CODE_EXECPATH -u CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS)
+  if [[ "$HARNESS" == claude ]]; then
+    args=(-p --input-format stream-json --output-format stream-json --verbose --permission-mode "$PERMISSION_MODE")
+    [[ -z "$sid" ]] || args+=(--resume "$sid")
+    env_extra+=("CLAUDE_CONFIG_DIR=$CONFIG_DIR" "AE_ADAPTER=claude" "DS_LANE_HARNESS=claude")
+    [[ "$BG_CEILING" == default ]] || env_extra+=("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=$BG_CEILING")
+    : > "$RUN_DIR/$name.in"
+    write_input "$name" "$text"
+  else
+    args=(exec)
+    [[ -z "$sid" ]] || args+=(resume)
+    args+=(--json)
+    while IFS= read -r override; do args+=(-c "$override"); done < <(jq -r '.codex_context | fromjson | .overrides[]' <<< "$RUNTIME")
+    [[ -z "$sid" ]] || args+=("$sid")
+    args+=(-)
+    env_extra+=("CODEX_HOME=$CONFIG_DIR" "AE_ADAPTER=codex" "DS_LANE_HARNESS=codex")
+    printf '%s\n' "$text" > "$RUN_DIR/$name.in"
+  fi
 
-  : > "$RUN_DIR/$name.in"
-  write_input "$name" "$text"
-  meta_set "$name" claude_bin "$CLAUDE_BIN"
-
-  # Detach: nohup + new session via python os.setsid (macOS has no setsid(1)). The launcher forks
-  # the stdin feeder, then execs claude, so the recorded pid is the claude process itself.
-  cd "$PRIMARY"
-  nohup env ${env_extra[@]+"${env_extra[@]}"} python3 -c '
+  # setsid + exec keeps the recorded PID on the CLI; only Claude needs a feeder.
+  cd "$RUNTIME_CWD"
+  nohup env "${env_extra[@]}" python3 -c '
 import os, sys
 os.setsid()
-infile, tailpid_file, argv = sys.argv[1], sys.argv[2], sys.argv[3:]
-r, w = os.pipe()
-feeder = os.fork()
-if feeder == 0:
-    os.dup2(w, 1); os.close(r); os.close(w)
-    os.execvp("tail", ["tail", "-n", "+1", "-f", infile])
-os.close(w); os.dup2(r, 0); os.close(r)
-with open(tailpid_file, "w") as f:
-    f.write(str(feeder))
+harness, infile, tailpid_file, argv = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+if harness == "claude":
+    r, w = os.pipe()
+    feeder = os.fork()
+    if feeder == 0:
+        os.dup2(w, 1); os.close(r); os.close(w)
+        os.execvp("tail", ["tail", "-n", "+1", "-f", infile])
+    os.close(w); os.dup2(r, 0); os.close(r)
+    with open(tailpid_file, "w") as f:
+        f.write(str(feeder))
+else:
+    fd = os.open(infile, os.O_RDONLY)
+    os.dup2(fd, 0); os.close(fd)
 os.execv(argv[0], argv)
-' "$RUN_DIR/$name.in" "$RUN_DIR/$name.tailpid" "$CLAUDE_BIN" "${args[@]}" \
+' "$HARNESS" "$RUN_DIR/$name.in" "$RUN_DIR/$name.tailpid" "$EXECUTABLE" "${args[@]}" \
     < /dev/null >> "$RUN_DIR/$name.jsonl" 2>> "$RUN_DIR/$name.err" &
   pid=$!
   disown "$pid" 2>/dev/null || true
@@ -464,13 +460,14 @@ cmd_resume() {
   valid_name "$name"
   [[ -f "$RUN_DIR/$name.meta" ]] || die "no such lane: $name"
   is_live_lane "$name" && die "lane '$name' is still running; use 'ds-lane send $name <text>'"
-  check_capacity "$name"
+  saved_runtime "$name"
   capture_session "$name"
   sid="$(meta_get "$name" session_id)"
-  [[ -n "$sid" ]] || die "no session_id recorded for '$name'"
+  [[ "$sid" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "no valid session_id recorded for '$name'"
   text="$RESUME_TEXT"
   if [[ $# -eq 2 ]]; then text="$(text_or_file "$2")"; fi
   [[ -n "$text" ]] || die "empty message"
+  check_capacity "$name"
   if [[ "${DS_LANE_NO_TAB:-}" != 1 ]]; then tty="$(conductor_tty)"; fi
   # Earlier markers belong to the previous run; the log is appended to, not replaced.
   meta_set "$name" marker_offset "$(log_lines "$RUN_DIR/$name.jsonl")"
@@ -483,6 +480,7 @@ cmd_send() {
   [[ $# -eq 2 ]] || die "usage: ds-lane send <name> <text-or-file>"
   local name="$1" text
   valid_name "$name"
+  [[ "$(lane_harness "$name")" == claude ]] || die "Codex live send is unsupported; wait for exit then use 'ds-lane resume $name <text>'"
   is_live_lane "$name" || die "lane '$name' is not running; use 'ds-lane resume $name <text>'"
   is_live_feeder "$name" || die "lane '$name' has no open input channel (closed, or started by another launcher)"
   text="$(text_or_file "$2")"
@@ -495,9 +493,11 @@ cmd_send() {
 
 cmd_close() {
   [[ $# -eq 1 ]] || die "usage: ds-lane close <name>"
-  local name="$1"
+  local name="$1" harness
   valid_name "$name"
   [[ -f "$RUN_DIR/$name.meta" ]] || die "no such lane: $name"
+  harness="$(lane_harness "$name")"
+  if [[ "$harness" == codex ]]; then echo "Codex bounded input already closed; execution continues until natural exit (use stop to terminate)"; return 0; fi
   is_live_feeder "$name" || die "lane '$name' has no open input channel (already closed, or started by another launcher)"
   local state
   state="$(lane_marker "$name")"
@@ -511,8 +511,8 @@ cmd_list() { # cmd_list [name...]
   local n
   for n in "$@"; do valid_name "$n"; done
   count_live > /dev/null
-  local f name pid proc state marker start end elapsed sid last any=0 want
-  printf '%-16s %-7s %-8s %-5s %-11s %-38s %s\n' NAME PID STATE PROC ELAPSED SESSION_ID LAST_ASSISTANT
+  local f name pid proc state marker start end elapsed sid last harness any=0 want
+  printf '%-16s %-7s %-8s %-5s %-8s %-11s %-38s %s\n' NAME PID STATE PROC HARNESS ELAPSED SESSION_ID LAST_ASSISTANT
   for f in "$RUN_DIR"/*.meta; do
     [[ -e "$f" ]] || continue
     name="$(basename "$f" .meta)"
@@ -522,9 +522,15 @@ cmd_list() { # cmd_list [name...]
       (( want )) || continue
     fi
     any=1
+    harness="$(lane_harness "$name")"
     capture_session "$name"
     pid="$(meta_get "$name" pid)"
-    if is_live_lane "$name"; then proc="up"; state="alive"; else proc="down"; state="dead"; fi
+    if is_live_lane "$name"; then
+      proc="up"; state="alive"
+    else
+      proc="down"; state="dead"
+      persist_exit "$name"
+    fi
     marker="$(lane_marker "$name")"
     if [[ -n "$marker" ]]; then state="$marker"; fi
     start="$(meta_get "$name" start_epoch)"
@@ -532,8 +538,8 @@ cmd_list() { # cmd_list [name...]
     if [[ "$proc" == up || -z "$end" ]]; then end="$(date +%s)"; fi
     elapsed="$(fmt_elapsed $(( end - ${start:-$end} )))"
     sid="$(meta_get "$name" session_id)"
-    last="$(jq -r "$MAIN_TEXT"' | gsub("[\r\n]+"; " ")' "$RUN_DIR/$name.jsonl" 2>/dev/null | tail -n1 | cut -c1-150 || true)"
-    printf '%-16s %-7s %-8s %-5s %-11s %-38s %s\n' "$name" "$pid" "$state" "$proc" "$elapsed" "${sid:--}" "${last:--}"
+    last="$(python3 "$RUNTIME_HELPER" events "$RUN_DIR/$name.meta" texts | jq -r 'gsub("[\r\n]+"; " ")' | tail -n1 | cut -c1-150 || true)"
+    printf '%-16s %-7s %-8s %-5s %-8s %-11s %-38s %s\n' "$name" "$pid" "$state" "$proc" "$harness" "$elapsed" "${sid:--}" "${last:--}"
   done
   (( any )) || echo "(no lanes)"
 }
@@ -547,14 +553,9 @@ cmd_tail() {
   [[ -f "$log" ]] || die "no such lane: $name"
   capture_session "$name"
   echo "== last $n assistant messages ($name) =="
-  { jq -c "$MAIN_TEXT" "$log" 2>/dev/null || true; } | tail -n "$n" | jq -r '"--- " + ., ""'
-  if jq -e 'select(.type == "result")' "$log" > /dev/null 2>&1; then
-    echo "== latest result =="
-    jq -c 'select(.type == "result")' "$log" | tail -n1 \
-      | jq -r '"is_error: \(.is_error)\nsubtype: \(.subtype // "-")\ntotal_cost_usd: \(.total_cost_usd // "n/a")\nnum_turns: \(.num_turns // "-")\nresult: \(.result // "")"'
-  else
-    echo "== result: (none yet) =="
-  fi
+  { python3 "$RUNTIME_HELPER" events "$RUN_DIR/$name.meta" texts || true; } | tail -n "$n" | jq -r '"--- " + ., ""'
+  echo "== latest result =="
+  python3 "$RUNTIME_HELPER" events "$RUN_DIR/$name.meta" result
   if [[ -s "$RUN_DIR/$name.err" ]]; then
     echo "== stderr (last 3 lines) =="
     tail -n 3 "$RUN_DIR/$name.err"
@@ -566,12 +567,13 @@ cmd_stop() {
   local name="$1" pid
   valid_name "$name"
   [[ -f "$RUN_DIR/$name.meta" ]] || die "no such lane: $name"
+  lane_harness "$name" > /dev/null
   pid="$(meta_get "$name" pid)"
-  if is_live_lane "$name"; then
+  if is_live_lane "$name" "$pid"; then
     kill -TERM "$pid"
     echo "sent SIGTERM to $pid"
   else
-    echo "lane '$name' not running (pid ${pid:-?} not a live claude process)"
+    echo "lane '$name' not running (pid ${pid:-?} not an owned lane process)"
   fi
   kill_feeder "$name"
   rm -f "$RUN_DIR/$name.pid"
@@ -609,7 +611,7 @@ cmd_watch() {
         if [[ -n "$was_alive" ]]; then echo "--- lane $name running again ---"; fi
       else
         state="$(lane_marker "$name")"
-        if [[ -z "$state" ]]; then state="$(meta_get "$name" status)"; fi
+        if lane_fatal "$name"; then state=dead; elif [[ -z "$state" ]]; then state="$(meta_get "$name" status)"; fi
         if [[ -z "$state" || "$state" == running ]]; then state=exited; fi
         echo "--- lane $name ended ($state) ---"
         end_at=$(( $(date +%s) + 15 ))
@@ -1181,11 +1183,10 @@ json_str() {
 
 # Reports whether this machine and session can open watch tabs and run lanes. Runs no osascript:
 # an Apple event is the only thing that can raise a macOS consent prompt, so none is sent and
-# consent stays `unverified`. `tabs:` counts every FAIL except `ds-lane on PATH`, which only the
-# `launch offer:` line reports (tabs open by absolute path without it). Returns 1 when tabs or the
-# launch offer is unavailable, i.e. on any FAIL.
+# consent stays `unverified`. Tab readiness excludes runtime/tool failures;
+# launch offer depends only on PATH. Any unavailable category returns 1.
 cmd_doctor() {
-  local json=0 os p c t tp i fails=0 headless=1 offer=1 tabs sep=""
+  local json=0 os p c t tp i fails=0 headless=1 permissions=0 offer=1 tabs sep="" harness="unknown"
   local lb="$HOME/.local/bin" lb_state="is not"
   local tabless='lanes still run without tabs: start them with DS_LANE_NO_TAB=1 and follow each with `ds-lane tail <name>`'
   case "${1:-}" in
@@ -1209,13 +1210,18 @@ cmd_doctor() {
       "osascript ships with macOS at /usr/bin/osascript: put /usr/bin on this session's PATH; until then $tabless."
   fi
 
-  c="$(find_claude_bin)"
-  if [[ -n "$c" && -x "$c" ]]; then
-    doc_row claude ok "$c"
+  harness="$(python3 "$RUNTIME_HELPER" identity 2>/dev/null || echo unknown)"
+  if c="$(python3 "$RUNTIME_HELPER" resolve 2>&1)"; then
+    harness="$(jq -r .harness <<< "$c")"
+    permissions=1
+    doc_row runtime ok "$harness: $(jq -r .executable <<< "$c"); original permissions validated"
   else
     headless=0
-    doc_row claude FAIL "${c:+not executable at $c}${c:-not found (DS_LANE_CLAUDE_BIN, PATH, CLAUDE_CODE_EXECPATH)}" \
-      "Install Claude Code so \`claude\` is on PATH, or set DS_LANE_CLAUDE_BIN to the full path of the claude executable; no lane can start without it."
+    doc_row runtime FAIL "$c" "Use the invoking harness's native identity and live policy, or an explicit DS_LANE_HARNESS binding with its policy evidence; no fallback is used."
+  fi
+  if ! python3 -c 'import os; assert hasattr(os, "setsid")' 2>/dev/null; then
+    headless=0
+    doc_row detachment FAIL "POSIX setsid unavailable" "Use a POSIX host; native Windows lane detachment is unsupported."
   fi
   for t in python3 jq; do
     if p="$(command -v "$t" 2>/dev/null)"; then
@@ -1266,7 +1272,7 @@ cmd_doctor() {
   fi
 
   for i in "${!D_STATUS[@]}"; do
-    if [[ "${D_STATUS[$i]}" == FAIL && "${D_CHECK[$i]}" != "ds-lane on PATH" ]]; then fails=$((fails + 1)); fi
+    if [[ "${D_STATUS[$i]}" == FAIL && "${D_CHECK[$i]}" != "ds-lane on PATH" && "${D_CHECK[$i]}" != runtime && "${D_CHECK[$i]}" != python3 && "${D_CHECK[$i]}" != jq && "${D_CHECK[$i]}" != detachment ]]; then fails=$((fails + 1)); fi
   done
   if (( fails > 0 )); then tabs=unavailable; else tabs=unverified; fi
 
@@ -1277,8 +1283,8 @@ cmd_doctor() {
         "$(json_str "${D_STATUS[$i]}")" "$(json_str "${D_DETAIL[$i]}")" "$(json_str "${D_FIX[$i]}")"
       sep=","
     done
-    printf '],"tabs":"%s","launch_offer":%s,"headless":%s}\n' "$tabs" \
-      "$( (( offer )) && echo true || echo false)" "$( (( headless )) && echo true || echo false)"
+    printf '],"tabs":"%s","launch_offer":%s,"headless":%s,"harness":%s,"permissions_ready":%s}\n' "$tabs" \
+      "$( (( offer )) && echo true || echo false)" "$( (( headless )) && echo true || echo false)" "$(json_str "$harness")" "$( (( permissions )) && echo true || echo false)"
   else
     for i in "${!D_CHECK[@]}"; do
       printf '%-10s %s: %s\n' "${D_STATUS[$i]}" "${D_CHECK[$i]}" "${D_DETAIL[$i]}"
@@ -1299,12 +1305,12 @@ cmd_doctor() {
       echo "launch offer: unavailable: ds-lane not on PATH"
     fi
     if (( headless )); then
-      echo "headless lanes: available (claude, python3 and jq resolve; $tabless)"
+      echo "headless lanes: available ($harness runtime and permissions, python3 and jq ready; auth/quota unverified; $tabless)"
     else
-      echo "headless lanes: unavailable (claude, python3 and jq must all resolve)"
+      echo "headless lanes: unavailable ($harness runtime, permissions, python3, jq and POSIX detachment required; auth/quota unverified)"
     fi
   fi
-  (( fails == 0 && offer ))
+  (( fails == 0 && offer && headless ))
 }
 
 cmd_resume_hint() {
@@ -1315,16 +1321,23 @@ cmd_resume_hint() {
   capture_session "$name"
   sid="$(meta_get "$name" session_id)"
   [[ -n "$sid" ]] || die "no session_id captured yet for '$name'"
-  echo "cd $(printf '%q' "$PRIMARY") && ${CLAUDE_CONFIG_DIR:+CLAUDE_CONFIG_DIR=$(printf '%q' "$CLAUDE_CONFIG_DIR") }claude --resume $sid"
+  saved_runtime "$name"
+  printf 'cd %q && %s=%q %q ' "$RUNTIME_CWD" "$([[ "$HARNESS" == codex ]] && echo CODEX_HOME || echo CLAUDE_CONFIG_DIR)" "$CONFIG_DIR" "$EXECUTABLE"
+  if [[ "$HARNESS" == codex ]]; then
+    while IFS= read -r override; do printf -- '-c %q ' "$override"; done < <(jq -r '.codex_context | fromjson | .overrides[]' <<< "$RUNTIME")
+    printf 'resume %q\n' "$sid"
+  else
+    printf -- '--permission-mode %q --resume %q\n' "$PERMISSION_MODE" "$sid"
+  fi
 }
 
 usage() {
   cat <<EOF
 usage: ds-lane <command>
-  start <name> <prompt-file>     launch a detached headless lane (max $MAX_LANES); stays up until closed
-  send <name> <text-or-file>     send a follow-up user message to a running lane
-  close <name>                   close the lane's stdin so it exits cleanly
-  reap                           close every running lane that printed LANE-DONE / LANE-BLOCKED
+  start <name> <prompt-file>     launch a matched headless lane (max $MAX_LANES)
+  send <name> <text-or-file>     Claude live input; Codex requires resume after exit
+  close <name>                   close Claude stdin; Codex bounded input is already closed
+  reap                           close marked Claude input; record naturally exited outcomes
   resume <name> [text-or-file]   relaunch an exited lane on its recorded session_id
   list [name...]                 name, pid, state (done/blocked/alive/dead), elapsed, session_id, last line
   tail <name> [n]                last n assistant messages + latest result event
@@ -1332,7 +1345,7 @@ usage: ds-lane <command>
   open <name>                    open a Terminal.app tab running 'ds-lane watch <name>' without taking focus
   open-all                       open a watch tab for every live lane
   stop <name>                    SIGTERM a live lane recorded by this tool
-  resume-hint <name>             print the interactive claude --resume command
+  resume-hint <name>             print the original interactive harness resume command
   count                          print number of live lanes (prunes dead pid files)
   path                           print the state dir; prompt and message files go in its prompts/
   doctor [--json]                check whether this machine and session can open watch tabs and run lanes; read-only, sends no Apple event
@@ -1346,6 +1359,7 @@ case "$sub" in
   __close-tab) close_tab_now "$@"; exit 0 ;;
   doctor) if cmd_doctor "$@"; then exit 0; else exit 1; fi ;;
 esac
+if [[ "$sub" == start ]]; then resolve_runtime; fi
 init_state
 case "$sub" in
   start) cmd_start "$@" ;;

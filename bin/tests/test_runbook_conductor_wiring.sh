@@ -157,6 +157,10 @@ else
   fi
 fi
 
+for phrase in 'starts with `headless lanes: unavailable`' 'Branch on HARNESS, STATE and PROC' 'Codex live send is unsupported' 'Record delivery only after send/resume succeeds' 'successful turn without a task marker'; do
+  if grep -qF "$phrase" <<< "$launched"; then _pass "launched lanes: $phrase"; else _fail "missing launched-lanes contract: $phrase"; fi
+done
+
 fields="$(grep -E '^Fields: ' "$REF")"
 if grep -qF 'launched' <<<"$fields"; then
   _pass "State file Fields line names launched"
