@@ -121,6 +121,38 @@ def test_legacy_refuses_missing_or_conflicting_provenance(tmp_path, monkeypatch,
         runtime.saved(str(path))
 
 
+@pytest.mark.parametrize(
+    "fields, valid",
+    [
+        ({"config_env_set": "0"}, True),
+        ({"config_env_set": "1", "config_env": "/explicit"}, True),
+        ({"config_env_set": "1"}, False),
+        ({"config_env_set": "0", "config_env": "/explicit"}, False),
+        ({"config_env_set": "yes", "config_env": "/explicit"}, False),
+        ({"config_env_set": "true"}, False),
+    ],
+)
+def test_saved_config_environment_is_validated(tmp_path, fields, valid):
+    path = tmp_path / "lane.meta"
+    sh = str(Path(shutil.which("sh")).resolve())
+    write_meta(
+        path,
+        harness="claude",
+        executable=sh,
+        claude_bin=sh,
+        config_dir=tmp_path,
+        runtime_cwd=tmp_path,
+        permission_mode="default",
+        bg_ceiling="0",
+        **fields,
+    )
+    if valid:
+        assert runtime.saved(str(path))["config_env_set"] == fields["config_env_set"]
+    else:
+        with pytest.raises(ValueError, match="saved config environment"):
+            runtime.saved(str(path))
+
+
 def test_feeder_signals_the_pid_it_validated(tmp_path, processes):
     decoy = processes("sleep", "60")
     infile = tmp_path / "owned.in"

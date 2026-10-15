@@ -144,10 +144,8 @@ def resolve():
     env = os.environ
     if not hasattr(os, "setsid"):
         refuse("POSIX setsid unavailable; native Windows lane detachment is unsupported")
-    config = directory(
-        env.get("CODEX_HOME" if harness == "codex" else "CLAUDE_CONFIG_DIR")
-        or str(Path.home() / (".codex" if harness == "codex" else ".claude"))
-    )
+    config_env = env.get("CODEX_HOME" if harness == "codex" else "CLAUDE_CONFIG_DIR", "")
+    config = directory(config_env or str(Path.home() / (".codex" if harness == "codex" else ".claude")))
     override = env.get("DS_LANE_" + harness.upper() + "_BIN")
     if harness == "claude" and not override:
         override = shutil.which("claude") or env.get("CLAUDE_CODE_EXECPATH")
@@ -155,6 +153,10 @@ def resolve():
         "harness": harness,
         "executable": executable(override, harness),
         "config_dir": config,
+        # Claude Code on macOS picks its keychain entry by whether CLAUDE_CONFIG_DIR is set, not by
+        # its path, so the lane gets the caller's variable as given, or none, never config_dir.
+        "config_env_set": "1" if config_env else "0",
+        "config_env": config_env,
         "runtime_cwd": directory(os.getcwd()),
     }
     if harness == "claude":
@@ -242,6 +244,9 @@ def saved(path):
         )
     }
     result["harness"] = harness
+    if "config_env_set" in meta:
+        result["config_env_set"] = meta["config_env_set"]
+        result["config_env"] = meta.get("config_env", "")
     if not meta.get("harness"):
         result["executable"] = meta["claude_bin"]
         config = os.environ.get("DS_LANE_LEGACY_CLAUDE_CONFIG_DIR")
@@ -276,6 +281,11 @@ def saved(path):
         refuse("saved original config/cwd missing")
     result["config_dir"] = directory(result["config_dir"])
     result["runtime_cwd"] = directory(result["runtime_cwd"])
+    if "config_env_set" not in result:
+        # Recorded before the caller's variable was saved: those lanes were launched with it set.
+        result["config_env_set"], result["config_env"] = "1", result["config_dir"]
+    elif result["config_env_set"] not in ("0", "1") or (result["config_env_set"] == "1") != bool(result["config_env"]):
+        refuse("saved config environment missing/inconsistent")
     if harness == "claude":
         if result["permission_mode"] not in ("default", "acceptEdits", "plan", "dontAsk", "bypassPermissions", "auto"):
             refuse("saved Claude permission mode missing/unsupported")

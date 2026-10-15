@@ -90,7 +90,7 @@ for a in "$@"; do
 done
 printf '%s ' "$@" >> "$STUB_LOG_DIR/claude-args"
 echo >> "$STUB_LOG_DIR/claude-args"
-printf '%s|%s|%s\n' "${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS-unset}" "$CLAUDE_CONFIG_DIR" "$PWD" >> "$STUB_LOG_DIR/claude-runtime"
+printf '%s|%s|%s\n' "${CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS-unset}" "${CLAUDE_CONFIG_DIR-unset}" "$PWD" >> "$STUB_LOG_DIR/claude-runtime"
 [ -n "$sid" ] || sid="sess-$$"
 jq -cn --arg s "$sid" --arg c "$PWD" --arg m "$mode" '{type: "system", subtype: "init", session_id: $s, cwd: $c, permissionMode: $m}'
 while IFS= read -r line; do
@@ -307,6 +307,31 @@ out="$(cd "$PRIMARY" && env -u CLAUDE_CONFIG_DIR "$TOOL" resume-hint a)"
 check "resume-hint ignores caller config removal and uses saved executable/config" eq "$out" "cd $(printf '%q' "$PRIMARY") && CLAUDE_CONFIG_DIR=$(printf '%q' "$CLAUDE_CONFIG_DIR") $(printf '%q' "$STUB/claude") --permission-mode bypassPermissions --resume $(init_field a session_id)"
 out="$(lane resume-hint a)"
 check "resume-hint names CLAUDE_CONFIG_DIR when set" contains "$out" "&& CLAUDE_CONFIG_DIR=$(printf '%q' "$CLAUDE_CONFIG_DIR") $(printf '%q' "$STUB/claude") --permission-mode bypassPermissions --resume "
+
+# --- the lane inherits the caller's CLAUDE_CONFIG_DIR as set or unset, never the resolved default ---
+mkdir -p "$TMP/home/.claude" "$TMP/home/.codex"
+ln -s "$CLAUDE_CONFIG_DIR" "$TMP/config-link"
+claude_config_env() { tail -n1 "$LOG/claude-runtime" | cut -d'|' -f2; }
+meta_value() { sed -n "s/^$2=//p" "$RUN/$1.meta" | tail -n1; }
+(cd "$PRIMARY" && env -u CLAUDE_CONFIG_DIR HOME="$TMP/home" "$TOOL" start cu "$PROMPT" > /dev/null 2>&1)
+check "unset CLAUDE_CONFIG_DIR stays unset in the lane" eq "$(claude_config_env)" unset
+check "unset CLAUDE_CONFIG_DIR still resolves the default config dir" eq "$(meta_value cu config_dir)" "$TMP/home/.claude"
+lane close cu > /dev/null
+wait_until 10 lane_down cu
+lane resume cu 'STUB-FINISH unset' > /dev/null 2>&1
+check "resume keeps CLAUDE_CONFIG_DIR unset despite a caller value" eq "$(claude_config_env)" unset
+check "resume-hint unsets CLAUDE_CONFIG_DIR when the caller had none" contains "$(lane resume-hint cu)" "&& env -u CLAUDE_CONFIG_DIR $(printf '%q' "$STUB/claude") --permission-mode "
+lane stop cu > /dev/null
+wait_until 10 lane_down cu
+CLAUDE_CONFIG_DIR="$TMP/config-link" lane start cs "$PROMPT" > /dev/null 2>&1
+check "explicit CLAUDE_CONFIG_DIR reaches the lane exactly, unresolved" eq "$(claude_config_env)" "$TMP/config-link"
+lane close cs > /dev/null
+wait_until 10 lane_down cs
+(cd "$PRIMARY" && env -u CLAUDE_CONFIG_DIR "$TOOL" resume cs 'STUB-FINISH set' > /dev/null 2>&1)
+check "resume keeps the explicit CLAUDE_CONFIG_DIR from an unset caller" eq "$(claude_config_env)" "$TMP/config-link"
+check "resume-hint names the explicit CLAUDE_CONFIG_DIR" contains "$(lane resume-hint cs)" "&& CLAUDE_CONFIG_DIR=$(printf '%q' "$TMP/config-link") "
+lane stop cs > /dev/null
+wait_until 10 lane_down cs
 
 # --- worktree anchoring (R3) ---
 git -C "$PRIMARY" worktree add -q "$TMP/wt" -b wtb 2> /dev/null
@@ -975,7 +1000,7 @@ assert args == ["-"], args
 assert not any(os.environ.get(k) for k in ("CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "CLAUDECODE"))
 prompt = sys.stdin.read()
 with open(os.environ["STUB_LOG_DIR"] + "/codex-runtime", "a") as f:
-    f.write(json.dumps(dict(argv=sys.argv[1:], config=config, cwd=os.getcwd(), home=os.environ["CODEX_HOME"], sid=sid, prompt=prompt)) + "\n")
+    f.write(json.dumps(dict(argv=sys.argv[1:], config=config, cwd=os.getcwd(), home=os.environ.get("CODEX_HOME", "unset"), sid=sid, prompt=prompt)) + "\n")
 def emit(value): print(json.dumps(value), flush=True)
 def say(text): emit(dict(type="item.completed", item=dict(type="agent_message", text=text)))
 emit(dict(type="thread.started", thread_id=sid))
@@ -1016,7 +1041,6 @@ write_context "$PRIMARY"
 codex_lane() {
   (cd "$PRIMARY" && env -u CLAUDE_CODE_SESSION_ID -u CLAUDECODE -u CODEX_THREAD_ID -u AE_ADAPTER DS_LANE_HARNESS=codex DS_LANE_CODEX_BIN="$CODEX_STUB" CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_CONTEXT_FILE="$CONTEXT" "$TOOL" "$@")
 }
-meta_value() { sed -n "s/^$2=//p" "$RUN/$1.meta" | tail -n1; }
 run_snapshot() { find "$RUN" -type f -exec shasum {} \; | sort; }
 assert_refusal() {
   local label="$1" needle="$2" before out rc; shift 2
@@ -1050,6 +1074,20 @@ check "Codex resume uses exact saved session" eq "$(tail -n1 "$LOG/codex-runtime
 check "Codex resume ignores caller config/executable" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r .home)" "$CODEX_CONFIG"
 check "Codex resume appends session events" eq "$(jq -Rr 'fromjson? | select(.type == "thread.started") | .thread_id' "$RUN/cx.jsonl" | wc -l | tr -d ' ')" 2
 check "Codex resume hint uses original quoted runtime" contains "$(lane resume-hint cx)" "CODEX_HOME=$(printf '%q' "$CODEX_CONFIG") $(printf '%q' "$CODEX_STUB") -c "
+(cd "$PRIMARY" && env -u CLAUDE_CODE_SESSION_ID -u CLAUDECODE -u CODEX_THREAD_ID -u AE_ADAPTER -u CODEX_HOME HOME="$TMP/home" DS_LANE_HARNESS=codex DS_LANE_CODEX_BIN="$CODEX_STUB" DS_LANE_CODEX_CONTEXT_FILE="$CONTEXT" "$TOOL" start cxu "$PROMPT" > /dev/null 2>&1)
+check "unset CODEX_HOME stays unset in the lane" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r .home)" unset
+wait_until 10 lane_down cxu
+codex_lane resume cxu 'resumed unset' > /dev/null 2>&1
+check "Codex resume keeps CODEX_HOME unset despite a caller value" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r .home)" unset
+check "Codex resume-hint unsets CODEX_HOME when the caller had none" contains "$(lane resume-hint cxu)" "&& env -u CODEX_HOME $(printf '%q' "$CODEX_STUB") -c "
+wait_until 10 lane_down cxu
+ln -s "$CODEX_CONFIG" "$TMP/codex-link"
+(cd "$PRIMARY" && env -u CLAUDE_CODE_SESSION_ID -u CLAUDECODE -u CODEX_THREAD_ID -u AE_ADAPTER DS_LANE_HARNESS=codex DS_LANE_CODEX_BIN="$CODEX_STUB" CODEX_HOME="$TMP/codex-link" DS_LANE_CODEX_CONTEXT_FILE="$CONTEXT" "$TOOL" start cxs "$PROMPT" > /dev/null 2>&1)
+check "explicit CODEX_HOME reaches the lane exactly, unresolved" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r .home)" "$TMP/codex-link"
+wait_until 10 lane_down cxs
+(cd "$PRIMARY" && env -u CODEX_HOME "$TOOL" resume cxs 'resumed set' > /dev/null 2>&1)
+check "Codex resume keeps the explicit CODEX_HOME from an unset caller" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r .home)" "$TMP/codex-link"
+wait_until 10 lane_down cxs
 
 before="$(run_snapshot)"
 out="$(codex_lane send cx 'delivery' 2>&1)"; rc=$?
@@ -1198,7 +1236,7 @@ lane reap > /dev/null
 wait_until 10 lane_down cf
 cp "$RUN/cf.meta" "$RUN/legacy.meta"
 cp "$RUN/cf.jsonl" "$RUN/legacy.jsonl"
-sed -E '/^(harness|executable|config_dir|runtime_cwd|permission_mode|bg_ceiling)=/d' "$RUN/legacy.meta" > "$RUN/legacy.meta.tmp"; mv "$RUN/legacy.meta.tmp" "$RUN/legacy.meta"
+sed -E '/^(harness|executable|config_dir|config_env_set|config_env|runtime_cwd|permission_mode|bg_ceiling)=/d' "$RUN/legacy.meta" > "$RUN/legacy.meta.tmp"; mv "$RUN/legacy.meta.tmp" "$RUN/legacy.meta"
 check "legacy claude_bin record remains Claude" eq "$(list_col legacy 5)" claude
 before="$(run_snapshot)"
 out="$(lane resume legacy 'STUB-FINISH legacy' 2>&1)"; rc=$?
@@ -1206,6 +1244,7 @@ check "legacy resume refuses guessed config" died_with "$rc" "$out" 'DS_LANE_LEG
 check "legacy refusal preserves files" eq "$(run_snapshot)" "$before"
 DS_LANE_LEGACY_CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" lane resume legacy 'STUB-FINISH legacy' > /dev/null 2>&1
 check "legacy explicit config/init recovery succeeds" wait_until 10 state_is legacy done
+check "a record without the caller's config choice resumes with it set" eq "$(claude_config_env)" "$CLAUDE_CONFIG_DIR"
 lane reap > /dev/null
 wait_until 10 lane_down legacy
 

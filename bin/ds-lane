@@ -48,6 +48,10 @@
 #   DS_LANE_TAB_LOCK_WAIT_S (default 30), DS_LANE_TAB_LOCK (lock file path,
 #   for tests; not propagated into the watch tab), DS_LANE_TAB_WAIT_S (whole
 #   seconds `start`/`resume` wait for the tab outcome, default 8).
+#   The lane gets the caller's CLAUDE_CONFIG_DIR (Codex: CODEX_HOME) exactly
+#   as set, and none when the caller had none: Claude Code's macOS keychain
+#   entry depends on whether the variable is set. `resume` and `resume-hint`
+#   reuse the choice recorded at `start`.
 #   Internal subcommands (not for callers): `__open-tab <name> <conductor-tty>`
 #   (the detached opener `start`/`resume` fork) and `__close-tab <own-tty>
 #   <conductor-tty> <tab-log>` (the detached closer a watch tab forks).
@@ -294,7 +298,9 @@ load_runtime() {
   RUNTIME="$1"
   HARNESS="$(jq -r .harness <<< "$RUNTIME")"
   EXECUTABLE="$(jq -r .executable <<< "$RUNTIME")"
-  CONFIG_DIR="$(jq -r .config_dir <<< "$RUNTIME")"
+  CONFIG_ENV_SET="$(jq -r .config_env_set <<< "$RUNTIME")"
+  CONFIG_ENV="$(jq -r '.config_env // ""' <<< "$RUNTIME")"
+  CONFIG_VAR="$([[ "$HARNESS" == codex ]] && echo CODEX_HOME || echo CLAUDE_CONFIG_DIR)"
   RUNTIME_CWD="$(jq -r .runtime_cwd <<< "$RUNTIME")"
   PERMISSION_MODE="$(jq -r '.permission_mode // ""' <<< "$RUNTIME")"
   BG_CEILING="$(jq -r '.bg_ceiling // ""' <<< "$RUNTIME")"
@@ -314,7 +320,7 @@ saved_runtime() {
 
 save_runtime() {
   local name="$1" key value
-  for key in harness executable config_dir runtime_cwd permission_mode bg_ceiling codex_context; do
+  for key in harness executable config_dir config_env_set config_env runtime_cwd permission_mode bg_ceiling codex_context; do
     value="$(jq -r --arg k "$key" '.[$k] // ""' <<< "$RUNTIME")"
     [[ -z "$value" ]] || meta_set "$name" "$key" "$value"
   done
@@ -377,10 +383,11 @@ launch() {
 
   save_runtime "$name"
   env_extra=(-u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID -u CLAUDECODE -u CLAUDE_CODE_EXECPATH -u CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS)
+  if [[ "$CONFIG_ENV_SET" == 1 ]]; then env_extra+=("$CONFIG_VAR=$CONFIG_ENV"); else env_extra+=(-u "$CONFIG_VAR"); fi
   if [[ "$HARNESS" == claude ]]; then
     args=(-p --input-format stream-json --output-format stream-json --verbose --permission-mode "$PERMISSION_MODE")
     [[ -z "$sid" ]] || args+=(--resume "$sid")
-    env_extra+=("CLAUDE_CONFIG_DIR=$CONFIG_DIR" "AE_ADAPTER=claude" "DS_LANE_HARNESS=claude")
+    env_extra+=("AE_ADAPTER=claude" "DS_LANE_HARNESS=claude")
     [[ "$BG_CEILING" == default ]] || env_extra+=("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=$BG_CEILING")
     : > "$RUN_DIR/$name.in"
     write_input "$name" "$text"
@@ -391,7 +398,7 @@ launch() {
     while IFS= read -r override; do args+=(-c "$override"); done < <(jq -r '.codex_context | fromjson | .overrides[]' <<< "$RUNTIME")
     [[ -z "$sid" ]] || args+=("$sid")
     args+=(-)
-    env_extra+=("CODEX_HOME=$CONFIG_DIR" "AE_ADAPTER=codex" "DS_LANE_HARNESS=codex")
+    env_extra+=("AE_ADAPTER=codex" "DS_LANE_HARNESS=codex")
     printf '%s\n' "$text" > "$RUN_DIR/$name.in"
   fi
 
@@ -1322,7 +1329,11 @@ cmd_resume_hint() {
   sid="$(meta_get "$name" session_id)"
   [[ -n "$sid" ]] || die "no session_id captured yet for '$name'"
   saved_runtime "$name"
-  printf 'cd %q && %s=%q %q ' "$RUNTIME_CWD" "$([[ "$HARNESS" == codex ]] && echo CODEX_HOME || echo CLAUDE_CONFIG_DIR)" "$CONFIG_DIR" "$EXECUTABLE"
+  if [[ "$CONFIG_ENV_SET" == 1 ]]; then
+    printf 'cd %q && %s=%q %q ' "$RUNTIME_CWD" "$CONFIG_VAR" "$CONFIG_ENV" "$EXECUTABLE"
+  else
+    printf 'cd %q && env -u %s %q ' "$RUNTIME_CWD" "$CONFIG_VAR" "$EXECUTABLE"
+  fi
   if [[ "$HARNESS" == codex ]]; then
     while IFS= read -r override; do printf -- '-c %q ' "$override"; done < <(jq -r '.codex_context | fromjson | .overrides[]' <<< "$RUNTIME")
     printf 'resume %q\n' "$sid"
