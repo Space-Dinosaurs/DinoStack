@@ -310,8 +310,9 @@ remove_hook("SubagentStop", "hooks/subagent-stop-spawn-emit.js", "subagent-stop-
 remove_hook("SubagentStop", "hooks/reap-agent-browsers.py", "reap-agent-browsers.py")
 remove_hook("SessionEnd", "hooks/reap-agent-browsers.py", "reap-agent-browsers.py")
 remove_hook("SessionStart", "hooks/session-start-memory.py", "session-start-memory.py")
-# A live session's keepalive cron outlives this removal; its next fire arrives
-# with no gate note and PING_PROMPT makes the model delete it.
+# A live session's keepalive cron outlives this removal; its fires arrive with
+# no gate note and PING_PROMPT asks only for "ok", one request per fire until
+# that session exits.
 remove_hook("UserPromptSubmit", "hooks/cache-keepalive.py", "cache-keepalive.py")
 
 if hooks != settings.get("hooks", {}):

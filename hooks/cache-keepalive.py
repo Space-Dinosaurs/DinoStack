@@ -6,9 +6,11 @@ Purpose: Default-on prompt-cache keepalive for idle interactive conductor
          session-only cron that re-submits PING_PROMPT every 20 minutes. On
          each cron fire it gates the ping: refresh a warm 1h cache the
          operator may return to (gate_note), wrap a session idle for 2h with
-         nothing in flight (WRAP_NOTE), let the model delete its own cron
-         (no output), or block the fire before it makes a request. Decision
-         logic lives in hooks/lib/cache_keepalive.py.
+         nothing in flight (WRAP_NOTE), ask the model to delete its cron
+         (release_note), or block the fire before it makes a request.
+         PING_PROMPT itself asks for nothing, so a blocked fire's text left
+         in context cannot be read as an instruction later. Decision logic
+         lives in hooks/lib/cache_keepalive.py.
 
 Catch (failure prevented): cold prompt-cache re-writes after idle gaps of 1h
        or more in a conductor session the operator comes back to.
@@ -28,28 +30,33 @@ Public API: python3 hooks/cache-keepalive.py
              one JSON object; always exits 0.)
 
 Behavior (UserPromptSubmit only; any other event gets no output):
-    prompt == PING_PROMPT: decide() -> ping: additionalContext gate_note()
-        (GATE_NOTE plus the reply line the model echoes in place of ok);
-        wrap: additionalContext WRAP_NOTE (with the hook-built kickoff
-        command `claude '<resume prompt naming this session id>'`), only
-        when the payload's permission_mode is in WRAP_PERMISSION_MODES
-        (auto, bypassPermissions); otherwise release is a delete;
-        delete: no output, so PING_PROMPT's self-delete branch runs;
-        block: BLOCK_OUTPUT.
-    prompt starts with MARKER but is not equal: BLOCK_OUTPUT.
+    prompt in PING_PROMPTS (the current text or a legacy one a cron created
+        before the change still fires): decide() -> ping: additionalContext
+        gate_note() (GATE_NOTE plus the reply line the model echoes in place
+        of ok); wrap: additionalContext WRAP_NOTE (with the hook-built
+        kickoff command `claude '<resume prompt naming this session id>'`),
+        only when the payload's permission_mode is in WRAP_PERMISSION_MODES
+        (auto, bypassPermissions); otherwise release is a delete; delete:
+        additionalContext release_note() naming the live job ids cron_jobs()
+        finds (CronList first when none); block: BLOCK_OUTPUT. in_flight
+        gets this process's start (process_started_at), so tasks from an
+        earlier process do not hold release.
+    prompt starts with MARKER but is not one of them: BLOCK_OUTPUT.
     any other prompt: only when CLAUDE_CODE_SESSION_ATTENDED == "1" (Claude
         Code sets 0 for -p, --resume -p, the SDK, agent-teams teammates and
-        bg/daemon sessions), the payload has no agent_id, the prompt is not
-        harness-injected (a task notification or subagent hand-back, see
-        NON_OPERATOR_PREFIXES), and creation_due():
-        additionalContext create_note(). Otherwise nothing.
+        bg/daemon sessions), the payload has no agent_id, and
+        creation_due(..., operator) holds: additionalContext create_note().
+        operator is False for a harness-injected prompt (a task
+        notification or subagent hand-back, see NON_OPERATOR_PREFIXES); such
+        a turn only repeats a note an operator turn already got and the
+        model ignored. Otherwise nothing.
 
 Why it fails closed: an exception after the marker matched gives
-    BLOCK_OUTPUT. If this hook is absent or cannot load its library, the
-    ping arrives with no note and PING_PROMPT tells the model to delete
-    its own cron. Gate-absent bound: one ungated fire, 2 requests measured
-    (CronDelete, then "ok"; the Cron tools are loaded at creation), then no
-    cron until the next genuine prompt re-creates it.
+    BLOCK_OUTPUT, and so does a marker prompt when the library cannot load
+    (_MARKER, _BLOCK_OUTPUT). If this hook is absent (uninstalled while a
+    session runs), the fire arrives with no note and PING_PROMPT asks only
+    for "ok": 1 request per fire until the process exits, since a cron is
+    session-only.
 
 Measurements (Claude Code 2.1.287, haiku 4.5 and opus 5.5 scratch sessions,
     2026-10-12). Surviving evidence: the scratch session transcripts under
@@ -98,7 +105,8 @@ Measurements (Claude Code 2.1.287, haiku 4.5 and opus 5.5 scratch sessions,
         match, so up to 10 min (t2-UserPromptSubmit, long1).
     M4 PASS: prompt and transcript text equal PING_PROMPT byte for byte,
         isMeta true, turnOrigin "scheduled" (m4-ping-record.json, the
-        tests/fixtures copy).
+        tests/fixtures copy; measured on the text now in
+        LEGACY_PING_PROMPTS).
     M5 PASS: REPL entrypoint cli + SESSION_ATTENDED 1; -p and --resume -p
         sdk-cli/0; SDK sdk-ts/0; teammate cli/0 (evidence file lost with the
         session scratchpad).
@@ -117,7 +125,8 @@ Measurements (Claude Code 2.1.287, haiku 4.5 and opus 5.5 scratch sessions,
     M8 PASS: gated ping median cache_creation 446, output 39 (n=5); the sim
         verdict stays keep 7200 (evidence file lost with the session
         scratchpad).
-    M9 PASS: gate absent -> CronDelete + ok, 2 requests, no later fire.
+    M9 PASS (legacy PING_PROMPT, which carried a delete instruction): gate
+        absent -> CronDelete + ok, 2 requests, no later fire.
     M11 PASS: next genuine prompt re-creates the cron, 1 extra request.
     M13 PASS: corpus wording and statuses confirmed; in_flight True on a
         live conductor transcript.
@@ -135,6 +144,19 @@ Measurements (Claude Code 2.1.287, haiku 4.5 and opus 5.5 scratch sessions,
         restated verbatim, file moved to consumed/, old transcript never
         read); earlier 2/2 (m16-w18, m16-w22) had "None" decisions. Not
         re-run since the kickoff prompt switched to absolute paths.
+    M19 (telemetry, one opus conductor session, 2.3 days, 2.1.287, legacy
+        PING_PROMPT): 17 creates, 15 deletes; all 14 deletes outside a ping
+        turn came on the turn after a blocked fire, whose prompt text told
+        the model to delete when no gate note was attached, hence the inert
+        PING_PROMPT and release_note. 28 create notes, 17 creates; one
+        ignored note left no cron for 14.3h, hence MAX_CREATE_NOTES. A
+        compaction (SessionStart:compact) was read as a new process, so a
+        second cron was created beside a live one, hence PROCESS_START_HOOKS.
+        Overnight, release was held for 10h52m (17 pings, ended by the cost
+        cap): in_flight counted 21 tasks that could never finish - 15 from
+        earlier processes, 2 stopped with TaskStop, and 4 whose completion
+        was written only as a queued_command attachment (one of them before
+        its launch record).
     Scenario 11 PASS: `claude --resume` loads a wrapped session (f6).
 
 Upstream deps: Python 3.9+ stdlib; hooks/lib/cache_keepalive.py and
@@ -148,8 +170,8 @@ Downstream consumers: Claude Code hook runner (UserPromptSubmit, matcher
 
 Failure modes: always exits 0 and never writes. Disabled via
     AE_CACHE_KEEPALIVE_DISABLE=1 or `cache_keepalive: false`: no new cron,
-    and a live one deletes itself at its next warm fire; if that delete is
-    denied or ignored, later fires in the same idle stretch are blocked.
+    and a live one gets a release note at its next warm fire; if that delete
+    is denied or ignored, later fires in the same idle stretch are blocked.
 
 Performance: a non-ping prompt in a non-conductor session costs one stat;
     otherwise one bounded transcript tail read (TAIL_BYTES), plus a
@@ -162,6 +184,11 @@ import json
 import os
 import sys
 import time
+
+# Copies of loop_guard.MARKER and cache_keepalive.BLOCK_OUTPUT for when the
+# library cannot load; a test pins them to the library values.
+_MARKER = "[dinostack-cache-keepalive]"
+_BLOCK_OUTPUT = {"continue": False, "suppressOutput": True, "stopReason": ""}
 
 
 def _load_lib():
@@ -192,22 +219,27 @@ def _str(payload, key):
     return value if isinstance(value, str) else ""
 
 
-def handle_ping(lib, payload, now):
+def handle_ping(lib, payload, env, now):
     path = _str(payload, "transcript_path")
     cwd = _str(payload, "cwd")
     session_id = _str(payload, "session_id")
-    state = lib.session_state(lib.LG.read_tail_records(path, lib.TAIL_BYTES) if path else [])
+    records = lib.LG.read_tail_records(path, lib.TAIL_BYTES) if path else []
+    state = lib.session_state(records)
+    started = lib.process_started_at(env, session_id)
     repo = lib.repo_dir()
     action, _reason = lib.decide(
         state, now,
         enabled=lib.is_enabled(cwd),
         conductor=lib.is_conductor(path),
-        in_flight=lambda: lib.in_flight(path),
+        in_flight=lambda: lib.in_flight(path, started),
         wrap_ok=(bool(session_id) and os.path.isfile(lib.wrap_command_path(repo))
                  and os.path.isfile(lib.wrap_tool_path(repo))),
         wrap_mode_ok=lib.wrap_allowed(payload.get("permission_mode")),
     )
-    if action == "ping":
+    if action == "delete":
+        complete = os.path.getsize(path) <= lib.TAIL_BYTES
+        _context(lib.release_note(lib.cron_jobs(records, started, complete)[1]))
+    elif action == "ping":
         _context(lib.gate_note(state, now))
     elif action == "wrap":
         # The git root above the directory the session was launched from,
@@ -224,12 +256,7 @@ def handle_ping(lib, payload, now):
 def handle_prompt(lib, payload, env, prompt):
     if env.get("CLAUDE_CODE_SESSION_ATTENDED") != "1" or payload.get("agent_id"):
         return
-    # Genuine operator prompts only. A task-notification turn is unprompted,
-    # and enforce-turn-shape.py blocks its zero-warrant replies whether or not
-    # the cron was created there (measured), so creating on it cost extra
-    # Stop-blocked requests.
-    if lib.LG.is_harness_injected_text(prompt) or prompt.lstrip().startswith(lib.NON_OPERATOR_PREFIXES):
-        return
+    operator = not (lib.LG.is_harness_injected_text(prompt) or prompt.lstrip().startswith(lib.NON_OPERATOR_PREFIXES))
     path = _str(payload, "transcript_path")
     if not lib.is_conductor(path):
         return
@@ -240,7 +267,7 @@ def handle_prompt(lib, payload, env, prompt):
     state = lib.session_state(records)
     started = lib.process_started_at(env, _str(payload, "session_id"))
     complete = os.path.getsize(path) <= lib.TAIL_BYTES
-    due, check_existing = lib.creation_due(records, state, True, True, started, complete)
+    due, check_existing = lib.creation_due(records, state, True, True, started, complete, operator)
     if due:
         _context(lib.create_note(check_existing))
 
@@ -257,14 +284,18 @@ def main():
         return
     lib = _load_lib()
     if lib is None:
+        # PING_PROMPT asks for nothing without a note, so an ungated fire
+        # would still make a request every 20 minutes.
+        if prompt.startswith(_MARKER):
+            _emit(_BLOCK_OUTPUT)
         return
     env = os.environ
     if prompt.startswith(lib.LG.MARKER):
         try:
-            if prompt != lib.LG.PING_PROMPT:
+            if prompt not in lib.LG.PING_PROMPTS:
                 _emit(lib.BLOCK_OUTPUT)
             else:
-                handle_ping(lib, payload, time.time())
+                handle_ping(lib, payload, env, time.time())
         except Exception:
             _emit(lib.BLOCK_OUTPUT)
         return

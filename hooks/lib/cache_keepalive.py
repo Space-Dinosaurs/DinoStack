@@ -3,15 +3,16 @@
 Purpose: Decision logic for the prompt-cache keepalive gate
          (hooks/cache-keepalive.py). From a transcript it decides, for each
          keepalive cron fire, whether to ping (refresh a warm 1h cache the
-         operator is likely to come back to), wrap the idle session, have
-         the model delete its cron, or block the fire before it makes a
-         request; and, on a genuine prompt, whether to ask the model to
-         create the cron.
+         operator is likely to come back to), wrap the idle session, ask
+         the model to delete its cron (release_note), or block the fire
+         before it makes a request; and, on a prompt, whether to ask the
+         model to create the cron.
 
 Public API:
     Constants: CRON_EXPR, PERIOD_S, TTL_S, COLD_AFTER_S, EFFECTIVE_INTERVAL_S,
         ACTIVE_WINDOW_S, RELEASE_AFTER_S, MIN_PREFIX_TOKENS, TAIL_BYTES,
         DERIVATION_RATES, PING_CC_TOKENS, PING_OUT_TOKENS, CREATE_NOTE_MARKER,
+        MAX_CREATE_NOTES, RELEASE_MARKER, PROCESS_START_HOOKS,
         BLOCK_OUTPUT, WRAP_MARKER, WRAP_PERMISSION_MODES,
         NON_OPERATOR_PREFIXES, TERMINAL_STATUSES, IN_FLIGHT_MAX_BYTES,
         RESUME_DIR, RESUME_MAX_BYTES, RESUME_RETENTION_DAYS, KILL_SWITCH_ENV,
@@ -35,18 +36,33 @@ Public API:
         real request carried WRAP_MARKER), fires_since_wrap (ping records
         after the last such turn), deletes_since_idle (ping turns after the
         newest real request that made a request without a GATE_NOTE or
-        WRAP_MARKER note, i.e. self-delete fires).
-    in_flight(transcript_path) -> bool: a launched async agent or background
-        Bash task has no terminal notification yet. True on any doubt.
+        WRAP_MARKER note, i.e. release fires).
+    in_flight(transcript_path, started_at=None) -> bool: an async agent or
+        background Bash task launched in this process has no terminal
+        notification (a user record or a queued_command attachment, in
+        either order relative to the launch) and no TaskStop result yet.
+        Launches before started_at or before a PROCESS_START_HOOKS
+        SessionStart attachment are dropped: they died with their process.
+        True on any doubt.
     wrap_allowed(permission_mode) -> bool: permission_mode is in
         WRAP_PERMISSION_MODES.
     decide(state, now, enabled, conductor, in_flight, wrap_ok, wrap_mode_ok)
         -> (action, reason); action is ping | wrap | delete | block.
-    cron_status(records, started_at=None, complete=False)
-        -> "live" | "absent" | "unknown".
+    cron_jobs(records, started_at=None, complete=False) -> (status, ids):
+        status "live" | "absent" | "unknown" for this process's keepalive
+        crons (current or legacy prompt), replayed from CronCreate,
+        CronDelete and CronList results; a record is this process's when it
+        follows the last record before started_at or the last
+        PROCESS_START_HOOKS attachment, or is stamped at or after started_at.
+        ids: the live job ids. cron_status(...) -> the status alone.
     creation_due(records, state, enabled, conductor, started_at=None,
-        complete=False) -> (due, check_existing).
+        complete=False, operator=True) -> (due, check_existing): not live,
+        no denied create since the last delete or process start, fewer than
+        MAX_CREATE_NOTES notes since then, and, when operator is False, at
+        least one such note already (a repeat, never a first ask).
     create_note(check_existing) -> str: the CREATE_NOTE_MARKER instruction.
+    release_note(job_ids) -> str: the RELEASE_MARKER instruction to
+        CronDelete the named jobs (CronList first when none), then "ok".
     gate_note(state, now) -> str: GATE_NOTE plus the one reply line the
         model echoes, e.g. "keepalive: cache warmed (idle 40m, next check
         4:28pm)": idle is now - idle_since (omitted when unknown), the
@@ -74,10 +90,11 @@ Definitions (main chain only; sidechain records are ignored):
     none and writes only isMeta records after the newest request, so it
     moves none of these values.
 
-decide order (first that holds wins):
+decide order (first that holds wins; every delete is carried out by the
+release_note the hook attaches, since PING_PROMPT itself asks for nothing):
     disabled, ttl-not-1h, small-prefix, not-conductor -> delete if
-        L < COLD_AFTER_S (the model's self-delete costs 2 warm requests),
-        else block (a cold self-delete would pay a full re-write).
+        L < COLD_AFTER_S (the release turn costs 2 warm requests),
+        else block (a cold release would pay a full re-write).
     rate-limited -> block.  cache-presumed-cold (L >= COLD_AFTER_S) -> block.
     already-wrapped (wrapped since idle_since: the wrap turn's CronDelete
         was skipped or failed) -> delete on the first fire after the wrap,
@@ -90,7 +107,7 @@ decide order (first that holds wins):
     cost-capped (pings_since_idle >= max_pings(prefix)) -> delete.
     recently-active (L < ACTIVE_WINDOW_S) -> block.  Otherwise pass -> ping.
     Then delete-ignored: any delete becomes block when deletes_since_idle
-        > 0 (a self-delete already ran this idle stretch and the cron still
+        > 0 (a release already ran this idle stretch and the cron still
         fires), so a denied or ignored CronDelete costs one request, not one
         per fire.
 
@@ -185,6 +202,8 @@ PING_CC_TOKENS = 854
 PING_OUT_TOKENS = 193
 
 CREATE_NOTE_MARKER = "[dinostack-cache-keepalive:create]"
+MAX_CREATE_NOTES = 3
+RELEASE_MARKER = LG.RELEASE_MARKER
 # Permission modes in which every in-session wrap tool call ran without a
 # prompt in a project with no allow rules (measured on 2.1.287: Read of the
 # command file, call A, call B). In default and acceptEdits both Bash calls
@@ -403,9 +422,20 @@ def session_state(records) -> dict:
 
 _LAUNCH_RE = re.compile(r"Async agent launched successfully.*?agentId: ([A-Za-z0-9_-]+)", re.S)
 _BG_RE = re.compile(r"running in background with ID: ([A-Za-z0-9_-]+)")
+_STOPPED_RE = re.compile(r"Successfully stopped task: ([A-Za-z0-9_-]+)")
 _TASK_ID_RE = re.compile(r"<task-id>([^<]+)</task-id>")
 _STATUS_RE = re.compile(r"<status>([^<]+)</status>")
-_CANDIDATES = ("launched successfully", "running in background with ID", "<task-notification>", '"SendMessage"')
+_CANDIDATES = ("launched successfully", "running in background with ID", "<task-notification>", '"SendMessage"',
+               "Successfully stopped task", "SessionStart:startup", "SessionStart:resume")
+# SessionStart hook names that mark a new process. A compaction also fires
+# SessionStart ("SessionStart:compact") but keeps the process, its crons and
+# its background tasks.
+PROCESS_START_HOOKS = ("SessionStart:startup", "SessionStart:resume")
+
+
+def _is_process_start(rec) -> bool:
+    att = rec.get("attachment") if rec.get("type") == "attachment" else None
+    return isinstance(att, dict) and att.get("hookEvent") == "SessionStart" and att.get("hookName") in PROCESS_START_HOOKS
 
 
 def _record_texts(rec):
@@ -429,12 +459,13 @@ def _record_texts(rec):
     return out
 
 
-def in_flight(transcript_path) -> bool:
+def in_flight(transcript_path, started_at=None) -> bool:
     try:
         if os.path.getsize(transcript_path) > IN_FLIGHT_MAX_BYTES:
             return True
         launched = set()
         active = set()
+        finished = set()
         with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
                 if not any(c in line for c in _CANDIDATES):
@@ -442,32 +473,55 @@ def in_flight(transcript_path) -> bool:
                 rec = json.loads(line)
                 if not isinstance(rec, dict) or rec.get("isSidechain"):
                     continue
-                if rec.get("type") == "assistant":
+                if _is_process_start(rec):
+                    # Agents and background shells die with their process
+                    # and never send a terminal notification.
+                    launched.clear()
+                    active.clear()
+                    finished.clear()
+                    continue
+                kind = rec.get("type")
+                if kind == "assistant":
                     msg = rec.get("message")
                     for b in (msg.get("content") if isinstance(msg, dict) else None) or []:
                         if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == "SendMessage":
                             to = (b.get("input") or {}).get("to")
                             if to in launched:
                                 active.add(to)
+                                finished.discard(to)
                     continue
-                if rec.get("type") != "user":
+                if kind == "user":
+                    texts = _record_texts(rec)
+                elif kind == "attachment" and isinstance((rec.get("attachment") or {}).get("prompt"), str):
+                    # A notification that arrives while the model is busy is
+                    # written only as a queued_command attachment.
+                    texts = [rec["attachment"]["prompt"]]
+                else:
                     continue
-                for text in _record_texts(rec):
-                    for m in _LAUNCH_RE.finditer(text):
+                ts = _ts(rec.get("timestamp"))
+                earlier_process = started_at is not None and ts is not None and ts < started_at
+                for text in texts:
+                    for m in list(_LAUNCH_RE.finditer(text)) + list(_BG_RE.finditer(text)):
+                        if earlier_process:
+                            continue
                         launched.add(m.group(1))
-                        active.add(m.group(1))
-                    for m in _BG_RE.finditer(text):
-                        launched.add(m.group(1))
-                        active.add(m.group(1))
+                        # A fast task's notification can be written before
+                        # the tool_result that announces its launch.
+                        if m.group(1) not in finished:
+                            active.add(m.group(1))
+                    for m in _STOPPED_RE.finditer(text):
+                        finished.add(m.group(1))
+                        active.discard(m.group(1))
                     if "<task-notification>" in text:
                         for block in text.split("<task-notification>")[1:]:
                             tid = _TASK_ID_RE.search(block)
                             st = _STATUS_RE.search(block)
-                            if not tid or tid.group(1) not in launched:
+                            if not tid:
                                 continue
                             if st and st.group(1).strip() in TERMINAL_STATUSES:
+                                finished.add(tid.group(1))
                                 active.discard(tid.group(1))
-                            else:
+                            elif tid.group(1) in launched:
                                 active.add(tid.group(1))
         return bool(active)
     except Exception:
@@ -544,6 +598,9 @@ def _tool_results_by_id(records):
 
 
 _JOB_ID_RE = re.compile(r"job ([0-9a-f]{8})")
+# One CronList line per job (measured, 2.1.287):
+# "c02e1ce7 \u2014 7,27,47 * * * * (recurring) [session-only]: <prompt, truncated>"
+_LISTED_JOB_RE = re.compile(r"^([0-9a-f]{8}) .*?: " + re.escape(LG.MARKER) + " ", re.M)
 
 
 def process_started_at(env, session_id):
@@ -566,22 +623,25 @@ def process_started_at(env, session_id):
 def _scan_crons(records, started_at=None, complete=False):
     """Index of the last record from an earlier process (None if unknown;
     -1 when `complete` - the records are the whole transcript - and none
-    predates started_at), our creates (index, job id or None, result_seen),
-    deletions of our jobs (index, job id), and create-note injections."""
+    predates started_at); our cron events in order as (index, kind, value,
+    current): create (job id or None, result_seen), delete (job id) and
+    list (the job ids a CronList showed), current when the record is known
+    to come from this process; and create-note injection indexes."""
     results = _tool_results_by_id(records)
     process_start = -1 if (complete and started_at is not None) else None
-    creates = []
-    deletions = []
+    events = []
     injections = []
+    stamps = {}
     for i, rec in enumerate(records):
         if rec.get("isSidechain"):
             continue
         ts = _ts(rec.get("timestamp"))
+        stamps[i] = ts
         if started_at is not None and ts is not None and ts < started_at:
             process_start = i
         if rec.get("type") == "attachment":
             att = rec.get("attachment") or {}
-            if att.get("hookEvent") == "SessionStart":
+            if _is_process_start(rec):
                 process_start = i
             if att.get("hookEvent") == "UserPromptSubmit" and CREATE_NOTE_MARKER in json.dumps(att):
                 injections.append(i)
@@ -589,7 +649,7 @@ def _scan_crons(records, started_at=None, complete=False):
         if rec.get("type") == "user":
             for text in _record_texts(rec):
                 for m in re.finditer(r"Cancelled job ([0-9a-f]{8})", text):
-                    deletions.append((i, m.group(1)))
+                    events.append((i, "delete", m.group(1)))
             continue
         if rec.get("type") != "assistant":
             continue
@@ -598,47 +658,85 @@ def _scan_crons(records, started_at=None, complete=False):
             if not isinstance(b, dict) or b.get("type") != "tool_use":
                 continue
             inp = b.get("input") or {}
-            if b.get("name") == "CronCreate" and inp.get("prompt") == LG.PING_PROMPT:
-                res = results.get(b.get("id"))
+            res = results.get(b.get("id"))
+            if b.get("name") == "CronCreate" and inp.get("prompt") in LG.PING_PROMPTS:
                 m = _JOB_ID_RE.search(res) if isinstance(res, str) else None
-                creates.append((i, m.group(1) if m else None, res is not None))
+                events.append((i, "create", (m.group(1) if m else None, res is not None)))
             elif b.get("name") == "CronDelete":
-                deletions.append((i, inp.get("id")))
-    ours = {job for _, job, _ in creates if job}
-    deletions = [(i, job) for i, job in deletions if job in ours]
-    return process_start, creates, deletions, injections
+                events.append((i, "delete", inp.get("id")))
+            elif b.get("name") == "CronList" and isinstance(res, str):
+                events.append((i, "list", _LISTED_JOB_RE.findall(res)))
+    ours = set()
+    for _, kind, value in events:
+        if kind == "create" and value[0]:
+            ours.add(value[0])
+        elif kind == "list":
+            ours.update(value)
+
+    def current(i):
+        if process_start is not None and i > process_start:
+            return True
+        return started_at is not None and stamps.get(i) is not None and stamps[i] >= started_at
+
+    events = [(i, kind, value, current(i)) for i, kind, value in events if kind != "delete" or value in ours]
+    return process_start, events, injections
+
+
+def cron_jobs(records, started_at=None, complete=False):
+    """(status, job ids): status is "live" when this process has at least
+    one keepalive cron, "absent" when it provably has none, else "unknown";
+    the ids are the live keepalive jobs this transcript names, oldest first."""
+    process_start, events, _ = _scan_crons(records, started_at, complete)
+    live = []
+    known = process_start is not None
+    last_create = None
+    for _, kind, value, current in events:
+        if not current:
+            continue
+        if kind == "create":
+            last_create = value
+            if value[0]:
+                known = True
+                live = [j for j in live if j != value[0]] + [value[0]]
+        elif kind == "delete":
+            live = [j for j in live if j != value]
+        else:
+            known = True
+            live = list(value)
+    if live:
+        return ("live", live)
+    if known or (last_create is not None and last_create[1]):
+        return ("absent", [])
+    return ("unknown", [])
 
 
 def cron_status(records, started_at=None, complete=False) -> str:
-    process_start, creates, deletions, _ = _scan_crons(records, started_at, complete)
-    after_start = [c for c in creates if process_start is None or c[0] > process_start]
-    if not after_start:
-        return "absent" if process_start is not None else "unknown"
-    idx, job, result_seen = after_start[-1]
-    if job is None:
-        return "absent" if result_seen else "unknown"
-    if any(d_idx > idx and d_job == job for d_idx, d_job in deletions):
-        return "absent"
-    return "live" if process_start is not None else "unknown"
+    return cron_jobs(records, started_at, complete)[0]
 
 
-def creation_due(records, state, enabled, conductor, started_at=None, complete=False):
+def creation_due(records, state, enabled, conductor, started_at=None, complete=False, operator=True):
     if not (enabled and conductor):
         return (False, False)
     if state.get("ttl") != "1h" or (state.get("prefix_tokens") or 0) < MIN_PREFIX_TOKENS:
         return (False, False)
-    status = cron_status(records, started_at, complete)
+    status, _ = cron_jobs(records, started_at, complete)
     if status == "live":
         return (False, False)
-    process_start, creates, deletions, injections = _scan_crons(records, started_at, complete)
-    anchors = [i for i, _ in deletions] + ([process_start] if process_start is not None else [])
+    process_start, events, injections = _scan_crons(records, started_at, complete)
+    anchors = [i for i, kind, _, _ in events if kind == "delete"] + ([process_start] if process_start is not None else [])
     anchor = max(anchors) if anchors else -1
-    # Declined means no CronCreate that returned a job id followed the note:
-    # a create denied by a permission rule or the auto-mode classifier
+    # A create denied by a permission rule or the auto-mode classifier
     # (measured: "Unauthorized Persistence") is a decline, not a retry cue.
-    for inj in injections:
-        if inj > anchor and not any(c[0] > inj and c[1] for c in creates):
-            return (False, False)
+    if any(i > anchor and kind == "create" and not value[0] and value[1] for i, kind, value, _ in events):
+        return (False, False)
+    notes = [i for i in injections if i > anchor]
+    # An ignored note is repeated on later turns, up to MAX_CREATE_NOTES
+    # (measured: 28 notes, 17 creates; one ignored note left the session
+    # without a cron for 14.3h). A turn the operator did not type only
+    # repeats a note the operator's own turn already received, so a release
+    # is not undone by a task notification arriving while the operator is away.
+    if len(notes) >= MAX_CREATE_NOTES or (not operator and not notes):
+        return (False, False)
     return (True, status == "unknown")
 
 
@@ -667,6 +765,19 @@ def create_note(check_existing: bool) -> str:
         "durable false, prompt exactly " + json.dumps(LG.PING_PROMPT) + ". If "
         "you mention it, use one line naming the job and the opt-out; if asked, "
         "explain it plainly."
+    )
+
+
+def release_note(job_ids) -> str:
+    if job_ids:
+        target = "call CronDelete for job " + " and job ".join(job_ids)
+    else:
+        target = ("call CronList, then CronDelete every job whose prompt starts with "
+                  + LG.MARKER)
+    return (
+        RELEASE_MARKER + " DinoStack keepalive release: this session's keepalive "
+        "cron is no longer needed. In this turn, " + target + ", then reply with "
+        "exactly: ok. Do nothing else."
     )
 
 

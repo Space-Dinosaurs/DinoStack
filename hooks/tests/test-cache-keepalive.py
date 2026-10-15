@@ -96,10 +96,10 @@ def tool_result(t, tid, text):
         {"type": "tool_result", "tool_use_id": tid, "content": text}]}}
 
 
-def create(t, ck, job="aaaa1111"):
+def create(t, ck, job="aaaa1111", prompt=None):
     tid = "toolu_c_" + job
     return [tool_use(t, "CronCreate", {"cron": ck.CRON_EXPR, "recurring": True, "durable": False,
-                                       "prompt": ck.LG.PING_PROMPT}, tid),
+                                       "prompt": prompt or ck.LG.PING_PROMPT}, tid),
             tool_result(t, tid, "Scheduled recurring job %s (%s). Session-only." % (job, ck.CRON_EXPR))]
 
 
@@ -108,8 +108,25 @@ def delete(t, job="aaaa1111"):
     return [tool_use(t, "CronDelete", {"id": job}, tid), tool_result(t, tid, "Cancelled job %s." % job)]
 
 
-def session_start(t):
-    return {"type": "attachment", "timestamp": iso(t), "attachment": {"type": "hook_success", "hookEvent": "SessionStart"}}
+def session_start(t, source="startup"):
+    return {"type": "attachment", "timestamp": iso(t), "attachment": {
+        "type": "hook_success", "hookEvent": "SessionStart", "hookName": "SessionStart:" + source}}
+
+
+def compaction(t):
+    """What a compaction writes (measured): a compact_boundary, then
+    SessionStart attachments named SessionStart:compact and plain SessionStart."""
+    return [{"type": "system", "subtype": "compact_boundary", "timestamp": iso(t), "content": "Conversation compacted"},
+            session_start(t, "compact"),
+            {"type": "attachment", "timestamp": iso(t), "attachment": {
+                "type": "hook_additional_context", "hookEvent": "SessionStart", "hookName": "SessionStart",
+                "toolUseID": "SessionStart", "content": ["memory"]}}]
+
+
+def cron_list(t, ck, jobs, tid="toolu_l"):
+    text = "\n".join("%s \u2014 %s (recurring) [session-only]: %s\u2026" % (j, ck.CRON_EXPR, ck.LG.PING_PROMPT[:60])
+                     for j in jobs) or "No scheduled jobs."
+    return [tool_use(t, "CronList", {}, tid), tool_result(t, tid, text)]
 
 
 def injection(t, ck):
@@ -293,6 +310,12 @@ def t_is_ping_record(h):
     assert not lg.is_ping_record(dict(good, turnOrigin="human"))
     assert not lg.is_ping_record(dict(good, message={"content": lg.PING_PROMPT + " "}))
     assert not lg.is_ping_record(dict(good, message={"content": lg.MARKER}))
+    # A cron created before the prompt changed still fires the old text.
+    assert lg.LEGACY_PING_PROMPTS and all(lg.is_ping_record(dict(good, message={"content": p}))
+                                          for p in lg.LEGACY_PING_PROMPTS)
+    # A blocked fire leaves this text in context; it must never read as an
+    # instruction to delete anything.
+    assert "delete" not in lg.PING_PROMPT.lower() and "cron" not in lg.PING_PROMPT.lower(), lg.PING_PROMPT
 
 
 def t_cron_status(h):
@@ -309,6 +332,22 @@ def t_cron_status(h):
     assert ck.cron_status([session_start(t), user(t + 1)]) == "absent"
     assert ck.cron_status([user(t + 1)], started_at=t, complete=True) == "absent"
     assert ck.cron_status([user(t + 1)], started_at=t, complete=False) == "unknown"
+    # A compaction keeps the process and its crons.
+    started = [session_start(t - 1)] + live
+    assert ck.cron_jobs(started + compaction(t + 30) + [user(t + 40)]) == ("live", ["aaaa1111"])
+    assert ck.cron_status(started + [session_start(t + 30, "resume")]) == "absent"
+    # A create stamped after this process started is this process's, even
+    # when the tail holds nothing older.
+    assert ck.cron_jobs(live, started_at=t - 100) == ("live", ["aaaa1111"])
+    assert ck.cron_status(live + delete(t + 50), started_at=t - 100) == "absent"
+    # CronList is the live set at that point; legacy-prompt crons are ours.
+    legacy = ck.LG.LEGACY_PING_PROMPTS[0]
+    two = [session_start(t - 1)] + create(t + 1, ck) + create(t + 2, ck, "bbbb2222", prompt=legacy)
+    assert ck.cron_jobs(two) == ("live", ["aaaa1111", "bbbb2222"])
+    assert ck.cron_jobs(two + delete(t + 3)) == ("live", ["bbbb2222"])
+    assert ck.cron_jobs([user(t)] + cron_list(t + 1, ck, ["cccc3333"]), started_at=t - 100) == ("live", ["cccc3333"])
+    assert ck.cron_jobs([user(t)] + cron_list(t + 1, ck, []), started_at=t - 100) == ("absent", [])
+    assert ck.cron_status([user(t)] + cron_list(t + 1, ck, ["cccc3333"])) == "unknown"
     # process_started_at trusts the pid file only when it belongs to this session (a reused pid must not).
     cfg = tempfile.mkdtemp(dir=SCRATCH)
     os.makedirs(os.path.join(cfg, "sessions"))
@@ -329,8 +368,26 @@ def t_creation_due(h):
     assert ck.creation_due(base, st, False, True) == (False, False)
     small = [session_start(t), user(t + 1), asst(t + 2, S=1000)]
     assert ck.creation_due(small, ck.session_state(small), True, True) == (False, False)
-    declined = base + [injection(t + 3, ck), user(t + 3), asst(t + 4)]
-    assert ck.creation_due(declined, st, True, True) == (False, False)
+    # An ignored note is repeated, on any turn, up to MAX_CREATE_NOTES.
+    ignored = base + [injection(t + 3, ck), user(t + 3), asst(t + 4)]
+    assert ck.creation_due(ignored, st, True, True) == (True, False)
+    assert ck.creation_due(ignored, st, True, True, operator=False) == (True, False)
+    assert ck.creation_due(base, st, True, True, operator=False) == (False, False)
+    capped = base
+    for k in range(ck.MAX_CREATE_NOTES):
+        capped = capped + [injection(t + 10 + k, ck), user(t + 10 + k), asst(t + 11 + k)]
+    assert ck.MAX_CREATE_NOTES == 3
+    assert ck.creation_due(capped, st, True, True) == (False, False)
+    assert ck.creation_due(capped, st, True, True, operator=False) == (False, False)
+    # After a release (delete), only an operator turn asks again.
+    released = base + [injection(t + 3, ck), user(t + 3)] + create(t + 4, ck) + delete(t + 60)
+    assert ck.creation_due(released, st, True, True, operator=False) == (False, False)
+    # A compaction is not a new process: the cron created before it is live.
+    compacted = base + [injection(t + 3, ck), user(t + 3)] + create(t + 4, ck) + compaction(t + 70) + [user(t + 80)]
+    assert ck.creation_due(compacted, st, True, True) == (False, False)
+    # A check-existing note answered by a CronList showing the job is settled.
+    listed = [user(t + 1), asst(t + 2), injection(t + 3, ck), user(t + 3)] + cron_list(t + 4, ck, ["aaaa1111"])
+    assert ck.creation_due(listed, ck.session_state(listed), True, True, started_at=t) == (False, False)
     tid = "toolu_denied"
     denied = base + [injection(t + 3, ck), user(t + 3),
                      tool_use(t + 4, "CronCreate", {"cron": ck.CRON_EXPR, "recurring": True, "durable": False,
@@ -355,10 +412,33 @@ def _note(t, aid, status):
                 % (aid, status), "task_notification")
 
 
+def _queued_note(t, aid, status):
+    """A notification that arrived while the model was busy (measured: written
+    only as a queued_command attachment, never as a user record)."""
+    return {"type": "attachment", "timestamp": iso(t), "attachment": {
+        "type": "queued_command", "commandMode": "task-notification",
+        "prompt": "<task-notification>\n<task-id>%s</task-id>\n<status>%s</status>\n</task-notification>" % (aid, status)}}
+
+
+def _bg(t, bid):
+    return tool_result(t, "toolu_" + bid, "Command running in background with ID: %s. Output is being written to: /tmp/x" % bid)
+
+
 def t_in_flight(h):
     ck = load(h)
     t = NOW - 1000
-    f = lambda recs: ck.in_flight(write_transcript(recs, conductor=False))
+    f = lambda recs, started=None: ck.in_flight(write_transcript(recs, conductor=False), started)
+    # Each of these held release for 10h52m in the measured overnight session.
+    assert f([_launch(t, "a1"), _queued_note(t + 5, "a1", "completed")]) is False
+    assert f([_queued_note(t, "b1", "completed"), _bg(t + 1, "b1")]) is False
+    assert f([_bg(t, "b1"), tool_use(t + 5, "TaskStop", {"task_id": "b1"}, "toolu_ts"),
+              tool_result(t + 6, "toolu_ts", '{"message":"Successfully stopped task: b1 (sleep 55)"}')]) is False
+    assert f([_bg(t, "b1"), _launch(t + 1, "a1")], started=t + 10) is False
+    assert f([_bg(t, "b1"), _launch(t + 1, "a1"), _bg(t + 20, "b2")], started=t + 10) is True
+    assert f([_bg(t, "b1"), session_start(t + 10, "resume")]) is False
+    assert f([_bg(t, "b1"), session_start(t + 10, "resume"), _bg(t + 20, "b2")]) is True
+    assert f([_bg(t, "b1")] + compaction(t + 10)) is True
+    assert f([_queued_note(t, "b1", "running"), _bg(t + 1, "b1")]) is True
     assert f([_launch(t, "a1")]) is True
     assert f([_launch(t, "a1"), _note(t + 5, "a1", "completed")]) is False
     for st in ("failed", "killed", "stopped"):
@@ -471,6 +551,16 @@ def _ctx(out):
     return (out or {}).get("hookSpecificOutput", {}).get("additionalContext")
 
 
+def _released(ck, out, jobs=()):
+    """A delete decision: the hook's own release note, never silence that
+    would leave the model to act on the ping text."""
+    note = _ctx(out) or ""
+    want = ck.release_note(list(jobs))
+    assert note == want and note.startswith(ck.RELEASE_MARKER) and "CronDelete" in note, (note, want)
+    assert all("job " + j in note for j in jobs) and ("CronList" in note) == (not jobs), note
+    return True
+
+
 def t_hook_ping_actions(h):
     ck = load(h)
     home, repo = _home()
@@ -478,10 +568,17 @@ def t_hook_ping_actions(h):
     note = _ctx(run_hook(h, ck.LG.PING_PROMPT, ping_ok, home))
     assert re.fullmatch(re.escape(ck.LG.GATE_NOTE + ck.LG.GATE_REPLY_LEAD)
                         + r"keepalive: cache warmed \(idle 50m, next check (1[0-2]|[1-9]):[0-5]\d[ap]m\)", note), note
+    # A cron created before the prompt changed is gated the same way.
+    legacy = ck.LG.LEGACY_PING_PROMPTS[0]
+    assert _ctx(run_hook(h, legacy, ping_ok, home)).startswith(ck.LG.GATE_NOTE)
     recent = write_transcript(warm_idle(ck, 600))
     assert run_hook(h, ck.LG.PING_PROMPT, recent, home) == ck.BLOCK_OUTPUT
     not_cond = write_transcript(warm_idle(ck, 3000), conductor=False)
-    assert run_hook(h, ck.LG.PING_PROMPT, not_cond, home) is None
+    assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, not_cond, home))
+    # The release note names every live keepalive job the transcript shows.
+    named = write_transcript([session_start(NOW - 4000)] + create(NOW - 3990, ck) + create(NOW - 3980, ck, "bbbb2222")
+                             + warm_idle(ck, 3000), conductor=False)
+    assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, named, home), ["aaaa1111", "bbbb2222"])
     wrap = write_transcript(warm_idle(ck, ck.RELEASE_AFTER_S + 100, last_s=1200))
     proj = tempfile.mkdtemp(dir=SCRATCH)
     for mode in ("auto", "bypassPermissions"):
@@ -490,11 +587,11 @@ def t_hook_ping_actions(h):
         assert "Project root: " + os.path.realpath(proj) + " " in note, note
     for mode in ("default", "acceptEdits", None):
         extra = {"permission_mode": mode} if mode else None
-        assert run_hook(h, ck.LG.PING_PROMPT, wrap, home, cwd=proj, extra=extra) is None, mode
+        assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, wrap, home, cwd=proj, extra=extra)), mode
     home2, _ = _home(wrap_file=False)
-    assert run_hook(h, ck.LG.PING_PROMPT, wrap, home2, extra={"permission_mode": "auto"}) is None
+    assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, wrap, home2, extra={"permission_mode": "auto"}))
     home3, _ = _home(wrap_tool=False)
-    assert run_hook(h, ck.LG.PING_PROMPT, wrap, home3, extra={"permission_mode": "auto"}) is None
+    assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, wrap, home3, extra={"permission_mode": "auto"}))
     # The wrap root is the launch directory, not a cwd that drifted into another checkout.
     drifted = tempfile.mkdtemp(dir=SCRATCH)
     os.makedirs(os.path.join(drifted, ".git"))
@@ -515,19 +612,50 @@ def t_hook_ping_actions(h):
     assert run_hook(h, ck.LG.MARKER + " other", ping_ok, home) == ck.BLOCK_OUTPUT
     assert run_hook(h, "text with " + ck.LG.MARKER + " inside", ping_ok, home) is None
     assert run_hook(h, ck.LG.PING_PROMPT, os.path.join(SCRATCH, "missing.jsonl"), home) == ck.BLOCK_OUTPUT
+    # The ping text asks for nothing, so with no library the hook still blocks.
+    spec = importlib.util.spec_from_file_location("ck_hook%s" % time.time(), os.path.join(h, "cache-keepalive.py"))
+    hook = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook)
+    assert hook._MARKER == ck.LG.MARKER and hook._BLOCK_OUTPUT == ck.BLOCK_OUTPUT
+    bare = os.path.join(tempfile.mkdtemp(dir=SCRATCH), "hooks")
+    shutil.copytree(h, bare, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    os.remove(os.path.join(bare, "lib", "cache_keepalive.py"))
+    assert run_hook(bare, ck.LG.PING_PROMPT, ping_ok, home) == ck.BLOCK_OUTPUT
+    assert run_hook(bare, "please continue", ping_ok, home, env={"CLAUDE_CODE_SESSION_ATTENDED": "1"}) is None
+
+
+def t_hook_release_started_at(h):
+    """A background task launched by an earlier process of the session never
+    reports back; release at 2h idle must not wait for it."""
+    ck = load(h)
+    home, _ = _home()
+    sid = "11111111-2222-3333-4444-555555555555"
+    cfg = tempfile.mkdtemp(dir=SCRATCH)
+    os.makedirs(os.path.join(cfg, "sessions"))
+    json.dump({"sessionId": sid, "startedAt": int((NOW - 4 * 3600) * 1000)},
+              open(os.path.join(cfg, "sessions", "4242.json"), "w"))
+    env = {"CLAUDE_PID": "4242", "CLAUDE_CONFIG_DIR": cfg}
+    recs = [_bg(NOW - 5 * 3600, "b1")] + warm_idle(ck, ck.RELEASE_AFTER_S + 100, last_s=1200)
+    path = write_transcript(recs)
+    note = _ctx(run_hook(h, ck.LG.PING_PROMPT, path, home, env=env, extra={"permission_mode": "auto"}))
+    assert note and note.startswith(ck.WRAP_MARKER), note
+    assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, path, home, env=env, extra={"permission_mode": "default"}))
+    # Launched in this process and still running: release waits.
+    live = write_transcript([_bg(NOW - 3 * 3600, "b1")] + warm_idle(ck, ck.RELEASE_AFTER_S + 100, last_s=1200))
+    assert run_hook(h, ck.LG.PING_PROMPT, live, home, env=env, extra={"permission_mode": "auto"}) == ck.BLOCK_OUTPUT
 
 
 def t_hook_disabled(h):
     ck = load(h)
     path = write_transcript(warm_idle(ck, 3000))
     home, _ = _home()
-    assert run_hook(h, ck.LG.PING_PROMPT, path, home, env={"AE_CACHE_KEEPALIVE_DISABLE": "1"}) is None
+    assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, path, home, env={"AE_CACHE_KEEPALIVE_DISABLE": "1"}))
     home_g, _ = _home(global_cfg={"cache_keepalive": False})
-    assert run_hook(h, ck.LG.PING_PROMPT, path, home_g) is None
+    assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, path, home_g))
     proj = tempfile.mkdtemp(dir=SCRATCH)
     os.makedirs(os.path.join(proj, ".agentic"))
     json.dump({"cache_keepalive": False}, open(os.path.join(proj, ".agentic", "config.json"), "w"))
-    assert run_hook(h, ck.LG.PING_PROMPT, path, home, cwd=proj) is None
+    assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, path, home, cwd=proj))
     json.dump({"cache_keepalive": True}, open(os.path.join(proj, ".agentic", "config.json"), "w"))
     assert _ctx(run_hook(h, ck.LG.PING_PROMPT, path, home_g, cwd=proj)).startswith(ck.LG.GATE_NOTE)
     # Only a literal false disables: a falsy non-false value leaves it on.
@@ -539,8 +667,9 @@ def t_hook_disabled(h):
 
 
 def t_activation(h):
-    """No-op projects (preflight step 4) get neither pings nor the create
-    note; every active combination does. A missing resolver fails closed."""
+    """No-op projects (preflight step 4) get no create note, and a fire there
+    gets a release note instead of a ping; every active combination pings and
+    gets the note. A missing resolver fails closed."""
     ck = load(h)
     path = write_transcript(warm_idle(ck, 3000))
     att = {"CLAUDE_CODE_SESSION_ATTENDED": "1"}
@@ -558,10 +687,10 @@ def t_activation(h):
             assert _ctx(ping_out).startswith(ck.LG.GATE_NOTE), label
             assert _ctx(create_out) == ck.create_note(False), label
         else:
-            assert ping_out is None and create_out is None, (label, ping_out, create_out)
+            assert _released(ck, ping_out) and create_out is None, (label, ping_out, create_out)
     home, repo = _home()
     os.remove(os.path.join(repo, "bin", "ds-status"))
-    assert run_hook(h, ck.LG.PING_PROMPT, path, home) is None
+    assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, path, home))
 
 
 def t_hook_create(h):
@@ -587,16 +716,37 @@ def t_hook_create(h):
     assert run_hook(h, "please continue", live, home, env=att) is None
     unknown = write_transcript([user(NOW - 90), asst(NOW - 89)])
     assert _ctx(run_hook(h, "please continue", unknown, home, env=att)) == ck.create_note(True)
+    # An ignored note is repeated on the next turn, a task notification or a
+    # hand-back included, until MAX_CREATE_NOTES notes went unanswered.
+    recs = [session_start(NOW - 100), user(NOW - 90), asst(NOW - 89), injection(NOW - 80, ck), user(NOW - 80),
+            asst(NOW - 79)]
+    ignored = write_transcript(recs)
+    for prompt in ("please continue", notice, handback):
+        assert _ctx(run_hook(h, prompt, ignored, home, env=att)) == ck.create_note(False), prompt
+    for k in range(ck.MAX_CREATE_NOTES - 1):
+        recs += [injection(NOW - 70 + k, ck), user(NOW - 70 + k), asst(NOW - 69 + k)]
+    spent = write_transcript(recs)
+    assert run_hook(h, "please continue", spent, home, env=att) is None
+    assert run_hook(h, notice, spent, home, env=att) is None
 
 
 CASES = [t_constants, t_decide_actions, t_release_wrap, t_no_repeat_wrap, t_delete_once, t_session_state, t_blocked_fire_records, t_rate_limit,
          t_is_ping_record, t_cron_status, t_creation_due, t_in_flight, t_is_conductor, t_kickoff, t_rates_parity,
-         t_skill_regex, t_hook_ping_actions, t_hook_disabled, t_activation, t_hook_create]
+         t_skill_regex, t_hook_ping_actions, t_hook_release_started_at, t_hook_disabled, t_activation, t_hook_create]
 
 # (name, file under hooks/, old, new, case it must redden)
 MUTATIONS = [
-    ("gate-note-on-delete", "cache-keepalive.py", 'elif action == "block":',
-     'elif action == "delete":\n        _context(lib.LG.GATE_NOTE)\n    elif action == "block":', t_hook_ping_actions),
+    ("gate-note-on-delete", "cache-keepalive.py", "_context(lib.release_note(lib.cron_jobs(records, started, complete)[1]))",
+     "_context(lib.LG.GATE_NOTE)", t_hook_ping_actions),
+    ("silent-delete", "cache-keepalive.py", "_context(lib.release_note(lib.cron_jobs(records, started, complete)[1]))",
+     "pass", t_hook_ping_actions),
+    ("release-note-no-ids", "lib/cache_keepalive.py", "    if job_ids:\n", "    if False:\n", t_hook_ping_actions),
+    ("lib-missing-emits-nothing", "cache-keepalive.py", "        if prompt.startswith(_MARKER):\n            _emit(_BLOCK_OUTPUT)\n",
+     "", t_hook_ping_actions),
+    ("legacy-prompt-blocked", "lib/loop_guard.py", "PING_PROMPTS = (PING_PROMPT,) + LEGACY_PING_PROMPTS",
+     "PING_PROMPTS = (PING_PROMPT,)", t_hook_ping_actions),
+    ("ping-prompt-deletes", "lib/loop_guard.py", "nothing: reply with exactly: ok.\"",
+     "nothing: delete this cron, then reply with exactly: ok.\"", t_is_ping_record),
     ("kickoff-unquoted", "lib/cache_keepalive.py", 'return "claude " + shlex.quote(KICKOFF_PROMPT.format(',
      'return "claude " + str(KICKOFF_PROMPT.format(', t_kickoff),
     ("kickoff-relative-paths", "lib/cache_keepalive.py", 'agentic=os.path.join(root, ".agentic")))',
@@ -620,15 +770,35 @@ MUTATIONS = [
      'BLOCK_OUTPUT = {"decision": "block", "reason": "x"}', t_constants),
     ("no-attended-check", "cache-keepalive.py", 'if env.get("CLAUDE_CODE_SESSION_ATTENDED") != "1" or payload.get("agent_id"):',
      'if payload.get("agent_id"):', t_hook_create),
-    ("declined-injection-repeats", "lib/cache_keepalive.py", "            return (False, False)\n    return (True, status",
-     "            pass\n    return (True, status", t_creation_due),
-    ("create-on-notification", "cache-keepalive.py",
-     "    if lib.LG.is_harness_injected_text(prompt) or prompt.lstrip().startswith(lib.NON_OPERATOR_PREFIXES):\n        return\n",
-     "", t_hook_create),
+    ("create-notes-uncapped", "lib/cache_keepalive.py", "if len(notes) >= MAX_CREATE_NOTES or (not operator and not notes):",
+     "if not operator and not notes:", t_creation_due),
+    ("ignored-note-not-repeated", "lib/cache_keepalive.py", "if len(notes) >= MAX_CREATE_NOTES or (not operator and not notes):",
+     "if notes or not operator:", t_hook_create),
+    ("first-note-on-notification", "lib/cache_keepalive.py", "(not operator and not notes)", "False", t_hook_create),
+    ("compact-is-process-start", "lib/cache_keepalive.py", 'PROCESS_START_HOOKS = ("SessionStart:startup", "SessionStart:resume")',
+     'PROCESS_START_HOOKS = ("SessionStart:startup", "SessionStart:resume", "SessionStart:compact")', t_cron_status),
+    ("cron-list-ignored", "lib/cache_keepalive.py", "                events.append((i, \"list\", _LISTED_JOB_RE.findall(res)))\n",
+     "", t_cron_status),
+    ("current-needs-process-start", "lib/cache_keepalive.py",
+     "        return started_at is not None and stamps.get(i) is not None and stamps[i] >= started_at\n",
+     "        return False\n", t_cron_status),
+    ("in-flight-ignores-queued", "lib/cache_keepalive.py", "                    texts = [rec[\"attachment\"][\"prompt\"]]\n",
+     "                    continue\n", t_in_flight),
+    ("in-flight-notice-before-launch", "lib/cache_keepalive.py", "                        if m.group(1) not in finished:\n",
+     "                        if True:\n", t_in_flight),
+    ("in-flight-ignores-task-stop", "lib/cache_keepalive.py", "                    for m in _STOPPED_RE.finditer(text):\n",
+     "                    for m in []:\n", t_in_flight),
+    ("in-flight-keeps-earlier-process", "lib/cache_keepalive.py", "                        if earlier_process:\n",
+     "                        if False:\n", t_in_flight),
+    ("in-flight-no-process-reset", "lib/cache_keepalive.py", "                if _is_process_start(rec):\n                    # Agents",
+     "                if False:\n                    # Agents", t_in_flight),
+    ("ping-in-flight-without-start", "cache-keepalive.py", "in_flight=lambda: lib.in_flight(path, started),",
+     "in_flight=lambda: lib.in_flight(path),", t_hook_release_started_at),
     ("create-on-handback", "lib/cache_keepalive.py", 'NON_OPERATOR_PREFIXES = ("<agent-message", "<task-notification>")',
      'NON_OPERATOR_PREFIXES = ("<task-notification>",)', t_hook_create),
-    ("denied-create-repeats", "lib/cache_keepalive.py", "if inj > anchor and not any(c[0] > inj and c[1] for c in creates):",
-     "if inj > anchor and not any(c[0] > inj for c in creates):", t_creation_due),
+    ("denied-create-repeats", "lib/cache_keepalive.py",
+     "    if any(i > anchor and kind == \"create\" and not value[0] and value[1] for i, kind, value, _ in events):\n"
+     "        return (False, False)\n", "", t_creation_due),
     ("wrap-in-any-mode", "cache-keepalive.py", 'wrap_mode_ok=lib.wrap_allowed(payload.get("permission_mode")),',
      "wrap_mode_ok=True,", t_hook_ping_actions),
     ("ignores-activation", "lib/cache_keepalive.py", "    if not is_active(cwd):\n        return False\n", "", t_activation),
@@ -647,7 +817,7 @@ MUTATIONS = [
     ("repeat-delete", "lib/cache_keepalive.py", '    if action == "delete" and state.get("deletes_since_idle"):\n',
      '    if False:\n', t_delete_once),
     ("no-cost-cap", "lib/cache_keepalive.py", 'return ("delete", "cost-capped")', 'pass', t_release_wrap),
-    ("ping-prompt-says-hook", "lib/loop_guard.py", "If a DinoStack note in THIS turn", "If a hook note in THIS turn",
+    ("ping-prompt-says-hook", "lib/loop_guard.py", "Act only on a DinoStack keepalive", "Act only on a hook keepalive",
      t_skill_regex),
 ]
 
