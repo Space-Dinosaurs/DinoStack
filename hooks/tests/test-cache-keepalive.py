@@ -123,9 +123,9 @@ def compaction(t):
                 "toolUseID": "SessionStart", "content": ["memory"]}}]
 
 
-def cron_list(t, ck, jobs, tid="toolu_l"):
-    text = "\n".join("%s \u2014 %s (recurring) [session-only]: %s\u2026" % (j, ck.CRON_EXPR, ck.LG.PING_PROMPT[:60])
-                     for j in jobs) or "No scheduled jobs."
+def cron_list(t, ck, jobs, tid="toolu_l", text=None):
+    text = text or "\n".join("%s \u2014 %s (recurring) [session-only]: %s\u2026" % (j, ck.CRON_EXPR, ck.LG.PING_PROMPT[:60])
+                              for j in jobs) or "No scheduled jobs."
     return [tool_use(t, "CronList", {}, tid), tool_result(t, tid, text)]
 
 
@@ -348,6 +348,13 @@ def t_cron_status(h):
     assert ck.cron_jobs([user(t)] + cron_list(t + 1, ck, ["cccc3333"]), started_at=t - 100) == ("live", ["cccc3333"])
     assert ck.cron_jobs([user(t)] + cron_list(t + 1, ck, []), started_at=t - 100) == ("absent", [])
     assert ck.cron_status([user(t)] + cron_list(t + 1, ck, ["cccc3333"])) == "unknown"
+    # Only other jobs listed: ours is absent. A result in no measured shape
+    # says nothing, so the earlier create still decides.
+    other = "dddd4444 \u2014 12 20 13 10 * (one-shot) [session-only]: Usage window has reset"
+    assert ck.cron_jobs([user(t)] + cron_list(t + 1, ck, [], text=other), started_at=t - 100) == ("absent", [])
+    odd = [user(t)] + create(t + 1, ck) + cron_list(t + 2, ck, [], text="Error: cron service unavailable")
+    assert ck.cron_jobs(odd, started_at=t - 100) == ("live", ["aaaa1111"])
+    assert ck.cron_status([user(t)] + cron_list(t + 1, ck, [], text="Error: x"), started_at=t - 100) == "unknown"
     # process_started_at trusts the pid file only when it belongs to this session (a reused pid must not).
     cfg = tempfile.mkdtemp(dir=SCRATCH)
     os.makedirs(os.path.join(cfg, "sessions"))
@@ -438,6 +445,9 @@ def t_in_flight(h):
     assert f([_bg(t, "b1"), session_start(t + 10, "resume")]) is False
     assert f([_bg(t, "b1"), session_start(t + 10, "resume"), _bg(t + 20, "b2")]) is True
     assert f([_bg(t, "b1")] + compaction(t + 10)) is True
+    # With started_at known it alone decides; a later startup marker does not
+    # clear a task this process launched.
+    assert f([_bg(t + 20, "b2"), session_start(t + 30)], started=t + 10) is True
     assert f([_queued_note(t, "b1", "running"), _bg(t + 1, "b1")]) is True
     assert f([_launch(t, "a1")]) is True
     assert f([_launch(t, "a1"), _note(t + 5, "a1", "completed")]) is False
@@ -481,6 +491,10 @@ def t_kickoff(h):
     assert "/proj/.agentic/resume/SID-1.md" in note and "/repo/content/commands/ds-wrap-deferred.md" in note
     assert "Project root: /proj " in note and "write only under /proj/.agentic/" in note
     assert note.count(cmd) == 1 and note.endswith("KICKOFF: " + cmd)
+    assert "To delete the cron in step 4, call CronList, then CronDelete every job whose prompt starts with " \
+        + ck.LG.MARKER + "." in note, note
+    named = ck.wrap_note("/repo", "SID-1", "/proj", ["aaaa1111", "bbbb2222"])
+    assert "To delete the cron in step 4, call CronDelete for job aaaa1111 and job bbbb2222." in named, named
     assert "\nWRAP_COMMAND: /repo/bin/ds-keepalive-wrap --root /proj --session-id SID-1\nKICKOFF: " in note
     odd = "/tmp/it's a proj"
     assert shlex.split(ck.wrap_command("/re po", "SID-1", odd)) == ["/re po/bin/ds-keepalive-wrap", "--root", odd,
@@ -585,6 +599,10 @@ def t_hook_ping_actions(h):
         note = _ctx(run_hook(h, ck.LG.PING_PROMPT, wrap, home, cwd=proj, extra={"permission_mode": mode}))
         assert note and note.startswith(ck.WRAP_MARKER) and repo in note, (mode, note)
         assert "Project root: " + os.path.realpath(proj) + " " in note, note
+    wrap_named = write_transcript([session_start(NOW - 3 * 3600)] + create(NOW - 3 * 3600 + 5, ck)
+                                  + warm_idle(ck, ck.RELEASE_AFTER_S + 100, last_s=1200))
+    note = _ctx(run_hook(h, ck.LG.PING_PROMPT, wrap_named, home, cwd=proj, extra={"permission_mode": "auto"}))
+    assert note.startswith(ck.WRAP_MARKER) and "call CronDelete for job aaaa1111." in note, note
     for mode in ("default", "acceptEdits", None):
         extra = {"permission_mode": mode} if mode else None
         assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, wrap, home, cwd=proj, extra=extra)), mode
@@ -736,10 +754,20 @@ CASES = [t_constants, t_decide_actions, t_release_wrap, t_no_repeat_wrap, t_dele
 
 # (name, file under hooks/, old, new, case it must redden)
 MUTATIONS = [
-    ("gate-note-on-delete", "cache-keepalive.py", "_context(lib.release_note(lib.cron_jobs(records, started, complete)[1]))",
+    ("gate-note-on-delete", "cache-keepalive.py", "_context(lib.release_note(live_jobs()))",
      "_context(lib.LG.GATE_NOTE)", t_hook_ping_actions),
-    ("silent-delete", "cache-keepalive.py", "_context(lib.release_note(lib.cron_jobs(records, started, complete)[1]))",
+    ("silent-delete", "cache-keepalive.py", "_context(lib.release_note(live_jobs()))",
      "pass", t_hook_ping_actions),
+    ("wrap-note-no-ids", "cache-keepalive.py", "lib.LG.resolve_agentic_cwd(start), live_jobs()))",
+     "lib.LG.resolve_agentic_cwd(start)))", t_hook_ping_actions),
+    ("wrap-note-no-delete-target", "lib/cache_keepalive.py", '+ ". To delete the cron in step 4, " + _delete_target(job_ids)\n',
+     "", t_kickoff),
+    ("in-flight-marker-overrides-start", "lib/cache_keepalive.py", "                    if started_at is None:\n                        launched.clear()",
+     "                    if True:\n                        launched.clear()", t_in_flight),
+    ("cron-list-any-text-is-empty", "lib/cache_keepalive.py",
+     "    if res.strip() == _NO_JOBS or _ANY_LISTED_JOB_RE.search(res):\n", "    if True:\n", t_cron_status),
+    ("cron-list-other-jobs-unknown", "lib/cache_keepalive.py",
+     "    if res.strip() == _NO_JOBS or _ANY_LISTED_JOB_RE.search(res):\n", "    if res.strip() == _NO_JOBS:\n", t_cron_status),
     ("release-note-no-ids", "lib/cache_keepalive.py", "    if job_ids:\n", "    if False:\n", t_hook_ping_actions),
     ("lib-missing-emits-nothing", "cache-keepalive.py", "        if prompt.startswith(_MARKER):\n            _emit(_BLOCK_OUTPUT)\n",
      "", t_hook_ping_actions),
@@ -777,8 +805,8 @@ MUTATIONS = [
     ("first-note-on-notification", "lib/cache_keepalive.py", "(not operator and not notes)", "False", t_hook_create),
     ("compact-is-process-start", "lib/cache_keepalive.py", 'PROCESS_START_HOOKS = ("SessionStart:startup", "SessionStart:resume")',
      'PROCESS_START_HOOKS = ("SessionStart:startup", "SessionStart:resume", "SessionStart:compact")', t_cron_status),
-    ("cron-list-ignored", "lib/cache_keepalive.py", "                events.append((i, \"list\", _LISTED_JOB_RE.findall(res)))\n",
-     "", t_cron_status),
+    ("cron-list-ignored", "lib/cache_keepalive.py", 'elif b.get("name") == "CronList" and', "elif False and",
+     t_cron_status),
     ("current-needs-process-start", "lib/cache_keepalive.py",
      "        return started_at is not None and stamps.get(i) is not None and stamps[i] >= started_at\n",
      "        return False\n", t_cron_status),

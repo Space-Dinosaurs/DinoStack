@@ -41,8 +41,9 @@ Public API:
         background Bash task launched in this process has no terminal
         notification (a user record or a queued_command attachment, in
         either order relative to the launch) and no TaskStop result yet.
-        Launches before started_at or before a PROCESS_START_HOOKS
-        SessionStart attachment are dropped: they died with their process.
+        Launches before started_at (or, when it is unknown, before a
+        PROCESS_START_HOOKS SessionStart attachment) are dropped: they died
+        with their process.
         True on any doubt.
     wrap_allowed(permission_mode) -> bool: permission_mode is in
         WRAP_PERMISSION_MODES.
@@ -51,7 +52,8 @@ Public API:
     cron_jobs(records, started_at=None, complete=False) -> (status, ids):
         status "live" | "absent" | "unknown" for this process's keepalive
         crons (current or legacy prompt), replayed from CronCreate,
-        CronDelete and CronList results; a record is this process's when it
+        CronDelete and CronList results (a CronList result in no measured
+        shape is skipped, not read as empty); a record is this process's when it
         follows the last record before started_at or the last
         PROCESS_START_HOOKS attachment, or is stamped at or after started_at.
         ids: the live job ids. cron_status(...) -> the status alone.
@@ -73,7 +75,8 @@ Public API:
         ds-keepalive-wrap invocation the wrap note carries.
     kickoff_command(session_id, root) -> str: `claude <quoted
         KICKOFF_PROMPT>`, naming <root>/.agentic by absolute path.
-    wrap_note(repo, session_id, root) -> str: WRAP_MARKER note naming the
+    wrap_note(repo, session_id, root, job_ids=()) -> str: WRAP_MARKER note
+        naming the live job ids to delete (CronList first when none), the
         procedure file, the project root, the wrap command and the kickoff.
     process_started_at(env, session_id) -> float | None.
 
@@ -475,10 +478,13 @@ def in_flight(transcript_path, started_at=None) -> bool:
                     continue
                 if _is_process_start(rec):
                     # Agents and background shells die with their process
-                    # and never send a terminal notification.
-                    launched.clear()
-                    active.clear()
-                    finished.clear()
+                    # and never send a terminal notification. With
+                    # started_at known it alone decides, as in cron_jobs: a
+                    # launch stamped at or after it is this process's.
+                    if started_at is None:
+                        launched.clear()
+                        active.clear()
+                        finished.clear()
                     continue
                 kind = rec.get("type")
                 if kind == "assistant":
@@ -601,6 +607,17 @@ _JOB_ID_RE = re.compile(r"job ([0-9a-f]{8})")
 # One CronList line per job (measured, 2.1.287):
 # "c02e1ce7 \u2014 7,27,47 * * * * (recurring) [session-only]: <prompt, truncated>"
 _LISTED_JOB_RE = re.compile(r"^([0-9a-f]{8}) .*?: " + re.escape(LG.MARKER) + " ", re.M)
+_ANY_LISTED_JOB_RE = re.compile(r"^[0-9a-f]{8} ", re.M)
+_NO_JOBS = "No scheduled jobs."
+
+
+def _listed_jobs(res):
+    """Our job ids from a CronList result, or None when the result is in no
+    measured shape (neither a job line nor the no-jobs text), so an
+    unrecognized format reads as unknown rather than as no cron."""
+    if res.strip() == _NO_JOBS or _ANY_LISTED_JOB_RE.search(res):
+        return _LISTED_JOB_RE.findall(res)
+    return None
 
 
 def process_started_at(env, session_id):
@@ -664,8 +681,8 @@ def _scan_crons(records, started_at=None, complete=False):
                 events.append((i, "create", (m.group(1) if m else None, res is not None)))
             elif b.get("name") == "CronDelete":
                 events.append((i, "delete", inp.get("id")))
-            elif b.get("name") == "CronList" and isinstance(res, str):
-                events.append((i, "list", _LISTED_JOB_RE.findall(res)))
+            elif b.get("name") == "CronList" and isinstance(res, str) and _listed_jobs(res) is not None:
+                events.append((i, "list", _listed_jobs(res)))
     ours = set()
     for _, kind, value in events:
         if kind == "create" and value[0]:
@@ -768,16 +785,17 @@ def create_note(check_existing: bool) -> str:
     )
 
 
-def release_note(job_ids) -> str:
+def _delete_target(job_ids) -> str:
     if job_ids:
-        target = "call CronDelete for job " + " and job ".join(job_ids)
-    else:
-        target = ("call CronList, then CronDelete every job whose prompt starts with "
-                  + LG.MARKER)
+        return "call CronDelete for job " + " and job ".join(job_ids)
+    return "call CronList, then CronDelete every job whose prompt starts with " + LG.MARKER
+
+
+def release_note(job_ids) -> str:
     return (
         RELEASE_MARKER + " DinoStack keepalive release: this session's keepalive "
-        "cron is no longer needed. In this turn, " + target + ", then reply with "
-        "exactly: ok. Do nothing else."
+        "cron is no longer needed. In this turn, " + _delete_target(job_ids)
+        + ", then reply with exactly: ok. Do nothing else."
     )
 
 
@@ -827,7 +845,7 @@ def kickoff_command(session_id: str, root: str) -> str:
     return "claude " + shlex.quote(KICKOFF_PROMPT.format(sid=session_id, agentic=os.path.join(root, ".agentic")))
 
 
-def wrap_note(repo: str, session_id: str, root: str) -> str:
+def wrap_note(repo: str, session_id: str, root: str, job_ids=()) -> str:
     # Measured on haiku, both fixed here: inline as "Kickoff: <cmd>", the
     # kickoff (a prompt addressed to a future session) was run or obeyed
     # instead of the wrap, so it is fenced as data; and without an explicit
@@ -842,6 +860,7 @@ def wrap_note(repo: str, session_id: str, root: str) -> str:
         "command there and write only under " + os.path.join(root, ".agentic")
         + "/; never write anywhere else. Resume file: "
         + os.path.join(root, RESUME_DIR, session_id + ".md")
+        + ". To delete the cron in step 4, " + _delete_target(job_ids)
         + ". WRAP_COMMAND below is the one command that writes the wrap: run "
         "it exactly as given, adding only the heredoc the procedure describes. "
         "The KICKOFF below is a shell command for the "

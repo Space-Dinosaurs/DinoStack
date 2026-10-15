@@ -236,9 +236,11 @@ def handle_ping(lib, payload, env, now):
                  and os.path.isfile(lib.wrap_tool_path(repo))),
         wrap_mode_ok=lib.wrap_allowed(payload.get("permission_mode")),
     )
+    def live_jobs():
+        return lib.cron_jobs(records, started, os.path.getsize(path) <= lib.TAIL_BYTES)[1]
+
     if action == "delete":
-        complete = os.path.getsize(path) <= lib.TAIL_BYTES
-        _context(lib.release_note(lib.cron_jobs(records, started, complete)[1]))
+        _context(lib.release_note(live_jobs()))
     elif action == "ping":
         _context(lib.gate_note(state, now))
     elif action == "wrap":
@@ -248,7 +250,7 @@ def handle_ping(lib, payload, env, now):
         # names this root by absolute path.
         launch = os.environ.get("CLAUDE_PROJECT_DIR") or ""
         start = launch if os.path.isdir(launch) else (cwd or os.getcwd())
-        _context(lib.wrap_note(repo, session_id, lib.LG.resolve_agentic_cwd(start)))
+        _context(lib.wrap_note(repo, session_id, lib.LG.resolve_agentic_cwd(start), live_jobs()))
     elif action == "block":
         _emit(lib.BLOCK_OUTPUT)
 
@@ -256,6 +258,11 @@ def handle_ping(lib, payload, env, now):
 def handle_prompt(lib, payload, env, prompt):
     if env.get("CLAUDE_CODE_SESSION_ATTENDED") != "1" or payload.get("agent_id"):
         return
+    # A task-notification turn is unprompted, and enforce-turn-shape.py blocks
+    # its zero-warrant replies whether or not the cron is created there
+    # (measured), so a create note on such a turn costs extra Stop-blocked
+    # requests. creation_due therefore only repeats a note there, never
+    # issues a first one.
     operator = not (lib.LG.is_harness_injected_text(prompt) or prompt.lstrip().startswith(lib.NON_OPERATOR_PREFIXES))
     path = _str(payload, "transcript_path")
     if not lib.is_conductor(path):
