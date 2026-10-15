@@ -284,6 +284,8 @@ def saved(path):
     if "config_env_set" not in result:
         # Recorded before the caller's variable was saved: those lanes were launched with it set.
         result["config_env_set"], result["config_env"] = "1", result["config_dir"]
+    elif result["config_env_set"] not in ("0", "1") or (result["config_env_set"] == "1") != bool(result["config_env"]):
+        refuse("saved config environment missing/inconsistent")
     if harness == "claude":
         if result["permission_mode"] not in ("default", "acceptEdits", "plan", "dontAsk", "bypassPermissions", "auto"):
             refuse("saved Claude permission mode missing/unsupported")
