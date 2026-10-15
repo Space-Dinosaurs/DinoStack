@@ -73,7 +73,8 @@ Public API (module-level functions, no class):
         arrive as `type:"user"` lines without isMeta (background task-
         completion notifications, <system-reminder>, <command-name>) and
         must not be mistaken for a genuine human turn.
-    MARKER, PING_PROMPT, GATE_NOTE, GATE_REPLY_LEAD, WRAP_MARKER, TAIL_BYTES
+    MARKER, PING_PROMPT, LEGACY_PING_PROMPTS, PING_PROMPTS, GATE_NOTE,
+    GATE_REPLY_LEAD, WRAP_MARKER, RELEASE_MARKER, TAIL_BYTES
         The cache-keepalive literals (hooks/cache-keepalive.py). Kept here
         so the Stop-hook carve-out and the gate share one copy.
     read_tail_records(transcript_path, max_bytes=TAIL_BYTES) -> list
@@ -84,7 +85,7 @@ Public API (module-level functions, no class):
         turn (not a tool_result, and carries turnOrigin or is not isMeta).
     is_ping_record(rec) -> bool
         True iff rec is the user record a keepalive cron fire writes: text
-        equal to PING_PROMPT, isMeta true, turnOrigin "scheduled".
+        equal to one of PING_PROMPTS, isMeta true, turnOrigin "scheduled".
     is_ping_ack_turn(transcript_path, last_message=None) -> bool
         True iff the current turn answers a ping: the last turn-opening
         user record passes is_ping_record, and either every tool_use after
@@ -463,17 +464,28 @@ def last_genuine_user_text(transcript_path: str) -> str:
 MARKER = "[dinostack-cache-keepalive]"
 # Must not match hooks/skill-auto-load-check.sh's applicability regex (its
 # keyword list includes "hook"), or every ping would carry the skill banner.
+# Inert by design: a blocked fire still leaves this text in context, and a
+# later turn that read a delete instruction here deleted the cron (measured:
+# 14 of 14 deletes outside ping turns followed a blocked fire). Every action
+# comes from the note the gate attaches to the same turn.
 PING_PROMPT = (
+    MARKER + " Scheduled keepalive check. Act only on a DinoStack keepalive "
+    "note attached to this same turn; with no such note this message asks for "
+    "nothing: reply with exactly: ok."
+)
+# Crons created before PING_PROMPT changed keep firing their old text until
+# their process exits; they are still pings, gated the same way.
+LEGACY_PING_PROMPTS = (
     MARKER + " If a DinoStack note in THIS turn says the keepalive gate passed, "
     "reply with exactly: ok. If not, delete this recurring cron job with "
     "CronDelete (CronList first if its id is not in context), then reply with "
-    "exactly: ok."
+    "exactly: ok.",
 )
+PING_PROMPTS = (PING_PROMPT,) + LEGACY_PING_PROMPTS
 GATE_NOTE = "DinoStack keepalive gate passed for this ping."
-# PING_PROMPT stays byte-identical so crons created before this lead existed
-# keep passing the gate; the gate note overrides its "ok" with this line.
 GATE_REPLY_LEAD = " Instead of ok, reply with exactly this one line: "
 WRAP_MARKER = "[dinostack-cache-keepalive:wrap]"
+RELEASE_MARKER = "[dinostack-cache-keepalive:release]"
 TAIL_BYTES = 4194304
 _PING_ACK_TOOLS = frozenset(("CronList", "CronDelete"))
 _WRAP_FINAL_PREFIXES = ("Session wrapped", "Session wrap skipped", "Session wrap failed")
@@ -539,7 +551,7 @@ def is_ping_record(rec) -> bool:
     msg = rec.get("message")
     if not isinstance(msg, dict):
         return False
-    return _content_text(msg.get("content")) == PING_PROMPT
+    return _content_text(msg.get("content")) in PING_PROMPTS
 
 
 def _normalize_ack(text: str) -> str:

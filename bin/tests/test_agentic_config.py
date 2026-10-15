@@ -885,25 +885,28 @@ class TestCacheKeepaliveRoundTrip:
         monkeypatch.setattr(ck, "GLOBAL_CONFIG", str(fake_global))
         return ck, fake_global
 
-    def test_project_write_disables(self, tmp_path, monkeypatch):
+    def test_project_write_enables_and_disables(self, tmp_path, monkeypatch):
         ck, fake_global = self._setup(tmp_path, monkeypatch)
-        assert ck.is_enabled(str(tmp_path)) is True
-        assert main(["agentic-config", "cache_keepalive", "false"]) == 0
-        data = json.loads((tmp_path / ".agentic" / "config.json").read_text())
-        assert data["cache_keepalive"] is False
-        assert not fake_global.exists()
-        assert ck.is_enabled(str(tmp_path)) is False
-
-    def test_global_write_disables_and_project_wins(self, tmp_path, monkeypatch):
-        ck, fake_global = self._setup(tmp_path, monkeypatch)
-        assert main(["agentic-config", "cache_keepalive", "false", "--scope", "global"]) == 0
-        assert json.loads(fake_global.read_text())["cache_keepalive"] is False
-        assert not (tmp_path / ".agentic" / "config.json").exists()
         assert ck.is_enabled(str(tmp_path)) is False
         assert main(["agentic-config", "cache_keepalive", "true"]) == 0
+        data = json.loads((tmp_path / ".agentic" / "config.json").read_text())
+        assert data["cache_keepalive"] is True
+        assert not fake_global.exists()
         assert ck.is_enabled(str(tmp_path)) is True
+        assert main(["agentic-config", "cache_keepalive", "false"]) == 0
+        assert ck.is_enabled(str(tmp_path)) is False
+
+    def test_global_write_enables_and_project_wins(self, tmp_path, monkeypatch):
+        ck, fake_global = self._setup(tmp_path, monkeypatch)
+        assert main(["agentic-config", "cache_keepalive", "true", "--scope", "global"]) == 0
+        assert json.loads(fake_global.read_text())["cache_keepalive"] is True
+        assert not (tmp_path / ".agentic" / "config.json").exists()
+        assert ck.is_enabled(str(tmp_path)) is True
+        assert main(["agentic-config", "cache_keepalive", "false"]) == 0
+        assert ck.is_enabled(str(tmp_path)) is False
 
     def test_kill_switch(self, tmp_path, monkeypatch):
         ck, _ = self._setup(tmp_path, monkeypatch)
+        assert main(["agentic-config", "cache_keepalive", "true"]) == 0
         monkeypatch.setenv("AE_CACHE_KEEPALIVE_DISABLE", "1")
         assert ck.is_enabled(str(tmp_path)) is False

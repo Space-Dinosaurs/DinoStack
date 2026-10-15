@@ -194,8 +194,8 @@ installed separately:
   cache warm, and gates every fire: ping, block before any request, let the
   model delete its own cron, or (after 2h idle with nothing in flight) start
   the in-session wrap, which writes only under the project's `.agentic/`,
-  deletes the cron and leaves the session open for the operator to exit. Default on;
-  disable via `cache_keepalive: false` or `AE_CACHE_KEEPALIVE_DISABLE=1`. See
+  deletes the cron and leaves the session open for the operator to exit. Default off;
+  enable with `cache_keepalive: true`; `AE_CACHE_KEEPALIVE_DISABLE=1` disables it even then. See
   [configuration-reference.md](configuration-reference.md#cache-keepalive).
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.

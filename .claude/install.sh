@@ -1003,7 +1003,7 @@ upsert_hook(
 
 # Prompt-cache keepalive for idle conductor sessions: asks the model to create
 # its session-only cron on a genuine prompt and gates every cron fire. Default
-# on; `cache_keepalive: false` or AE_CACHE_KEEPALIVE_DISABLE=1 turns it off.
+# off; `cache_keepalive: true` turns it on, AE_CACHE_KEEPALIVE_DISABLE=1 off.
 # Guarded form for the same reason as enforce-turn-shape.py below: a missing
 # script must not exit 2, which blocks every prompt on UserPromptSubmit.
 CACHE_KEEPALIVE_CMD = (

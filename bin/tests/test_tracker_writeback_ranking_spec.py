@@ -931,8 +931,8 @@ _SEED_KEYS_WITHOUT_OWN_BULLET = {
 
 # Catalog keys that are deliberately NOT seeded. `cache_keepalive` has a
 # machine-wide fallback in ~/.claude/agentic-engineering.json and the project
-# value wins, so seeding an explicit `true` would make `ds-config
-# cache_keepalive false --scope global` a no-op in every new project.
+# value wins, so seeding an explicit `false` would make `ds-config
+# cache_keepalive true --scope global` a no-op in every new project.
 _CATALOG_KEYS_NOT_SEEDED = {"cache_keepalive"}
 
 
