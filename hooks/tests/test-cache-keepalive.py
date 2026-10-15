@@ -530,7 +530,7 @@ def t_skill_regex(h):
 # Hook (subprocess) cases
 # ---------------------------------------------------------------------------
 
-def _home(wrap_file=True, global_cfg=None, wrap_tool=True):
+def _home(wrap_file=True, global_cfg={"cache_keepalive": True}, wrap_tool=True):
     home = tempfile.mkdtemp(dir=SCRATCH)
     repo = os.path.join(home, "dinostack")
     os.makedirs(os.path.join(repo, "content", "commands"))
@@ -664,10 +664,26 @@ def t_hook_release_started_at(h):
 
 
 def t_hook_disabled(h):
+    """Off unless a config sets a literal true; the env kill switch wins over
+    true. Off: no create note, and a cron still firing (current or legacy
+    text) gets a release note."""
     ck = load(h)
     path = write_transcript(warm_idle(ck, 3000))
+    att = {"CLAUDE_CODE_SESSION_ATTENDED": "1"}
+    fresh = write_transcript([session_start(NOW - 100), user(NOW - 90), asst(NOW - 89)])
+    legacy = ck.LG.LEGACY_PING_PROMPTS[0]
+    home_u, _ = _home(global_cfg=None)
+    home_e, _ = _home(global_cfg={})
+    for home_off in (home_u, home_e):
+        assert run_hook(h, "next", fresh, home_off, env=att) is None
+        assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, path, home_off))
+        assert _released(ck, run_hook(h, legacy, path, home_off))
     home, _ = _home()
-    assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, path, home, env={"AE_CACHE_KEEPALIVE_DISABLE": "1"}))
+    assert _ctx(run_hook(h, "next", fresh, home, env=att)) == ck.create_note(False)
+    assert _ctx(run_hook(h, ck.LG.PING_PROMPT, path, home)).startswith(ck.LG.GATE_NOTE)
+    off_env = {"AE_CACHE_KEEPALIVE_DISABLE": "1"}
+    assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, path, home, env=off_env))
+    assert run_hook(h, "next", fresh, home, env=dict(att, **off_env)) is None
     home_g, _ = _home(global_cfg={"cache_keepalive": False})
     assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, path, home_g))
     proj = tempfile.mkdtemp(dir=SCRATCH)
@@ -675,13 +691,11 @@ def t_hook_disabled(h):
     json.dump({"cache_keepalive": False}, open(os.path.join(proj, ".agentic", "config.json"), "w"))
     assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, path, home, cwd=proj))
     json.dump({"cache_keepalive": True}, open(os.path.join(proj, ".agentic", "config.json"), "w"))
-    assert _ctx(run_hook(h, ck.LG.PING_PROMPT, path, home_g, cwd=proj)).startswith(ck.LG.GATE_NOTE)
-    # Only a literal false disables: a falsy non-false value leaves it on.
-    json.dump({"cache_keepalive": 0}, open(os.path.join(proj, ".agentic", "config.json"), "w"))
-    assert _ctx(run_hook(h, ck.LG.PING_PROMPT, path, home_g, cwd=proj)).startswith(ck.LG.GATE_NOTE)
-    att = {"CLAUDE_CODE_SESSION_ATTENDED": "1"}
-    fresh = write_transcript([session_start(NOW - 100), user(NOW - 90), asst(NOW - 89)])
-    assert run_hook(h, "next", fresh, home, env=dict(att, AE_CACHE_KEEPALIVE_DISABLE="1")) is None
+    assert _ctx(run_hook(h, ck.LG.PING_PROMPT, path, home_u, cwd=proj)).startswith(ck.LG.GATE_NOTE)
+    assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, path, home_u, cwd=proj, env=off_env))
+    # Only a literal true enables: a truthy non-true value leaves it off.
+    json.dump({"cache_keepalive": 1}, open(os.path.join(proj, ".agentic", "config.json"), "w"))
+    assert _released(ck, run_hook(h, ck.LG.PING_PROMPT, path, home, cwd=proj))
 
 
 def t_activation(h):
@@ -694,7 +708,7 @@ def t_activation(h):
     fresh = write_transcript([session_start(NOW - 100), user(NOW - 90), asst(NOW - 89)])
     for mode, marker, active in (("opt-out", None, True), ("opt-out", "opt-in", True), ("opt-out", "opt-out", False),
                                  ("opt-in", None, False), ("opt-in", "opt-out", False), ("opt-in", "opt-in", True)):
-        home, _ = _home(global_cfg={"mode": mode})
+        home, _ = _home(global_cfg={"mode": mode, "cache_keepalive": True})
         proj = tempfile.mkdtemp(dir=SCRATCH)
         if marker:
             open(os.path.join(proj, "AGENTS.md"), "w").write("# p\n\nagentic-engineering: %s\n" % marker)
@@ -835,7 +849,9 @@ MUTATIONS = [
     ("ping-error-emits-nothing", "cache-keepalive.py",
      "        except Exception:\n            _emit(lib.BLOCK_OUTPUT)\n        return\n",
      "        except Exception:\n            pass\n        return\n", t_hook_ping_actions),
-    ("falsy-config-disables", "lib/cache_keepalive.py", "return value is not False", "return bool(value)", t_hook_disabled),
+    ("truthy-config-enables", "lib/cache_keepalive.py", "return value is True", "return bool(value)", t_hook_disabled),
+    ("on-by-default", "lib/cache_keepalive.py", "            return value is True\n    return False\n",
+     "            return value is True\n    return True\n", t_hook_disabled),
     ("wrap-root-from-cwd", "cache-keepalive.py", 'launch = os.environ.get("CLAUDE_PROJECT_DIR") or ""', 'launch = ""',
      t_hook_ping_actions),
     ("wrap-without-tool", "cache-keepalive.py", "\n                 and os.path.isfile(lib.wrap_tool_path(repo))", "",

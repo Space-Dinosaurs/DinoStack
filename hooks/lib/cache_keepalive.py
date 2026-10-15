@@ -23,11 +23,11 @@ Public API:
     is_active(cwd, repo=None) -> bool: the activation preflight's step 4
         via bin/ds-status (loaded from repo_dir); False for a no-op project
         and when the resolver cannot load.
-    is_enabled(cwd) -> bool: False iff AE_CACHE_KEEPALIVE_DISABLE=1, the
-        project is not active (is_active), or the first config carrying
-        `cache_keepalive` sets a literal false. Lookup:
+    is_enabled(cwd) -> bool: True iff the first config carrying
+        `cache_keepalive` sets a literal true, the project is active
+        (is_active), and AE_CACHE_KEEPALIVE_DISABLE is not 1. Lookup:
         <resolve_agentic_cwd(cwd)>/.agentic/config.json, then
-        ~/.claude/agentic-engineering.json, then the default true.
+        ~/.claude/agentic-engineering.json, then the default false.
     is_conductor(transcript_path) -> bool: <transcript minus .jsonl>/subagents
         is a directory, i.e. the session has spawned a subagent.
     session_state(records) -> dict: ttl ("1h" | "5m" | None),
@@ -158,7 +158,7 @@ Downstream consumers: hooks/cache-keepalive.py; bin/ds-cache-keepalive-sim
 
 Failure modes: never writes. is_active, and so is_enabled, is False when
     bin/ds-status cannot be loaded or raises; with the project active, an
-    unreadable or keyless config falls through to the default True.
+    unreadable or keyless config falls through to the default False.
     session_state skips unparseable records; a tail with no usage gives
     ttl None (ttl-not-1h). A missing request start counts as cold; a
     missing idle_since as released. in_flight is True on read errors, an
@@ -317,8 +317,8 @@ def is_enabled(cwd: str) -> bool:
     for path in paths:
         value = _config_value(path)
         if value is not None:
-            return value is not False
-    return True
+            return value is True
+    return False
 
 
 def is_conductor(transcript_path) -> bool:
@@ -770,8 +770,8 @@ def create_note(check_existing: bool) -> str:
     check = (", call CronList and stop if a job with the prompt below already exists"
              if check_existing else "")
     return (
-        CREATE_NOTE_MARKER + " DinoStack cache keepalive, a DinoStack default the operator "
-        "can turn off (config key " + CONFIG_KEY + "; off with `" + CONFIG_KEY
+        CREATE_NOTE_MARKER + " DinoStack cache keepalive, which the operator turned on "
+        "(config key " + CONFIG_KEY + "; off with `" + CONFIG_KEY
         + ": false` or " + KILL_SWITCH_ENV + "=1). It keeps this session's 1h "
         "prompt cache warm while the operator is away by re-submitting a short "
         "prompt every " + _every(PERIOD_S) + "; a DinoStack hook drops every fire that would "

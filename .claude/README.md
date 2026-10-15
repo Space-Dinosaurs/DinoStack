@@ -5,7 +5,7 @@
 - **Skill** (`/dinostack`) - loads the full engineering methodology on demand
 - **Agents** (11) - architect, debugger, engineer, investigator, orchestration-planner, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer, learnings-agent
 - **Commands** (5) - skeptic, memory-update, wrap, init-project, implement
-- **Hooks** - UserPromptSubmit risk-classification reminder, Stop context saver, SessionStart main-session MEMORY.md delivery (`hooks/session-start-memory.py`, active only in a repo whose root `CLAUDE.md` carries the `<!-- dinostack:memory-main-only -->` line), UserPromptSubmit prompt-cache keepalive for idle conductor sessions (`hooks/cache-keepalive.py`, default on; off via `cache_keepalive: false` or `AE_CACHE_KEEPALIVE_DISABLE=1`)
+- **Hooks** - UserPromptSubmit risk-classification reminder, Stop context saver, SessionStart main-session MEMORY.md delivery (`hooks/session-start-memory.py`, active only in a repo whose root `CLAUDE.md` carries the `<!-- dinostack:memory-main-only -->` line), UserPromptSubmit prompt-cache keepalive for idle conductor sessions (`hooks/cache-keepalive.py`, default off; on via `cache_keepalive: true`, and `AE_CACHE_KEEPALIVE_DISABLE=1` overrides it)
 
 ## Installation
 

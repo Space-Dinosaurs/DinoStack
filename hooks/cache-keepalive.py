@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Purpose: Default-on prompt-cache keepalive for idle interactive conductor
+Purpose: Opt-in prompt-cache keepalive for idle interactive conductor
          sessions on Claude Code (UserPromptSubmit hook). On a genuine
          prompt in an eligible session it asks the model to create one
          session-only cron that re-submits PING_PROMPT every 20 minutes. On
@@ -168,8 +168,9 @@ Downstream consumers: Claude Code hook runner (UserPromptSubmit, matcher
     `test -f ... && python3 ... || exit 0` form. Documented in
     hooks/AGENTS.md and docs/configuration-reference.md.
 
-Failure modes: always exits 0 and never writes. Disabled via
-    AE_CACHE_KEEPALIVE_DISABLE=1 or `cache_keepalive: false`: no new cron,
+Failure modes: always exits 0 and never writes. Off unless a config sets
+    `cache_keepalive: true`; AE_CACHE_KEEPALIVE_DISABLE=1 turns it off even
+    then. Off: no create note and no new cron,
     and a live one gets a release note at its next warm fire; if that delete
     is denied or ignored, later fires in the same idle stretch are blocked.
 
