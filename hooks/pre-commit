@@ -36,10 +36,17 @@ REPO_DIR="$(git rev-parse --show-toplevel)"
 # Extension-less Python CLIs in bin/ match ^bin/ds-[a-z-]+$ (e.g. bin/ds-cost).
 # The ^bin/agentic-[a-z-]+$ alternative covers the permanent compat symlinks
 # (e.g. bin/agentic-cost -> bin/ds-cost) - they resolve to the same content
-# when staged, so linting either path is safe.
+# when staged, so linting either path is safe. Not every bin/ds-* CLI is
+# Python (some are bash or node), so an extension-less match is kept only
+# when its first line is a python shebang.
 STAGED_PY=()
 while IFS= read -r staged_python; do
-  [[ -n "$staged_python" ]] && STAGED_PY+=("$staged_python")
+  [[ -n "$staged_python" ]] || continue
+  if [[ "$staged_python" != *.py ]]; then
+    staged_shebang="$(head -n 1 -- "$staged_python" 2>/dev/null || true)"
+    [[ "$staged_shebang" == '#!'*python* ]] || continue
+  fi
+  STAGED_PY+=("$staged_python")
 done < <(
   git diff --cached --name-only \
     | grep -E '^(bin/|hooks/).*\.py$|^bin/(agentic|ds)-[a-z-]+$' \

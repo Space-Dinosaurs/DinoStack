@@ -429,6 +429,7 @@ def _render_table(
     skipped: int,
 ) -> str:
     lines: list[str] = []
+    table: list[tuple[object, ...]]
     if pricing is not None:
         table = [("agent", "spawns", "tokens", "$in", "$out", "$cache_cr", "$cache_rd",
                   "$total", "wall(s)")]
