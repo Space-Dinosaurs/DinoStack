@@ -1097,6 +1097,8 @@ doctor_pty DS_LANE_VIEWER= TMUX=/tmp/tmux-stub/default,1,0 TMUX_PANE=%1 PATH="$T
 check "doctor inside tmux: exit 0, tabs available" eq "$(rc_of "$DO")|$(tail -n3 "$DO" | head -n1)" "0|tabs: available (detached tmux windows in session \$9)"
 check "doctor inside tmux: viewer tmux first" eq "$(head -n1 "$DO")" "ok         viewer: tmux: start and resume open a detached tmux window in this session"
 check "doctor inside tmux: tmux session resolved" doc_has "ok         tmux session: \$9"
+check "doctor inside tmux, tabs available: never recommends DS_LANE_NO_TAB=1" bash -c '! grep -q DS_LANE_NO_TAB=1 "$1"' _ "$DO"
+check "doctor inside tmux, tabs available: headless line carries no tab advice" eq "$(tail -n1 "$DO")" "headless lanes: available (claude runtime and permissions, python3 and jq ready; auth/quota unverified)"
 check "doctor inside tmux: no Terminal rows" bash -c '! grep -qE "^[a-zA-Z]+ +(platform|osascript|conductor terminal|Terminal.app|Automation)" "$1"' _ "$DO"
 check "doctor inside tmux: tmux version shown" doc_has "ok         tmux: $TMUX_STUB/tmux (tmux 3.4)"
 doctor_pty DS_LANE_VIEWER= TMUX=/tmp/tmux-stub/default,1,0 TMUX_PANE=%1 STUB_TMUX_DISPLAY=fail PATH="$TMUX_STUB:$DOC_PATH"
@@ -1137,6 +1139,9 @@ else
   (cd "$PRIMARY" && "$ENV_BIN" -u DS_LANE_VIEWER "${rt_env[@]}" "$TOOL" open rt1 > /dev/null 2>&1)
   check "real tmux: open adds a second window" eq "$(rt_lane_windows)" 2
   check "real tmux: open leaves the active window unchanged" eq "$(rt display-message -p -t t '#{window_id}')" "$rt_win"
+  doctor_pty DS_LANE_VIEWER= "${rt_env[@]}" PATH="$(dirname "$(command -v tmux)"):$DOC_PATH"
+  check "real tmux: doctor exits 0 with tabs available" eq "$(rc_of "$DO")|$(tail -n3 "$DO" | head -n1 | cut -c1-15)" "0|tabs: available"
+  check "real tmux: doctor never recommends DS_LANE_NO_TAB=1" bash -c '! grep -q DS_LANE_NO_TAB=1 "$1"' _ "$DO"
   lane stop rt1 > /dev/null
   # watch exits about 15 s after the lane ends, and remain-on-exit off then closes its window.
   check "real tmux: the lane windows close themselves after stop" wait_until 40 rt_no_lane_windows

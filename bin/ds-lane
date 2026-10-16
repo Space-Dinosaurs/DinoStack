@@ -1438,7 +1438,7 @@ cmd_doctor() {
   tabless_summary="; $tabless"
   case "$viewer" in
     terminal) if (( fails > 0 )); then tabs=unavailable; else tabs=unverified; fi ;;
-    tmux) if (( fails > 0 )); then tabs=unavailable; else tabs=available; fi ;;
+    tmux) if (( fails > 0 )); then tabs=unavailable; else tabs=available; tabless_summary=""; fi ;;
     none)
       tabs=off
       if (( fails > 0 )); then open_tabs=unavailable; else open_tabs=available; fi
