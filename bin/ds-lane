@@ -16,22 +16,34 @@
 #   and Accessibility consent) is reported `unverified`. One line per check,
 #   `<ok|FAIL|unverified> <check>: <detail>`, each FAIL line followed by one
 #   `fix:` line and each unverified line by one `note:` line, then three
-#   summary lines. `tabs: <unverified|unavailable>` reflects only what a tab
-#   needs (platform, osascript, conductor terminal and Terminal.app). `launch offer:
+#   summary lines. The first check, `viewer`, names the DS_LANE_VIEWER class:
+#   terminal (rows for platform, osascript, conductor terminal, Terminal.app
+#   and consent), tmux (rows `tmux` and `tmux session`), none (auto outside
+#   tmux: the Terminal rows, which then apply to `open` only and never fail
+#   doctor) or invalid (viewer FAIL, no tab rows, headless unavailable).
+#   `tabs: <unverified|available|off|unavailable>` reflects only what that
+#   viewer needs (unverified: terminal; available: tmux; off: none). `launch offer:
 #   <available|unavailable: ds-lane not on PATH>` reflects only that check: a
 #   session offers to launch lanes only when `command -v ds-lane` succeeds,
 #   though tabs still open by absolute path. Last, `headless lanes:
 #   <available|unavailable>` (selected harness, permissions, python3, jq
-#   and POSIX detachment ready). Exit 1 when tabs or the launch offer is unavailable, i.e. on
-#   any FAIL; else 0. --json: {checks: [{check, status, detail, fix}], tabs,
-#   launch_offer, headless, harness, permissions_ready}.
+#   and POSIX detachment ready). Exit 1 on any FAIL except a Terminal row in
+#   the none class; else 0. --json: {checks: [{check, status,
+#   detail, fix}], tabs, viewer, launch_offer, headless, harness,
+#   permissions_ready}.
 #   `start` and `resume` print the lane pid, then one line `tab: <outcome>`
 #   (the new tab.log open lines joined by "; ", never a `close ...` line a
-#   previous watch tab's closer appends meanwhile, `disabled (DS_LANE_NO_TAB=1)`, or
-#   `unknown (no outcome after <N>s)`) and, unless a tab opened with focus
-#   kept, one `fix:` line for the operator. `open` prints `lane <name>:
-#   <outcome>` and the same `fix:` line. A tab outcome never changes the exit
-#   status.
+#   previous watch tab's closer appends meanwhile, `disabled (DS_LANE_NO_TAB=1)`,
+#   `none (...)` (auto outside tmux: no viewer, no fix line, no tab.log), or
+#   `unknown (no outcome after <N>s)`) and, unless a viewer opened with focus
+#   kept or untouched, one `fix:` line for the operator. `open` prints `lane
+#   <name>: <outcome>` and the same `fix:` line. A tab outcome never changes
+#   the exit status.
+#   Viewer (DS_LANE_VIEWER=auto|tmux|terminal, default auto): auto is tmux
+#   when TMUX is set; outside tmux `start`/`resume` open no viewer (automatic
+#   Terminal tabs are opt-in via terminal) and `open`/`open-all` use
+#   Terminal.app. Any other value: start/resume/open/open-all die before
+#   state is touched. DS_LANE_NO_TAB=1 still disables start/resume viewers.
 #   `start` prepends the canonical MARKER_CONTRACT. `reap` closes marked
 #   Claude streams and records naturally exited Codex outcomes. Fatal events
 #   never authorize termination or completion.
@@ -42,7 +54,7 @@
 #   run/<name>.{in,jsonl,err,meta,pid,tailpid,tab.log}.
 #   Env: DS_LANE_MAX (default 5, per repo), DS_LANE_RUN_DIR (overrides
 #   run/, propagated into the watch tab), DS_LANE_CLAUDE_BIN,
-#   DS_LANE_HARNESS, DS_LANE_CODEX_BIN, DS_LANE_CODEX_CONTEXT_FILE,
+#   DS_LANE_HARNESS, DS_LANE_CODEX_BIN, DS_LANE_CODEX_CONTEXT_FILE, DS_LANE_VIEWER,
 #   DS_LANE_LEGACY_CLAUDE_CONFIG_DIR, DS_LANE_PERMISSION_MODE, DS_LANE_BG_CEILING_MS (default 0 = wait
 #   indefinitely; "default" leaves the CLI default), DS_LANE_NO_TAB=1,
 #   DS_LANE_TAB_LOCK_WAIT_S (default 30), DS_LANE_TAB_LOCK (lock file path,
@@ -55,7 +67,13 @@
 #   Internal subcommands (not for callers): `__open-tab <name> <conductor-tty>`
 #   (the detached opener `start`/`resume` fork) and `__close-tab <own-tty>
 #   <conductor-tty> <tab-log>` (the detached closer a watch tab forks).
-#   run/<name>.tab.log lines: when the command ran, `opened: <tab|window>`
+#   run/<name>.tab.log lines, tmux viewer: `opened: tmux` then `focus:
+#   untouched (detached tmux window <window id> lane-<name> in session
+#   <session id>)`, or one of `tab skipped: <not inside tmux|no tmux|tmux
+#   pane unknown|tmux session not resolved (<reason>)>` or `tmux error:
+#   <first stderr line>`. The window runs `ds-lane watch <name>` detached
+#   (never selected), with remain-on-exit off, so it closes when watch exits.
+#   run/<name>.tab.log lines, Terminal viewer: when the command ran, `opened: <tab|window>`
 #   (window = no single new tab was found after Cmd-T, so a new window was
 #   used), then `focus: kept` (the front window, its selected tab, the
 #   frontmost app and the conductor window's selected tab match what was
@@ -103,7 +121,9 @@
 #   its live permission mode. Codex preserves supported sandbox fields and
 #   sets unattended approval_policy=never; source approval stays in metadata.
 #   No auth is copied. Optional Terminal tabs use osascript and the per-user
-#   flock; Automation/Accessibility consent remains unverified.
+#   flock; Automation/Accessibility consent remains unverified. Optional
+#   tmux windows use tmux (3.0+ for argv-form new-window) on PATH, TMUX and
+#   TMUX_PANE.
 #
 # Downstream consumers: content/references/runbook-conductor.md;
 #   bin/agentic-lane compat alias; bin/tests/test_ds_lane.sh.
@@ -450,7 +470,7 @@ cmd_start() {
   prompt_file="$(cd "$(dirname "$prompt_file")" && pwd)/$(basename "$prompt_file")"
   [[ -s "$prompt_file" ]] || die "prompt file is empty: $prompt_file"
   check_capacity "$name"
-  if [[ "${DS_LANE_NO_TAB:-}" != 1 ]]; then tty="$(conductor_tty)"; fi
+  if [[ "${DS_LANE_NO_TAB:-}" != 1 && "$VIEWER" == terminal ]]; then tty="$(conductor_tty)"; fi
 
   rm -f "$RUN_DIR/$name.jsonl" "$RUN_DIR/$name.err" "$RUN_DIR/$name.meta"
   meta_set "$name" prompt_file "$prompt_file"
@@ -458,7 +478,7 @@ cmd_start() {
   launch "$name" "$MARKER_CONTRACT
 
 $(cat "$prompt_file")"
-  open_tab_bg "$name" "$tty"
+  launch_viewer "$name" "$tty"
 }
 
 cmd_resume() {
@@ -475,12 +495,12 @@ cmd_resume() {
   if [[ $# -eq 2 ]]; then text="$(text_or_file "$2")"; fi
   [[ -n "$text" ]] || die "empty message"
   check_capacity "$name"
-  if [[ "${DS_LANE_NO_TAB:-}" != 1 ]]; then tty="$(conductor_tty)"; fi
+  if [[ "${DS_LANE_NO_TAB:-}" != 1 && "$VIEWER" == terminal ]]; then tty="$(conductor_tty)"; fi
   # Earlier markers belong to the previous run; the log is appended to, not replaced.
   meta_set "$name" marker_offset "$(log_lines "$RUN_DIR/$name.jsonl")"
   meta_set "$name" resumes "$(( $(meta_get "$name" resumes | tr -dc '0-9' | sed 's/^$/0/') + 1 ))"
   launch "$name" "$text" "$sid"
-  open_tab_bg "$name" "$tty"
+  launch_viewer "$name" "$tty"
 }
 
 cmd_send() {
@@ -1002,6 +1022,98 @@ on run argv
   return outcome
 end run'
 
+# Prints the viewer class DS_LANE_VIEWER selects: tmux or terminal when set to one, and for
+# unset, empty or auto, tmux inside tmux else <auto-fallback>; invalid for anything else.
+viewer_class() { # viewer_class <auto-fallback>
+  case "${DS_LANE_VIEWER:-auto}" in
+    tmux|terminal) echo "$DS_LANE_VIEWER" ;;
+    auto) if [[ -n "${TMUX:-}" ]]; then echo tmux; else echo "$1"; fi ;;
+    *) echo invalid ;;
+  esac
+}
+
+# Sets TMUX_SID to the session id of the conductor's own tmux pane, or TMUX_SKIP to why none
+# was found. Persists nothing: each command resolves it from its own environment.
+resolve_tmux() {
+  local out err rc=0 line
+  TMUX_SID=""; TMUX_SKIP=""
+  if [[ -z "${TMUX:-}" ]]; then
+    TMUX_SKIP="not inside tmux"
+  elif ! command -v tmux > /dev/null 2>&1; then
+    TMUX_SKIP="no tmux"
+  elif [[ -z "${TMUX_PANE:-}" ]]; then
+    TMUX_SKIP="tmux pane unknown"
+  else
+    err="$(mktemp "${TMPDIR:-/tmp}/ds-lane-tmux.XXXXXX")"
+    out="$(tmux display-message -p -t "$TMUX_PANE" '#{session_id}' 2> "$err")" || rc=$?
+    line="$(head -n1 "$err")"
+    rm -f "$err"
+    if (( rc != 0 )); then
+      TMUX_SKIP="tmux session not resolved (${line:-tmux exited $rc})"
+    elif [[ ! "$out" =~ ^[$][0-9]+$ ]]; then
+      TMUX_SKIP="tmux session not resolved (unexpected output '$out')"
+    else
+      TMUX_SID="$out"
+    fi
+  fi
+}
+
+# Opens a detached tmux window running `ds-lane watch <name>` in the session resolve_tmux found,
+# appends the outcome to run/<name>.tab.log and prints it. Never selects or switches to the
+# window. The command is argv, not a shell string, and env -u keeps the tmux server's global
+# environment from handing watch a Terminal tab closer or another run dir.
+tmux_open() { # tmux_open <name>
+  local name="$1" wid err rc=0 outcome
+  local -a envargs=(env -u DS_LANE_WATCH_CLOSE_TAB)
+  if [[ -n "$TMUX_SKIP" ]]; then
+    outcome="tab skipped: $TMUX_SKIP"
+  else
+    if [[ -n "${DS_LANE_RUN_DIR:-}" ]]; then envargs+=("DS_LANE_RUN_DIR=$DS_LANE_RUN_DIR"); else envargs+=(-u DS_LANE_RUN_DIR); fi
+    envargs+=("PATH=$PATH")
+    err="$(mktemp "${TMPDIR:-/tmp}/ds-lane-tmux.XXXXXX")"
+    wid="$(tmux new-window -d -P -F '#{window_id}' -t "$TMUX_SID:" -n "lane-$name" -c "$PRIMARY" \
+      "${envargs[@]}" "$SELF" watch "$name" 2> "$err")" || rc=$?
+    if (( rc != 0 )); then
+      outcome="tmux error: $(head -n1 "$err")"
+    else
+      if [[ "$wid" =~ ^@[0-9]+$ ]]; then tmux set-option -w -t "$wid" remain-on-exit off > /dev/null 2>&1 || true; fi
+      echo "opened: tmux" >> "$RUN_DIR/$name.tab.log"
+      outcome="focus: untouched (detached tmux window $wid lane-$name in session $TMUX_SID)"
+    fi
+    rm -f "$err"
+  fi
+  echo "$outcome" >> "$RUN_DIR/$name.tab.log"
+  if [[ "$outcome" == focus:* ]]; then outcome="opened: tmux; $outcome"; fi
+  echo "$outcome"
+}
+
+# Prints the `tab:` line, and any `fix:` line, for a lane start or resume just launched.
+launch_viewer() { # launch_viewer <name> <conductor-tty>
+  local outcome
+  if [[ "${DS_LANE_NO_TAB:-}" == 1 ]]; then echo "tab: disabled (DS_LANE_NO_TAB=1)"; return 0; fi
+  case "$VIEWER" in
+    terminal) open_tab_bg "$1" "$2" ;;
+    tmux)
+      resolve_tmux
+      outcome="$(tmux_open "$1")"
+      echo "tab: $outcome"
+      tab_fix "$1" "$outcome" ;;
+    *) echo "tab: none (not inside tmux; automatic Terminal.app tabs are opt-in); follow it with \`ds-lane watch $1\`, open a tab with \`ds-lane open $1\`, or set DS_LANE_VIEWER=terminal to restore automatic Terminal tabs" ;;
+  esac
+}
+
+# One lane's `open`: a tmux window (after resolve_tmux) or a Terminal tab.
+open_viewer() { # open_viewer <name> <conductor-tty>
+  local outcome
+  if [[ "$VIEWER" == tmux ]]; then
+    outcome="$(tmux_open "$1")"
+    echo "lane $1: $outcome"
+    tab_fix "$1" "$outcome"
+  else
+    open_tab "$1" "$2"
+  fi
+}
+
 # Opens a watch tab for <name> next to the conductor's tab; prints the outcome and appends it to
 # run/<name>.tab.log.
 open_tab() { # open_tab <name> <conductor-tty>
@@ -1085,6 +1197,16 @@ tab_fix() { # tab_fix <name> <outcome>
       fix="ds-lane could not confirm the conductor's Terminal window is on your current Space (the window query failed, or the window left the screen while the tab was opening, e.g. you switched Space), so it was left where it is and the lane opened in a new window here. Retry with \`ds-lane open $name\`." ;;
     *"focus: NOT kept"*)
       fix="opening the tab moved your focus; click back to the window you were using, and set DS_LANE_NO_TAB=1 if that keeps happening." ;;
+    *"tmux error:"*)
+      fix="tmux could not open the lane's window (see the message above). Retry with \`ds-lane open $name\`; meanwhile follow the lane with \`ds-lane watch $name\`." ;;
+    *"tab skipped: no tmux"*)
+      fix="TMUX is set but tmux is not on this session's PATH, so no tmux window can open; put tmux on PATH, or follow the lane with \`ds-lane watch $name\`." ;;
+    *"tmux pane unknown"*)
+      fix="TMUX is set but TMUX_PANE is not, so ds-lane cannot tell which tmux session this is; run the conductor in a tmux pane, or follow the lane with \`ds-lane watch $name\`." ;;
+    *"tmux session not resolved"*)
+      fix="ds-lane could not resolve this session's tmux pane (see the message above); follow the lane with \`ds-lane watch $name\`." ;;
+    *"not inside tmux"*)
+      fix="DS_LANE_VIEWER=tmux but this session is not running inside tmux; run the conductor inside tmux, unset DS_LANE_VIEWER (or set it to terminal for Terminal.app tabs), or follow the lane with \`ds-lane watch $name\`." ;;
   esac
   if [[ -n "$fix" ]]; then echo "fix: $fix"; fi
   return 0
@@ -1159,17 +1281,17 @@ close_tab_now() { # close_tab_now <own-tty> <conductor-tty> <tab-log>
 cmd_open() {
   [[ $# -eq 1 ]] || die "usage: ds-lane open <name>"
   valid_name "$1"
-  open_tab "$1" "$(conductor_tty)"
+  if [[ "$VIEWER" == tmux ]]; then resolve_tmux; open_viewer "$1" ""; else open_viewer "$1" "$(conductor_tty)"; fi
 }
 
 cmd_open_all() {
-  local f name n=0 tty
-  tty="$(conductor_tty)"
+  local f name n=0 tty=""
+  if [[ "$VIEWER" == tmux ]]; then resolve_tmux; else tty="$(conductor_tty)"; fi
   for f in "$RUN_DIR"/*.pid; do
     [[ -e "$f" ]] || continue
     name="$(basename "$f" .pid)"
     is_live_lane "$name" || continue
-    open_tab "$name" "$tty" || true
+    open_viewer "$name" "$tty" || true
     n=$((n + 1))
   done
   echo "opened $n lane(s)"
@@ -1188,13 +1310,14 @@ json_str() {
   printf '"%s"' "$s"
 }
 
-# Reports whether this machine and session can open watch tabs and run lanes. Runs no osascript:
+# Reports whether this machine and session can open watch views and run lanes. Runs no osascript:
 # an Apple event is the only thing that can raise a macOS consent prompt, so none is sent and
-# consent stays `unverified`. Tab readiness excludes runtime/tool failures;
-# launch offer depends only on PATH. Any unavailable category returns 1.
+# consent stays `unverified`. Tab readiness excludes runtime/tool failures, and in the none class
+# (auto outside tmux) the Terminal rows too, since they then concern only `open`; launch offer
+# depends only on PATH. Any unavailable category returns 1.
 cmd_doctor() {
   local json=0 os p c t tp i fails=0 headless=1 permissions=0 offer=1 tabs sep="" harness="unknown"
-  local lb="$HOME/.local/bin" lb_state="is not"
+  local lb="$HOME/.local/bin" lb_state="is not" viewer open_tabs="" tabless_summary
   local tabless='lanes still run without tabs: start them with DS_LANE_NO_TAB=1 and follow each with `ds-lane tail <name>`'
   case "${1:-}" in
     "") ;;
@@ -1202,19 +1325,34 @@ cmd_doctor() {
     *) die "usage: ds-lane doctor [--json]" ;;
   esac
 
-  os="$(uname -s 2>/dev/null || true)"
-  if [[ "$os" == Darwin ]]; then
-    doc_row platform ok "macOS"
-  else
-    doc_row platform FAIL "${os:-unknown}; watch tabs open only in macOS Terminal.app" \
-      "Tabs cannot open on this platform; $tabless."
-  fi
+  viewer="$(viewer_class none)"
+  case "$viewer" in
+    terminal) doc_row viewer ok "terminal (DS_LANE_VIEWER=terminal): start and resume open a macOS Terminal.app tab" ;;
+    tmux) doc_row viewer ok "tmux: start and resume open a detached tmux window in this session" ;;
+    none)
+      tabless="this affects only \`ds-lane open\`: start and resume open no tab outside tmux"
+      doc_row viewer ok "none (not inside tmux; automatic Terminal.app tabs are opt-in): start and resume open no viewer; \`ds-lane open\` still opens a Terminal.app tab, and the Terminal.app checks below apply to it only; DS_LANE_VIEWER=terminal restores automatic tabs" ;;
+    *)
+      headless=0
+      doc_row viewer FAIL "invalid DS_LANE_VIEWER '$DS_LANE_VIEWER'" \
+        "Set DS_LANE_VIEWER to auto, tmux or terminal, or unset it; start, resume and open refuse until then." ;;
+  esac
 
-  if p="$(command -v osascript 2>/dev/null)"; then
-    doc_row osascript ok "$p"
-  else
-    doc_row osascript FAIL "not found on PATH" \
-      "osascript ships with macOS at /usr/bin/osascript: put /usr/bin on this session's PATH; until then $tabless."
+  os="$(uname -s 2>/dev/null || true)"
+  if [[ "$viewer" == terminal || "$viewer" == none ]]; then
+    if [[ "$os" == Darwin ]]; then
+      doc_row platform ok "macOS"
+    else
+      doc_row platform FAIL "${os:-unknown}; watch tabs open only in macOS Terminal.app" \
+        "Tabs cannot open on this platform; $tabless."
+    fi
+
+    if p="$(command -v osascript 2>/dev/null)"; then
+      doc_row osascript ok "$p"
+    else
+      doc_row osascript FAIL "not found on PATH" \
+        "osascript ships with macOS at /usr/bin/osascript: put /usr/bin on this session's PATH; until then $tabless."
+    fi
   fi
 
   harness="$(python3 "$RUNTIME_HELPER" identity 2>/dev/null || echo unknown)"
@@ -1252,36 +1390,62 @@ cmd_doctor() {
       "A session offers to launch lanes only when ds-lane is on PATH. Run \`$(dirname "$SELF")/ds-doctor --fix\`, then add this line to your shell profile (~/.zshrc for zsh, the macOS default; ~/.bash_profile for bash) and start a new terminal and session: export PATH=\"\$HOME/.local/bin:\$PATH\""
   fi
 
-  t="$(conductor_tty)"
-  if [[ -n "$t" ]]; then
-    doc_row "conductor terminal" ok "$t"
-  else
-    doc_row "conductor terminal" FAIL "no ancestor process has a terminal (headless, bridge or IDE-spawned session)" \
-      "Tabs open only beside a conductor session running in a macOS Terminal.app tab; in this session $tabless."
-  fi
+  if [[ "$viewer" == terminal || "$viewer" == none ]]; then
+    t="$(conductor_tty)"
+    if [[ -n "$t" ]]; then
+      doc_row "conductor terminal" ok "$t"
+    else
+      doc_row "conductor terminal" FAIL "no ancestor process has a terminal (headless, bridge or IDE-spawned session)" \
+        "Tabs open only beside a conductor session running in a macOS Terminal.app tab; in this session $tabless."
+    fi
 
-  tp="${TERM_PROGRAM:-}"
-  if [[ "$tp" == Apple_Terminal ]]; then
-    doc_row "Terminal.app" ok "TERM_PROGRAM=Apple_Terminal"
-  elif [[ -z "$tp" ]]; then
-    doc_row "Terminal.app" unverified "TERM_PROGRAM is not set, so the terminal app is unknown without sending an Apple event" \
-      "When a lane start prints \`tab: tab skipped: no matching tab\`, run the conductor directly in macOS Terminal.app (not another terminal app, an IDE terminal, tmux or SSH); otherwise $tabless."
-  else
-    doc_row "Terminal.app" FAIL "TERM_PROGRAM=$tp; tabs open only beside a conductor running directly in macOS Terminal.app" \
-      "Run the conductor session directly in macOS Terminal.app (not another terminal app, an IDE terminal, tmux or SSH) to get tabs; otherwise $tabless."
-  fi
+    tp="${TERM_PROGRAM:-}"
+    if [[ "$tp" == Apple_Terminal ]]; then
+      doc_row "Terminal.app" ok "TERM_PROGRAM=Apple_Terminal"
+    elif [[ -z "$tp" ]]; then
+      doc_row "Terminal.app" unverified "TERM_PROGRAM is not set, so the terminal app is unknown without sending an Apple event" \
+        "When a lane start prints \`tab: tab skipped: no matching tab\`, run the conductor directly in macOS Terminal.app (not another terminal app, an IDE terminal, tmux or SSH); otherwise $tabless."
+    else
+      doc_row "Terminal.app" FAIL "TERM_PROGRAM=$tp; tabs open only beside a conductor running directly in macOS Terminal.app" \
+        "Run the conductor session directly in macOS Terminal.app (not another terminal app, an IDE terminal, tmux or SSH) to get tabs; otherwise $tabless."
+    fi
 
-  if [[ "$os" == Darwin ]]; then
-    doc_row "Automation consent" unverified "unverified until first tab open" \
-      "macOS asks on the first tab open: answer Allow. When a lane start prints a \`tab: tab error\` naming -1743 or \"Not authorized\", open System Settings > Privacy & Security > Automation, find the app the conductor runs in and allow it to control Terminal and System Events; an entry appears there only after macOS has asked once."
-    doc_row "Accessibility consent" unverified "unverified until first tab open" \
-      "When a lane opens in a new window instead of a tab, open System Settings > Privacy & Security > Accessibility and turn on the app the conductor runs in; if it is not listed, add it with the + button."
+    if [[ "$os" == Darwin ]]; then
+      doc_row "Automation consent" unverified "unverified until first tab open" \
+        "macOS asks on the first tab open: answer Allow. When a lane start prints a \`tab: tab error\` naming -1743 or \"Not authorized\", open System Settings > Privacy & Security > Automation, find the app the conductor runs in and allow it to control Terminal and System Events; an entry appears there only after macOS has asked once."
+      doc_row "Accessibility consent" unverified "unverified until first tab open" \
+        "When a lane opens in a new window instead of a tab, open System Settings > Privacy & Security > Accessibility and turn on the app the conductor runs in; if it is not listed, add it with the + button."
+    fi
+  elif [[ "$viewer" == tmux ]]; then
+    if p="$(command -v tmux 2>/dev/null)"; then
+      doc_row tmux ok "$p ($(tmux -V 2>&1 | head -n1))"
+      resolve_tmux
+      if [[ -n "$TMUX_SID" ]]; then
+        doc_row "tmux session" ok "$TMUX_SID"
+      else
+        doc_row "tmux session" FAIL "$TMUX_SKIP" \
+          "Run the conductor in a tmux pane whose TMUX and TMUX_PANE reach this session, or set DS_LANE_VIEWER=terminal for Terminal.app tabs; until then $tabless."
+      fi
+    else
+      doc_row tmux FAIL "not found on PATH" \
+        "Install tmux and put it on this session's PATH, or set DS_LANE_VIEWER=terminal for Terminal.app tabs; until then $tabless."
+    fi
   fi
 
   for i in "${!D_STATUS[@]}"; do
     if [[ "${D_STATUS[$i]}" == FAIL && "${D_CHECK[$i]}" != "ds-lane on PATH" && "${D_CHECK[$i]}" != runtime && "${D_CHECK[$i]}" != python3 && "${D_CHECK[$i]}" != jq && "${D_CHECK[$i]}" != detachment ]]; then fails=$((fails + 1)); fi
   done
-  if (( fails > 0 )); then tabs=unavailable; else tabs=unverified; fi
+  tabless_summary="; $tabless"
+  case "$viewer" in
+    terminal) if (( fails > 0 )); then tabs=unavailable; else tabs=unverified; fi ;;
+    tmux) if (( fails > 0 )); then tabs=unavailable; else tabs=available; fi ;;
+    none)
+      tabs=off
+      if (( fails > 0 )); then open_tabs=unavailable; else open_tabs=available; fi
+      fails=0
+      tabless_summary="" ;;
+    *) tabs=unavailable ;;
+  esac
 
   if (( json )); then
     printf '{"checks":['
@@ -1290,7 +1454,7 @@ cmd_doctor() {
         "$(json_str "${D_STATUS[$i]}")" "$(json_str "${D_DETAIL[$i]}")" "$(json_str "${D_FIX[$i]}")"
       sep=","
     done
-    printf '],"tabs":"%s","launch_offer":%s,"headless":%s,"harness":%s,"permissions_ready":%s}\n' "$tabs" \
+    printf '],"tabs":"%s","viewer":"%s","launch_offer":%s,"headless":%s,"harness":%s,"permissions_ready":%s}\n' "$tabs" "$viewer" \
       "$( (( offer )) && echo true || echo false)" "$( (( headless )) && echo true || echo false)" "$(json_str "$harness")" "$( (( permissions )) && echo true || echo false)"
   else
     for i in "${!D_CHECK[@]}"; do
@@ -1301,18 +1465,19 @@ cmd_doctor() {
         printf '           note: %s\n' "${D_FIX[$i]}"
       fi
     done
-    if (( fails > 0 )); then
-      echo "tabs: unavailable ($fails check(s) FAIL above)"
-    else
-      echo "tabs: unverified (no check failed; Automation and Accessibility consent show only on the first tab open)"
-    fi
+    case "$tabs" in
+      unavailable) echo "tabs: unavailable ($fails check(s) FAIL above)" ;;
+      unverified) echo "tabs: unverified (no check failed; Automation and Accessibility consent show only on the first tab open)" ;;
+      available) echo "tabs: available (detached tmux windows in session $TMUX_SID)" ;;
+      off) echo "tabs: off (automatic tabs off outside tmux; ds-lane open uses Terminal.app: $open_tabs)" ;;
+    esac
     if (( offer )); then
       echo "launch offer: available (ds-lane is on PATH)"
     else
       echo "launch offer: unavailable: ds-lane not on PATH"
     fi
     if (( headless )); then
-      echo "headless lanes: available ($harness runtime and permissions, python3 and jq ready; auth/quota unverified; $tabless)"
+      echo "headless lanes: available ($harness runtime and permissions, python3 and jq ready; auth/quota unverified$tabless_summary)"
     else
       echo "headless lanes: unavailable ($harness runtime, permissions, python3, jq and POSIX detachment required; auth/quota unverified)"
     fi
@@ -1353,14 +1518,16 @@ usage: ds-lane <command>
   list [name...]                 name, pid, state (done/blocked/alive/dead), elapsed, session_id, last line
   tail <name> [n]                last n assistant messages + latest result event
   watch <name>                   follow a lane's log live (text, tool calls, errors, result); read-only; exits 15s after the lane ends
-  open <name>                    open a Terminal.app tab running 'ds-lane watch <name>' without taking focus
-  open-all                       open a watch tab for every live lane
+  open <name>                    open a watch view of <name> without taking focus (a detached tmux window inside tmux, else a Terminal.app tab)
+  open-all                       open a watch view for every live lane
   stop <name>                    SIGTERM a live lane recorded by this tool
   resume-hint <name>             print the original interactive harness resume command
   count                          print number of live lanes (prunes dead pid files)
   path                           print the state dir; prompt and message files go in its prompts/
   doctor [--json]                check whether this machine and session can open watch tabs and run lanes; read-only, sends no Apple event
 State lives in <primary checkout>/.agentic/lanes; run from the conductor's repo or any of its worktrees.
+DS_LANE_VIEWER=auto|tmux|terminal (default auto): inside tmux, start and resume open a detached tmux
+window; outside tmux they open none unless DS_LANE_VIEWER=terminal opts into Terminal.app tabs.
 EOF
 }
 
@@ -1371,6 +1538,12 @@ case "$sub" in
   doctor) if cmd_doctor "$@"; then exit 0; else exit 1; fi ;;
 esac
 if [[ "$sub" == start ]]; then resolve_runtime; fi
+VIEWER=""
+case "$sub" in
+  start|resume) VIEWER="$(viewer_class none)" ;;
+  open|open-all) VIEWER="$(viewer_class terminal)" ;;
+esac
+[[ "$VIEWER" != invalid ]] || die "invalid DS_LANE_VIEWER '$DS_LANE_VIEWER' (use auto, tmux or terminal)"
 init_state
 case "$sub" in
   start) cmd_start "$@" ;;

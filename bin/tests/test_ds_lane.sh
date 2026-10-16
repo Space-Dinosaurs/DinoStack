@@ -13,7 +13,9 @@
 #
 # Upstream deps: bash, python3, git, jq, ps, pkill, script(1) for a pty
 #                (BSD or util-linux form); zsh for the tab-command parity
-#                case. jq or zsh missing: hard FAIL under ${CI}, SKIP locally.
+#                case; tmux for the real-tmux viewer case (a stub tmux covers
+#                the rest). jq, zsh or tmux missing: hard FAIL under ${CI},
+#                SKIP locally.
 #
 # Downstream consumers: CI bin-sh-tests job (.github/workflows/bin-tests.yml
 #                        auto-discovers bin/tests/test_*.sh).
@@ -62,7 +64,9 @@ fi
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/ds-lane-test.XXXXXX")"
 TMP="$(cd "$TMP" && pwd -P)"
 TAB_LOCK="$TMP/tab.lock"
+TMUX_SOCK="dslane-test-$$"
 cleanup() {
+  tmux -L "$TMUX_SOCK" kill-server 2> /dev/null || true
   pkill -f -- "$TMP/" 2> /dev/null
   sleep 0.3
   pkill -9 -f -- "$TMP/" 2> /dev/null
@@ -176,6 +180,9 @@ export DS_LANE_HARNESS=claude
 unset CODEX_THREAD_ID CLAUDECODE CLAUDE_CODE_SESSION_ID AE_ADAPTER CODEX_HOME DS_LANE_CODEX_BIN DS_LANE_CODEX_CONTEXT_FILE
 mkdir -p "$CLAUDE_CONFIG_DIR"
 export DS_LANE_NO_TAB=1
+# The Terminal cases below run on the opted-in Terminal path, outside tmux.
+export DS_LANE_VIEWER=terminal
+unset TMUX TMUX_PANE
 unset DS_LANE_RUN_DIR DS_LANE_MAX CLAUDE_CODE_EXECPATH STUB_OSA_MODE STUB_OSA_GATE
 
 PRIMARY="$TMP/my repo"
@@ -911,7 +918,8 @@ rm -f "$LOG"/osa-*
 doctor_pty
 check "doctor all-ok: exit 0" eq "$(rc_of "$DO")" 0
 check "doctor all-ok: no FAIL line" bash -c '! grep -q "^FAIL" "$1"' _ "$DO"
-check "doctor all-ok: the eight checkable lines are ok" eq "$(grep -c '^ok ' "$DO")" 8
+check "doctor all-ok: the nine checkable lines are ok" eq "$(grep -c '^ok ' "$DO")" 9
+check "doctor all-ok: the viewer row comes first" eq "$(head -n1 "$DO")" "ok         viewer: terminal (DS_LANE_VIEWER=terminal): start and resume open a macOS Terminal.app tab"
 check "doctor all-ok: macOS" doc_has "ok         platform: macOS"
 check "doctor all-ok: claude resolved as start resolves it" doc_has "ok         runtime: claude: $STUB/claude"
 check "doctor all-ok: ds-lane found on PATH" doc_has "ok         ds-lane on PATH: $FAKEHOME/.local/bin/ds-lane"
@@ -963,7 +971,7 @@ doctor_pty TERM_PROGRAM=
 check "doctor unknown terminal app: unverified, not guessed, exit 0" eq "$(rc_of "$DO")|$(grep -c '^unverified Terminal.app: TERM_PROGRAM is not set' "$DO")" "0|1"
 
 pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" "$TOOL" doctor --json
-check "doctor --json all-ok: parses, exit 0, tabs unverified, every non-ok check carries a fix" eq "$(rc_of "$DO")|$(jq -r '[.tabs, .launch_offer, .headless, (.checks | length), (all(.checks[]; .status != "FAIL")), (all(.checks[]; (.status == "ok") == (.fix == "")))] | join(",")' "$DO" 2>&1)" "0|unverified,true,true,10,true,true"
+check "doctor --json all-ok: parses, exit 0, tabs unverified, every non-ok check carries a fix" eq "$(rc_of "$DO")|$(jq -r '[.tabs, .launch_offer, .headless, (.checks | length), (all(.checks[]; .status != "FAIL")), (all(.checks[]; (.status == "ok") == (.fix == "")))] | join(",")' "$DO" 2>&1)" "0|unverified,true,true,11,true,true"
 pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" STUB_UNAME=Linux DS_LANE_CLAUDE_BIN= "$TOOL" doctor --json
 check "doctor --json failing: parses, exit 1, tabs unavailable, not headless" eq "$(rc_of "$DO")|$(jq -r '[.tabs, .headless, ([.checks[] | select(.status == "FAIL") | .check] | join("+"))] | join(",")' "$DO" 2>&1)" "1|unavailable,false,platform+runtime"
 pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" PATH="$DOCBIN:$OSA_DIR:$SANDBOX" "$TOOL" doctor --json
@@ -974,6 +982,167 @@ check "doctor --json stays valid with control characters, quotes and backslashes
 out="$(cd "$TMP/norepo" && GIT_CEILING_DIRECTORIES="$TMP" "$ENV_BIN" "${doctor_env[@]}" "$TOOL" doctor 2>&1)"
 check "doctor runs outside a git repo" contains "$out" "ok         platform: macOS"
 check "doctor never ran osascript (no Apple event, no consent prompt)" eq "$(ls "$LOG" | grep -c '^osa-')" 0
+
+# --- viewer selection: tmux by default inside tmux, Terminal tabs opt-in (stub tmux) ---
+TMUX_STUB="$STUB/tmux"
+mkdir -p "$TMUX_STUB"
+cat > "$TMUX_STUB/tmux" << 'EOF'
+#!/bin/bash
+{ for a in "$@"; do printf '[%s]' "$a"; done; echo; } >> "$STUB_LOG_DIR/tmux-argv"
+case "$1" in
+  -V) echo "tmux 3.4" ;;
+  display-message)
+    case "${STUB_TMUX_DISPLAY:-ok}" in
+      ok) echo '$9' ;;
+      *) echo "no server running on /tmp/tmux-stub/default" >&2; echo "second line" >&2; exit 1 ;;
+    esac ;;
+  new-window)
+    case "${STUB_TMUX_NEW:-ok}" in
+      ok) echo '@42' ;;
+      *) echo "create window failed: stub refused" >&2; exit 1 ;;
+    esac ;;
+esac
+exit 0
+EOF
+chmod +x "$TMUX_STUB/tmux"
+tmux_env=(TMUX=/tmp/tmux-stub/default,1,0 TMUX_PANE=%1 PATH="$TMUX_STUB:$PATH")
+# Runs <command...> from the primary checkout with viewers enabled and DS_LANE_VIEWER unset (auto)
+# inside the stub tmux.
+in_tmux() { (cd "$PRIMARY" && "$ENV_BIN" -u DS_LANE_NO_TAB -u DS_LANE_VIEWER "${tmux_env[@]}" "$@"); }
+# Same, outside tmux.
+no_tmux() { (cd "$PRIMARY" && "$ENV_BIN" -u DS_LANE_NO_TAB -u DS_LANE_VIEWER -u TMUX -u TMUX_PANE "$@"); }
+ends_with() { [[ "$1" == *"$2" ]]; }
+new_windows() { grep -c '^\[new-window\]' "$LOG/tmux-argv" 2> /dev/null || true; }
+TMUX_OK="opened: tmux; focus: untouched (detached tmux window @42 lane-va in session \$9)"
+rm -f "$LOG"/osa-* "$LOG/tmux-argv"
+
+out="$(in_tmux "$TOOL" start va "$PROMPT" 2>&1)"; rc=$?
+check "auto inside tmux: start opens a detached tmux window" eq "$rc|$(printf '%s\n' "$out" | grep '^tab: ')" "0|tab: $TMUX_OK"
+check "auto inside tmux: no fix line when the window opened" eq "$(printf '%s\n' "$out" | grep -c '^fix: ')" 0
+nw="$(grep '^\[new-window\]' "$LOG/tmux-argv" | tail -n1)"
+check "tmux window: detached, in the conductor's session, named, in the primary checkout" contains "$nw" "[new-window][-d][-P][-F][#{window_id}][-t][\$9:][-n][lane-va][-c][$PRIMARY][env]"
+check "tmux window: watch runs as argv with no Terminal closer and no stray run dir" contains "$nw" "[env][-u][DS_LANE_WATCH_CLOSE_TAB][-u][DS_LANE_RUN_DIR][PATH="
+check "tmux window: the command is ds-lane watch <name>, last" ends_with "$nw" "][$TOOL_REAL][watch][va]"
+check "tmux window: remain-on-exit off on the new window" eq "$(grep -c '^\[set-option\]\[-w\]\[-t\]\[@42\]\[remain-on-exit\]\[off\]$' "$LOG/tmux-argv")" 1
+check "tmux window: resolved from the conductor's own pane" eq "$(grep -c '^\[display-message\]\[-p\]\[-t\]\[%1\]\[#{session_id}\]$' "$LOG/tmux-argv")" 1
+check "tmux window: tab.log records it" eq "$(tr '\n' '|' < "$RUN/va.tab.log")" "opened: tmux|focus: untouched (detached tmux window @42 lane-va in session \$9)|"
+check "tmux window: no select or switch verb ever" bash -c '! grep -qE "select-window|switch-client|select-pane" "$1"' _ "$LOG/tmux-argv"
+check "tmux window: no osascript" eq "$(ls "$LOG" | grep -c '^osa-')" 0
+lane stop va > /dev/null
+out="$(in_tmux "$TOOL" resume va 2>&1)"
+check "auto inside tmux: resume opens a tmux window too" eq "$(printf '%s\n' "$out" | grep '^tab: ')" "tab: $TMUX_OK"
+before="$(new_windows)"
+out="$(in_tmux "$TOOL" open va 2>&1)"
+in_tmux "$TOOL" open va > /dev/null 2>&1
+check "auto inside tmux: open prints the tmux outcome" eq "$out" "lane va: $TMUX_OK"
+check "auto inside tmux: open twice opens two windows" eq "$(( $(new_windows) - before ))" 2
+lane stop va > /dev/null
+
+in_tmux DS_LANE_RUN_DIR="$TMP/tmux run" "$TOOL" start vr "$PROMPT" > /dev/null 2>&1
+check "tmux window: the run-dir override propagates" contains "$(grep '^\[new-window\]' "$LOG/tmux-argv" | tail -n1)" "[env][-u][DS_LANE_WATCH_CLOSE_TAB][DS_LANE_RUN_DIR=$TMP/tmux run][PATH="
+(cd "$PRIMARY" && DS_LANE_RUN_DIR="$TMP/tmux run" "$TOOL" stop vr > /dev/null)
+
+out="$(in_tmux STUB_TMUX_NEW=fail "$TOOL" start vc "$PROMPT" 2>&1)"; rc=$?
+check "tmux new-window failure: tmux error" eq "$(printf '%s\n' "$out" | grep '^tab: ')" "tab: tmux error: create window failed: stub refused"
+check "tmux new-window failure: fix names ds-lane watch" contains "$(printf '%s\n' "$out" | grep '^fix: ')" "follow the lane with \`ds-lane watch vc\`"
+check "tmux new-window failure: exit 0 and the lane is alive" eq "$rc|$(list_col vc 3)" "0|alive"
+lane stop vc > /dev/null
+
+out="$(in_tmux STUB_TMUX_DISPLAY=fail "$TOOL" start vd "$PROMPT" 2>&1)"
+check "tmux session unresolved: the reason keeps tmux's stderr" eq "$(printf '%s\n' "$out" | grep '^tab: ')" "tab: tab skipped: tmux session not resolved (no server running on /tmp/tmux-stub/default)"
+check "tmux session unresolved: fix" contains "$(printf '%s\n' "$out" | grep '^fix: ')" "could not resolve this session's tmux pane (see the message above); follow the lane with \`ds-lane watch vd\`"
+lane stop vd > /dev/null
+
+out="$(in_tmux PATH="$DOCBIN:$SANDBOX" "$TOOL" start ve "$PROMPT" 2>&1)"
+check "TMUX set, no tmux on PATH: no tmux" eq "$(printf '%s\n' "$out" | grep '^tab: ')" "tab: tab skipped: no tmux"
+lane stop ve > /dev/null
+
+out="$(no_tmux DS_LANE_VIEWER=tmux "$TOOL" start vf "$PROMPT" 2>&1)"
+check "DS_LANE_VIEWER=tmux outside tmux: not inside tmux, with a fix" eq "$(printf '%s\n' "$out" | grep -E '^(tab|fix): ' | cut -c1-60 | tr '\n' '|')" "tab: tab skipped: not inside tmux|fix: DS_LANE_VIEWER=tmux but this session is not running ins|"
+lane stop vf > /dev/null
+
+before="$(new_windows)"
+pty_capture "$SO" "$ENV_BIN" -u DS_LANE_VIEWER "${tmux_env[@]}" DS_LANE_VIEWER=terminal DS_LANE_TAB_WAIT_S=10 STUB_OSA_MODE=nomatch "$TOOL" start vg "$PROMPT"
+check "DS_LANE_VIEWER=terminal inside tmux: the Terminal opener runs" eq "$(tab_of "$SO")|$(new_windows)" "tab: tab skipped: no matching tab|$before"
+check "DS_LANE_VIEWER=terminal inside tmux: osascript was called" has_file "$LOG/osa-tty"
+lane stop vg > /dev/null
+
+rm -f "$LOG"/osa-*
+before="$(new_windows)"
+out="$(no_tmux "$TOOL" start vh "$PROMPT" 2>&1)"; rc=$?
+check "auto outside tmux: start opens no viewer and names the opt-in" eq "$rc|$(printf '%s\n' "$out" | grep -E '^(tab|fix): ')" "0|tab: none (not inside tmux; automatic Terminal.app tabs are opt-in); follow it with \`ds-lane watch vh\`, open a tab with \`ds-lane open vh\`, or set DS_LANE_VIEWER=terminal to restore automatic Terminal tabs"
+check "auto outside tmux: start writes no tab.log, runs no osascript and no tmux" eq "$(test -e "$RUN/vh.tab.log"; echo $?)|$(ls "$LOG" | grep -c '^osa-')|$(new_windows)" "1|0|$before"
+open_in_pty vh DS_LANE_VIEWER= STUB_OSA_MODE=kept
+check "auto outside tmux: open still opens a Terminal tab" eq "$(tr '\n' '|' < "$RUN/vh.tab.log")" "opened: tab|focus: kept|"
+lane stop vh > /dev/null
+
+before="$(new_windows)"
+out="$(in_tmux DS_LANE_NO_TAB=1 "$TOOL" start vi "$PROMPT" 2>&1)"
+check "DS_LANE_NO_TAB=1 inside tmux opens nothing" eq "$(printf '%s\n' "$out" | grep '^tab: ')|$(new_windows)" "tab: disabled (DS_LANE_NO_TAB=1)|$before"
+lane stop vi > /dev/null
+
+VREPO="$TMP/viewer repo"
+mkdir -p "$VREPO"
+git -C "$VREPO" init -q
+out="$(cd "$VREPO" && DS_LANE_VIEWER=bogus "$TOOL" start vj "$PROMPT" 2>&1)"; rc=$?
+check "invalid DS_LANE_VIEWER: start refuses" died_with "$rc" "$out" "invalid DS_LANE_VIEWER 'bogus' (use auto, tmux or terminal)"
+check "invalid DS_LANE_VIEWER: no state directory" test ! -e "$VREPO/.agentic"
+out="$(cd "$VREPO" && DS_LANE_VIEWER=bogus "$TOOL" open vj 2>&1)"; rc=$?
+check "invalid DS_LANE_VIEWER: open refuses too" died_with "$rc" "$out" "invalid DS_LANE_VIEWER 'bogus'"
+doctor_pty DS_LANE_VIEWER=bogus
+check "invalid DS_LANE_VIEWER: doctor has one FAIL row, the viewer, and exits 1" eq "$(rc_of "$DO")|$(grep '^FAIL' "$DO" | cut -c1-40 | tr '\n' '|')" "1|FAIL       viewer: invalid DS_LANE_VIEWE|"
+check "invalid DS_LANE_VIEWER: doctor shows no tab rows" bash -c '! grep -qE "^[a-zA-Z]+ +(platform|osascript|conductor terminal|Terminal.app|tmux)" "$1"' _ "$DO"
+
+doctor_pty DS_LANE_VIEWER= TMUX=/tmp/tmux-stub/default,1,0 TMUX_PANE=%1 PATH="$TMUX_STUB:$DOC_PATH"
+check "doctor inside tmux: exit 0, tabs available" eq "$(rc_of "$DO")|$(tail -n3 "$DO" | head -n1)" "0|tabs: available (detached tmux windows in session \$9)"
+check "doctor inside tmux: viewer tmux first" eq "$(head -n1 "$DO")" "ok         viewer: tmux: start and resume open a detached tmux window in this session"
+check "doctor inside tmux: tmux session resolved" doc_has "ok         tmux session: \$9"
+check "doctor inside tmux: no Terminal rows" bash -c '! grep -qE "^[a-zA-Z]+ +(platform|osascript|conductor terminal|Terminal.app|Automation)" "$1"' _ "$DO"
+check "doctor inside tmux: tmux version shown" doc_has "ok         tmux: $TMUX_STUB/tmux (tmux 3.4)"
+doctor_pty DS_LANE_VIEWER= TMUX=/tmp/tmux-stub/default,1,0 TMUX_PANE=%1 STUB_TMUX_DISPLAY=fail PATH="$TMUX_STUB:$DOC_PATH"
+check "doctor inside tmux, session unresolved: FAIL, tabs unavailable, exit 1" eq "$(rc_of "$DO")|$(grep '^FAIL' "$DO")|$(tail -n3 "$DO" | head -n1)" "1|FAIL       tmux session: tmux session not resolved (no server running on /tmp/tmux-stub/default)|tabs: unavailable (1 check(s) FAIL above)"
+pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" DS_LANE_VIEWER= TMUX=/tmp/tmux-stub/default,1,0 TMUX_PANE=%1 PATH="$TMUX_STUB:$DOC_PATH" "$TOOL" doctor --json
+check "doctor --json inside tmux: viewer tmux, tabs available" eq "$(rc_of "$DO")|$(jq -r '[.viewer, .tabs] | join(",")' "$DO" 2>&1)" "0|tmux,available"
+
+doctor_pty DS_LANE_VIEWER= TERM_PROGRAM=iTerm.app
+check "doctor outside tmux (auto): a Terminal FAIL does not fail doctor" eq "$(rc_of "$DO")|$(grep -c '^FAIL       Terminal.app' "$DO")" "0|1"
+check "doctor outside tmux (auto): tabs off, open's Terminal state named" eq "$(tail -n3 "$DO" | head -n1)" "tabs: off (automatic tabs off outside tmux; ds-lane open uses Terminal.app: unavailable)"
+check "doctor outside tmux (auto): never recommends DS_LANE_NO_TAB=1" bash -c '! grep -q DS_LANE_NO_TAB=1 "$1"' _ "$DO"
+check "doctor outside tmux (auto): headless line carries no tab advice" eq "$(tail -n1 "$DO")" "headless lanes: available (claude runtime and permissions, python3 and jq ready; auth/quota unverified)"
+pty_capture "$DO" "$ENV_BIN" "${doctor_env[@]}" DS_LANE_VIEWER= "$TOOL" doctor --json
+check "doctor --json outside tmux (auto): viewer none, tabs off" eq "$(rc_of "$DO")|$(jq -r '[.viewer, .tabs] | join(",")' "$DO" 2>&1)" "0|none,off"
+
+# --- real tmux: a private server whose pane stands in for the conductor's ---
+if ! command -v tmux > /dev/null 2>&1; then
+  if [[ -n "${CI:-}" ]]; then
+    _fail "tmux absent in CI - the real-tmux viewer case cannot be skipped here"
+  else
+    echo "SKIPPED (tmux not found; real-tmux viewer case NOT run - brew install tmux)"
+  fi
+else
+  rt() { tmux -L "$TMUX_SOCK" "$@"; }
+  rt -f /dev/null new-session -d -s t 'sleep 600'
+  # The tmux server's global environment must not reach the watch window.
+  rt set-environment -g DS_LANE_WATCH_CLOSE_TAB 1
+  rt set-environment -g DS_LANE_RUN_DIR "$TMP/not-the-run-dir"
+  rt_win="$(rt display-message -p -t t '#{window_id}')"
+  rt_env=(TMUX="$(rt display-message -p -t t '#{socket_path}'),$(rt display-message -p -t t '#{pid}'),0" TMUX_PANE="$(rt display-message -p -t t '#{pane_id}')")
+  rt_lane_windows() { rt list-windows -t t -F '#{window_name}' | grep -c '^lane-rt1$'; }
+  rt_no_lane_windows() { [[ "$(rt_lane_windows)" == 0 ]]; }
+  rm -f "$LOG"/osa-*
+  out="$(cd "$PRIMARY" && "$ENV_BIN" -u DS_LANE_VIEWER -u DS_LANE_NO_TAB "${rt_env[@]}" "$TOOL" start rt1 "$PROMPT" 2>&1)"
+  check "real tmux: start opens a detached window" contains "$(printf '%s\n' "$out" | grep '^tab: ')" "tab: opened: tmux; focus: untouched (detached tmux window @"
+  check "real tmux: one lane-rt1 window" eq "$(rt_lane_windows)" 1
+  check "real tmux: the active window is unchanged" eq "$(rt display-message -p -t t '#{window_id}')" "$rt_win"
+  (cd "$PRIMARY" && "$ENV_BIN" -u DS_LANE_VIEWER "${rt_env[@]}" "$TOOL" open rt1 > /dev/null 2>&1)
+  check "real tmux: open adds a second window" eq "$(rt_lane_windows)" 2
+  check "real tmux: open leaves the active window unchanged" eq "$(rt display-message -p -t t '#{window_id}')" "$rt_win"
+  lane stop rt1 > /dev/null
+  # watch exits about 15 s after the lane ends, and remain-on-exit off then closes its window.
+  check "real tmux: the lane windows close themselves after stop" wait_until 40 rt_no_lane_windows
+  sleep 1
+  check "real tmux: no Terminal tab closer ran from the tmux window" eq "$(ls "$LOG" | grep -c '^osa-')" 0
+fi
 
 # Harness selection and policy fixtures use a strict finite-input Codex executable.
 mkdir -p "$TMP/codex config" "$TMP/codex bin"
