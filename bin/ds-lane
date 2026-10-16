@@ -1071,7 +1071,7 @@ tmux_open() { # tmux_open <name>
     if [[ -n "${DS_LANE_RUN_DIR:-}" ]]; then envargs+=("DS_LANE_RUN_DIR=$DS_LANE_RUN_DIR"); else envargs+=(-u DS_LANE_RUN_DIR); fi
     envargs+=("PATH=$PATH")
     err="$(mktemp "${TMPDIR:-/tmp}/ds-lane-tmux.XXXXXX")"
-    wid="$(tmux new-window -d -P -F '#{window_id}' -t "$TMUX_SID:" -n "lane-$name" -c "$PRIMARY" \
+    wid="$(tmux new-window -d -P -F '#{window_id}' -t "$TMUX_SID:" -n "lane-$name" -c "${PRIMARY//#/##}" \
       "${envargs[@]}" "$SELF" watch "$name" 2> "$err")" || rc=$?
     if (( rc != 0 )); then
       outcome="tmux error: $(head -n1 "$err")"

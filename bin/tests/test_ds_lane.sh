@@ -1005,7 +1005,7 @@ esac
 exit 0
 EOF
 chmod +x "$TMUX_STUB/tmux"
-tmux_env=(TMUX=/tmp/tmux-stub/default,1,0 TMUX_PANE=%1 PATH="$TMUX_STUB:$PATH")
+tmux_env=("TMUX=/tmp/tmux-stub/default,1,0" TMUX_PANE=%1 PATH="$TMUX_STUB:$PATH")
 # Runs <command...> from the primary checkout with viewers enabled and DS_LANE_VIEWER unset (auto)
 # inside the stub tmux.
 in_tmux() { (cd "$PRIMARY" && "$ENV_BIN" -u DS_LANE_NO_TAB -u DS_LANE_VIEWER "${tmux_env[@]}" "$@"); }
@@ -1071,7 +1071,7 @@ rm -f "$LOG"/osa-*
 before="$(new_windows)"
 out="$(no_tmux "$TOOL" start vh "$PROMPT" 2>&1)"; rc=$?
 check "auto outside tmux: start opens no viewer and names the opt-in" eq "$rc|$(printf '%s\n' "$out" | grep -E '^(tab|fix): ')" "0|tab: none (not inside tmux; automatic Terminal.app tabs are opt-in); follow it with \`ds-lane watch vh\`, open a tab with \`ds-lane open vh\`, or set DS_LANE_VIEWER=terminal to restore automatic Terminal tabs"
-check "auto outside tmux: start writes no tab.log, runs no osascript and no tmux" eq "$(test -e "$RUN/vh.tab.log"; echo $?)|$(ls "$LOG" | grep -c '^osa-')|$(new_windows)" "1|0|$before"
+check "auto outside tmux: start writes no tab.log, runs no osascript and no tmux" eq "$(if [[ -e "$RUN/vh.tab.log" ]]; then echo present; else echo absent; fi)|$(ls "$LOG" | grep -c '^osa-')|$(new_windows)" "absent|0|$before"
 open_in_pty vh DS_LANE_VIEWER= STUB_OSA_MODE=kept
 check "auto outside tmux: open still opens a Terminal tab" eq "$(tr '\n' '|' < "$RUN/vh.tab.log")" "opened: tab|focus: kept|"
 lane stop vh > /dev/null
