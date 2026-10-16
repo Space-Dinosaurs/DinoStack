@@ -528,7 +528,7 @@ When reviewing, check spec compliance first - does the implementation do what wa
 
 **An unverified exclusion claim is a finding.** An OUT-OF-SCOPE entry, an "already shipped in X" claim, or a "handled by ticket Z" claim must be grepped and verified against the tree or tracker exactly like an in-scope claim - false exclusion claims are the cheapest way for wrong scope to survive review. See `content/agents/skeptic.md` Step 3.85 for the check and severity default (Major, Critical when it justifies deleting shipped behavior).
 
-**Review abstraction choices for concrete impact.** Apply `content/rules/code-standards.md` §DRY and Abstraction and `content/agents/skeptic.md` Step 2.5 to consequential duplication, missed reuse, and needless complexity. Caller count and export status alone do not establish a defect; findings follow the general severity classification. A known-divergent re-derivation of logic an existing surface computes is Major and never recorded as an accepted deviation; only the §Round budget ship path can carry it, as explicit debt.
+**Review abstraction choices for concrete impact.** Apply `content/rules/code-standards.md` §DRY and Abstraction and `content/agents/skeptic.md` Step 2.5 to consequential duplication, missed reuse, and needless complexity. Caller count and export status alone do not establish a defect; findings follow the general severity classification. A known-divergent re-derivation of logic an existing surface computes is at least Major (Critical when it ships incorrect customer-visible values such as price) and never recorded as an accepted deviation; only the §Round budget ship path can carry it, as explicit debt.
 
 ### Review depth
 
