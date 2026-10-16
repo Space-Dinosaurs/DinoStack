@@ -105,7 +105,8 @@ Codex; Claude native session markers select Claude. Installed binaries never
 choose the backend. `AE_ADAPTER` and `DS_LANE_HARNESS=codex|claude` must agree
 with native identity. Missing or conflicting identity or live policy refuses
 without fallback. `doctor [--json]` reports the selected harness and permission
-readiness separately from optional macOS Terminal watch tabs; headless lanes
+readiness separately from optional watch views (a detached tmux window inside
+tmux; macOS Terminal tabs only with `DS_LANE_VIEWER=terminal`); headless lanes
 work without a controlling terminal. Auth and quota are unverified until a run.
 
 Claude uses streaming print mode and accepts live `send`. Codex uses finite
@@ -129,5 +130,5 @@ Legacy records with `claude_bin` remain Claude. Legacy resume requires
 `DS_LANE_LEGACY_CLAUDE_CONFIG_DIR` plus captured Claude init permission mode and
 cwd; there is no guessed migration. See the canonical
 [runbook conductor procedure](../content/references/runbook-conductor.md) for
-launch, pending ruling delivery, and optional watch tabs. Native Windows
+launch, pending ruling delivery, and optional watch views. Native Windows
 headless detachment and new bridge terminal UI are unsupported.

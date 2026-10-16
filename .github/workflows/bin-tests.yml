@@ -197,7 +197,7 @@ jobs:
         # changing any value here.
         timeout-minutes: 2
         run: pip install pytest pytest-timeout pytest-xdist pyyaml
-      - name: install zsh (required for bash/zsh parity assertion in test_check_resident_budget.sh)
+      - name: install zsh and tmux (zsh for the bash/zsh parity assertion in test_check_resident_budget.sh; tmux for the real-tmux viewer case in test_ds_lane.sh)
         # Bounded so a queue-starved or hung step fails as itself rather
         # than consuming the job backstop. Re-derive the current
         # distribution with `bash scripts/ci-step-durations.sh` before
@@ -211,7 +211,7 @@ jobs:
         # undiagnosable one at the job backstop. That is the bound's
         # intended job: catching a genuinely hung apt, not a slow one.
         timeout-minutes: 10
-        run: sudo apt-get update && sudo apt-get install -y zsh
+        run: sudo apt-get update && sudo apt-get install -y zsh tmux
       - name: install gitleaks CLI (required by test_gitleaks_allowlist_scope.sh)
         # test_gitleaks_allowlist_scope.sh hard-fails under CI if gitleaks is
         # missing on PATH (a silently-skipped security regression guard is
