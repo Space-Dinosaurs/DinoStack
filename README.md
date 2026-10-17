@@ -270,7 +270,7 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 **Rules** (3 files) - the core methodology:
 
 - Agent methodology - delegation, risk classification, task decomposition, worktree lifecycle
-- Code standards - tool discipline, quality gates, package management, browser verification
+- Code standards - documentation evidence, tool selection, reuse, quality gates, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
 - Conventions - writing style and length discipline, project structure, session context, git workflow
 
 **Reference docs** (42 files) - detailed protocol specs loaded on trigger:

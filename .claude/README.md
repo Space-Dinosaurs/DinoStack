@@ -89,7 +89,7 @@ The `/dinostack` skill auto-triggers when Claude detects engineering tasks. Each
 
 Rules stay as separate files for maintainability:
 - `rules/agent-methodology.md` - delegation, risk classification, task decomposition
-- `rules/code-standards.md` - tool discipline, quality gates, package management
+- `rules/code-standards.md` - documentation evidence, tool selection, reuse, quality gates, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
 - `rules/conventions.md` - writing style, project structure, git workflow
 
 Reference docs load on trigger (see Protocol Details in agent-methodology.md):
