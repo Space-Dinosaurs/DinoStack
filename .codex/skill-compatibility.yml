@@ -3492,6 +3492,16 @@
       "source_token": "Write"
     },
     {
+      "expected_target": "dinostack-codex",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "06e90ba1224320ac5bdecc854b3c57f03c853b5276be4f860ba59af07a9f0484",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "~/DinoStack/.claude/skills/dinostack"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "never",
       "kind": "display-only",
@@ -15240,16 +15250,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/loop-state-*.json"
-    },
-    {
-      "expected_target": "dinostack-codex",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
-      "kind": "operational",
-      "occurrence_hash": "b4005676acabc96fde1f17d252844dd459b9eb21a415f6f31b9ad86c78769c9c",
-      "resolution_mode": "mapped-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "~/DinoStack/.claude/skills/dinostack"
     },
     {
       "expected_target": "METHODOLOGY.md",

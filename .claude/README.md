@@ -88,11 +88,11 @@ Removes all symlinks and hook entries added by install. Permissions configuratio
 The `/dinostack` skill auto-triggers when Claude detects engineering tasks. Each agent and command file includes a prerequisite line that ensures the skill loads first, regardless of entry point.
 
 Rules stay as separate files for maintainability:
-- `rules/agent-methodology.md` - delegation, risk classification, task decomposition
-- `rules/code-standards.md` - tool discipline, quality gates, package management
+- `rules/module-manifest.md` - encouraged manifest header format for non-trivial source files
+- `rules/code-standards.md` - documentation evidence, tool selection, reuse, quality gates, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
 - `rules/conventions.md` - writing style, project structure, git workflow
 
-Reference docs load on trigger (see Protocol Details in agent-methodology.md):
+Reference docs load on trigger (see Protocol Details in METHODOLOGY.md):
 - `references/skeptic-protocol.md`
 - `references/subagent-protocol.md`
 - `references/agent-team.md`

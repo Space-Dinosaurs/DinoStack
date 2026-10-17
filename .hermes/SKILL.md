@@ -2010,7 +2010,7 @@ Purpose: Canonical authoring guidance for command files, skill definitions, and
          context even when the artifact is unused, so it must enumerate when to
          fire rather than summarize behavior) and bad/good example-pair seeding
          (concrete pairs encode taste via few-shot transfer more reliably than
-         abstract rules). Also states the module-manifest requirement for new
+         abstract rules). Also states the module-manifest encouragement for new
          command files (§3) and the Pillar-8 gate/mechanism authoring discipline
          for any command or agent definition that authors a new enforcement
          mechanism (§4).
@@ -2022,7 +2022,7 @@ Public API: Read on trigger when authoring or editing a command file
             Docs section) and content/commands/ds-update-agentic-engineering.md
             (command-authoring note for the methodology-edit flow).
 
-Upstream deps: content/rules/module-manifest.md (manifest requirement for new
+Upstream deps: content/rules/module-manifest.md (manifest guidance for new
                command files).
 
 Downstream consumers: authors of new commands, skills, and agent definitions;
@@ -2137,10 +2137,10 @@ says no", so the agent can self-correct on the first pass. If the output is only
 occasionally off, a single good example plus an abstract rule is enough; the
 pair earns its space only when the miss is recurring.
 
-## 3. Module-manifest requirement for new command files
+## 3. Module-manifest header for new command files
 
-New command files, and any other non-trivial file, must carry the
-module-manifest header block. See `content/rules/module-manifest.md` for the
+New command files, and any other non-trivial file, are encouraged to carry the
+module-manifest header block (Skeptic reports gaps as Minor). See `content/rules/module-manifest.md` for the
 required fields (Purpose, Public API, Upstream dependencies, Downstream
 consumers, Failure modes, Performance).
 `content/commands/ds-failure-audit.md` is the reference example of a command
@@ -19503,7 +19503,7 @@ Use the orchestration-planner's output to drive agent spawning decisions if Phas
 
 Read the orchestration-planner's output to make the routing determination below if Phase 3b ran; read the architect's output directly if Phase 3b was skipped.
 
-**Module manifests:** Files modified must carry module manifests per `~/DinoStack/.claude/skills/dinostack/rules/module-manifest.md` when non-trivial. Skeptic reports manifest gaps as Minor in Phase 6; a gap whose inaccuracy could mislead a caller on a correctness or security path stays Minor and is marked `Blocking-minor:`. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
+**Module manifests:** Files modified should carry module manifests per `~/DinoStack/.claude/skills/dinostack/rules/module-manifest.md` when non-trivial. Skeptic reports manifest gaps as Minor in Phase 6; a gap whose inaccuracy could mislead a caller on a correctness or security path stays Minor and is marked `Blocking-minor:`. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
 
 **Tracker writeback note.** In Progress (W1) is written at Phase 1, not here - Phase 5 deliberately has no W1 site. Do not re-add one.
 
