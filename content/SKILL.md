@@ -154,6 +154,6 @@ Run `/ds-help` for the full command inventory.
 
 ## Rules (read on trigger)
 
-- **rules/module-manifest.md** - required manifest header format for non-trivial source files;
+- **rules/module-manifest.md** - encouraged manifest header format for non-trivial source files;
   read when creating or substantially modifying a file that exports a public symbol, exceeds ~50
   LOC, or implements a side-effecting operation.

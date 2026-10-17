@@ -4,9 +4,9 @@
 
 A module manifest is a short header block at the top of a non-trivial source file. It lives in the code itself so that comprehension travels with the code — not in Architect plans that get discarded after merge, not in wikis that drift, not in PR descriptions nobody reads six months later. This is the self-describing layer of the system: a reader should be able to open a file and immediately understand what it does, what it depends on, and what breaks if it misbehaves.
 
-## When required
+## When encouraged
 
-**Required** for any source file that meets one or more of these criteria:
+**Encouraged** for any source file that meets one or more of these criteria:
 
 - Exports a public symbol (function, class, type, constant) consumed by another module
 - Over ~50 lines of non-trivial logic

@@ -1,7 +1,7 @@
 # What's included
 
 **Rules** (3 files) - the core methodology:
-- Module manifest - required manifest header for non-trivial source files (exports, 50+ LOC, or side-effecting)
+- Module manifest - encouraged manifest header for non-trivial source files (exports, 50+ LOC, or side-effecting)
 - Code standards - documentation evidence, tool selection, reuse, quality gates, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
 - Conventions - writing style, project structure, session context, git workflow
 

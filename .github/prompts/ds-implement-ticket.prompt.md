@@ -1575,7 +1575,7 @@ Use the orchestration-planner's output to drive agent spawning decisions if Phas
 
 Read the orchestration-planner's output to make the routing determination below if Phase 3b ran; read the architect's output directly if Phase 3b was skipped.
 
-**Module manifests:** Files modified must carry module manifests per `~/DinoStack/.claude/skills/dinostack/rules/module-manifest.md` when non-trivial. Skeptic reports manifest gaps as Minor in Phase 6; a gap whose inaccuracy could mislead a caller on a correctness or security path stays Minor and is marked `Blocking-minor:`. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
+**Module manifests:** Files modified should carry module manifests per `~/DinoStack/.claude/skills/dinostack/rules/module-manifest.md` when non-trivial. Skeptic reports manifest gaps as Minor in Phase 6; a gap whose inaccuracy could mislead a caller on a correctness or security path stays Minor and is marked `Blocking-minor:`. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
 
 **Tracker writeback note.** In Progress (W1) is written at Phase 1, not here - Phase 5 deliberately has no W1 site. Do not re-add one.
 

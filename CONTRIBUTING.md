@@ -165,7 +165,7 @@ Before opening a PR for a new feature:
 
 - [ ] Keep planning artifacts in `docs/planning/` local - do not commit them.
 - [ ] Migrate durable rationale (risk register, rollback plan, security model, operator runbook) out of local planning docs into a committed home (feature README and/or module manifests).
-- [ ] Add a module manifest to any non-trivial new source file (`content/rules/module-manifest.md` defines "non-trivial").
+- [ ] Add a module manifest to any non-trivial new source file (encouraged, not required; Skeptic reports gaps as Minor) (`content/rules/module-manifest.md` defines "non-trivial").
 - [ ] Add or update the user-facing command/reference doc if the feature is user-invokable, and rebuild adapters (the pre-commit hook does this automatically on `content/` changes; to rebuild manually, run each adapter's `build.sh` - `check-adapter-sync` CI verifies all of them).
 - [ ] Sign every commit with `git commit -s` - the DCO check is required.
 
