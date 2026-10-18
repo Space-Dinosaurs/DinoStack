@@ -3,6 +3,1190 @@
 
 # Changelog
 
+## 2026-10-17
+
+### Documentation
+
+- **#1025** [correct stale section label, code-standards scope, keepalive wrap condition, module-manifest wording](https://github.com/Space-Dinosaurs/DinoStack/pull/1025) - tyson-solara6
+
+## 2026-10-16
+
+### Breaking Changes
+
+- **#1023** [tmux watch windows by default, Terminal.app tabs opt-in](https://github.com/Space-Dinosaurs/DinoStack/pull/1023) - tyson-solara6
+
+### Features
+
+- **#1024** [plan review checks mechanism proportionality and reuse](https://github.com/Space-Dinosaurs/DinoStack/pull/1024) - tyson-solara6
+
+## 2026-10-15
+
+### Fixes
+
+- **#1022** [cache keepalive - opt-in by default, inert ping text, robust creation, release not held by dead tasks](https://github.com/Space-Dinosaurs/DinoStack/pull/1022) - tyson-solara6
+- **#1021** [pre-commit lints only real Python bin/ds-* CLIs](https://github.com/Space-Dinosaurs/DinoStack/pull/1021) - tyson-solara6
+- **#1020** [ds-lane lanes inherit the caller's config-dir variable as set or unset](https://github.com/Space-Dinosaurs/DinoStack/pull/1020) - tyson-solara6
+
+## 2026-10-14
+
+### Features
+
+- **#1019** [inherit the invoking harness](https://github.com/Space-Dinosaurs/DinoStack/pull/1019) - tyson-solara6
+
+### Fixes
+
+- **#1018** [ds-lane never raises a Terminal window that is off this Space](https://github.com/Space-Dinosaurs/DinoStack/pull/1018) - tyson-solara6
+
+## 2026-10-13
+
+### Features
+
+- **#1017** [ds-eval measures the cache keepalive against a before baseline](https://github.com/Space-Dinosaurs/DinoStack/pull/1017) - tyson-solara6
+- **#1014** [add /ds-harness-upgrade-prep (DS-264)](https://github.com/Space-Dinosaurs/DinoStack/pull/1014) - tyson-solara6
+- **#1001** [default-on prompt-cache keepalive for idle conductor sessions](https://github.com/Space-Dinosaurs/DinoStack/pull/1001) - tyson-solara6
+- **#1000** [ds-change-delta eval side with entrypoint split and prefix test](https://github.com/Space-Dinosaurs/DinoStack/pull/1000) - tyson-solara6
+- **#998** [/ds-evaluate runs on ds-eval and ends with refinement proposals](https://github.com/Space-Dinosaurs/DinoStack/pull/998) - tyson-solara6
+
+### Fixes
+
+- **#1016** [keepalive ping replies with what it did and when it runs next](https://github.com/Space-Dinosaurs/DinoStack/pull/1016) - tyson-solara6
+- **#1015** [keepalive wrap releases its lock when signalled mid-acquire](https://github.com/Space-Dinosaurs/DinoStack/pull/1015) - tyson-solara6
+- **#1008** [raise the pytest step bound a passing run now reaches](https://github.com/Space-Dinosaurs/DinoStack/pull/1008) - tyson-solara6
+- **#1007** [raise the bin-sh-tests step bound a healthy run now reaches](https://github.com/Space-Dinosaurs/DinoStack/pull/1007) - tyson-solara6
+- **#1006** [ds-eval reports per-ticket cost and says only what was measured](https://github.com/Space-Dinosaurs/DinoStack/pull/1006) - tyson-solara6
+- **#1005** [phase 11e diagnostic test hides an installed ds-memory-capture](https://github.com/Space-Dinosaurs/DinoStack/pull/1005) - tyson-solara6
+- **#1004** [price Sonnet 5.5 and Haiku 5.5 at their own published rates (DS-265)](https://github.com/Space-Dinosaurs/DinoStack/pull/1004) - tyson-solara6
+- **#1003** [ds-lane reports why a watch tab did not open and how to fix it](https://github.com/Space-Dinosaurs/DinoStack/pull/1003) - tyson-solara6
+- **#1002** [hook tests no longer write to a real fire log](https://github.com/Space-Dinosaurs/DinoStack/pull/1002) - tyson-solara6
+
+### Tests
+
+- **#1012** [remove tests that repeat a branch another test covers](https://github.com/Space-Dinosaurs/DinoStack/pull/1012) - tyson-solara6
+
+### Maintenance
+
+- **#999** [raise the Skeptic round cap from 2 to 3](https://github.com/Space-Dinosaurs/DinoStack/pull/999) - tyson-solara6
+
+### Uncategorized
+
+- **#1013** [python-bin-tests backstop sits above its step bounds](https://github.com/Space-Dinosaurs/DinoStack/pull/1013) - tyson-solara6
+- **#1011** [drop a duplicated hook-guard run and build adapters once](https://github.com/Space-Dinosaurs/DinoStack/pull/1011) - tyson-solara6
+
+## 2026-10-12
+
+### Features
+
+- **#994** [ds-lane - conductor-launched headless lanes with focus-keeping Terminal tabs](https://github.com/Space-Dinosaurs/DinoStack/pull/994) - tyson-solara6
+- **#993** [ds-eval evaluation engine with ranked refinement proposals](https://github.com/Space-Dinosaurs/DinoStack/pull/993) - tyson-solara6
+- **#987** [_transcripts reader over every Claude Code config-dir store](https://github.com/Space-Dinosaurs/DinoStack/pull/987) - tyson-solara6
+
+### Fixes
+
+- **#995** [ds-lane keeps the conductor's native tab selected](https://github.com/Space-Dinosaurs/DinoStack/pull/995) - tyson-solara6
+- **#992** [skip the worktree reminders on SessionStart compaction](https://github.com/Space-Dinosaurs/DinoStack/pull/992) - tyson-solara6
+- **#991** [telemetry tools scan every Claude Code config-dir store](https://github.com/Space-Dinosaurs/DinoStack/pull/991) - tyson-solara6
+- **#990** [qa_result parser reads real qa-engineer result headings](https://github.com/Space-Dinosaurs/DinoStack/pull/990) - tyson-solara6
+- **#989** [stop writing session_total and subagent_stop_internal rows](https://github.com/Space-Dinosaurs/DinoStack/pull/989) - tyson-solara6
+- **#988** [close #985 read debt - Part E path brief, largest-fit head, read-site pins](https://github.com/Space-Dinosaurs/DinoStack/pull/988) - tyson-solara6
+- **#985** [bound the MEMORY.md read directive for large files](https://github.com/Space-Dinosaurs/DinoStack/pull/985) - tyson-solara6
+
+### Documentation
+
+- **#986** [exemption entries are relative to the primary checkout root](https://github.com/Space-Dinosaurs/DinoStack/pull/986) - tyson-solara6
+
+### Maintenance
+
+- **#996** [halve check-local.sh wall time (daemon poll override, installer build skip, parallel pytest)](https://github.com/Space-Dinosaurs/DinoStack/pull/996) - tyson-solara6
+
+## 2026-10-11
+
+### Features
+
+- **#983** [fire-log rows carry session_id, agent_id, tool_use_id](https://github.com/Space-Dinosaurs/DinoStack/pull/983) - tyson-solara6
+
+### Fixes
+
+- **#984** [session-log readers count each session once; retro shows n/a for unseen PRs](https://github.com/Space-Dinosaurs/DinoStack/pull/984) - tyson-solara6
+- **#982** [stop-context drops uuid-less rows and lets v2 hook rows win](https://github.com/Space-Dinosaurs/DinoStack/pull/982) - tyson-solara6
+- **#981** [ds-hook-fire-report accepts consumer repos without hooks/](https://github.com/Space-Dinosaurs/DinoStack/pull/981) - tyson-solara6
+- **#980** [SubagentStop telemetry waits for the run's final message](https://github.com/Space-Dinosaurs/DinoStack/pull/980) - tyson-solara6
+- **#978** [replace rm -rf in Phase 8.5 cleanup with installer-allowed forms](https://github.com/Space-Dinosaurs/DinoStack/pull/978) - tyson-solara6
+- **#977** [shared shell-portability and worker-shell guidance for subagents](https://github.com/Space-Dinosaurs/DinoStack/pull/977) - tyson-solara6
+- **#976** [worktree guard denies name the exact relative exemption entry](https://github.com/Space-Dinosaurs/DinoStack/pull/976) - tyson-solara6
+
+## 2026-10-10
+
+### Fixes
+
+- **#975** [require a stable unit key in Skeptic field 6](https://github.com/Space-Dinosaurs/DinoStack/pull/975) - tyson-solara6
+- **#973** [only an operator grant reopens the Skeptic round cap](https://github.com/Space-Dinosaurs/DinoStack/pull/973) - tyson-solara6
+
+## 2026-10-08
+
+### Features
+
+- **#972** [retire or hold every carrier at its own completion (ds-retire-carrier)](https://github.com/Space-Dinosaurs/DinoStack/pull/972) - tyson-solara6
+
+### Documentation
+
+- **#971** [scope discipline - trace work to acceptance criteria, grade excess symmetrically](https://github.com/Space-Dinosaurs/DinoStack/pull/971) - tyson-solara6
+
+### Maintenance
+
+- **#970** [load root MEMORY.md in the main session only](https://github.com/Space-Dinosaurs/DinoStack/pull/970) - tyson-solara6
+
+## 2026-10-07
+
+### Refactoring
+
+- **#969** [slim guidance and use impact-based abstraction review](https://github.com/Space-Dinosaurs/DinoStack/pull/969) - tyson-solara6
+
+## 2026-10-06
+
+### Features
+
+- **#967** [lower the agent-browser idle-timeout default to 10 minutes](https://github.com/Space-Dinosaurs/DinoStack/pull/967) - tyson-solara6
+- **#966** [main-session-only MEMORY.md - migration, prose and docs](https://github.com/Space-Dinosaurs/DinoStack/pull/966) - tyson-solara6
+- **#965** [deliver root MEMORY.md to the main session only via SessionStart](https://github.com/Space-Dinosaurs/DinoStack/pull/965) - tyson-solara6
+- **#963** [reap agent-browser sessions an agent provably opened, on SubagentStop and SessionEnd](https://github.com/Space-Dinosaurs/DinoStack/pull/963) - tyson-solara6
+- **#959** [two-tier-aware memory capture via ds-memory-capture](https://github.com/Space-Dinosaurs/DinoStack/pull/959) - tyson-solara6
+
+### Fixes
+
+- **#968** [make the main-only MEMORY.md directive and pointer followed](https://github.com/Space-Dinosaurs/DinoStack/pull/968) - tyson-solara6
+- **#964** [warn on Claude Code versions with the worktree nested-memory reload](https://github.com/Space-Dinosaurs/DinoStack/pull/964) - tyson-solara6
+- **#962** [per-session agent-browser teardown, never close --all](https://github.com/Space-Dinosaurs/DinoStack/pull/962) - tyson-solara6
+
+## 2026-10-05
+
+### Fixes
+
+- **#958** [patch brace-expansion advisory](https://github.com/Space-Dinosaurs/DinoStack/pull/958) - tyson-solara6
+- **#957** [recover historical deferred compression baselines](https://github.com/Space-Dinosaurs/DinoStack/pull/957) - tyson-solara6
+
+## 2026-09-29
+
+### Features
+
+- **#954** [optional cross-session runbook conductor](https://github.com/Space-Dinosaurs/DinoStack/pull/954) - tyson-solara6
+
+### Fixes
+
+- **#956** [single-winner grant claim in enforce-ticket-batching](https://github.com/Space-Dinosaurs/DinoStack/pull/956) - tyson-solara6
+
+### Maintenance
+
+- **#955** [bump markdown-it to 14.3.2 in /scripts (advisory)](https://github.com/Space-Dinosaurs/DinoStack/pull/955) - tyson-solara6
+
+## 2026-09-27
+
+### Fixes
+
+- **#952** [point commit links at a remote that contains the commit](https://github.com/Space-Dinosaurs/DinoStack/pull/952) - tyson-solara6
+
+## 2026-09-26
+
+### Fixes
+
+- **#947** [define how commit links are obtained, add open-PR evidence forms](https://github.com/Space-Dinosaurs/DinoStack/pull/947) - tyson-solara6
+- **#946** [close clickable-links loose ends from #944](https://github.com/Space-Dinosaurs/DinoStack/pull/946) - tyson-solara6
+
+### Uncategorized
+
+- **#948** [DS-261: deny unguarded-variable rm so agents self-correct](https://github.com/Space-Dinosaurs/DinoStack/pull/948) - tyson-solara6
+
+## 2026-09-25
+
+### Fixes
+
+- **#944** [make agent-emitted links clickable where they land](https://github.com/Space-Dinosaurs/DinoStack/pull/944) - tyson-solara6
+- **#943** [make the browser-lifetime prose true as measured, and name each mechanism's retirement (AC4, AC5)](https://github.com/Space-Dinosaurs/DinoStack/pull/943) - tyson-solara6
+
+### Uncategorized
+
+- **#945** [DS-259: reap machine-written .agentic state](https://github.com/Space-Dinosaurs/DinoStack/pull/945) - tyson-solara6
+
+## 2026-09-24
+
+### Features
+
+- **#942** [bound the agent-browser daemon's lifetime, and correct the deck's daemon claim (DS-254)](https://github.com/Space-Dinosaurs/DinoStack/pull/942) - tyson-solara6
+- **#940** [transitions: manual kill switch for tracker writeback (DS-244)](https://github.com/Space-Dinosaurs/DinoStack/pull/940) - tyson-solara6
+- **#938** [no agent-initiated follow-up or split tickets without operator yes](https://github.com/Space-Dinosaurs/DinoStack/pull/938) - tyson-solara6
+
+### Fixes
+
+- **#941** [skip, never write unlocked, when the tuid-index lock times out](https://github.com/Space-Dinosaurs/DinoStack/pull/941) - tyson-solara6
+- **#937** [register chrome-devtools MCP headless on an isolated profile (DS-254)](https://github.com/Space-Dinosaurs/DinoStack/pull/937) - tyson-solara6
+
+### Documentation
+
+- **#935** [write external comments for their reader](https://github.com/Space-Dinosaurs/DinoStack/pull/935) - tyson-solara6
+
+### Maintenance
+
+- **#939** [converge outer-quoted empty-array guards on the DS-252 convention](https://github.com/Space-Dinosaurs/DinoStack/pull/939) - tyson-solara6
+
+### Uncategorized
+
+- **#934** [DS-257: fresh-spawn fix passes, checkpoint pushes, output defaults](https://github.com/Space-Dinosaurs/DinoStack/pull/934) - tyson-solara6
+- **#933** [DS-252: correct the empty-array expansion convention](https://github.com/Space-Dinosaurs/DinoStack/pull/933) - tyson-solara6
+- **#932** [DS-255: remove the unconsumed graph-derived risk signal](https://github.com/Space-Dinosaurs/DinoStack/pull/932) - tyson-solara6
+
+## 2026-09-23
+
+### Documentation
+
+- **#930** [correct stale Hermes adapter row](https://github.com/Space-Dinosaurs/DinoStack/pull/930) - tyson-solara6
+
+### Uncategorized
+
+- **#931** [DS-254: repair false agent-process lifetime claims and gate them bidirectionally](https://github.com/Space-Dinosaurs/DinoStack/pull/931) - tyson-solara6
+- **#929** [DS-253: Comment-discipline check for agent-written comments](https://github.com/Space-Dinosaurs/DinoStack/pull/929) - tyson-solara6
+- **#928** [Remove within-file restatement from nine more agent defs; fix three internal contradictions](https://github.com/Space-Dinosaurs/DinoStack/pull/928) - tyson-solara6
+- **#927** [DS-246: Per-ticket loop and cost metrics](https://github.com/Space-Dinosaurs/DinoStack/pull/927) - tyson-solara6
+- **#926** [DS-246: Trustworthy spawn telemetry from hooks (v2)](https://github.com/Space-Dinosaurs/DinoStack/pull/926) - tyson-solara6
+- **#925** [DS-247: Raise role-default model tiers](https://github.com/Space-Dinosaurs/DinoStack/pull/925) - tyson-solara6
+- **#924** [ds-cleanup-worktrees: lock gate ahead of self, age floor explicit-supply only (DS-245)](https://github.com/Space-Dinosaurs/DinoStack/pull/924) - tyson-solara6
+- **#923** [Remove within-file restatement from agent defs; calibrate prose dials to the weakest assigned model](https://github.com/Space-Dinosaurs/DinoStack/pull/923) - tyson-solara6
+- **#922** [Fix gemini degrade-marker test failing from a symlinked checkout path](https://github.com/Space-Dinosaurs/DinoStack/pull/922) - tyson-solara6
+- **#921** [Make [verified-by-execution: ...] a canonical provenance tag](https://github.com/Space-Dinosaurs/DinoStack/pull/921) - tyson-solara6
+
+## 2026-09-22
+
+### Uncategorized
+
+- **#920** [Skeptic-neutrality: close abbreviation bypasses, move self-narration fix to the producing step](https://github.com/Space-Dinosaurs/DinoStack/pull/920) - tyson-solara6
+- **#919** [Skill-auto-load: match ticket IDs, worktree/conductor/reap, border](https://github.com/Space-Dinosaurs/DinoStack/pull/919) - tyson-solara6
+- **#918** [Round-cap: consult background-spawn and orchestrator-singularity before charging](https://github.com/Space-Dinosaurs/DinoStack/pull/918) - tyson-solara6
+- **#917** [Stop Skeptic round-cap charging a round on a sibling-denied spawn](https://github.com/Space-Dinosaurs/DinoStack/pull/917) - tyson-solara6
+- **#916** [Anchor skeptic-neutrality abbreviation lookbehinds on a word boundary](https://github.com/Space-Dinosaurs/DinoStack/pull/916) - tyson-solara6
+- **#915** [Normalize typographic dashes across skeptic-neutrality field 7](https://github.com/Space-Dinosaurs/DinoStack/pull/915) - tyson-solara6
+- **#914** [Fix turn-shape block on a sole Waiting-line turn](https://github.com/Space-Dinosaurs/DinoStack/pull/914) - tyson-solara6
+
+## 2026-09-21
+
+### Uncategorized
+
+- **#913** [Widen skill-auto-load applicability filter vocabulary](https://github.com/Space-Dinosaurs/DinoStack/pull/913) - tyson-solara6
+- **#912** [Delete false harness worktree-lock and auto-clean claims (supersedes #911)](https://github.com/Space-Dinosaurs/DinoStack/pull/912) - tyson-solara6
+
+## 2026-09-19
+
+### Uncategorized
+
+- **#909** [Correct AGENTS.md-loading prose for Claude Code native support](https://github.com/Space-Dinosaurs/DinoStack/pull/909) - tyson-solara6
+- **#908** [Fix findings_log recording gap and Phase 12 delete-branch data loss](https://github.com/Space-Dinosaurs/DinoStack/pull/908) - tyson-solara6
+- **#907** [DS-241: Before/after telemetry delta tool (ds-change-delta)](https://github.com/Space-Dinosaurs/DinoStack/pull/907) - tyson-solara6
+
+## 2026-09-18
+
+### Uncategorized
+
+- **#906** [DS-240: Regression test for comparison-page table shape and min-width invariant](https://github.com/Space-Dinosaurs/DinoStack/pull/906) - tyson-solara6
+- **#905** [DS-239: Add a JEV (TypeSafe) entry to the docs comparison page and cross-link from the index](https://github.com/Space-Dinosaurs/DinoStack/pull/905) - tyson-solara6
+
+## 2026-09-17
+
+### Uncategorized
+
+- **#904** [DS-238: Untrusted-content-in-state clause for ingesting agents](https://github.com/Space-Dinosaurs/DinoStack/pull/904) - tyson-solara6
+- **#903** [DS-237: Document the cheap fast-path leaf-agent pattern](https://github.com/Space-Dinosaurs/DinoStack/pull/903) - tyson-solara6
+- **#902** [DS-236: Confidence-gated action strength for investigator and debugger returns](https://github.com/Space-Dinosaurs/DinoStack/pull/902) - tyson-solara6
+
+## 2026-09-14
+
+### Features
+
+- **#897** [brief section slots and a disposition-free resolved-issues preflight (DS-230)](https://github.com/Space-Dinosaurs/DinoStack/pull/897) - tyson-solara6
+
+### Fixes
+
+- **#901** [honor CLAUDE_CONFIG_DIR so the install is visible to the harness (DS-231)](https://github.com/Space-Dinosaurs/DinoStack/pull/901) - tyson-solara6
+- **#896** [two-layer loop guard for the conductor-overreach Stop hook](https://github.com/Space-Dinosaurs/DinoStack/pull/896) - tyson-solara6
+
+### Maintenance
+
+- **#900** [drop Claude attribution trailer from Phase 8 commit template (PL-20260826-1)](https://github.com/Space-Dinosaurs/DinoStack/pull/900) - tyson-solara6
+
+### Uncategorized
+
+- **#899** [DS-232: Skeptic gates on behavior only; delete engineer claim-surface obligations](https://github.com/Space-Dinosaurs/DinoStack/pull/899) - tyson-solara6
+
+## 2026-09-13
+
+### Fixes
+
+- **#895** [deliver methodology to headless gemini/kimi workers, refuse rather than dispatch silently](https://github.com/Space-Dinosaurs/DinoStack/pull/895) - tyson-solara6
+
+## 2026-09-12
+
+### Features
+
+- **#894** [generalize spawn-brief neutrality beyond Skeptic briefs](https://github.com/Space-Dinosaurs/DinoStack/pull/894) - tyson-solara6
+- **#891** [npm audit advisory gate keyed on actionability, not severity](https://github.com/Space-Dinosaurs/DinoStack/pull/891) - tyson-solara6
+
+### Fixes
+
+- **#892** [isolate DinoStack skill names in shared discovery](https://github.com/Space-Dinosaurs/DinoStack/pull/892) - tyson-solara6
+- **#890** [preserve configuration and resolve profile hooks](https://github.com/Space-Dinosaurs/DinoStack/pull/890) - tyson-solara6
+
+### Documentation
+
+- **#889** [ds-skill-load-rate figures expire - document the retention window](https://github.com/Space-Dinosaurs/DinoStack/pull/889) - tyson-solara6
+
+## 2026-09-11
+
+### Fixes
+
+- **#885** [patch transitive CVEs in both manifests; scope Dependabot to the root tree](https://github.com/Space-Dinosaurs/DinoStack/pull/885) - tyson-solara6
+- **#884** [state the hook's actual scope and ship the principle the ban-list failed to generalize](https://github.com/Space-Dinosaurs/DinoStack/pull/884) - tyson-solara6
+
+## 2026-09-08
+
+### Fixes
+
+- **#883** [prove merged-PR window completeness instead of capping it at 500](https://github.com/Space-Dinosaurs/DinoStack/pull/883) - tyson-solara6
+
+## 2026-09-07
+
+### Features
+
+- **#882** [ds-skill-load-rate - measure dinostack skill activation rate (DS-227)](https://github.com/Space-Dinosaurs/DinoStack/pull/882) - tyson-solara6
+
+### Fixes
+
+- **#879** [ds-branch-prune resolves its own base branch](https://github.com/Space-Dinosaurs/DinoStack/pull/879) - tyson-solara6
+
+### Documentation
+
+- **#881** [add Ponytail to the public comparison page](https://github.com/Space-Dinosaurs/DinoStack/pull/881) - tyson-solara6
+
+## 2026-09-06
+
+### Features
+
+- **#878** [queue GitHub auto-merge instead of stating an unfulfillable merge promise](https://github.com/Space-Dinosaurs/DinoStack/pull/878) - tyson-solara6
+
+## 2026-09-05
+
+### Documentation
+
+- **#877** [correct seven sites that still described enforce-turn-shape.py's pre-#870 state](https://github.com/Space-Dinosaurs/DinoStack/pull/877) - tyson-solara6
+
+## 2026-09-04
+
+### Features
+
+- **#876** [scripts/check-local.sh - single local gate entry point with toolchain preflight](https://github.com/Space-Dinosaurs/DinoStack/pull/876) - tyson-solara6
+
+### Fixes
+
+- **#874** [correct sweep-unverified claims after real injection sweep](https://github.com/Space-Dinosaurs/DinoStack/pull/874) - tyson-solara6
+
+### Performance
+
+- **#873** [memoize the generator's two hotspots per process; add a static guard for the invariant](https://github.com/Space-Dinosaurs/DinoStack/pull/873) - tyson-solara6
+
+### Uncategorized
+
+- **#875** [consolidate the post-merge run into verify-merged-tree.yml; drop 15 duplicate push triggers](https://github.com/Space-Dinosaurs/DinoStack/pull/875) - tyson-solara6
+
+## 2026-09-03
+
+### Features
+
+- **#870** [answer-first ordering and live enforcement of the status-only rule](https://github.com/Space-Dinosaurs/DinoStack/pull/870) - tyson-solara6
+- **#869** [lead the sign-off block with the verdict](https://github.com/Space-Dinosaurs/DinoStack/pull/869) - tyson-solara6
+
+### Fixes
+
+- **#872** [de-flake the stop-context ceiling test with a differential plus a deterministic health assertion](https://github.com/Space-Dinosaurs/DinoStack/pull/872) - tyson-solara6
+- **#871** [emit North Star alignment at PR create; make vision-alignment re-run on edit and reject unfilled sections](https://github.com/Space-Dinosaurs/DinoStack/pull/871) - tyson-solara6
+
+### Documentation
+
+- **#868** [add length discipline to Writing Style](https://github.com/Space-Dinosaurs/DinoStack/pull/868) - tyson-solara6
+
+### Uncategorized
+
+- **#866** [Remove the context-mode ctx_* recommendation from the methodology](https://github.com/Space-Dinosaurs/DinoStack/pull/866) - tyson-solara6
+
+## 2026-09-02
+
+### Fixes
+
+- **#864** [report before/after counts and bytes reclaimed](https://github.com/Space-Dinosaurs/DinoStack/pull/864) - tyson-solara6
+- **#863** [state the real condition for pre-commit auto-staging .codex/agents/*.toml](https://github.com/Space-Dinosaurs/DinoStack/pull/863) - tyson-solara6
+
+### Uncategorized
+
+- **#865** [DS-226: recognise the Fable tier above Opus in enforce-tier, model ranking, and tier prose](https://github.com/Space-Dinosaurs/DinoStack/pull/865) - tyson-solara6
+
+## 2026-09-01
+
+### Uncategorized
+
+- **#861** [DS-223: measure the learnings-retrieval firing rate, and left-shift retrieval into engineer via a shared fragment](https://github.com/Space-Dinosaurs/DinoStack/pull/861) - tyson-solara6
+
+## 2026-08-31
+
+### Fixes
+
+- **#860** [stop reporting 'no enabledPlugins entries' for configs that have them](https://github.com/Space-Dinosaurs/DinoStack/pull/860) - tyson-solara6
+- **#857** [classify out-of-tree worktrees and repair partial removals](https://github.com/Space-Dinosaurs/DinoStack/pull/857) - tyson-solara6
+- **#855** [sever inherited pipe so the session-start reap can complete](https://github.com/Space-Dinosaurs/DinoStack/pull/855) - tyson-solara6
+- **#852** [pin DS-221 write-once invariant with a mutation-hardened regression test](https://github.com/Space-Dinosaurs/DinoStack/pull/852) - tyson-solara6
+
+### Uncategorized
+
+- **#859** [DS-225: untrack the local-only scheduled worktree-reap automation](https://github.com/Space-Dinosaurs/DinoStack/pull/859) - tyson-solara6
+- **#858** [DS-221 Unit 1: memory-shard compiler (zero writer wiring)](https://github.com/Space-Dinosaurs/DinoStack/pull/858) - tyson-solara6
+- **#856** [DS-218: add an applicability filter to the skill-load reminder (unit 1)](https://github.com/Space-Dinosaurs/DinoStack/pull/856) - tyson-solara6
+- **#854** [DS-220: surface gh query failures in the worktree-reap summary](https://github.com/Space-Dinosaurs/DinoStack/pull/854) - tyson-solara6
+- **#853** [DS-218: state dev-server process lifetime ownership (unit 2)](https://github.com/Space-Dinosaurs/DinoStack/pull/853) - tyson-solara6
+
+## 2026-08-30
+
+### Features
+
+- **#851** [streamline relaxed GPT advice routing](https://github.com/Space-Dinosaurs/DinoStack/pull/851) - tyson-solara6
+- **#848** [report pr_query_error_count on deep tier (DS-217 unit 2)](https://github.com/Space-Dinosaurs/DinoStack/pull/848) - tyson-solara6
+
+## 2026-08-29
+
+### Fixes
+
+- **#847** [unquote git porcelain paths before protected-content gate (DS-219)](https://github.com/Space-Dinosaurs/DinoStack/pull/847) - tyson-solara6
+- **#846** [retry _pr_state across configured gh accounts (DS-217)](https://github.com/Space-Dinosaurs/DinoStack/pull/846) - tyson-solara6
+
+## 2026-08-28
+
+### Fixes
+
+- **#845** [remove zero-yield macOS runner leg, add concurrency and timeouts repo-wide](https://github.com/Space-Dinosaurs/DinoStack/pull/845) - tyson-solara6
+
+## 2026-08-27
+
+### Features
+
+- **#844** [opt-in --measure-size byte reporting for ds-cleanup-worktrees](https://github.com/Space-Dinosaurs/DinoStack/pull/844) - tyson-solara6
+
+### Documentation
+
+- **#843** [sync ds-cost V1 scope footer to measured emit/aggregation reality (PL-20260825-12)](https://github.com/Space-Dinosaurs/DinoStack/pull/843) - tyson-solara6
+- **#842** [consolidate ds-wrap duplicated normative blocks to wrap-context-format pointers (PL-20260826-5)](https://github.com/Space-Dinosaurs/DinoStack/pull/842) - tyson-solara6
+- **#841** [neutralize stale model ids in tier-map example (PL-20260825-4)](https://github.com/Space-Dinosaurs/DinoStack/pull/841) - tyson-solara6
+- **#840** [neutralize pinned model ids in ds-cost pricing example (PL-20260826-2)](https://github.com/Space-Dinosaurs/DinoStack/pull/840) - tyson-solara6
+- **#837** [neutralize pinned model id in ds-configure-team example (PL-20260826-3)](https://github.com/Space-Dinosaurs/DinoStack/pull/837) - tyson-solara6
+- **#835** [sync skeptic_strategy enum across planner contract and references](https://github.com/Space-Dinosaurs/DinoStack/pull/835) - tyson-solara6
+
+## 2026-08-26
+
+### Fixes
+
+- **#832** [regenerate adapter artifacts after #828/#831 merge race](https://github.com/Space-Dinosaurs/DinoStack/pull/832) - tyson-solara6
+
+### Documentation
+
+- **#839** [delete falsified self-claims from ds-prune-harness (PL-20260826-4)](https://github.com/Space-Dinosaurs/DinoStack/pull/839) - tyson-solara6
+- **#836** [fix three recorded-debt staleness residuals (resident adjective, CLAUDE.md claim, R6 count)](https://github.com/Space-Dinosaurs/DinoStack/pull/836) - tyson-solara6
+
+### Maintenance
+
+- **#833** [record 2026-08-26 pruning ledger entries](https://github.com/Space-Dinosaurs/DinoStack/pull/833) - tyson-solara6
+
+### Uncategorized
+
+- **#834** [DS-206: converge stale hook path replacement in ds-doctor](https://github.com/Space-Dinosaurs/DinoStack/pull/834) - tyson-solara6
+- **#830** [DS-203: Slides render-and-measure overflow gate (advisory) + slide 7 clip fix](https://github.com/Space-Dinosaurs/DinoStack/pull/830) - tyson-solara6
+- **#828** [DS-207/DS-208/DS-209: anti-over-engineering review obligations](https://github.com/Space-Dinosaurs/DinoStack/pull/828) - tyson-solara6
+
+## 2026-08-25
+
+### Features
+
+- **#816** [implicit Trivial-tier batching - open the PR at first push](https://github.com/Space-Dinosaurs/DinoStack/pull/816) - tyson-solara6
+
+### Fixes
+
+- **#822** [correct stale AGENTS.md Deploy section to measured auto-deploy reality](https://github.com/Space-Dinosaurs/DinoStack/pull/822) - tyson-solara6
+- **#821** [register missing enforce-*.py hooks in MANAGED_HOOK_BASENAMES](https://github.com/Space-Dinosaurs/DinoStack/pull/821) - tyson-solara6
+
+### Documentation
+
+- **#829** [delete deprecated conductor_direct event block (PL-20260825-6)](https://github.com/Space-Dinosaurs/DinoStack/pull/829) - tyson-solara6
+- **#827** [sweep subagent-protocol.md post-DS-143 staleness (PL-20260825-3)](https://github.com/Space-Dinosaurs/DinoStack/pull/827) - tyson-solara6
+- **#826** [prune skeptic-protocol.md Section 0 duplication and post-DS-143 staleness (PL-20260825-2)](https://github.com/Space-Dinosaurs/DinoStack/pull/826) - tyson-solara6
+- **#825** [release-orchestrator returns to conductor instead of self-spawning (PL-20260825-10)](https://github.com/Space-Dinosaurs/DinoStack/pull/825) - tyson-solara6
+- **#824** [fix design-goals.md stale title, paths, risk tiers, Non-Goals (PL-20260825-1)](https://github.com/Space-Dinosaurs/DinoStack/pull/824) - tyson-solara6
+- **#819** [document Implicit Trivial batching for users (deck slide + README)](https://github.com/Space-Dinosaurs/DinoStack/pull/819) - tyson-solara6
+
+### Maintenance
+
+- **#823** [dedupe /dinostack prerequisite blockquotes to one per file (PL-20260825-9)](https://github.com/Space-Dinosaurs/DinoStack/pull/823) - tyson-solara6
+- **#820** [record 2026-08-25 pruning ledger entries](https://github.com/Space-Dinosaurs/DinoStack/pull/820) - tyson-solara6
+- **#817** [recover 3.2 KB skill-embed headroom via Goal-4 deferrals](https://github.com/Space-Dinosaurs/DinoStack/pull/817) - tyson-solara6
+
+### Uncategorized
+
+- **#831** [DS-204: SKILL.md body tiering via corpus markers (minimal default for .claude/.gemini)](https://github.com/Space-Dinosaurs/DinoStack/pull/831) - tyson-solara6
+- **#818** [DS-202: fire the post-merge tracker transition at merge time](https://github.com/Space-Dinosaurs/DinoStack/pull/818) - tyson-solara6
+- **#814** [DS-201: promote the condensed North Star and repair its pinned citation](https://github.com/Space-Dinosaurs/DinoStack/pull/814) - tyson-solara6
+- **#813** [DS-200: stage condensed vision proposal, with gitignore carve-out and regression guard](https://github.com/Space-Dinosaurs/DinoStack/pull/813) - tyson-solara6
+- **#812** [DS-200: add vision.md read pointer to AGENTS.md conventions](https://github.com/Space-Dinosaurs/DinoStack/pull/812) - tyson-solara6
+- **#811** [DS-200: add resident conductor tenets to the delegation section](https://github.com/Space-Dinosaurs/DinoStack/pull/811) - tyson-solara6
+- **#810** [DS-187: enforce Skeptic-brief neutrality at spawn time](https://github.com/Space-Dinosaurs/DinoStack/pull/810) - tyson-solara6
+- **#808** [DS-196: worktree orphan prevention via origin-reachability evidence and session-start auto-reap](https://github.com/Space-Dinosaurs/DinoStack/pull/808) - tyson-solara6
+
+## 2026-08-24
+
+### Fixes
+
+- **#805** [close gate-gaming, self-report, and commit-default gaps (DS-197)](https://github.com/Space-Dinosaurs/DinoStack/pull/805) - tyson-solara6
+
+### Uncategorized
+
+- **#806** [DS-192: eliminate harness-substituted $N tokens from executable shell fences in content/commands](https://github.com/Space-Dinosaurs/DinoStack/pull/806) - tyson-solara6
+- **#804** [DS-198: detect foreign PreToolUse Agent/Task hooks in ds-doctor](https://github.com/Space-Dinosaurs/DinoStack/pull/804) - tyson-solara6
+- **#803** [DS-191: close a regression-test gap in the compaction guard (PR #797)](https://github.com/Space-Dinosaurs/DinoStack/pull/803) - tyson-solara6
+- **#802** [DS-195: delete the question-conversion remedy from the provenance test](https://github.com/Space-Dinosaurs/DinoStack/pull/802) - tyson-solara6
+
+## 2026-08-23
+
+### Uncategorized
+
+- **#801** [enforce the worktree-isolation mandate at the spawn](https://github.com/Space-Dinosaurs/DinoStack/pull/801) - tyson-solara6
+- **#800** [DS-170: extend the knowledge-commit candidate set to AGENTS.md and .agentic/tracking.md](https://github.com/Space-Dinosaurs/DinoStack/pull/800) - tyson-solara6
+- **#798** [DS-194: close worktree-isolated reference-asset invisibility and silent fabrication](https://github.com/Space-Dinosaurs/DinoStack/pull/798) - tyson-solara6
+- **#795** [DS-173: bound conductor approach opinion-forming](https://github.com/Space-Dinosaurs/DinoStack/pull/795) - tyson-solara6
+
+## 2026-08-22
+
+### Features
+
+- **#792** [DS-188 invisible entry-level curation in /ds-wrap Part E; retire 50 KB advisory](https://github.com/Space-Dinosaurs/DinoStack/pull/792) - tyson-solara6
+
+### Uncategorized
+
+- **#797** [DS-191: compact --archive-unproven bundles](https://github.com/Space-Dinosaurs/DinoStack/pull/797) - tyson-solara6
+- **#796** [DS-181: mutation-proof the round-cap suite + correct residual docs](https://github.com/Space-Dinosaurs/DinoStack/pull/796) - tyson-solara6
+- **#794** [DS-190: advisory nested-worktree spawn guard (once per session per worktree)](https://github.com/Space-Dinosaurs/DinoStack/pull/794) - tyson-solara6
+- **#793** [DS-189: worktree hygiene - ls-remote failure NOTE, machine-wide nudge, scheduled reap report, pnpm advisory](https://github.com/Space-Dinosaurs/DinoStack/pull/793) - tyson-solara6
+
+## 2026-08-20
+
+### Features
+
+- **#791** [index-first semantic dedup for the learnings pipeline](https://github.com/Space-Dinosaurs/DinoStack/pull/791) - tyson-solara6
+- **#784** [Pillar 8 - machinery only as complicated as the benefit requires](https://github.com/Space-Dinosaurs/DinoStack/pull/784) - tyson-solara6
+- **#779** [operator-granted mid-session ticket-batching exception](https://github.com/Space-Dinosaurs/DinoStack/pull/779) - tyson-solara6
+
+### Fixes
+
+- **#783** [stop enforcement-fire-log fragmentation across isolation worktrees](https://github.com/Space-Dinosaurs/DinoStack/pull/783) - tyson-solara6
+
+### Maintenance
+
+- **#790** [convert duplication-mandating gates to canonical-plus-pointer](https://github.com/Space-Dinosaurs/DinoStack/pull/790) - tyson-solara6
+- **#789** [park /ds-test-suite-comprehension and bin/ds-evidence (invoke-only)](https://github.com/Space-Dinosaurs/DinoStack/pull/789) - tyson-solara6
+- **#782** [park cross-harness team prose out of the always-embedded body](https://github.com/Space-Dinosaurs/DinoStack/pull/782) - tyson-solara6
+- **#781** [compress root AGENTS.md narrative to imperative rules (-6.8 KB)](https://github.com/Space-Dinosaurs/DinoStack/pull/781) - tyson-solara6
+- **#780** [dedupe near-verbatim reference-corpus copies (canonical + pointer)](https://github.com/Space-Dinosaurs/DinoStack/pull/780) - tyson-solara6
+
+### Uncategorized
+
+- **#788** [DS-178 unit B: ds-calibrate consumes the calibration fields, sampler prose, doc-sync](https://github.com/Space-Dinosaurs/DinoStack/pull/788) - tyson-solara6
+- **#787** [DS-184: trigger-load the Gemini methodology via a project-local skill](https://github.com/Space-Dinosaurs/DinoStack/pull/787) - tyson-solara6
+- **#785** [DS-183: trigger-load the Codex methodology instead of embedding it in AGENTS.md](https://github.com/Space-Dinosaurs/DinoStack/pull/785) - tyson-solara6
+- **#778** [DS-178 unit A: correct spawn attribution and add calibration telemetry](https://github.com/Space-Dinosaurs/DinoStack/pull/778) - tyson-solara6
+- **#775** [DS-185: trigger-load the Kimi methodology instead of embedding it in AGENTS.md](https://github.com/Space-Dinosaurs/DinoStack/pull/775) - tyson-solara6
+- **#772** [DS-186: trigger-load Copilot's methodology via a native Agent Skill](https://github.com/Space-Dinosaurs/DinoStack/pull/772) - tyson-solara6
+
+## 2026-08-19
+
+### Fixes
+
+- **#770** [bound the install-zsh steps so a queue-starved job fails as itself](https://github.com/Space-Dinosaurs/DinoStack/pull/770) - tyson-solara6
+- **#769** [document and pin the ticket-batching script-file false-negative](https://github.com/Space-Dinosaurs/DinoStack/pull/769) - tyson-solara6
+- **#764** [stable per-unit key for the Skeptic round-cap counter (DS-180)](https://github.com/Space-Dinosaurs/DinoStack/pull/764) - tyson-solara6
+
+### Uncategorized
+
+- **#771** [DS-182: budget gates measure the wrong axis](https://github.com/Space-Dinosaurs/DinoStack/pull/771) - tyson-solara6
+- **#768** [DS-172: reviewer and Skeptic spawn briefs must carry zero conductor interpretation](https://github.com/Space-Dinosaurs/DinoStack/pull/768) - tyson-solara6
+- **#767** [DS-45: raise skill-embed CEILING to 145,000 B (operator decision, not a measurement)](https://github.com/Space-Dinosaurs/DinoStack/pull/767) - tyson-solara6
+- **#765** [DS-45: correct CEILING provenance and add the skill-embed injection sweep harness](https://github.com/Space-Dinosaurs/DinoStack/pull/765) - tyson-solara6
+- **#763** [DS-179: make methodology obsolescence-pruning an actual process](https://github.com/Space-Dinosaurs/DinoStack/pull/763) - tyson-solara6
+
+## 2026-08-18
+
+### Fixes
+
+- **#761** [DS-175 anchor the teamrun sentinel read to the git root](https://github.com/Space-Dinosaurs/DinoStack/pull/761) - tyson-solara6
+- **#760** [close five deferred discovery-guard defects, including a fail-closed regression (DS-177)](https://github.com/Space-Dinosaurs/DinoStack/pull/760) - tyson-solara6
+
+## 2026-08-17
+
+### Fixes
+
+- **#759** [retire bin/ds-reap-all now superseded by ds-cleanup-worktrees --multi-repo](https://github.com/Space-Dinosaurs/DinoStack/pull/759) - tyson-solara6
+- **#758** [repair dangling test-name pointer in ds-cleanup-worktrees manifest (round 4 review)](https://github.com/Space-Dinosaurs/DinoStack/pull/758) - tyson-solara6
+- **#757** [correct stale _ds_reap_nonroot comment reference (round 4)](https://github.com/Space-Dinosaurs/DinoStack/pull/757) - tyson-solara6
+
+## 2026-08-16
+
+### Fixes
+
+- **#756** [close the vacuous-check class - Skeptic re-derivation + discovery-based check discipline (DS-176)](https://github.com/Space-Dinosaurs/DinoStack/pull/756) - tyson-solara6
+- **#755** [ticket creation captures intent, not a plan - gate on first spawn of any kind](https://github.com/Space-Dinosaurs/DinoStack/pull/755) - tyson-solara6
+- **#754** [close six Minor doc/behavior findings (round 5)](https://github.com/Space-Dinosaurs/DinoStack/pull/754) - tyson-solara6
+
+## 2026-08-15
+
+### Features
+
+- **#750** [add ds-agentic-repair to clean up phantom .agentic/ trees and recover trapped telemetry](https://github.com/Space-Dinosaurs/DinoStack/pull/750) - tyson-solara6
+- **#744** [add ticket-batching guard, close Bash-compound evasion](https://github.com/Space-Dinosaurs/DinoStack/pull/744) - tyson-solara6
+- **#743** [DS-174 - per-file SHA256 methodology baseline manifest](https://github.com/Space-Dinosaurs/DinoStack/pull/743) - tyson-solara6
+
+### Fixes
+
+- **#753** [anchor .agentic writes in Cursor, Copilot, and OpenCode hooks](https://github.com/Space-Dinosaurs/DinoStack/pull/753) - tyson-solara6
+- **#751** [trim skill embed back under ceiling to restore red resident-budget check](https://github.com/Space-Dinosaurs/DinoStack/pull/751) - tyson-solara6
+- **#749** [make North Star pillar 1 governing, delete the bans it subsumes](https://github.com/Space-Dinosaurs/DinoStack/pull/749) - tyson-solara6
+- **#748** [instrument the abdication guard on the enforcement fire log and derive the enforcer subcounts](https://github.com/Space-Dinosaurs/DinoStack/pull/748) - tyson-solara6
+- **#747** [DS-171 - close the editorial-addendum position loophole, propagate to the output style](https://github.com/Space-Dinosaurs/DinoStack/pull/747) - tyson-solara6
+- **#746** [make the operator-decisions warrant unambiguous (per-item marker, four exclusions, two-route carve-out)](https://github.com/Space-Dinosaurs/DinoStack/pull/746) - tyson-solara6
+- **#745** [DS-171 anchor .agentic writes to the repo root, not the raw payload cwd](https://github.com/Space-Dinosaurs/DinoStack/pull/745) - tyson-solara6
+
+## 2026-08-14
+
+### Features
+
+- **#740** [DS-168 U2 - wire external-verbosity budgets into ds-implement-ticket](https://github.com/Space-Dinosaurs/DinoStack/pull/740) - tyson-solara6
+- **#734** [DS-168 U1 - external-verbosity budgets for tickets, commits, PR bodies](https://github.com/Space-Dinosaurs/DinoStack/pull/734) - tyson-solara6
+
+### Uncategorized
+
+- **#742** [DS-171 round 7: close output-style rule-set guard identifier vacuity](https://github.com/Space-Dinosaurs/DinoStack/pull/742) - tyson-solara6
+
+## 2026-08-13
+
+### Features
+
+- **#736** [add enforce-worktree-write.py, write-side worktree isolation guard (supersedes #732)](https://github.com/Space-Dinosaurs/DinoStack/pull/736) - tyson-solara6
+- **#735** [add ds-reap-all - cross-repo worktree sweep wrapper](https://github.com/Space-Dinosaurs/DinoStack/pull/735) - tyson-solara6
+- **#727** [add /ds-evaluate - self-evaluation against the North Star pillars](https://github.com/Space-Dinosaurs/DinoStack/pull/727) - tyson-solara6
+
+### Fixes
+
+- **#739** [stop the conductor mutating primary-checkout HEAD (Class 1)](https://github.com/Space-Dinosaurs/DinoStack/pull/739) - tyson-solara6
+- **#738** [close enforce-worktree-read.py false positive, share the worktree discriminator](https://github.com/Space-Dinosaurs/DinoStack/pull/738) - tyson-solara6
+- **#725** [bin/tests hang fixes, codex re-render cut, commit-time symlink gate](https://github.com/Space-Dinosaurs/DinoStack/pull/725) - tyson-solara6
+- **#724** [DS-161 - stop the status-only advisory firing on real answers](https://github.com/Space-Dinosaurs/DinoStack/pull/724) - tyson-solara6
+- **#723** [resolve harness config dir instead of hardcoded ~/.claude for subagent transcripts](https://github.com/Space-Dinosaurs/DinoStack/pull/723) - tyson-solara6
+
+### Maintenance
+
+- **#728** [mechanically pin docs-currency drift sites via bin/tests](https://github.com/Space-Dinosaurs/DinoStack/pull/728) - tyson-solara6
+
+### Uncategorized
+
+- **#737** [Pillar 2 orchestration tenet - the conductor does not do the work](https://github.com/Space-Dinosaurs/DinoStack/pull/737) - tyson-solara6
+- **#733** [conductor_overreach warn-only Stop-hook detector + telemetry](https://github.com/Space-Dinosaurs/DinoStack/pull/733) - tyson-solara6
+- **#729** [conductor provenance test + Skeptic field-7 enforcement](https://github.com/Space-Dinosaurs/DinoStack/pull/729) - tyson-solara6
+- **#726** [DS-169: conductor rule for overclaimed LIMIT verification](https://github.com/Space-Dinosaurs/DinoStack/pull/726) - tyson-solara6
+
+## 2026-08-12
+
+### Features
+
+- **#713** [DS-167 - add command-authoring guidance (trigger descriptions + bad/good example pairs)](https://github.com/Space-Dinosaurs/DinoStack/pull/713) - tyson-solara6
+- **#712** [DS-166 - surface engineer model attribution in PR body](https://github.com/Space-Dinosaurs/DinoStack/pull/712) - tyson-solara6
+- **#708** [DS-165 - add /ds-failure-audit command (per-model failure-mode audit)](https://github.com/Space-Dinosaurs/DinoStack/pull/708) - tyson-solara6
+- **#702** [left-shift four mechanical Skeptic checks into a pre-submit self-check](https://github.com/Space-Dinosaurs/DinoStack/pull/702) - tyson-solara6
+- **#699** [mechanically enforce the 3-round Skeptic cap](https://github.com/Space-Dinosaurs/DinoStack/pull/699) - tyson-solara6
+- **#697** [fail loudly when a defeated negation would silently drop a knowledge file](https://github.com/Space-Dinosaurs/DinoStack/pull/697) - tyson-solara6
+- **#687** [add round-budget and value-per-round cost ceiling](https://github.com/Space-Dinosaurs/DinoStack/pull/687) - tyson-solara6
+
+### Fixes
+
+- **#722** [DS-165/166/167 - apply 5 Skeptic Minor prose/test precision fixes](https://github.com/Space-Dinosaurs/DinoStack/pull/722) - tyson-solara6
+- **#717** [Step 1.5 reads vision.md's own pillar list instead of a stale inline copy](https://github.com/Space-Dinosaurs/DinoStack/pull/717) - tyson-solara6
+- **#716** [single-source shared check wording via content-layer transclusion (supersedes #715)](https://github.com/Space-Dinosaurs/DinoStack/pull/716) - tyson-solara6
+- **#714** [exempt the methodology source repo from consumer scaffolding](https://github.com/Space-Dinosaurs/DinoStack/pull/714) - tyson-solara6
+- **#707** [stop orphaned worktrees accumulating across projects](https://github.com/Space-Dinosaurs/DinoStack/pull/707) - tyson-solara6
+- **#706** [DS-160 - close markup-structural false positives in the turn-shape guard](https://github.com/Space-Dinosaurs/DinoStack/pull/706) - tyson-solara6
+- **#701** [DS-159 - stop turn-shape guard blocking multi-paragraph conductor answers](https://github.com/Space-Dinosaurs/DinoStack/pull/701) - tyson-solara6
+- **#698** [DS-158 - stop enforce-turn-shape.py blocking real conductor answers](https://github.com/Space-Dinosaurs/DinoStack/pull/698) - tyson-solara6
+- **#696** [drop the repo-wide inventory hash that conflicted RESOURCE-MAP.json on every base move](https://github.com/Space-Dinosaurs/DinoStack/pull/696) - tyson-solara6
+- **#694** [ban trailing editorial addenda and announced follow-on work](https://github.com/Space-Dinosaurs/DinoStack/pull/694) - tyson-solara6
+- **#693** [fix self-discovered defects instead of reporting them](https://github.com/Space-Dinosaurs/DinoStack/pull/693) - tyson-solara6
+- **#692** [close final 23 violations, add 2 regression pins](https://github.com/Space-Dinosaurs/DinoStack/pull/692) - tyson-solara6
+- **#691** [single-source the shipped consumer .gitignore and make negation-drift detection behavioral](https://github.com/Space-Dinosaurs/DinoStack/pull/691) - tyson-solara6
+- **#689** [port to current main to resolve generated-artifact conflicts](https://github.com/Space-Dinosaurs/DinoStack/pull/689) - tyson-solara6
+
+### Documentation
+
+- **#719** [fix 19 doc-currency findings across index.html, decks, README, components.md](https://github.com/Space-Dinosaurs/DinoStack/pull/719) - tyson-solara6
+- **#703** [add left-shift Pillar 7 (prevent defects at the producing step)](https://github.com/Space-Dinosaurs/DinoStack/pull/703) - tyson-solara6
+- **#688** [add North Star pillars 5-6 - guard agent context, shorten wall-clock time](https://github.com/Space-Dinosaurs/DinoStack/pull/688) - tyson-solara6
+
+### Maintenance
+
+- **#704** [add honest routing reminder to vision-alignment-check (notice, not gate)](https://github.com/Space-Dinosaurs/DinoStack/pull/704) - tyson-solara6
+
+### Uncategorized
+
+- **#572** [DS-135: remove O(n^2) body-join from adapter builds, add progress output and a static tripwire](https://github.com/Space-Dinosaurs/DinoStack/pull/572) - tyson-solara6
+
+## 2026-08-11
+
+### Features
+
+- **#674** [consult the intent layer before implementing](https://github.com/Space-Dinosaurs/DinoStack/pull/674) - tyson-solara6
+- **#670** [prose-scoped re-check tier - stop paying a full Skeptic pass for prose-only rounds](https://github.com/Space-Dinosaurs/DinoStack/pull/670) - tyson-solara6
+- **#669** [same-PR Skeptic rework rounds - stop paying a fresh PR and CI cycle per round](https://github.com/Space-Dinosaurs/DinoStack/pull/669) - tyson-solara6
+- **#665** [roll up prior-session shards at activation preflight (Unit F)](https://github.com/Space-Dinosaurs/DinoStack/pull/665) - tyson-solara6
+- **#662** [drain learning shards at Phase 11e (Unit E)](https://github.com/Space-Dinosaurs/DinoStack/pull/662) - tyson-solara6
+- **#660** [supply SESSION_KEY in every spawn brief (Unit D)](https://github.com/Space-Dinosaurs/DinoStack/pull/660) - tyson-solara6
+
+### Fixes
+
+- **#679** [round 2 - restore CVE/hotspot content, fix heredoc collision, sync docs](https://github.com/Space-Dinosaurs/DinoStack/pull/679) - tyson-solara6
+- **#678** [make the W1 In-Progress tracker writeback observable](https://github.com/Space-Dinosaurs/DinoStack/pull/678) - tyson-solara6
+- **#676** [resolve Skeptic round-2 findings on the 6-agent contract migration](https://github.com/Space-Dinosaurs/DinoStack/pull/676) - tyson-solara6
+- **#675** [pin Shape-3 permissive-widening + doc numeral/nomenclature fixes](https://github.com/Space-Dinosaurs/DinoStack/pull/675) - tyson-solara6
+- **#671** [deterministic spawn_complete telemetry via SubagentStop, with spawn pairing and duration](https://github.com/Space-Dinosaurs/DinoStack/pull/671) - tyson-solara6
+- **#668** [close the delegation-suppression load-order gap and repair the OLD_RISK_CMDS migration](https://github.com/Space-Dinosaurs/DinoStack/pull/668) - tyson-solara6
+- **#667** [recognise a trailing bare completion declaration on the identity line](https://github.com/Space-Dinosaurs/DinoStack/pull/667) - tyson-solara6
+- **#666** [report dry-run in the mode summary instead of 'live'](https://github.com/Space-Dinosaurs/DinoStack/pull/666) - tyson-solara6
+- **#663** [retry session-log lock timeout instead of silently dropping the record](https://github.com/Space-Dinosaurs/DinoStack/pull/663) - tyson-solara6
+- **#661** [clean orphaned worktree hooks and harden the test suite's sandbox](https://github.com/Space-Dinosaurs/DinoStack/pull/661) - tyson-solara6
+
+### Tests
+
+- **#684** [pin the gitleaks allowlist scope with a plant-and-scan guard](https://github.com/Space-Dinosaurs/DinoStack/pull/684) - tyson-solara6
+
+### Maintenance
+
+- **#673** [blank line between conductor status slots](https://github.com/Space-Dinosaurs/DinoStack/pull/673) - tyson-solara6
+- **#672** [stop routing session learnings into tracked AGENTS.md files](https://github.com/Space-Dinosaurs/DinoStack/pull/672) - tyson-solara6
+
+### Uncategorized
+
+- **#685** [Revert "docs: add blank-line separation between conductor status slots" (#673)](https://github.com/Space-Dinosaurs/DinoStack/pull/685) - tyson-solara6
+
+## 2026-08-10
+
+### Features
+
+- **#649** [wire the learnings-capture pointer into all 18 agent files (Unit C)](https://github.com/Space-Dinosaurs/DinoStack/pull/649) - tyson-solara6
+- **#642** [guard worktree-isolated agent reads into the primary checkout (DS-150)](https://github.com/Space-Dinosaurs/DinoStack/pull/642) - tyson-solara6
+- **#638** [add the standing learnings-capture instruction (Unit B)](https://github.com/Space-Dinosaurs/DinoStack/pull/638) - tyson-solara6
+- **#633** [add bin/ds-learning-shard, in-flight per-session learning capture](https://github.com/Space-Dinosaurs/DinoStack/pull/633) - tyson-solara6
+- **#627** [wire the product-intent layer into the default-and-proceed chain](https://github.com/Space-Dinosaurs/DinoStack/pull/627) - tyson-solara6
+
+### Fixes
+
+- **#658** [suppress status-only nag on no-identity-line completion reports](https://github.com/Space-Dinosaurs/DinoStack/pull/658) - tyson-solara6
+- **#653** [detect a stale hooks snapshot so merged hook fixes stop shipping dormant (replay of #650)](https://github.com/Space-Dinosaurs/DinoStack/pull/653) - tyson-solara6
+- **#651** [implement blocking execution-turn shape check (Unit 2 of 2)](https://github.com/Space-Dinosaurs/DinoStack/pull/651) - tyson-solara6
+- **#644** [seed worktree_read_guard_exemptions and gate catalog/seed key-set drift (DS-150 follow-on)](https://github.com/Space-Dinosaurs/DinoStack/pull/644) - tyson-solara6
+- **#641** [pin ds-doctor --fix cwd to the resolved repo_dir](https://github.com/Space-Dinosaurs/DinoStack/pull/641) - tyson-solara6
+- **#640** [point hook symlink at the common repo, not the worktree](https://github.com/Space-Dinosaurs/DinoStack/pull/640) - tyson-solara6
+- **#636** [bind conductor turn shape to warrant (Unit 1 of 2)](https://github.com/Space-Dinosaurs/DinoStack/pull/636) - tyson-solara6
+- **#632** [recognise plain-prose completion reports (DS-156)](https://github.com/Space-Dinosaurs/DinoStack/pull/632) - tyson-solara6
+- **#631** [delete identity-line check, recognise plain-prose answers (DS-155)](https://github.com/Space-Dinosaurs/DinoStack/pull/631) - tyson-solara6
+- **#628** [salvage Unit 1/6 codex-transform repairs from abandoned PR #624](https://github.com/Space-Dinosaurs/DinoStack/pull/628) - tyson-solara6
+
+### Performance
+
+- **#647** [defer learnings.md read to the draft-Worker spawn (rebase of #639)](https://github.com/Space-Dinosaurs/DinoStack/pull/647) - tyson-solara6
+
+### Documentation
+
+- **#645** [point the hooks-JS exclusion at its mechanism, not a numeral](https://github.com/Space-Dinosaurs/DinoStack/pull/645) - tyson-solara6
+- **#630** [record DS-150 payload-shape and hook-config-layer findings](https://github.com/Space-Dinosaurs/DinoStack/pull/630) - tyson-solara6
+
+### Maintenance
+
+- **#634** [scrub unreleased sibling product name from public artifacts](https://github.com/Space-Dinosaurs/DinoStack/pull/634) - tyson-solara6
+
+## 2026-08-09
+
+### Features
+
+- **#623** [squash-aware branch prune with subsumption predicate](https://github.com/Space-Dinosaurs/DinoStack/pull/623) - tyson-solara6
+- **#620** [extract Tracker Writeback Helper into content/references/tracker-writeback.md](https://github.com/Space-Dinosaurs/DinoStack/pull/620) - tyson-solara6
+- **#609** [add prose-move-impact enumerator for ds-implement-ticket.md split](https://github.com/Space-Dinosaurs/DinoStack/pull/609) - tyson-solara6
+- **#606** [follow-up ticket creation discipline, ds-defer sink, session-start nudge](https://github.com/Space-Dinosaurs/DinoStack/pull/606) - tyson-solara6
+
+### Fixes
+
+- **#625** [reroute the classic abdication directive through a two-exit pattern](https://github.com/Space-Dinosaurs/DinoStack/pull/625) - tyson-solara6
+- **#617** [route /ds-wrap Part B durable facts to the canonical MEMORY.md (DS-90)](https://github.com/Space-Dinosaurs/DinoStack/pull/617) - tyson-solara6
+- **#612** [remove false subagent-hooks claim from worktree lifecycle docs (DS-150)](https://github.com/Space-Dinosaurs/DinoStack/pull/612) - tyson-solara6
+- **#611** [correct stale manifest header in content/SKILL.md](https://github.com/Space-Dinosaurs/DinoStack/pull/611) - tyson-solara6
+- **#608** [mechanical volume gate for conductor turn shape](https://github.com/Space-Dinosaurs/DinoStack/pull/608) - tyson-solara6
+- **#607** [correct stale session-context path citations](https://github.com/Space-Dinosaurs/DinoStack/pull/607) - tyson-solara6
+
+### Refactoring
+
+- **#621** [extract Phase 12a handoff evaluation into content/references/handoff-evaluation.md](https://github.com/Space-Dinosaurs/DinoStack/pull/621) - tyson-solara6
+
+### Uncategorized
+
+- **#619** [agentic-engineering skill and directory to dinostack](https://github.com/Space-Dinosaurs/DinoStack/pull/619) - tyson-solara6
+- **#615** [DS-148: lock the mutate-tracked-source scaffold in install-converge tests](https://github.com/Space-Dinosaurs/DinoStack/pull/615) - tyson-solara6
+- **#614** [bin/agentic-* to bin/ds-* in content/references](https://github.com/Space-Dinosaurs/DinoStack/pull/614) - tyson-solara6
+- **#604** [DS-143 follow-up: close four gaps in the trigger-loaded methodology gates](https://github.com/Space-Dinosaurs/DinoStack/pull/604) - tyson-solara6
+
+## 2026-08-08
+
+### Features
+
+- **#600** [Phase 11e knowledge commit onto the PR branch](https://github.com/Space-Dinosaurs/DinoStack/pull/600) - tyson-solara6
+
+### Fixes
+
+- **#579** [correct post-merge stale text and close the ballot-classifier corpus gap](https://github.com/Space-Dinosaurs/DinoStack/pull/579) - tyson-solara6
+
+### Documentation
+
+- **#595** [add Prime Agent to public comparison page (supersedes #588)](https://github.com/Space-Dinosaurs/DinoStack/pull/595) - tyson-solara6
+
+### Maintenance
+
+- **#602** [add advisory size-ratchet gate for ds-implement-ticket.md](https://github.com/Space-Dinosaurs/DinoStack/pull/602) - tyson-solara6
+- **#601** [rename the bin/agentic-* family to bin/ds-* with permanent compat aliases](https://github.com/Space-Dinosaurs/DinoStack/pull/601) - tyson-solara6
+- **#580** [collapse four divergent update implementations onto shared constants](https://github.com/Space-Dinosaurs/DinoStack/pull/580) - tyson-solara6
+
+### Uncategorized
+
+- **#605** [bin/agentic-* to bin/ds-* in content/commands and content/agents](https://github.com/Space-Dinosaurs/DinoStack/pull/605) - tyson-solara6
+- **#603** [bin/agentic-* to bin/ds-* in content/sections and content/rules](https://github.com/Space-Dinosaurs/DinoStack/pull/603) - tyson-solara6
+- **#599** [DS-143: trigger-load the methodology on Claude Code (embed into SKILL.md, drop the @-imports)](https://github.com/Space-Dinosaurs/DinoStack/pull/599) - tyson-solara6
+- **#597** [DS-128: atomic write discipline for /ds-wrap + ownership corrections](https://github.com/Space-Dinosaurs/DinoStack/pull/597) - tyson-solara6
+- **#596** [DS-142: drop stale deck count from marp toolchain description](https://github.com/Space-Dinosaurs/DinoStack/pull/596) - tyson-solara6
+
+## 2026-08-07
+
+### Documentation
+
+- **#593** [correct product-discovery Writes-files cell to Yes](https://github.com/Space-Dinosaurs/DinoStack/pull/593) - tyson-solara6
+- **#592** [add product-discovery to writing-agents list (7, was 6)](https://github.com/Space-Dinosaurs/DinoStack/pull/592) - tyson-solara6
+- **#591** [require docs-currency pass before any work is complete](https://github.com/Space-Dinosaurs/DinoStack/pull/591) - tyson-solara6
+- **#590** [fix stale counts, agent write-list, add ds-wrap-deferred and FE/QA card](https://github.com/Space-Dinosaurs/DinoStack/pull/590) - tyson-solara6
+- **#589** [add Muse Code (Meta) competitor column](https://github.com/Space-Dinosaurs/DinoStack/pull/589) - tyson-solara6
+
+### Uncategorized
+
+- **#594** [DS-144: gate the CLAUDE.md rewrite under --dry-run, surface the skill-link gap](https://github.com/Space-Dinosaurs/DinoStack/pull/594) - tyson-solara6
+
+## 2026-08-06
+
+### Features
+
+- **#585** [generate prompt-aware skill wrappers (DS-82)](https://github.com/Space-Dinosaurs/DinoStack/pull/585) - tyson-solara6
+- **#584** [add profile-scoped developer identity](https://github.com/Space-Dinosaurs/DinoStack/pull/584) - tyson-solara6
+- **#578** [evidence-on-disk spill/sketch/rehydrate mechanism (DS-141)](https://github.com/Space-Dinosaurs/DinoStack/pull/578) - tyson-solara6
+- **#575** [bounded retrieval output caps for agentic-memory](https://github.com/Space-Dinosaurs/DinoStack/pull/575) - tyson-solara6
+
+### Fixes
+
+- **#574** [correct auto-memory index claim and make it retrievable](https://github.com/Space-Dinosaurs/DinoStack/pull/574) - tyson-solara6
+
+### Documentation
+
+- **#577** [migrate Hooks & Subagent Mechanics and Slides rules into tracked AGENTS.md files](https://github.com/Space-Dinosaurs/DinoStack/pull/577) - tyson-solara6
+- **#576** [migrate Adapters & Build and Bulk Operations rules into AGENTS.md and ADAPTERS.md](https://github.com/Space-Dinosaurs/DinoStack/pull/576) - tyson-solara6
+
+### Tests
+
+- **#581** [knowledge-commit fixtures and harness support (unit 1)](https://github.com/Space-Dinosaurs/DinoStack/pull/581) - tyson-solara6
+
+## 2026-08-05
+
+### Fixes
+
+- **#570** [bounded-wait Phase 11b lock acquisition (DS-127)](https://github.com/Space-Dinosaurs/DinoStack/pull/570) - tyson-solara6
+- **#568** [add two-layer loop guard to the advisory Stop hook (DS-122)](https://github.com/Space-Dinosaurs/DinoStack/pull/568) - tyson-solara6
+
+### Documentation
+
+- **#573** [migrate Worktree & Git Hygiene rules from untracked MEMORY.md into AGENTS.md](https://github.com/Space-Dinosaurs/DinoStack/pull/573) - tyson-solara6
+
+### Uncategorized
+
+- **#569** [DS-133: settle harness delegation suppression as unsupported configuration](https://github.com/Space-Dinosaurs/DinoStack/pull/569) - tyson-solara6
+
+## 2026-08-04
+
+### Fixes
+
+- **#567** [return knowledge entries as a payload instead of writing to a discarded worktree](https://github.com/Space-Dinosaurs/DinoStack/pull/567) - tyson-solara6
+
+### Refactoring
+
+- **#561** [rename /ds-pull-and-install to /ds-update](https://github.com/Space-Dinosaurs/DinoStack/pull/561) - tyson-solara6
+
+### Documentation
+
+- **#566** [document the DinoStack-repo MEMORY.md untracked exception](https://github.com/Space-Dinosaurs/DinoStack/pull/566) - tyson-solara6
+
+### Tests
+
+- **#559** [executable reachability and drain models for /ds-wrap routing](https://github.com/Space-Dinosaurs/DinoStack/pull/559) - tyson-solara6
+
+### Maintenance
+
+- **#564** [make ~/.local/bin symlink management prefix-agnostic](https://github.com/Space-Dinosaurs/DinoStack/pull/564) - tyson-solara6
+
+### Uncategorized
+
+- **#563** [DS-117: split dev-complete from terminal Done in tracker writebacks](https://github.com/Space-Dinosaurs/DinoStack/pull/563) - tyson-solara6
+- **#560** [DS-132: make host-harness instruction conflicts visible at decision time](https://github.com/Space-Dinosaurs/DinoStack/pull/560) - tyson-solara6
+
+## 2026-08-03
+
+### Features
+
+- **#553** [structured, warranted operator turns (DS-122)](https://github.com/Space-Dinosaurs/DinoStack/pull/553) - tyson-solara6
+- **#516** [fire-log telemetry for six enforce-*.py hooks](https://github.com/Space-Dinosaurs/DinoStack/pull/516) - tyson-solara6
+
+### Fixes
+
+- **#558** [guard telemetry commit against missing DCO identity](https://github.com/Space-Dinosaurs/DinoStack/pull/558) - tyson-solara6
+- **#554** [retire the MEMORY-archive.md caveat from Part G (DS-130)](https://github.com/Space-Dinosaurs/DinoStack/pull/554) - tyson-solara6
+- **#551** [correct stale team-routing enforcement claim and two adjacent inaccuracies](https://github.com/Space-Dinosaurs/DinoStack/pull/551) - tyson-solara6
+- **#519** [mechanically enforce the ballot ban on prose Operator decisions blocks](https://github.com/Space-Dinosaurs/DinoStack/pull/519) - tyson-solara6
+
+### Documentation
+
+- **#550** [replace stale resident-budget figures with run-the-script guidance](https://github.com/Space-Dinosaurs/DinoStack/pull/550) - tyson-solara6
+
+### Tests
+
+- **#556** [executable shell harness for the Phase 8 commit-and-telemetry block](https://github.com/Space-Dinosaurs/DinoStack/pull/556) - tyson-solara6
+
+### Maintenance
+
+- **#555** [untrack MEMORY.md and retire MEMORY-archive.md (DS-129)](https://github.com/Space-Dinosaurs/DinoStack/pull/555) - tyson-solara6
+- **#552** [capture session knowledge from the DS-68 resident-context redo](https://github.com/Space-Dinosaurs/DinoStack/pull/552) - tyson-solara6
+
+## 2026-08-02
+
+### Features
+
+- **#548** [commit and push Plan-tier artifacts and promotion-gate Briefs (DS-120)](https://github.com/Space-Dinosaurs/DinoStack/pull/548) - tyson-solara6
+
+### Fixes
+
+- **#549** [executable classification model, forbid project override, deletion failure branch (DS-118, DS-119)](https://github.com/Space-Dinosaurs/DinoStack/pull/549) - tyson-solara6
+- **#546** [valid YAML in content/agents + escaping across 7 adapter builds + merge-blocking gate](https://github.com/Space-Dinosaurs/DinoStack/pull/546) - tyson-solara6
+- **#540** [fast-forward the local base branch after merge (DS-121)](https://github.com/Space-Dinosaurs/DinoStack/pull/540) - tyson-solara6
+- **#538** [real picker descriptions for all 25 ds-* commands + merge-blocking gate](https://github.com/Space-Dinosaurs/DinoStack/pull/538) - tyson-solara6
+
+### Documentation
+
+- **#547** [narrow the overstated rejected-attempt note in the abdication guard](https://github.com/Space-Dinosaurs/DinoStack/pull/547) - tyson-solara6
+- **#545** [record base-sync mechanics, force-push denial, and REPO_DIR distinction](https://github.com/Space-Dinosaurs/DinoStack/pull/545) - tyson-solara6
+- **#539** [record Skeptic convergence-failure relocation pattern](https://github.com/Space-Dinosaurs/DinoStack/pull/539) - tyson-solara6
+
+### Tests
+
+- **#544** [add permanent regression corpus for the abdication guard](https://github.com/Space-Dinosaurs/DinoStack/pull/544) - tyson-solara6
+
+### Maintenance
+
+- **#542** [compress resident-set kernel via progressive disclosure](https://github.com/Space-Dinosaurs/DinoStack/pull/542) - tyson-solara6
+- **#541** [capture MEMORY.md and AGENTS.md from the DS-74 session](https://github.com/Space-Dinosaurs/DinoStack/pull/541) - tyson-solara6
+
+## 2026-07-31
+
+### Features
+
+- **#537** [local per-operator tracker overlay and agentic-tracker CLI (DS-74 pt 2)](https://github.com/Space-Dinosaurs/DinoStack/pull/537) - tyson-solara6
+- **#534** [commit knowledge files from Part G, delete dead Phase 11c](https://github.com/Space-Dinosaurs/DinoStack/pull/534) - tyson-solara6
+
+### Fixes
+
+- **#533** [seed the consumer-repo gitignore line before the file can exist (DS-74 pt 1)](https://github.com/Space-Dinosaurs/DinoStack/pull/533) - tyson-solara6
+
+### Documentation
+
+- **#536** [record knowledge-commit architecture and four git gate lessons](https://github.com/Space-Dinosaurs/DinoStack/pull/536) - tyson-solara6
+- **#531** [record #530 delegation decisions and two verification conventions](https://github.com/Space-Dinosaurs/DinoStack/pull/531) - tyson-solara6
+
+### Maintenance
+
+- **#532** [add resident-budget ratchet for the always-loaded methodology set](https://github.com/Space-Dinosaurs/DinoStack/pull/532) - tyson-solara6
+
+## 2026-07-30
+
+### Fixes
+
+- **#527** [make declared-committed .agentic files actually tracked, repair umbrella ordering](https://github.com/Space-Dinosaurs/DinoStack/pull/527) - tyson-solara6
+- **#526** [project-workflow-aware writeback states and declarable pipeline order (DS-74)](https://github.com/Space-Dinosaurs/DinoStack/pull/526) - tyson-solara6
+
+### Documentation
+
+- **#530** [rule for harness-injected instructions that suppress delegation](https://github.com/Space-Dinosaurs/DinoStack/pull/530) - tyson-solara6
+- **#525** [record parallel-session contention programme learnings (/ds-wrap)](https://github.com/Space-Dinosaurs/DinoStack/pull/525) - tyson-solara6
+- **#524** [describe both abdication-guard shapes and its real activation semantics](https://github.com/Space-Dinosaurs/DinoStack/pull/524) - tyson-solara6
+- **#523** [pin adapter-drift checks to the CI-enforced pathspec](https://github.com/Space-Dinosaurs/DinoStack/pull/523) - tyson-solara6
+
+## 2026-07-29
+
+### Features
+
+- **#521** [append-only write contract and normative task-state fold (DS-108)](https://github.com/Space-Dinosaurs/DinoStack/pull/521) - tyson-solara6
+
+### Fixes
+
+- **#520** [block a surface-and-proceed default that never proceeds](https://github.com/Space-Dinosaurs/DinoStack/pull/520) - tyson-solara6
+
+## 2026-07-28
+
+### Features
+
+- **#513** [require operator decisions to close the conductor turn](https://github.com/Space-Dinosaurs/DinoStack/pull/513) - tyson-solara6
+- **#507** [generate four native DinoStack workflow skills](https://github.com/Space-Dinosaurs/DinoStack/pull/507) - tyson-solara6
+
+### Fixes
+
+- **#518** [convert the open-enum rule into a guard, finish the DS-114 axis method (DS-113)](https://github.com/Space-Dinosaurs/DinoStack/pull/518) - tyson-solara6
+- **#517** [move In Progress to ticket pickup, push Done automatically on merge](https://github.com/Space-Dinosaurs/DinoStack/pull/517) - tyson-solara6
+- **#515** [add the Global-context block to every Skeptic spawn template (DS-112)](https://github.com/Space-Dinosaurs/DinoStack/pull/515) - tyson-solara6
+- **#514** [absence claims require adequate search scope, pinned against drift (DS-114)](https://github.com/Space-Dinosaurs/DinoStack/pull/514) - tyson-solara6
+- **#510** [assess Global-context n/a rationales on the merits, not by string match (DS-98)](https://github.com/Space-Dinosaurs/DinoStack/pull/510) - tyson-solara6
+
+### Documentation
+
+- **#512** [record the hooks-snapshot double defect as fixed](https://github.com/Space-Dinosaurs/DinoStack/pull/512) - tyson-solara6
+
+### Tests
+
+- **#511** [widen path lexicon, tolerate bullet reflow, and close double-negative release evasion in the Phase 11b pin](https://github.com/Space-Dinosaurs/DinoStack/pull/511) - tyson-solara6
+- **#509** [restore stability coverage and harden the nested-exclusion regression assertion](https://github.com/Space-Dinosaurs/DinoStack/pull/509) - tyson-solara6
+- **#508** [harden three presence-only pinnings + fix skip-condition non-equivalence (DS-105)](https://github.com/Space-Dinosaurs/DinoStack/pull/508) - tyson-solara6
+
+## 2026-07-27
+
+### Features
+
+- **#503** [conductor loop termination - decision stability and equal-precedence tiebreak (DS-97)](https://github.com/Space-Dinosaurs/DinoStack/pull/503) - tyson-solara6
+- **#498** [key loop state per ticket for parallel-session safety (Unit 2a)](https://github.com/Space-Dinosaurs/DinoStack/pull/498) - tyson-solara6
+
+### Fixes
+
+- **#506** [stop hooks-snapshot idempotency flake and its vacuous pass on macOS](https://github.com/Space-Dinosaurs/DinoStack/pull/506) - tyson-solara6
+- **#501** [suffix atomic-write tmp names per-pid to stop cross-session collisions (DS-109)](https://github.com/Space-Dinosaurs/DinoStack/pull/501) - tyson-solara6
+- **#500** [gate absolutized skill symlinks; exclude generated slide bundles from CodeQL (DS-104, DS-111)](https://github.com/Space-Dinosaurs/DinoStack/pull/500) - tyson-solara6
+- **#499** [stop an orphaned /ds-wrap lock silently discarding context.md writes (DS-106/DS-107)](https://github.com/Space-Dinosaurs/DinoStack/pull/499) - tyson-solara6
+
+### Documentation
+
+- **#504** [preserve concurrent-session G2 wrap-queueing entry](https://github.com/Space-Dinosaurs/DinoStack/pull/504) - tyson-solara6
+- **#502** [trim MEMORY.md to budget, add archive-diff rule and worktree-commit gotcha](https://github.com/Space-Dinosaurs/DinoStack/pull/502) - tyson-solara6
+
+### Tests
+
+- **#505** [pin Phase 11b wrap-lock release scoping against silent regression](https://github.com/Space-Dinosaurs/DinoStack/pull/505) - tyson-solara6
+
+## 2026-07-26
+
+### Features
+
+- **#497** [triage in-flight detection via open-PR evidence (Unit 3)](https://github.com/Space-Dinosaurs/DinoStack/pull/497) - tyson-solara6
+
+### Fixes
+
+- **#496** [scope Phase 11b lock release to the acquired branch; correct stale lock path and holder attribution](https://github.com/Space-Dinosaurs/DinoStack/pull/496) - tyson-solara6
+- **#495** [decide staleness by holder liveness so concurrent /ds-wrap tabs stop giving up](https://github.com/Space-Dinosaurs/DinoStack/pull/495) - tyson-solara6
+- **#491** [batch-state concurrency gates read a field no writer sets (DS-96)](https://github.com/Space-Dinosaurs/DinoStack/pull/491) - tyson-solara6
+- **#490** [split Stop-hook state write into per-turn liveness vs per-session terminal mark](https://github.com/Space-Dinosaurs/DinoStack/pull/490) - tyson-solara6
+
+### Documentation
+
+- **#494** [record 2026-07-26 session learnings and correct Jira writeback attribution](https://github.com/Space-Dinosaurs/DinoStack/pull/494) - tyson-solara6
+- **#492** [add DS-71/DS-69/DS-52 feature descriptions to index.html (supersedes #465)](https://github.com/Space-Dinosaurs/DinoStack/pull/492) - tyson-solara6
+
+### Maintenance
+
+- **#493** [bring MEMORY.md back under its own stated budget](https://github.com/Space-Dinosaurs/DinoStack/pull/493) - tyson-solara6
+
+## 2026-07-25
+
+### Features
+
+- **#486** [surface rework tickets in ds-ticket-triage (U4)](https://github.com/Space-Dinosaurs/DinoStack/pull/486) - tyson-solara6
+- **#485** [ticket-rework detection, notice, and escalation (U2)](https://github.com/Space-Dinosaurs/DinoStack/pull/485) - tyson-solara6
+- **#477** [shippable-edit guard, committed + fail-open + rebuild-proof (DS-94)](https://github.com/Space-Dinosaurs/DinoStack/pull/477) - tyson-solara6
+
+### Fixes
+
+- **#481** [rank same-category states by pipeline order in forward-only guard](https://github.com/Space-Dinosaurs/DinoStack/pull/481) - tyson-solara6
+
+### Documentation
+
+- **#487** [fix stale doc-count drift and close ticket-rework Plan (U5)](https://github.com/Space-Dinosaurs/DinoStack/pull/487) - tyson-solara6
+- **#484** [register rework_detection toggle, bump toggle counts, regen baseline (U3)](https://github.com/Space-Dinosaurs/DinoStack/pull/484) - tyson-solara6
+- **#483** [add ticket-rework alert reference doc (U1)](https://github.com/Space-Dinosaurs/DinoStack/pull/483) - tyson-solara6
+
+### Tests
+
+- **#474** [harden stdin-guard importer inventory](https://github.com/Space-Dinosaurs/DinoStack/pull/474) - tyson-solara6
+
+### Maintenance
+
+- **#480** [capture DS-26 rename learnings in MEMORY.md](https://github.com/Space-Dinosaurs/DinoStack/pull/480) - tyson-solara6
+
+### Uncategorized
+
+- **#479** [DS-26: adopt ds- prefix for all 25 methodology commands](https://github.com/Space-Dinosaurs/DinoStack/pull/479) - tyson-solara6
+- **#475** [wire orphaned shell test suites into bin-tests](https://github.com/Space-Dinosaurs/DinoStack/pull/475) - tyson-solara6
+
+## 2026-07-24
+
+### Fixes
+
+- **#470** [guard the hooks subsystem against PEP 604 import crash on Python 3.9](https://github.com/Space-Dinosaurs/DinoStack/pull/470) - tristanlee85
+
+## 2026-07-22
+
+### Fixes
+
+- **#459** [drop ignored path-scoped Write() permission rules and migrate them out](https://github.com/Space-Dinosaurs/DinoStack/pull/459) - tristanlee85
+- **#453** [bounded stdin guard across all 7 hooks + real Cursor stop-context port](https://github.com/Space-Dinosaurs/DinoStack/pull/453) - tristanlee85
+- **#448** [glob content/templates/.agentic seeds so new templates propagate to adapters](https://github.com/Space-Dinosaurs/DinoStack/pull/448) - tristanlee85
+
+### Documentation
+
+- **#469** [single-source the Skeptic sign-off element set (Section 11)](https://github.com/Space-Dinosaurs/DinoStack/pull/469) - tyson-solara6
+- **#468** [optimize /wrap Step 0 ordering and cache scaffold check](https://github.com/Space-Dinosaurs/DinoStack/pull/468) - tyson-solara6
+
+## 2026-07-21
+
+### Maintenance
+
+- **#467** [add CODEOWNERS designating @tysonhummel as sole code owner](https://github.com/Space-Dinosaurs/DinoStack/pull/467) - tyson-solara6
+
+## 2026-07-20
+
+### Documentation
+
+- **#466** [raise /wrap Recent Focus rolling window from 5 to 10](https://github.com/Space-Dinosaurs/DinoStack/pull/466) - tyson-solara6
+
+## 2026-07-19
+
+### Fixes
+
+- **#464** [make temp-file cleanup the responsibility of the creating agent](https://github.com/Space-Dinosaurs/DinoStack/pull/464) - tyson-solara6
+- **#463** [abdication guard misses permission question followed by declarative text](https://github.com/Space-Dinosaurs/DinoStack/pull/463) - tyson-solara6
+
 ## 2026-07-18
 
 ### Uncategorized
@@ -432,7 +1616,7 @@
 - **#271** [strip maintainer eval-harness internals from public MEMORY.md](https://github.com/Space-Dinosaurs/DinoStack/pull/271) - tyson-solara6
 - **#252** [rebuild .openclaw to sync clone-dir refs](https://github.com/Space-Dinosaurs/DinoStack/pull/252) - tyson-solara6
 - **#251** [enforce docs/planning gitignore via tracked-file guard](https://github.com/Space-Dinosaurs/DinoStack/pull/251) - tyson-solara6
-- **#237** [update remaining clone-dir refs from dinostack to DinoStack](https://github.com/Space-Dinosaurs/DinoStack/pull/237) - tyson-solara6
+- **#237** [update remaining clone-dir refs from agentic-engineering to DinoStack](https://github.com/Space-Dinosaurs/DinoStack/pull/237) - tyson-solara6
 
 ### Uncategorized
 
@@ -495,13 +1679,13 @@
 
 ### Maintenance
 
-- **#232** [standardize repo checkout dir to DinoStack (from dinostack)](https://github.com/Space-Dinosaurs/DinoStack/pull/232) - tyson-solara6
+- **#232** [standardize repo checkout dir to DinoStack (from agentic-engineering)](https://github.com/Space-Dinosaurs/DinoStack/pull/232) - tyson-solara6
 
 ## 2026-06-14
 
 ### Documentation
 
-- **#226** [trim and relocate the DinoStack/dinostack naming note](https://github.com/Space-Dinosaurs/DinoStack/pull/226) - tyson-solara6
+- **#226** [trim and relocate the DinoStack/agentic-engineering naming note](https://github.com/Space-Dinosaurs/DinoStack/pull/226) - tyson-solara6
 
 ### Maintenance
 
@@ -527,7 +1711,7 @@
 
 ### Documentation
 
-- **#222** [clarify DinoStack brand vs dinostack package naming](https://github.com/Space-Dinosaurs/DinoStack/pull/222) - tyson-solara6
+- **#222** [clarify DinoStack brand vs agentic-engineering package naming](https://github.com/Space-Dinosaurs/DinoStack/pull/222) - tyson-solara6
 - **#221** [recategorize commands + restack panels](https://github.com/Space-Dinosaurs/DinoStack/pull/221) - tyson-solara6
 - **#217** [add capture-classification.md [U1]](https://github.com/Space-Dinosaurs/DinoStack/pull/217) - tyson-solara6
 - **#216** [fix staleness across 14 decks + reorder deck index for learner flow](https://github.com/Space-Dinosaurs/DinoStack/pull/216) - tyson-solara6
@@ -573,7 +1757,7 @@
 - **#195** [track session-log + add commit_telemetry toggle [DS-15 unit 1]](https://github.com/Space-Dinosaurs/DinoStack/pull/195) - tyson-solara6
 - **#190** [fix stale Live-docs URL -> docs.dinostack.ai](https://github.com/Space-Dinosaurs/DinoStack/pull/190) - tyson-solara6
 - **#188** [fix bare-slug repo refs in AGENTS.md + MEMORY.md [DS-13]](https://github.com/Space-Dinosaurs/DinoStack/pull/188) - tyson-solara6
-- **#187** [update repo URLs dinostack -> DinoStack [DS-13]](https://github.com/Space-Dinosaurs/DinoStack/pull/187) - tyson-solara6
+- **#187** [update repo URLs agentic-engineering -> DinoStack [DS-13]](https://github.com/Space-Dinosaurs/DinoStack/pull/187) - tyson-solara6
 
 ## 2026-06-11
 
@@ -601,7 +1785,7 @@
 
 ### Uncategorized
 
-- **#181** [Rename docs hub page dinostack.html → index.html](https://github.com/Space-Dinosaurs/DinoStack/pull/181) - howdiz
+- **#181** [Rename docs hub page agentic-engineering.html → index.html](https://github.com/Space-Dinosaurs/DinoStack/pull/181) - howdiz
 
 ## 2026-06-07
 
@@ -665,7 +1849,7 @@
 
 ### Uncategorized
 
-- **#155** [Configuration discoverability for dinostack](https://github.com/Space-Dinosaurs/DinoStack/pull/155) - tristanlee85
+- **#155** [Configuration discoverability for agentic-engineering](https://github.com/Space-Dinosaurs/DinoStack/pull/155) - tristanlee85
 
 ## 2026-05-31
 
@@ -773,7 +1957,7 @@
 ### Documentation
 
 - **#115** [correct expected-title string in deploy runbook smoke test](https://github.com/Space-Dinosaurs/DinoStack/pull/115) - tyson-solara6
-- **#111** [add ecosystem comparison section to dinostack.html](https://github.com/Space-Dinosaurs/DinoStack/pull/111) - tyson-solara6
+- **#111** [add ecosystem comparison section to agentic-engineering.html](https://github.com/Space-Dinosaurs/DinoStack/pull/111) - tyson-solara6
 
 ## 2026-05-18
 
