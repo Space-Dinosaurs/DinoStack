@@ -101,7 +101,7 @@ For each generalizable finding, produce one learning entry. Apply this heuristic
 
 - **finding-title**: Use the finding's title/slug from the findings_log. Short, specific.
 - **severity**: Critical or Major (from the findings_log entry).
-- **domain**: A free-tag identifying the area. Choose from the finding context: `adapter-interface`, `zod-schema`, `concurrent-state`, `module-manifest`, `dev-script`, `workspace-config`, `auth`, `api-contract`, `data-migration`, `test-pattern`, or a concise domain name that fits.
+- **domain**: A free-tag identifying the area. Choose from the finding context: `adapter-interface`, `zod-schema`, `concurrent-state`, `dev-script`, `workspace-config`, `auth`, `api-contract`, `data-migration`, `test-pattern`, or a concise domain name that fits.
 - **pattern**: 1-2 sentences describing the class of bug. Written so a future engineer encountering a similar situation would recognize it. Focus on the *symptom* and *root cause*, not the specific file.
 - **fix**: 1-2 sentences describing the fix pattern. Written as actionable guidance: "when you see X, do Y."
 - **source**: File and line reference from the merged_diff where the fix was applied. Format: `<path>:<line>` or PR URL if lines are not available.

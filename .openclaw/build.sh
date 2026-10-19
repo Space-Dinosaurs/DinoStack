@@ -66,7 +66,7 @@ files on every session and the reference docs on the triggers described in agent
   worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
 
 - **rules/code-standards.md** - the engineering contract for documentation evidence, tool
-  selection, manifests, reuse, quality gates, and dependencies; detailed procedures load on trigger.
+  selection, code comments, reuse, quality gates, and dependencies; detailed procedures load on trigger.
 
 - **rules/conventions.md** - writing style, project structure, session context and memory handling,
   and git workflow including protected branches and worktree-per-feature conventions.
@@ -88,12 +88,6 @@ files on every session and the reference docs on the triggers described in agent
 - **references/regression-test-obligation.md** - per-finding regression-test obligation: every
   Skeptic finding fixed during a task must come with a regression test that would have caught it;
   read when fixing a Skeptic finding to confirm what counts as a valid regression test.
-
-## Rules (read on trigger)
-
-- **rules/module-manifest.md** - encouraged manifest header format for non-trivial source files;
-  read when creating or substantially modifying a file that exports a public symbol, exceeds ~50
-  LOC, or implements a side-effecting operation.
 SKILLEOF
 
 echo "  + dinostack/SKILL.md"

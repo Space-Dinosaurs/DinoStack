@@ -72,7 +72,7 @@ PREAMBLE_SRC="$REPO_DIR/.cursor/cursor-compat-preamble.md"
 validate_frontmatter "$methodology_dst"
 
 # Rules: prepend YAML frontmatter from sidecar files to produce .mdc.
-# Covers code-standards, conventions, module-manifest (not agent-methodology).
+# Covers code-standards and conventions (not agent-methodology).
 for src in "$CONTENT/rules/"*.md; do
   name="$(basename "$src" .md)"
   sidecar="$FRONTMATTER_DIR/$name.yaml"

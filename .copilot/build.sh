@@ -448,7 +448,7 @@ echo "Built ${#generated_prompts[@]} prompt files in .github/prompts/"
 # Step 5: Generate .github/instructions/content-engineering.instructions.md
 #
 # applyTo: "content/**" scopes this to content authoring sessions.
-# Body: concise module-manifest + DRY rules extracted from content/rules/.
+# Body: concise DRY and writing-style rules extracted from content/rules/.
 # ---------------------------------------------------------------------------
 
 mkdir -p "$INSTRUCTIONS_DST"
@@ -462,14 +462,6 @@ applyTo: "content/**"
 # Content Engineering Rules
 
 These rules apply when authoring or modifying files under `content/`.
-
-## Module Manifests
-
-Non-trivial modules should carry a manifest header. Any source file that exports a
-public symbol consumed by another module, is over ~50 lines of non-trivial logic, or
-implements a side-effecting operation (network, disk, database, external service) should
-include a manifest comment at the top of the file. Required fields: Module/Purpose,
-Role, Inputs, Outputs, Side-effects, Consumers, Failure modes.
 
 ## DRY and Abstraction
 

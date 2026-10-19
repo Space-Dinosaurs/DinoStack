@@ -27,7 +27,7 @@ Produces a single Markdown report containing:
 
 1. **Coverage summary** - language and test framework detected, total source files, total test files, line/branch coverage if a coverage tool is available.
 2. **Gap report** - ranked list of source modules with weak or absent coverage, each entry annotated with:
-   - The module's purpose (pulled from its module manifest if present).
+   - The module's purpose (pulled from its header comment or docstring if present).
    - Why the gap matters (blast radius, side effects, intent-layer signals).
    - The risk classification (High / Medium / Low) of leaving it uncovered.
 3. **Recommended additions** - 3 to 10 specific test files where adding cases would close the highest-leverage gaps, with one-sentence rationale per recommendation.
@@ -58,11 +58,11 @@ If a coverage tool is configured and runnable in the project's normal way, run i
 
 ### Step 3 - Build the source / test cross-reference
 
-For each non-trivial source module (per the criteria in `module-manifest.md`):
+For each non-trivial source module (exports a symbol consumed elsewhere, over ~50 lines of logic, or has side effects):
 
 - Find any test files that import or reference the module by name.
-- Pull the module's manifest header if present - `Purpose`, `Public API`, `Failure modes`, and `Downstream consumers` are the inputs that drive risk ranking.
-- Note any side-effecting operations declared in the manifest (network, disk, DB, external service) - these elevate the risk of leaving the module uncovered.
+- Pull the module's header comment or docstring if present - its stated purpose, public API, failure modes, and consumers are the inputs that drive risk ranking.
+- Note any side-effecting operations (network, disk, DB, external service) - these elevate the risk of leaving the module uncovered.
 
 For each test file:
 
@@ -73,11 +73,11 @@ For each test file:
 
 Score each uncovered or weakly-covered module against:
 
-- **Blast radius** - downstream consumers count from manifest; modules with many consumers rank higher.
-- **Side effects** - manifest-declared I/O, mutation, or external calls rank higher than pure functions.
+- **Blast radius** - downstream consumer count (importers); modules with many consumers rank higher.
+- **Side effects** - I/O, mutation, or external calls rank higher than pure functions.
 - **Public surface** - exported symbols rank higher than internal helpers.
 - **Recent change activity** - modules modified in the last 30 days that gained no test changes rank higher.
-- **Failure mode severity** - manifest-declared failure modes that mention data loss, security, or silent corruption rank highest.
+- **Failure mode severity** - documented or evident failure modes that mention data loss, security, or silent corruption rank highest.
 
 Classify as High / Medium / Low risk for leaving uncovered.
 

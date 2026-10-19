@@ -312,16 +312,6 @@
       "source_token": ".gitignore"
     },
     {
-      "expected_target": "METHODOLOGY.md",
-      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
-      "kind": "operational",
-      "occurrence_hash": "21cc8f6f0b9a4533f5114416c01f29030e2639f703f413be33f474aedf56fecd",
-      "resolution_mode": "mapped-resource",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "METHODOLOGY.md"
-    },
-    {
       "expected_target": "Task",
       "generated_token": "Task",
       "kind": "semantic-reference",
@@ -340,16 +330,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/conductor-operating-rules.md"
-    },
-    {
-      "expected_target": "METHODOLOGY.md",
-      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
-      "kind": "operational",
-      "occurrence_hash": "285cc5206f069907265fa4eb2cf7dbe4ae3f7dc891ec7cdeb1dbd14b0d3ea257",
-      "resolution_mode": "mapped-resource",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "METHODOLOGY.md"
     },
     {
       "expected_target": ".agentic/worktrees/*",
@@ -470,16 +450,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
-    },
-    {
-      "expected_target": "METHODOLOGY.md",
-      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
-      "kind": "operational",
-      "occurrence_hash": "344db387d04b0dd0ce61c8e594ad90b94989e84bed9b3754d8075e8500c979df",
-      "resolution_mode": "mapped-resource",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "METHODOLOGY.md"
     },
     {
       "expected_target": "content/references/events-log.md",
@@ -832,36 +802,6 @@
       "source_token": "~/DinoStack"
     },
     {
-      "expected_target": "Task",
-      "generated_token": "Task",
-      "kind": "semantic-reference",
-      "occurrence_hash": "5dca40a72ca363f6b0028d99dc12395d60e05f70fc0ad0f55d26fd73965ccc40",
-      "resolution_mode": "canonical-prose",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Task"
-    },
-    {
-      "expected_target": "dinostack-codex-brief",
-      "generated_token": "$dinostack-codex-brief",
-      "kind": "operational",
-      "occurrence_hash": "5ebf04586819ee87e5dcaef61f419e1c17a31fff41b7f8f4585ef45bab3a52c7",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "/ds-brief"
-    },
-    {
-      "expected_target": "content/rules/module-manifest.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/module-manifest.md",
-      "kind": "operational",
-      "occurrence_hash": "5f9f69cbb07fdf6f8e69e72339b1b780e95ac5f44dc8ec97e97c44fe8876d94a",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/rules/module-manifest.md"
-    },
-    {
       "expected_target": "content/sections/04-risk-classification.md",
       "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
@@ -950,16 +890,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/dinostack"
-    },
-    {
-      "expected_target": "METHODOLOGY.md",
-      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
-      "kind": "operational",
-      "occurrence_hash": "68beb06487c0b1c81ccfdca2a1240f285cde251df8d2f44b150d43758d51f3ae",
-      "resolution_mode": "mapped-resource",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "METHODOLOGY.md"
     },
     {
       "expected_target": "content/references/subagent-protocol.md",
@@ -1212,16 +1142,6 @@
       "source_token": ".agentic/config.json"
     },
     {
-      "expected_target": "METHODOLOGY.md",
-      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
-      "kind": "operational",
-      "occurrence_hash": "8c5ea65c78a78ad013b3b25311ba8fbad8c3be095af3c5d583c2878d62125c16",
-      "resolution_mode": "mapped-resource",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "METHODOLOGY.md"
-    },
-    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -1302,16 +1222,6 @@
       "source_token": "content/references/conductor-turn-format.md"
     },
     {
-      "expected_target": "METHODOLOGY.md",
-      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
-      "kind": "operational",
-      "occurrence_hash": "96484c44d7fe5b2513179aa92a4db8a56d030f520e2bf0bb22504a9edc26e9b9",
-      "resolution_mode": "mapped-resource",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "METHODOLOGY.md"
-    },
-    {
       "expected_target": "one bounded direct question after default derivation",
       "generated_token": "AskUserQuestion",
       "kind": "semantic-reference",
@@ -1322,30 +1232,10 @@
       "source_token": "AskUserQuestion"
     },
     {
-      "expected_target": "content/commands/ds-brief.md",
-      "generated_token": "$AE_REPO_DIR/content/commands/ds-brief.md",
-      "kind": "operational",
-      "occurrence_hash": "9703aeb69940578ec8413330d8880802fc2ba41b40f5e3f051a95327f2e19e06",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/commands/ds-brief.md"
-    },
-    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
       "occurrence_hash": "97eb2191c7fb3292ba4c068f4437f63a172c89b684fb7d0ebc93430402113d7a",
-      "resolution_mode": "mapped-resource",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "METHODOLOGY.md"
-    },
-    {
-      "expected_target": "METHODOLOGY.md",
-      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
-      "kind": "operational",
-      "occurrence_hash": "98352438be97fc795dfd4485738acabf996964a65344bae01ee4c0bd51b5ed5f",
       "resolution_mode": "mapped-resource",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
@@ -1360,16 +1250,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/rules/conventions.md"
-    },
-    {
-      "expected_target": "METHODOLOGY.md",
-      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
-      "kind": "operational",
-      "occurrence_hash": "99a58c623f181c2d76ce6ea4dd6793132cc990f6d652da6a2cffc84367beb81c",
-      "resolution_mode": "mapped-resource",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "METHODOLOGY.md"
     },
     {
       "expected_target": "content/references/capability-preflight.md",
@@ -1390,16 +1270,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/dinostack"
-    },
-    {
-      "expected_target": "METHODOLOGY.md",
-      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
-      "kind": "operational",
-      "occurrence_hash": "a089ee7091d7562eeb184c9e588e53f11fec5cccb70a529ea83f67072ca28b13",
-      "resolution_mode": "mapped-resource",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "METHODOLOGY.md"
     },
     {
       "expected_target": "apply_patch",
@@ -1555,16 +1425,6 @@
       "expected_target": "Task",
       "generated_token": "Task",
       "kind": "semantic-reference",
-      "occurrence_hash": "b0ed817c0cbfa169bfd27a9a2bdfffd9dcea8a00f4199e94cdfd5fea75653ecd",
-      "resolution_mode": "canonical-prose",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Task"
-    },
-    {
-      "expected_target": "Task",
-      "generated_token": "Task",
-      "kind": "semantic-reference",
       "occurrence_hash": "b262dd5f4336750da690e5e8fec63ce327bb1ff53c525efa78c612aca8af3c2e",
       "resolution_mode": "canonical-prose",
       "scope": "canonical-source",
@@ -1700,16 +1560,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".claude/"
-    },
-    {
-      "expected_target": "content/references/planning-artifacts.md",
-      "generated_token": "$AE_REPO_DIR/content/references/planning-artifacts.md",
-      "kind": "operational",
-      "occurrence_hash": "c2737f1f0d98709fee192b48e48ebe0d82c2ad6f8cd54e16b4be2411dec8fc23",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/planning-artifacts.md"
     },
     {
       "expected_target": "content/sections/06-capability-preflight.md",
@@ -3510,16 +3360,6 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "Write"
-    },
-    {
-      "expected_target": "dinostack-codex",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
-      "kind": "operational",
-      "occurrence_hash": "06e90ba1224320ac5bdecc854b3c57f03c853b5276be4f860ba59af07a9f0484",
-      "resolution_mode": "mapped-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "~/DinoStack/.claude/skills/dinostack"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -20592,6 +20432,16 @@
       "source_token": ".agentic/tracking.md"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "0c57f4c27747c4c7c2c64b753421c4683eb01fd2e9568896dc29e41f752700ed",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "apply_patch",
       "generated_token": "Write",
       "kind": "semantic-reference",
@@ -22882,16 +22732,6 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "8950345e890cda4e760737713396405c8badc36dd349e304f9ba3d0b9621df16",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": "dinostack-codex-wrap",
       "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
@@ -23410,6 +23250,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/learnings.md"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "abbea69cbe67cfa1d3c377b5e35532bb4e0c91e4e0cee8fb99d283e66e67b54a",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -24300,16 +24150,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "bin/tests/reach_model.py"
-    },
-    {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "d63b619bb8b263922833ec6318f8713f783005dcdcb192b9a63a9b75b07c3d25",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": ".agentic/memory.md",

@@ -4,7 +4,7 @@
 
 Every intent-layer doc that counts, lists, or describes part of the system is a reality assertion. When a change makes that assertion false and the doc is not updated in the same change, the doc becomes **intent debt** - the artifact stops reflecting what the system actually is, and downstream agents and humans read the stale text, trust it, and drift along with it.
 
-This is the doc-level analogue of the regression-test obligation (`content/references/regression-test-obligation.md`) and the module-manifest staleness rule (`content/rules/module-manifest.md`): a reality-asserting change carries an in-PR obligation to keep the asserting artifact true, and the Skeptic verifies it before sign-off.
+This is the doc-level analogue of the regression-test obligation (`content/references/regression-test-obligation.md`): a reality-asserting change carries an in-PR obligation to keep the asserting artifact true, and the Skeptic verifies it before sign-off.
 
 The default posture is **not to trip**. Most diffs do not change anything a doc asserts. Over-documenting is itself drift - do not add speculative doc edits to changes that do not meet the predicate.
 
@@ -47,7 +47,7 @@ This is a **standing every-round check**, not a fix-round-only check. Apply the 
 - Not tripped -> no finding.
 - Tripped + correctly updated -> no finding.
 - Tripped + missing/incomplete -> **Minor**, whatever its shape: a non-misleading omission, a now-stale or false count/list/path/convention/behavior assertion, or a stale assertion on a load-bearing public-facing doc that actively misleads on how to use, install, or extend the system (e.g. README install steps, documented command/agent surface, canonical path). Minor does not block sign-off; the misleading-public-doc case stays Minor and is routed through the `Blocking-minor:` sign-off line.
-- When a round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale module manifest, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the next verification is a prose-scoped re-check, not a full fresh round - see `content/references/skeptic-protocol.md` §Prose-scoped re-check.
+- When a round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale code comment, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the next verification is a prose-scoped re-check, not a full fresh round - see `content/references/skeptic-protocol.md` §Prose-scoped re-check.
 
 Finding string format:
 

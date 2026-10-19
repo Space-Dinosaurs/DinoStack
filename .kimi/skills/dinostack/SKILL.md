@@ -47,7 +47,7 @@ in a blocker. Canonical candidate-branch and fail-closed details:
   task decomposition, and worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
 
 - **rules/code-standards.md** - the engineering contract for documentation evidence, tool
-  selection, manifests, reuse, quality gates, and dependencies; detailed procedures load on trigger.
+  selection, code comments, reuse, quality gates, and dependencies; detailed procedures load on trigger.
 
 - **rules/conventions.md** - writing style including length discipline (write for the permanent
   audience), project structure, session context and memory handling, and git workflow including
@@ -122,12 +122,6 @@ Run `/ds-help` for the full command inventory.
   every shard carries, and the split/regenerate round-trip's entry-loss and reordering
   refusal guards; read when working on `bin/ds-memory-shard`, `bin/ds-memory-capture`, `hooks/lib/memory-shard.js`,
   or any writer that captures a fact into a shard.
-
-## Rules (read on trigger)
-
-- **rules/module-manifest.md** - encouraged manifest header format for non-trivial source files;
-  read when creating or substantially modifying a file that exports a public symbol, exceeds ~50
-  LOC, or implements a side-effecting operation.
 
 ## Embedded Resident Content
 
@@ -393,50 +387,6 @@ Preamble:
 **Cross-harness teams (opt-in):** when `team.yml` is present with `enabled: true`, dispatchable roles may resolve to another harness - read `content/references/cross-harness-teams.md` §Conductor Dispatch Contract before any such spawn. Collected output enters the existing Skeptic/QA gates unchanged.
 
 **Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields, the optional `learnings_candidate[]` field routing, and conductor consumption rules.
-
-<!--
-Purpose: Defines the tiered planning-artifact protocol (Brief and Plan) that
-         sits between orchestration-planner output and the first engineer
-         spawn. Mechanically promotes multi-unit Elevated work to a written
-         Brief or Plan with a verification gate before any worker is spawned.
-
-Public API: This file is methodology prose, not code. It is consumed by the
-            conductor at the promotion gate (post orchestration-planner,
-            pre engineer spawn), by the Skeptic when reviewing Brief or
-            Plan artifacts, and by /ds-brief (content/commands/ds-brief.md) which
-            produces the Brief artifact via interactive dialogue before the
-            promotion gate runs.
-
-Upstream deps: METHODOLOGY.md §Delegation (architect plan + Skeptic gate, Open
-               Questions hard gate, Worker preamble execution contract);
-               METHODOLOGY.md §Risk Classification (Trivial/Elevated taxonomy,
-               Declaration format); METHODOLOGY.md §Task Decomposition
-               (orchestration-planner output as input to the promotion check);
-               METHODOLOGY.md §Cross-session loop resume (loop-state.json
-               schema for brief_path / plan_path / promotion_tier);
-               content/rules/module-manifest.md (manifest header contract);
-               content/references/planning-artifacts.md (trigger table,
-               gate-semantics authoring sequences, and Brief/Plan templates
-               that this section's body defers to for authoring detail).
-
-Downstream consumers: METHODOLOGY.md §Delegation (Worker preamble references
-                      brief_path / plan_path); METHODOLOGY.md §Task
-                      Decomposition (cites this section for Plan-tier
-                      pre-worker authoring); METHODOLOGY.md §Cross-session
-                      loop resume (records brief_path / plan_path /
-                      promotion_tier); METHODOLOGY.md §Risk Classification
-                      (Declaration format optionally includes Brief / Plan);
-                      METHODOLOGY.md §Protocol Details (cross-link entry).
-
-Failure modes: Prose; does not execute. Drift between this section and the
-               cross-references above is a Minor Skeptic finding (stale
-               manifest or stale cross-reference). Operator failure mode this
-               section exists to prevent: multi-unit Elevated work proceeding
-               without a committed problem statement, success criteria,
-               non-goals, and verification plan.
-
-Performance: Standard.
--->
 
 ## Planning Artifacts
 
@@ -766,9 +716,9 @@ Verify consequential assumptions about library, framework, or SDK behavior again
 
 Prefer suitable dedicated tools when available; use shell tools when they are unavailable or do not cover the task. Choose efficient output and measure cost before adopting new tools. Read `content/references/code-standards-detail.md` §Tool Discipline when choosing search tools or evaluating tool integrations.
 
-## Module Manifests
+## Code Comments
 
-Non-trivial source files (exported symbols consumed elsewhere, over ~50 lines of logic, or side effects) are encouraged to carry a manifest header. Read `content/rules/module-manifest.md` for fields and exemptions when creating or substantially modifying one. Skeptic reports manifest gaps as **Minor**.
+Default to no comment. Add one only for what the code cannot show: a non-obvious constraint, a workaround and its reason, an ownership split, or a why. Never restate the code, narrate the change, cite a ticket or review finding, write a multi-line explanatory block, or add a file or module header comment. When a comment is needed, write one short line where it applies and match the surrounding comment density. Never delete a comment documenting a constraint that still holds; fix or delete one your change makes false, and do not sweep untouched comments. A header or docstring standard the repo documents or a tool enforces (`AGENTS.md`, `CONTRIBUTING.md`, a style guide, a lint rule, or docstrings a doc generator consumes) takes precedence. Skeptic reports an unnecessary added comment as **Minor**; a missing comment is a finding (**Minor**) only when the diff introduces a non-obvious constraint and leaves it undocumented.
 
 ## DRY and Abstraction
 
@@ -800,7 +750,7 @@ Operator attention is the scarce resource this methodology protects and the prim
 
 **Write for the permanent audience.** Review residue is what usually buries it. An artifact written during a review loop has a temporary audience - the reviewer, the Skeptic, the QA round - and a permanent one, reading the source, the commit history, the PR, or the ticket months later. Only the permanent audience remains, so write for it alone. Prose that exists to stop a reviewer raising a point again is review exhaust: a reviewer is answered in the round, not in the artifact. Round history and rejected-alternative defences are two instances, not the set - the test is whether the line would earn its place had no review happened. State a real constraint once, neutrally, where it applies, and prefer an assertion that fails over a comment that asks.
 
-**Delete comments that explain what the code already makes apparent.** That is the test for a comment, not length or comment-to-code ratio, and filler bloats the diff so a reviewer pays for every line of it. Over-applying this is the worse defect: filler costs attention, a deleted constraint costs correctness. What earns its place is the non-obvious "why" the code cannot express - why this ordering, why a name is excluded from a guard, why something cannot be deleted and what would allow it. The test reaches explanatory comments only and never licenses cutting a mandated module manifest (`content/rules/module-manifest.md`); equally, a manifest is no licence to narrate - fill its fields, not a rationale essay.
+**Code comments follow `content/rules/code-standards.md` §Code Comments.**
 
 **Emphasis is a scarce budget, not a per-item defence.** In agent-authored output addressed to an operator - a PR body, tracker comment, commit message, source comment, or turn to the operator - thirty bolded phrases compete with the primary information and obscure it, the same defect expressed typographically; if more than about five phrases in one such artifact are bolded, none should be. Never use capitals for emphasis. Methodology reference prose is outside this cap, where bolded lead-ins carry the scannability the parse test rewards.
 

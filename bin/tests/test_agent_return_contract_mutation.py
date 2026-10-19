@@ -160,7 +160,7 @@ def _shape2_unit3_array_of_object_schema_shape_mutation():
     return run
 
 
-# --- Shape 3 (skeptic special case): retag/mask one of the seven
+# --- Shape 3 (skeptic special case): retag/mask one of the six
 # conductor-validated line prefixes, against the REAL skeptic.md corpus
 # file. skeptic.md was migrated to fully compliant by Unit 1 of the DS
 # return-contract migration (2026-08-11) - its baseline is now the empty
@@ -169,7 +169,7 @@ def _shape2_unit3_array_of_object_schema_shape_mutation():
 # SPECIFIC expected violation appearing in the set difference against the
 # baseline, never mere non-emptiness. A naive `violations != []` check
 # was measured to report every one of these mutations as "caught"
-# regardless of whether the seven-prefix guard actually fired - see the
+# regardless of whether the six-prefix guard actually fired - see the
 # module docstring. ---
 
 _SKEPTIC_TEXT = (contract.AGENTS_DIR / "skeptic.md").read_text()
@@ -368,12 +368,12 @@ MUTATIONS = [
         ),
     ),
     (
-        "shape3_skeptic_delete_manifest_check_line",
+        "shape3_skeptic_delete_test_ci_wiring_check_line",
         _skeptic_mutation(
-            "Manifest check: [pass | N stale (listed above) | N missing "
-            "(listed above) | n/a - no non-trivial modules in diff]",
+            "Test-CI-wiring check: [pass | N new test files not wired into CI "
+            "(listed above) | n/a - no new test files in diff]",
             "",
-            "'Manifest check:'",
+            "'Test-CI-wiring check:'",
         ),
     ),
     (

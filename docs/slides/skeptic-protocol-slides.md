@@ -269,7 +269,7 @@ Every finding must be classified. Unclassified findings default to Major. The Sk
 </div>
 
 <div class="callout">
-<strong>Behavior class determines severity.</strong> Only a behavior finding is eligible for Critical or Major: a defect in the shipped code or its runtime, an unmet acceptance criterion or <code>qa_criteria</code> scenario, a security/data-boundary issue, fabricated evidence, or a code-quality defect in the diff itself. A defect in the methodology's own paperwork about the code - doc-sync, count-sync, module manifest, attestation wording, plan prose, test strength - is <strong>Minor</strong>. Every check still runs; only the tier changed.
+<strong>Behavior class determines severity.</strong> Only a behavior finding is eligible for Critical or Major: a defect in the shipped code or its runtime, an unmet acceptance criterion or <code>qa_criteria</code> scenario, a security/data-boundary issue, fabricated evidence, or a code-quality defect in the diff itself. A defect in the methodology's own paperwork about the code - doc-sync, count-sync, attestation wording, plan prose, test strength - is <strong>Minor</strong>. Every check still runs; only the tier changed.
 </div>
 
 ---
@@ -291,7 +291,7 @@ Every finding must be classified. Unclassified findings default to Major. The Sk
 
 **Loop-context override (inside `/ds-implement-ticket` Phase 6):** the 2-re-route rule is replaced by a stricter contract - **1 re-raise of a Critical finding after a claimed fix** triggers convergence failure escalation immediately. Outside a named loop, the 2-re-route rule is unchanged.
 
-**Prose-scoped re-check:** when the round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale module manifest, doc-sync attestation, comment/count wording) and the fix diff has no code/test/behavior change, the next verification is narrowed to the changed prose lines plus a full end-to-end read of the enclosing manifest/section - not a full fresh round. The reviewer establishes the trigger itself by diffing the fix commit(s), never from engineer self-classification; any parsed/executed/byte-pinned hunk disqualifies the lever. The conductor names the mode and supplies the `sha1..sha2` fix range at spawn; sign-off carries a mandatory `Scope:` line. A code/test/behavior finding found during the narrower pass still escalates normally. Verification-cost lever only; severity tiers are unchanged.
+**Prose-scoped re-check:** when the round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale code comment, doc-sync attestation, comment/count wording) and the fix diff has no code/test/behavior change, the next verification is narrowed to the changed prose lines plus a full end-to-end read of the enclosing comment block/section - not a full fresh round. The reviewer establishes the trigger itself by diffing the fix commit(s), never from engineer self-classification; any parsed/executed/byte-pinned hunk disqualifies the lever. The conductor names the mode and supplies the `sha1..sha2` fix range at spawn; sign-off carries a mandatory `Scope:` line. A code/test/behavior finding found during the narrower pass still escalates normally. Verification-cost lever only; severity tiers are unchanged.
 
 **Round budget and value-per-round gate:** the 3-round Skeptic cap decides when a loop must stop; the value-per-round gate decides whether round N+1 is worth spawning at all. Before spawning it, the conductor states one line of what shipped value that round buys (`[round-value: ...]`). If the honest answer is only "hardens infrastructure" or "improves a gate" with no behavior change reaching a user, defer the remaining findings to a follow-up instead. A unit whose sole output is enforcement must not block the change it enforces - ship behavior-changing units first, enforcement-only units in a later PR.
 
@@ -329,7 +329,7 @@ Fresh context for independence. Preflight list for efficiency. findings_log for 
 
 ---
 
-## Five new Skeptic obligations (1/2)
+## Four new Skeptic obligations (1/2)
 
 <style scoped>
   .columns { gap: 1.2em; margin-bottom: 0.5em; }
@@ -340,9 +340,9 @@ Fresh context for independence. Preflight list for efficiency. findings_log for 
 
 <div class="columns">
 <div class="card">
-<strong>Module manifest check</strong><br/>
-On any non-trivial file touched by the Worker (exports a public symbol, ~50+ LOC, or side-effecting): verify a module manifest header exists and reflects the current file. The result is output-required via a fixed <code>Manifest check:</code> sign-off line.<br/><br/>
-All gaps are <strong>Minor</strong>: missing and stale alike, non-blocking. A stale manifest that could mislead a caller on a correctness or security path stays Minor and is routed through the <code>Blocking-minor:</code> sign-off line.
+<strong>Comment-discipline check</strong><br/>
+Every comment the diff adds or changes, plus supplied PR or tracker text: a comment that restates the code, an added file or module header block, or review exhaust = <strong>Minor</strong>, naming the exact span.<br/><br/>
+A missing comment is a finding only for an undocumented non-obvious constraint the diff introduces. Deleting a constraint comment that guards correctness or security is routed through the <code>Blocking-minor:</code> sign-off line.
 </div>
 <div class="card">
 <strong>Regression test verification</strong><br/>
@@ -352,12 +352,12 @@ Missing test without a documented exception = <strong>Minor</strong> finding.
 </div>
 
 <div class="callout">
-These checks run alongside existing findings classification - not instead of it. Comprehension, regression, CI-wiring, and observability gates layered on top of Critical/Major/Minor.
+These checks run alongside existing findings classification - not instead of it. Comment, regression, CI-wiring, and observability gates layered on top of Critical/Major/Minor.
 </div>
 
 ---
 
-## Five new Skeptic obligations (2/2)
+## Four new Skeptic obligations (2/2)
 
 <style scoped>
   .columns { gap: 1.2em; margin-bottom: 0.5em; }
@@ -380,11 +380,7 @@ No matching CI invocation = <strong>Minor</strong> finding - a test that never r
 </div>
 
 <div class="callout">
-<strong>Comment-discipline check</strong> - a comment the diff adds or changes, or supplied PR or tracker text, that restates the code or carries review exhaust = <strong>Minor</strong>, naming the exact span.
-</div>
-
-<div class="callout">
-All five obligations run alongside the standard Skeptic pass. Manifest enforcement catches comprehension drift; regression tests close the fix loop; CI-wiring checks close the "silent dead test" gap; telemetry keeps cost and calibration dashboards accurate; comment discipline keeps review exhaust out of the permanent record.
+All four obligations run alongside the standard Skeptic pass. Comment discipline keeps restatement and review exhaust out of the permanent record; regression tests close the fix loop; CI-wiring checks close the "silent dead test" gap; telemetry keeps cost and calibration dashboards accurate.
 </div>
 
 ---

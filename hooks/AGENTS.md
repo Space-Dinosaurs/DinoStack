@@ -32,7 +32,8 @@ one is a real, separate unit of work, not a cheap extension of the
 existing sweep. Deferred, not silently dropped: counts corrected by hand
 in this rework, mechanical enforcement left as a named gap). Each script
 ships with a
-module-manifest docstring; read the script for full detail. This file is the
+header docstring (Purpose / Public API / Upstream deps / Downstream
+consumers / Failure modes); read the script for full detail. This file is the
 module-group map.
 
 ## Entry points
@@ -298,7 +299,7 @@ without naming a specific failure it would have caught and the condition
 under which it retires. This is the naming obligation only, not the full
 registration procedure - the mechanical steps (the guarded
 `test -f <path> && python3 <path> || exit 0` wiring form documented in each
-new hook's own module manifest, adding the basename to `bin/ds-doctor`'s
+new hook's own header docstring, adding the basename to `bin/ds-doctor`'s
 `MANAGED_HOOK_BASENAMES`, and updating every site in
 `bin/tests/test_tracker_writeback_ranking_spec.py`'s `_ENFORCER_SUBCOUNT_SITES`)
 live at those symbols directly, not restated here.

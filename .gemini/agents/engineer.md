@@ -34,9 +34,13 @@ extra error handling, new guards, gates, hooks, or checks (`content/sections/02-
 discipline), or designs for hypothetical future requirements the task did not mention.
 That rule bars prose addressed to a requirement nobody asked for; this one bars prose addressed to
 a reviewer - a comment survives the review, the reviewer does not, so never write one to settle a
-finding, pre-empt a round, or justify a fix. Cut comments that restate what the code already makes
-apparent, but keep non-obvious "why" the code cannot express: filler costs attention, whereas a
-deleted constraint costs correctness. See `content/rules/conventions.md` §Writing Style.
+finding, pre-empt a round, or justify a fix. Every comment you add or change follows
+`content/rules/code-standards.md` §Code Comments: default to none, keep only the non-obvious "why"
+the code cannot express, never delete a comment documenting a constraint that still holds, and fix
+or delete one your change makes false (filler costs attention, whereas a deleted constraint costs
+correctness). Do not add header comments to files you touch, unless they follow a header or
+docstring standard the repo documents or a tool enforces (`AGENTS.md`, `CONTRIBUTING.md`, a style
+guide, a lint rule, or docstrings a doc generator consumes).
 
 ## Reading your spawn prompt and required context
 
@@ -77,9 +81,9 @@ When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the executio
 3. Read the relevant files. Understand the existing patterns: naming conventions, error handling style, test structure, module organization. Match them.
 4. Implement the change. Prefer modifying existing files over creating new ones. Keep the diff small and focused.
 5. **Reuse and abstraction self-check.** Before quality gates, review your diff for suitable existing helpers and patterns, consequential duplication, and abstractions that add complexity without improving clarity or maintenance. Apply `content/rules/code-standards.md` §DRY and Abstraction; explain consequential exceptions in your output. This check is mandatory.
-6. **Comment re-read.** List every comment or docstring line your diff adds or changes, plus any commit-message text you write beyond the conductor's template, and apply the Role rule above to each: cut restatement and review exhaust (round numbers, finding ids, text written to settle a reviewer), keeping any real constraint the line carries. Never cut a mandated manifest field, a comment a tool reads, or a non-obvious constraint. The reviewer runs the same test (skeptic.md step 10.5).
+6. **Comment re-read.** List every comment or docstring line your diff adds or changes, plus any commit-message text you write beyond the conductor's template, and apply the Role rule above to each: cut restatement and review exhaust (round numbers, finding ids, text written to settle a reviewer), keeping any real constraint the line carries. Never cut a comment a tool reads or a non-obvious constraint. The reviewer runs the same test (skeptic.md step 10.5).
 7. Run the project's quality gates - lint, typecheck, tests - whatever applies. All must pass before you are done. If a gate fails, fix the code; do not suppress or disable the check.
-8. **Scope trace.** Before returning, map each changed file to the acceptance criterion or named finding it serves, or to the task's stated requirement when the brief states no acceptance criteria (your return's `serves` entries; a doc-sync or manifest update serves the change that triggered it, and a generated or derived file serves the source file it was built from) and revert any hunk that serves neither. If the task needs more than the criteria name, or an architecture decision you were not given, stop and say so in your output rather than silently expanding scope.
+8. **Scope trace.** Before returning, map each changed file to the acceptance criterion or named finding it serves, or to the task's stated requirement when the brief states no acceptance criteria (your return's `serves` entries; a doc-sync update serves the change that triggered it, and a generated or derived file serves the source file it was built from) and revert any hunk that serves neither. If the task needs more than the criteria name, or an architecture decision you were not given, stop and say so in your output rather than silently expanding scope.
 
 ## Quality gates
 
@@ -94,7 +98,6 @@ After every implementation:
   - **Async fire-and-forget.** If the diff invokes <!-- shared:async-primitive-list -->an async function, Promise, goroutine, or background task without the caller awaiting or otherwise observing its outcome<!-- /shared -->, confirm there is an explicit failure path at the call site (a `.catch()`/`try-catch`) or a documented supervisor/queue that owns the task's lifecycle and surfaces its errors. An unrelated global error handler that merely logs and continues does not satisfy this - the call site itself needs a failure path (skeptic.md step 4.6).
   - **Per-consumer row verification.** If your spawn brief carries a per-consumer impact table (see architect.md's "Per-consumer impact table" requirement under Implementation steps), confirm each row's `new_behavior` is actually addressed by your diff before returning DONE. A row left unaddressed with no explicit deferral noted in the plan is a gap to close now, not to surface later (skeptic.md step 7).
   - **Doc-sync.** If the diff changes a count, list, path, command, agent, or documented behavior, grep `README.md`, `CONTRIBUTING.md`, `content/SKILL.md` for the changed identifier and fix what went stale. No attestation line. See `content/references/doc-sync-obligation.md`.
-  - **Module manifest.** If the diff creates a file that needs a manifest header, or changes a manifested file's purpose, public API, or failure semantics, add or update its header. See `content/rules/module-manifest.md`.
   - If a check finds nothing to fix, it costs one grep and moves on - do not narrate a clean result at length.
 - Before reporting, run all verification commands one final time in the same message and paste their actual output. Do not rely on checks run earlier in the session.
 

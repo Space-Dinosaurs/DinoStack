@@ -143,7 +143,7 @@ DISCOVERY_SPECS: list[DiscoverySpec] = [
     DiscoverySpec(".gemini/agents", ".gemini/agents/*.md", "yaml", 15),
     DiscoverySpec(".gemini/commands (toml)", ".gemini/commands/*.toml", "toml", 20),
     DiscoverySpec(".codex/agents (toml)", ".codex/agents/*.toml", "toml", 15),
-    DiscoverySpec(".cursor/rules", ".cursor/rules/*.mdc", "yaml", 4),
+    DiscoverySpec(".cursor/rules", ".cursor/rules/*.mdc", "yaml", 3),
     DiscoverySpec(".pi/prompts", ".pi/prompts/*.md", "yaml", 20),
     DiscoverySpec(".openclaw/skills (commands)", ".openclaw/skills/ds-*/SKILL.md", "yaml", 20),
     DiscoverySpec(".openclaw/skills (agents)", ".openclaw/skills/agent-*/SKILL.md", "yaml", 15),
