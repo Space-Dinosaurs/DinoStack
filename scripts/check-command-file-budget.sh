@@ -143,7 +143,7 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # entries above went stale the next time the file changed, which made the
 # stated arithmetic stop reproducing. Run `bash scripts/check-command-file-budget.sh`
 # for the live size and headroom.
-THRESHOLD_BYTES=404000
+THRESHOLD_BYTES=402506
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

@@ -2726,6 +2726,8 @@ Use the existing Summary-first body and append QA evidence after PR creation.
 
 **`## North Star alignment` (binding, both cases).** Never leave `[pillar]` or `[trade-off]` literal - an unfilled placeholder counts as an absent section. With no `docs/overview/vision.md` in the ticket repo, fill the section `N/A - no docs/overview/vision.md in this repository`. With one, fill from the architect plan's pillars - including those cutting AGAINST the change, not only the supporting ones - or `N/A - <reason>` under the rule `.github/PULL_REQUEST_TEMPLATE.md` states for its own copy. Emit at `gh pr create` time, not a later `gh pr edit`: `--body-file` bypasses that template, which only populates web-UI PRs. `check-vision-alignment` gates this on the DinoStack repo; elsewhere it may not gate at all.
 
+Set `DELIVERY_RECORD_OWNER` to the actual PR owner before either body variant.
+
 ```bash
 if [ "$UNIT_IS_BEHAVIOR_VISIBLE" = "true" ] && [ "${#QA_EVIDENCE_URLS[@]}" -gt 0 ]; then
   # Case A: behavior-visible unit - lead with QA Evidence so reviewers see runtime confirmation first
@@ -2751,6 +2753,19 @@ if [ "$UNIT_IS_BEHAVIOR_VISIBLE" = "true" ] && [ "${#QA_EVIDENCE_URLS[@]}" -gt 0
 
 - Pillar(s) advanced (see docs/overview/vision.md): [pillar]
 - Trade-off or pillar this could regress, if any: [trade-off, or "none identified"]
+
+<!-- ds-delivery-record:v1:start -->
+## Delivery record (provisional)
+
+Owner: $DELIVERY_RECORD_OWNER. Remote SHA binding follows PR creation.
+- Human approval: PENDING — owner must establish actual approval policy/evidence.
+- Protocol review: PENDING — owner must collect applicable review evidence/exemptions.
+- CI: PENDING — owner/platform must observe current checks.
+- QA: PENDING — owner must collect scoped QA evidence/exemptions.
+- Human UAT: PENDING — owner must establish request/policy; N/A if neither requires it.
+
+Procedure: content/references/delivery-record.md
+<!-- ds-delivery-record:v1:end -->
 
 ## Test plan
 - [ ] [step 1]
@@ -2783,6 +2798,19 @@ else
 - Pillar(s) advanced (see docs/overview/vision.md): [pillar]
 - Trade-off or pillar this could regress, if any: [trade-off, or "none identified"]
 
+<!-- ds-delivery-record:v1:start -->
+## Delivery record (provisional)
+
+Owner: $DELIVERY_RECORD_OWNER. Remote SHA binding follows PR creation.
+- Human approval: PENDING — owner must establish actual approval policy/evidence.
+- Protocol review: PENDING — owner must collect applicable review evidence/exemptions.
+- CI: PENDING — owner/platform must observe current checks.
+- QA: PENDING — owner must collect scoped QA evidence/exemptions.
+- Human UAT: PENDING — owner must establish request/policy; N/A if neither requires it.
+
+Procedure: content/references/delivery-record.md
+<!-- ds-delivery-record:v1:end -->
+
 ## Test plan
 - [ ] [step 1]
 - [ ] [step 2]
@@ -2804,7 +2832,7 @@ fi
 
 For `TRACKER=none`, omit the tracker reference block line and drop the `[TICKET_PREFIX]-NNN:` prefix from `--title`.
 
-Capture the PR number from the URL printed by `gh pr create`.
+Capture the PR number from the URL printed by `gh pr create`. Immediately collect and publish the provisional remote-SHA record per `content/references/delivery-record.md`; keep pending checks owned.
 
 ### Ticket-rework ledger write
 
@@ -2814,7 +2842,7 @@ Capture the PR number from the URL printed by `gh pr create`.
 - `REWORK_DETECTION` is `false`.
 - `TICKET_ID` is null or empty (pure-freeform work has nothing to key a ledger record on).
 
-**`pr_number` is derived at the write site, never read from `$PR_NUMBER`.** `$PR_NUMBER` is an in-context variable that is not reset between tickets in a batch; a failed `gh pr create` on ticket 2 would leave ticket 1's number in it and record the wrong PR against ticket 2. Derive it live from the currently-resolved `$BRANCH_NAME` using the same `gh pr view` lookup pattern Phase 11d uses. If the derivation yields nothing, skip the write - a record with no PR number is not a record. `$BRANCH_NAME` is a lookup key only; it is recorded in the `branch` field for forensics and is never an identity key (see `content/references/ticket-rework.md` §`pr_number` as the sole identity key).
+**`pr_number` is derived at the write site, never read from `$PR_NUMBER`.** `$PR_NUMBER` is an in-context variable that is not reset between tickets in a batch; a failed `gh pr create` on ticket 2 would leave ticket 1's number in it and record the wrong PR against ticket 2. Derive it live from the currently-resolved `$BRANCH_NAME` using `gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number`. If the derivation yields nothing, skip the write - a record with no PR number is not a record. `$BRANCH_NAME` is a lookup key only; it is recorded in the `branch` field for forensics and is never an identity key (see `content/references/ticket-rework.md` §`pr_number` as the sole identity key).
 
 **One line, one `write()`.** The record is appended as a single `O_APPEND` write of one complete line. Never compose the line from multiple appends - the offset-atomicity guarantee that makes a lockless append safe is per-`write()`-call, not per-logical-record. There is no write-time lock and no read-before-write; all deduplication happens on read, keyed on `pr_number`.
 
@@ -3242,68 +3270,17 @@ Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|
 
 ---
 
-## Phase 11d: Review-rigor PR-body evidence (soft-fail)
+## Phase 11d: Delivery record and Review rigor
 
-**This is an INDEPENDENT top-level phase - it does not depend on any wrap-ticket return field.** Most tickets produce no `MEMORY.md`/`decisions.md` appends - this phase fires regardless, on every PR where Phase 9 ran, whether or not wrap-ticket captured anything.
-
-**Trigger:** runs after Phase 11b. Skip entirely when Phase 9 was skipped (no PR was opened).
-
-**Purpose:** appends a `## Review rigor` section to the PR body recording the Brief/Plan path, Skeptic round count and tier, and the final findings tally, so a reviewer can see review depth without reconstructing it from `loop-state-$LOOP_KEY.json` or the session transcript.
-
-**Ordering dependency:** this step reads `.agentic/loop-state-$LOOP_KEY.json` `loop_state.findings_log` in its final (all-closed) state, set by Phase 6 Step 3's clean-exit auto-close - so it must run AFTER that, not necessarily before Phase 12 (Phase 12's write is read-modify-write and preserves `findings_log` unchanged; see Phase 12's own note). Phase 11d happens to precede Phase 12 in phase order regardless (see the Phase 11b trigger note above).
-
-**Ticket scoping (closes a pre-existing latent bug).** The five `jq` reads below had **no ticket scoping at all** before per-ticket keying: they read one shared `.agentic/loop-state.json`, so in a batch they reported whichever ticket last wrote it. Every PR's `## Review rigor` section could therefore attribute another ticket's round count, tier, and findings tally to this ticket, with no gate able to fail on it. Reading `.agentic/loop-state-$LOOP_KEY.json` scopes them to this ticket by construction. Every read stays soft-fail (`2>/dev/null` plus a literal default) - an absent keyed file yields the same `n/a` / `0` defaults as before, never an error.
-
-```bash
-# Phase 11d: Review-rigor PR-body evidence (soft-fail)
-# BRIEF_PATH / ARCHITECT_PLAN_PATH are the shell-variable form of the conductor's in-context
-# brief_path / architect_plan_path state (the same values passed to wrap-ticket's Phase 11b
-# spawn inputs above) - "n/a" when absent, matching the existing $BRANCH_NAME / $GH_REPO pattern.
-
-# Gate 1: PR resolvability only.
-RR_PR_NUMBER=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number 2>/dev/null || true)
-
-if [ -n "$RR_PR_NUMBER" ]; then
-  RR_EXISTING_BODY=$(gh pr view "$RR_PR_NUMBER" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
-
-  # Gate 2: idempotency - skip if body already has a filled contract line.
-  if ! printf '%s' "$RR_EXISTING_BODY" | grep -qE '^- (Brief / Plan path|Skeptic rounds \(tier\)|Findings summary):[[:space:]]*[^[:space:]]'; then
-    RR_BRIEF_OR_PLAN="n/a - single-unit Elevated"
-    if [ -n "$BRIEF_PATH" ] && [ "$BRIEF_PATH" != "n/a" ]; then
-      RR_BRIEF_OR_PLAN="$BRIEF_PATH"
-    elif [ -n "$ARCHITECT_PLAN_PATH" ] && [ "$ARCHITECT_PLAN_PATH" != "n/a" ]; then
-      RR_BRIEF_OR_PLAN="$ARCHITECT_PLAN_PATH"
-    fi
-
-    TIER_DISPLAY=$(jq -r 'if (.loop_state | has("tier")) then (.loop_state.tier|tostring) else "2 (default, undeclared)" end' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo "2 (default, undeclared)")
-    ROUNDS=$(jq -r '.loop_state.iteration // "n/a"' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo "n/a")
-
-    # Findings tally: count final findings_log entries by severity (all should be status:closed here).
-    RR_CRITICAL=$(jq '[.loop_state.findings_log[]? | select(.severity=="Critical")] | length' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo 0)
-    RR_MAJOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Major")] | length' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo 0)
-    RR_MINOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Minor")] | length' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo 0)
-    if [ "${RR_CRITICAL:-0}" = "0" ] && [ "${RR_MAJOR:-0}" = "0" ] && [ "${RR_MINOR:-0}" = "0" ]; then
-      RR_FINDINGS_SUMMARY="No findings"
-    else
-      RR_FINDINGS_SUMMARY="Critical: ${RR_CRITICAL:-0}, Major: ${RR_MAJOR:-0}, Minor: ${RR_MINOR:-0}"
-    fi
-
-    RR_APPEND_FILE="/tmp/review-rigor-pr-body-$$"
-    {
-      printf '\n\n## Review rigor\n\n'
-      printf -- '- Brief / Plan path: %s\n' "$RR_BRIEF_OR_PLAN"
-      printf -- '- Skeptic rounds (tier): %s (Tier: %s)\n' "$ROUNDS" "$TIER_DISPLAY"
-      printf -- '- Findings summary: %s\n' "$RR_FINDINGS_SUMMARY"
-    } > "$RR_APPEND_FILE"
-
-    printf '%s%s' "$RR_EXISTING_BODY" "$(cat "$RR_APPEND_FILE")" > "/tmp/review-rigor-full-body-$$"
-    gh pr edit "$RR_PR_NUMBER" --repo "$GH_REPO" --body-file "/tmp/review-rigor-full-body-$$" 2>/dev/null || true
-    rm -f "$RR_APPEND_FILE" "/tmp/review-rigor-full-body-$$" 2>/dev/null || true
-  fi
-fi
-```
-
-**Failure semantics:** every step soft-fails (`|| true` / `2>/dev/null`). A missing `gh`, an unresolvable PR, or a malformed `loop-state-$LOOP_KEY.json` never blocks Phase 12. Does NOT write `loop-state-$LOOP_KEY.json`.
+Independent of wrap-ticket; run after Phase 11b whenever Phase 9 created a PR.
+Collect this ticket's actual review/findings, QA, CI, human approval policy and
+UAT evidence per `content/references/delivery-record.md`. Populate/refresh the
+three Review rigor labels (Brief / Plan path, Skeptic rounds (tier), Findings
+summary) from the keyed loop state; missing findings stay unknown, never default
+to “No findings.” Preserve applicable exemptions with reasons. Publish the
+SHA-bound managed record using `DELIVERY_RECORD_INPUT`. Repeat after Phase 11e
+and immediately before any merge/new queue. Publication failure leaves work open
+but blocks agent merge/new queue until resolved; knowledge capture stays soft-fail.
 
 ---
 
@@ -3331,7 +3308,7 @@ A successful push leaves the operator's LOCAL `$BRANCH_NAME` one commit behind `
 
 **Portability.** The block is written for both bash and zsh. zsh does not word-split unquoted expansions, so no list is ever built by splitting a variable; `awk` receives `$BRANCH_NAME` via `-v` rather than `ENVIRON[...]` (the variable is conductor-substituted, not exported, so `ENVIRON` resolves empty under both shells); and no variable is named `path` or `status`, both of which collide with zsh specials.
 
-**Absolute soft-fail.** Nothing in Phase 11e can block Phase 12 or fail the ticket. The block contains zero `exit` statements by contract; every failure branch prints a warning and continues.
+**Absolute soft-fail for knowledge capture.** Nothing in Phase 11e fails the ticket; unresolved delivery publication still blocks merge/new queue under the canonical procedure. The block contains zero `exit` statements by contract; every failure branch prints a warning and continues.
 
 **Candidate set**, in this fixed order: `MEMORY.md`, `decisions.md`, `.agentic/learnings.md`, `AGENTS.md`, `.agentic/tracking.md`. **There is no path-prefix floor.** A categorical refusal to touch anything under `.agentic/*` is precisely the defect that made this phase's deleted predecessor ship zero commits - `.agentic/learnings.md` is a first-class candidate here.
 
@@ -3755,8 +3732,20 @@ else
               echo "WARNING: [phase: knowledge-commit] commit-tree failed - skipping knowledge commit."
               KC_STATUS="commit-failed"
             else
-              KC_PUSH_ERR=$(git -C "$REPO" push origin "${KC_SHA}:refs/heads/${BRANCH_NAME}" 2>&1 >/dev/null)
-              if [ $? -eq 0 ]; then
+              KC_QUEUE=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json autoMergeRequest 2>/dev/null)
+              KC_CAN_PUSH=false
+              if printf '%s' "$KC_QUEUE" | jq -e 'has("autoMergeRequest")' >/dev/null 2>&1; then
+                if [ "$(printf '%s' "$KC_QUEUE" | jq -r '.autoMergeRequest == null')" = "true" ] || gh pr merge "$BRANCH_NAME" --repo "$GH_REPO" --disable-auto; then
+                  KC_CAN_PUSH=true
+                fi
+              fi
+              KC_PUSH_OK=false
+              if [ "$KC_CAN_PUSH" = "true" ]; then
+                KC_PUSH_ERR=$(git -C "$REPO" push origin "${KC_SHA}:refs/heads/${BRANCH_NAME}" 2>&1 >/dev/null) && KC_PUSH_OK=true
+              else
+                KC_PUSH_ERR="queue observation/suspension failed; head unchanged"
+              fi
+              if [ "$KC_PUSH_OK" = "true" ]; then
                 KC_STATUS="committed"
                 # files_committed is populated HERE and ONLY here.
                 KC_JSON_FILES="$KC_JSON_STAGED"
@@ -3787,7 +3776,9 @@ ds-emit knowledge_commit - "${TICKET_ID:--}" "{\"site\":\"phase-11e\",\"status\"
 
 **CI interaction.** With `auto_merge_on_ci_green: false` (the default) there is no interaction to reason about: the PR stays open, CI re-runs against the new tip, and the human merges when it is green. With `auto_merge_on_ci_green: true`, Phase 12 re-derives the knowledge-commit condition from `gh` and queues GitHub's own auto-merge, which completes only once the checks are green.
 
-**The honest residual: Phase 10a cannot re-fire.** By the time Phase 11e runs, Phases 10b, 11, 11b, and 11d have all executed, and nothing revisits the CI-wait phase. If the knowledge commit turns a required check red, no phase notices and the PR is left red for a human to resolve. Three things bound the exposure and none of them eliminates it: the commit touches at most five markdown files; the `NOTE:` line above announces the re-run at the moment it happens; and `knowledge_commit_on_pr: false` disables the phase outright. A "re-enter Phase 10a" loop was considered and rejected as out of scope - it would need its own iteration cap, a convergence short-circuit, and an escalation path, which is a feature of its own rather than a clause of this one.
+**Delivery refresh (binding).** After this block, collect/publish the new remote-head record per `content/references/delivery-record.md`, retaining original review/QA evidence SHAs with pending coverage until assessed. Leave any suspended queue off until applicable checks are resolved and a guarded request succeeds.
+
+**CI after the late push.** Phase 10a does not re-fire. Final delivery collection observes current CI before any merge/new queue; unresolved results remain owned. GitHub's required checks govern an accepted queue. There is no background monitor for later failures; report the current state rather than promise a future merge. `knowledge_commit_on_pr: false` still disables this phase.
 
 **Per-unit attribution is out of reach and is not attempted.** Fan-out unit branches are merged and `git branch -d`'d at the Phase 5/6 boundary, before Phase 6 fires; `findings_log` entries carry no unit tag; and neither `wrap-ticket` nor `learning-extractor` accepts a unit identifier. What Phase 11e delivers is therefore per-**ticket** attribution. The minimal change that would make per-unit attribution possible - propagate the orchestration planner's per-unit slug into each per-unit Skeptic `findings_log` entry as a `unit` field, and add a `unit` key to `learning-extractor`'s LRN schema - is recorded here as a separate ticket's scope, not built as part of this phase.
 
@@ -3812,6 +3803,10 @@ rm -f .agentic/qa.md.snapshot-<ticket_id> 2>/dev/null || true
 ```bash
 # @harness:phase12-auto-merge
 if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
+  DELIVERY_PUBLISHED_SHA=""
+  if DELIVERY_PUBLICATION=$(ds-pr-delivery-record --repo "$GH_REPO" --pr "$PR_NUMBER" --input "$DELIVERY_RECORD_INPUT"); then
+    DELIVERY_PUBLISHED_SHA=$(printf '%s' "$DELIVERY_PUBLICATION" | jq -er '.published_sha | select(type == "string" and length == 40 and test("^[0-9a-f]{40}$"))') || DELIVERY_PUBLISHED_SHA=""
+  fi
   PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json isDraft,mergeable,reviewDecision 2>/dev/null)
   IS_DRAFT=$(echo "$PR_STATE" | jq -r '.isDraft')
   MERGEABLE=$(echo "$PR_STATE" | jq -r '.mergeable')
@@ -3826,9 +3821,9 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
     *)                    KC_KNOWLEDGE_PUSHED=false ;;
   esac
 
-  if [ "$IS_DRAFT" = "false" ] && [ "$MERGEABLE" = "MERGEABLE" ] && [ "$REVIEW_DECISION" != "CHANGES_REQUESTED" ]; then
+  if [ -n "$DELIVERY_PUBLISHED_SHA" ] && [ "$IS_DRAFT" = "false" ] && [ "$MERGEABLE" = "MERGEABLE" ] && [ "$REVIEW_DECISION" != "CHANGES_REQUESTED" ]; then
     if [ "$KC_KNOWLEDGE_PUSHED" = "true" ]; then
-      if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch --auto 2>/dev/null; then
+      if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch --auto 2>/dev/null; then
         echo "[phase: auto-merge-queued | pr=$PR_NUMBER | reason=knowledge-commit-ci-rerun]"
         # W7 does NOT fire: --auto exiting 0 means QUEUED, not MERGED. The
         # dev-complete transition is pushed by the session-start pending-merge
@@ -3843,7 +3838,7 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
       else
         echo "[phase: auto-merge-deferred | pr=$PR_NUMBER | reason=knowledge-commit-ci-rerun - merge when checks are green]"
       fi
-    elif gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch 2>/dev/null; then
+    elif gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch 2>/dev/null; then
       echo "[phase: auto-merged | pr=$PR_NUMBER]"
       # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
       # with target_state: $TRACKER_STATE_DEV_COMPLETE, forward_only_guard: true.

@@ -86,7 +86,7 @@ def test_resident_rule_carries_the_five_resident_tier_clauses():
     assert "ad-hoc" in rule
     assert "gated on a particular command" in rule
     # 2. Exact invocation.
-    assert "`gh pr merge <N> --squash --delete-branch --auto`" in rule
+    assert "`gh pr merge <N> --match-head-commit <published_sha> --squash --delete-branch --auto`" in rule
     # 3. Re-draft-on-failure compensation (round-6 Minor), CONDITIONAL on
     #    self-performed un-draft (round-7 Major 1 - commit 2841cf92's
     #    unconditional-undo defect relocated into this prose; an unqualified

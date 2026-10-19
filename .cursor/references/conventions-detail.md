@@ -16,7 +16,7 @@ Purpose: Detailed conventions reference blocks extracted from
          shape, Phase 10's timeout un-draft-then-queue procedure
          `@harness:phase10-timeout-auto-merge-queue` and its resume check
          `@harness:phase10-resume-auto-merge-check`, and the sibling-PR
-         sweep's never-newly-queues invariant; the short resident
+         sweep's suspend-before-rebase/leave-queue-off invariant; the short resident
          rule-statement lives in content/rules/conventions.md § Git
          Workflow);
          the Context Economy rules; and the External Comment Discipline
@@ -31,7 +31,8 @@ Public API: Read-only reference document. Cross-referenced from:
             content/rules/conventions.md (inline pointers replacing these
             verbose blocks).
 
-Upstream deps: content/rules/conventions.md (parent rules file; read that
+Upstream deps: content/references/delivery-record.md (publication/coverage contract);
+               content/rules/conventions.md (parent rules file; read that
                file first for Writing Style, Project Structure Convention,
                Session Context and Memory, and Git Workflow rules).
 
@@ -163,9 +164,9 @@ Then append each surfaced file's `<path>:<hash>` key to `.agentic/.knowledge-str
 
 Runs at session start, after the knowledge-strand sweep. Skip entirely - zero `gh` calls - unless `auto_merge_on_ci_green` is `true` in `.agentic/config.json` (same toggle "Phase 10 timeout call site" below and `content/commands/ds-implement-ticket.md` Phase 12's "Conditional auto-merge" already gate on). When the toggle is `false` (default), this sweep fires no behavior and states no merge intention.
 
-**This sweep never newly queues a PR.** It only unsticks a PR whose auto-merge is already enabled (`autoMergeRequest` is non-null - GitHub sets this the moment `gh pr merge --auto` or the repo's own merge-queue UI enables it) but has gone `BEHIND` because the base branch moved since it was queued: `--auto` alone does not rebase a stale branch, so a queued PR can sit stuck indefinitely without this sweep. A PR the agent never queued (`autoMergeRequest` null) is never touched, regardless of its `mergeStateStatus` - this is what keeps the blast radius bounded to PRs this same mechanism (or the operator, manually) already opted in, never every open PR the agent happens to own.
+**This sweep never newly queues a PR.** It suspends and rebases a PR whose auto-merge is already enabled (`autoMergeRequest` is non-null - GitHub sets this the moment `gh pr merge --auto` or the repo's own merge-queue UI enables it) but has gone `BEHIND` because the base branch moved since it was queued: `--auto` alone does not rebase a stale branch, so a queued PR can sit stuck indefinitely without this sweep. A PR the agent never queued (`autoMergeRequest` null) is never touched, regardless of its `mergeStateStatus` - this is what keeps the blast radius bounded to PRs this same mechanism (or the operator, manually) already opted in, never every open PR the agent happens to own.
 
-List every other open, non-draft PR the agent owns (`gh pr list --author "@me"`, capped at `--limit 100`; beyond that this sweep does not paginate) against `$BASE_BRANCH`, and for each PR whose `mergeStateStatus` is `BEHIND` and whose `autoMergeRequest` is already set, rebase it (ascending PR-number order, FIFO) to unstick the existing queue - never re-invoking `gh pr merge --auto`, since the queue already exists and re-triggering it is unnecessary. A `mergeStateStatus` of `UNKNOWN` (GitHub computes mergeability lazily) fails the `BEHIND` match and is silently skipped this pass, same as `CLEAN` or any other non-`BEHIND` value - not a distinct case. Word-splitting note: the loop below reads one PR number per line via `IFS= read -r`, not unquoted `for N in $VAR` - the latter is safe under bash but silently fails to split on newlines under zsh, collapsing a multi-line result into one malformed argument. Preconditions this block does not itself establish or guard: `$AUTO_MERGE_ON_CI_GREEN`, `$GH_REPO`, and `$BASE_BRANCH` are assumed already resolved per Setup (as at every other call site in this methodology), and a `jq` binary is assumed present on PATH (same assumption every other `jq`-consuming block here makes).
+List every other open, non-draft PR the agent owns (`gh pr list --author "@me"`, capped at `--limit 100`; beyond that this sweep does not paginate) against `$BASE_BRANCH`, and for each PR whose `mergeStateStatus` is `BEHIND` and whose `autoMergeRequest` is already set, suspend auto-merge, then rebase it (ascending PR-number order, FIFO). Leave the queue off pending refreshed coverage under `content/references/delivery-record.md`; the owning flow must publish/resolve before a guarded requeue. A `mergeStateStatus` of `UNKNOWN` (GitHub computes mergeability lazily) fails the `BEHIND` match and is silently skipped this pass, same as `CLEAN` or any other non-`BEHIND` value - not a distinct case. Word-splitting note: the loop below reads one PR number per line via `IFS= read -r`, not unquoted `for N in $VAR` - the latter is safe under bash but silently fails to split on newlines under zsh, collapsing a multi-line result into one malformed argument. Preconditions this block does not itself establish or guard: `$AUTO_MERGE_ON_CI_GREEN`, `$GH_REPO`, and `$BASE_BRANCH` are assumed already resolved per Setup (as at every other call site in this methodology), and a `jq` binary is assumed present on PATH (same assumption every other `jq`-consuming block here makes).
 
 ```bash
 # @harness:sibling-pr-sweep
@@ -175,8 +176,12 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
     STUCK_NUMBERS=$(echo "$SIBLING_PRS" | jq -r '[.[] | select(.mergeStateStatus == "BEHIND" and .isDraft == false and .autoMergeRequest != null) | .number] | sort | .[]')
     while IFS= read -r N; do
       [ -n "$N" ] || continue
+      if ! gh pr merge "$N" --repo "$GH_REPO" --disable-auto 2>/dev/null; then
+        echo "[phase: sibling-pr-sweep | pr=$N | result: suspension-failed-head-unchanged]"
+        continue
+      fi
       if gh pr update-branch "$N" --repo "$GH_REPO" --rebase 2>/dev/null; then
-        echo "[phase: sibling-pr-sweep | pr=$N | result: rebased-unstuck-queue]"
+        echo "[phase: sibling-pr-sweep | pr=$N | result: rebased-pending-coverage-queue-off | owner=owning-flow]"
       else
         echo "[phase: sibling-pr-sweep | pr=$N | result: rebase-failed]"
       fi
@@ -185,17 +190,19 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
 fi
 ```
 
-Soft-fail per PR - a single PR's rebase failure is reported and the sweep continues to the next PR; a single PR's failure never blocks the sweep or the rest of the session-start sequence. Rebasing does not itself merge anything or fire a tracker writeback; the session-start pending-merge sweep remains the sole mechanism that pushes the dev-complete transition once the already-queued merge actually lands.
+Soft-fail per PR - a single PR's rebase failure is reported and the sweep continues to the next PR; a single PR's failure never blocks the sweep or the rest of the session-start sequence. Rebasing does not itself merge anything or fire a tracker writeback; the session-start pending-merge sweep remains the sole mechanism that pushes the dev-complete transition once an owning flow resolves coverage, republishes, requeues and the merge actually lands. After rebase the owning flow must publish pending coverage at the new head per `content/references/delivery-record.md`; report that duty and continue the sweep.
 
 ## Auto-merge follow-through
 
 Parent rule: `content/rules/conventions.md` §Git Workflow ("Auto-merge follow-through") carries the trigger, the toggle-`false` honest-report duty, and the QUEUED-not-merged fact in resident form; the toggle-`true` reporting duty (name the queue as QUEUED, not the merge as done) is detail-only, stated in full just below. This section is the full mechanism; the two are one rule split by load tier, never two rules.
 
-**The trigger is the event, not a command.** Whenever an agent has opened a PR it owns against `$BASE_BRANCH` and `auto_merge_on_ci_green` is `true`, IT un-drafts the PR if needed and queues `gh pr merge <N> --squash --delete-branch --auto`, re-drafting (`gh pr ready --undo`) ONLY IF IT performed that un-draft itself and the queue attempt then fails - never touching a PR the operator had already marked ready - so a repo without "Allow auto-merge" enabled is never left stranded ready-for-review by IT's own action - this is the actionable instruction, and an ad-hoc session (conductor-orchestrated work, a bare `gh pr create`, multi-unit fan-out) follows it directly with no command precondition. It is not one mechanism, it is three, and they differ - the three sites, verified against the code (a shorter version of the same three-way distinction is also resident in `content/rules/conventions.md` § Git Workflow; several other project docs also describe this toggle's behavior and point back here - this section is the full detail, not the only description):
+**Delivery prerequisite (all three sites).** Collect/publish per `content/references/delivery-record.md` after creation, every owner push/rebase and immediately before merge/new queue. Suspend an existing queue before head advancement; failed suspension prevents advancement. Resolve applicable checks under existing authority and use only successfully published_sha as `--match-head-commit`, including authorized `--admin` requests. No unguarded retry or fresh-query substitute.
 
-1. **`/ds-implement-ticket` Phase 12's conditional auto-merge - immediate merge, drafts refused, `--auto` only on one narrow sub-branch.** Phase 12 requires `isDraft: false` before attempting anything (`auto-merge-skipped` otherwise) - it never un-drafts, because a draft never reaches this code. Its dominant branch is `gh pr merge <N> --squash --delete-branch` with **no** `--auto`: an immediate merge that fires tracker writeback (W7) on success. `--auto` appears only on the narrow sub-branch where Phase 11e just pushed a `chore(knowledge):` commit and CI is re-running for that reason alone - see Phase 12's own "Conditional auto-merge" section for that sub-branch's full detail; not restated here.
-2. **Phase 10's timeout handling - checks, un-drafts if needed, then queues `--auto`.** Unlike Phase 12, the PR here is EXPECTED to still be a draft on a fresh timeout (Phase 10b's un-draft never ran - it is conditional on Phase 10 result: `passed`) - but that is not a hard invariant: a resumed poll cycle, or an operator manually marking the PR ready between polls, can mean it is already non-draft by the time this block runs. The block checks `isDraft` at runtime rather than assuming, un-drafts only if that check says `true`, then queues `gh pr merge <N> --squash --delete-branch --auto`. Full procedure: "Phase 10 timeout call site (full procedure)" below.
-3. **The session-start sibling-PR sweep - never queues, only unsticks.** It rebases an open PR whose auto-merge is already enabled (by site 1 or 2, or by the operator manually) but stuck `BEHIND` a moved base; it never calls `gh pr merge` itself. See "Sibling-PR auto-merge sweep" above.
+**The trigger is the event, not a command.** Whenever an agent has opened a PR it owns against `$BASE_BRANCH` and `auto_merge_on_ci_green` is `true`, IT un-drafts the PR if needed and queues `gh pr merge <N> --match-head-commit <published_sha> --squash --delete-branch --auto`, re-drafting (`gh pr ready --undo`) ONLY IF IT performed that un-draft itself and the queue attempt then fails - never touching a PR the operator had already marked ready - so a repo without "Allow auto-merge" enabled is never left stranded ready-for-review by IT's own action - this is the actionable instruction, and an ad-hoc session (conductor-orchestrated work, a bare `gh pr create`, multi-unit fan-out) follows it directly with no command precondition. It is not one mechanism, it is three, and they differ - the three sites, verified against the code (a shorter version of the same three-way distinction is also resident in `content/rules/conventions.md` § Git Workflow; several other project docs also describe this toggle's behavior and point back here - this section is the full detail, not the only description):
+
+1. **`/ds-implement-ticket` Phase 12's conditional auto-merge - immediate merge, drafts refused, `--auto` only on one narrow sub-branch.** Phase 12 requires `isDraft: false` before attempting anything (`auto-merge-skipped` otherwise) - it never un-drafts, because a draft never reaches this code. Its dominant branch is `gh pr merge <N> --match-head-commit <published_sha> --squash --delete-branch` with **no** `--auto`: an immediate merge that fires tracker writeback (W7) on success. `--auto` appears only on the narrow sub-branch where Phase 11e just pushed a `chore(knowledge):` commit and CI is re-running for that reason alone - see Phase 12's own "Conditional auto-merge" section for that sub-branch's full detail; not restated here.
+2. **Phase 10's timeout handling - checks, un-drafts if needed, then queues `--auto`.** Unlike Phase 12, the PR here is EXPECTED to still be a draft on a fresh timeout (Phase 10b's un-draft never ran - it is conditional on Phase 10 result: `passed`) - but that is not a hard invariant: a resumed poll cycle, or an operator manually marking the PR ready between polls, can mean it is already non-draft by the time this block runs. The block checks `isDraft` at runtime rather than assuming, un-drafts only if that check says `true`, then queues `gh pr merge <N> --match-head-commit <published_sha> --squash --delete-branch --auto`. Full procedure: "Phase 10 timeout call site (full procedure)" below.
+3. **The session-start sibling-PR sweep - suspends, rebases and leaves queue off.** It suspends and rebases an open PR whose auto-merge is already enabled (by site 1 or 2, or by the operator manually) but stuck `BEHIND` a moved base; it never requests merge or enables a queue itself (its `--disable-auto` call only suspends). See "Sibling-PR auto-merge sweep" above.
 
 **Honest-report obligation.** When `auto_merge_on_ci_green` is `false` (default), nothing queues, and a turn must state the PR's real state - never a future merge intention it has no mechanism to carry out. "Next I merge those two once CI is green" describes an event nothing in the session will actually perform once the turn ends. When a queue was placed, `--auto` exiting 0 means QUEUED, not MERGED, and the report must say so, not claim the merge happened.
 
@@ -206,12 +213,16 @@ Called from `content/commands/ds-implement-ticket.md` Phase 10's Outcome routing
 ```bash
 # @harness:phase10-timeout-auto-merge-queue
 if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
+  DELIVERY_PUBLISHED_SHA=""
+  if DELIVERY_PUBLICATION=$(ds-pr-delivery-record --repo "$GH_REPO" --pr "$PR_NUMBER" --input "$DELIVERY_RECORD_INPUT"); then
+    DELIVERY_PUBLISHED_SHA=$(printf '%s' "$DELIVERY_PUBLICATION" | jq -er '.published_sha | select(type == "string" and length == 40 and test("^[0-9a-f]{40}$"))') || DELIVERY_PUBLISHED_SHA=""
+  fi
   WAS_DRAFT=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json isDraft -q .isDraft 2>/dev/null)
   UNDRAFTED_HERE=false
   if [ "$WAS_DRAFT" = "true" ]; then
     gh pr ready "$PR_NUMBER" --repo "$GH_REPO" 2>/dev/null && UNDRAFTED_HERE=true
   fi
-  if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch --auto 2>/dev/null; then
+  if [ -n "$DELIVERY_PUBLISHED_SHA" ] && gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch --auto 2>/dev/null; then
     echo "[phase: ci-wait | result: timeout | auto-merge-queued: true | pr=$PR_NUMBER]"
     AUTO_MERGE_QUEUED=true
   else

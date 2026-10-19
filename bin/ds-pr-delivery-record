@@ -1,0 +1,302 @@
+#!/usr/bin/env python3
+"""Purpose: Publish a declared PR delivery record against its live remote head.
+Public API: --repo OWNER/REPO --pr NUMBER --input FILE; JSON stdout with published_sha.
+Upstream deps: Python stdlib, authenticated gh, content/references/delivery-record.md.
+Downstream consumers: ticket, ad-hoc and sibling PR flows; agentic compatibility link.
+Failure modes: exit 1 validation/API/body contention; 2 head movement; 0 matching
+readback. No GitHub compare-and-swap: an unobserved simultaneous body edit can be
+lost. Never merges, approves, advances branches or grants waiver authority.
+Performance: bounded gh reads plus at most one edit, each call timeout 60 seconds.
+"""
+
+import argparse
+import datetime
+import json
+import re
+import subprocess
+import sys
+import tempfile
+
+START = "<!-- ds-delivery-record:v1:start -->"
+END = "<!-- ds-delivery-record:v1:end -->"
+CHECKS = ("human_approval", "protocol_review", "ci", "qa", "uat")
+SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def nonempty(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+def sha(value):
+    return isinstance(value, str) and SHA.fullmatch(value) is not None
+
+
+def evidence(entries, required=False):
+    require(
+        isinstance(entries, list) and (entries or not required),
+        "evidence must be an array (nonempty for completed claims)",
+    )
+    for item in entries:
+        require(isinstance(item, dict), "evidence entry must be an object")
+        require(
+            all(nonempty(item.get(k)) for k in ("locator", "summary")),
+            "evidence requires locator and substantive summary",
+        )
+        require(item.get("visibility") in ("public", "local"), "evidence visibility must be public or local")
+
+
+def waiver(item):
+    require(isinstance(item, dict), "waiver must name existing authority")
+    require(
+        all(nonempty(item.get(k)) for k in ("authorized_by", "authority", "reason")),
+        "waiver requires authorizer, authority and reason",
+    )
+    evidence(item.get("evidence"), True)
+
+
+def validate(data):
+    require(isinstance(data, dict) and type(data.get("version")) is int and data["version"] == 1, "version must be 1")
+    require(sha(data.get("head_sha")), "head_sha must be a full SHA")
+    require(nonempty(data.get("record_owner")), "record_owner required")
+    require(data.get("risk") in ("Trivial", "Low", "Elevated"), "invalid risk")
+    policy = data.get("policy")
+    require(isinstance(policy, dict), "policy required")
+    require(
+        all(nonempty(policy.get(k)) for k in ("source", "github_requirement", "protocol_requirement")),
+        "policy must state authority/requirements or explicit unknown explanation",
+    )
+    require(
+        policy.get("github_review_decision") in ("APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED", "NONE", "UNKNOWN"),
+        "invalid review decision",
+    )
+    require("override" in policy, "policy.override required (null if none)")
+    if policy["override"] is not None:
+        waiver(policy["override"])
+    checks = data.get("checks")
+    require(isinstance(checks, dict) and set(checks) == set(CHECKS), "five distinct checks required")
+    for name, check in checks.items():
+        require(isinstance(check, dict), f"{name}: check object required")
+        required = ("result", "scope", "coverage", "evidence_sha", "evidence", "reason", "pending_owner", "waiver")
+        require(all(k in check for k in required), f"{name}: missing check fields")
+        result, coverage = check["result"], check["coverage"]
+        require(result in ("PASS", "FAIL", "PENDING", "INCONCLUSIVE", "N/A", "WAIVED"), f"{name}: invalid result")
+        require(coverage in ("EXACT", "DELTA_ASSESSED", "STALE", "UNKNOWN"), f"{name}: invalid coverage")
+        require(nonempty(check["scope"]), f"{name}: scope required")
+        require(check["evidence_sha"] is None or sha(check["evidence_sha"]), f"{name}: invalid evidence_sha")
+        for key in ("reason", "pending_owner"):
+            require(check[key] is None or nonempty(check[key]), f"{name}: invalid {key}")
+        evidence(check["evidence"], result in ("PASS", "FAIL"))
+        if result == "PASS":
+            require(
+                nonempty(check.get("performed_by")) and sha(check["evidence_sha"]),
+                f"{name}: PASS requires actual actor and evidence SHA",
+            )
+        if result in ("FAIL", "PENDING", "INCONCLUSIVE") or coverage in ("STALE", "UNKNOWN"):
+            require(
+                nonempty(check["reason"]) and nonempty(check["pending_owner"]),
+                f"{name}: unfinished work needs reason/next action and owner",
+            )
+        if result == "N/A":
+            require(
+                nonempty(check["reason"])
+                and check["evidence_sha"] is None
+                and check["pending_owner"] is None
+                and check["waiver"] is None,
+                f"{name}: N/A needs applicability reason, null execution SHA/owner/waiver",
+            )
+            require(coverage == "EXACT", f"{name}: assess N/A applicability at the current head")
+        elif result == "WAIVED":
+            require(nonempty(check["reason"]), f"{name}: waiver reason required")
+            waiver(check["waiver"])
+        else:
+            require(check["waiver"] is None, f"{name}: only WAIVED may carry waiver")
+        transitions = check.get("coverage_transitions", [])
+        require(isinstance(transitions, list), f"{name}: coverage_transitions must be array")
+        cursor = check["evidence_sha"]
+        for transition in transitions:
+            require(isinstance(transition, dict), f"{name}: invalid transition")
+            require(
+                sha(transition.get("from_sha")) and sha(transition.get("to_sha")), f"{name}: transition SHAs required"
+            )
+            require(transition["from_sha"] == cursor, f"{name}: discontinuous coverage chain")
+            require(
+                nonempty(transition.get("assessed_by")) and nonempty(transition.get("reason")),
+                f"{name}: assessment actor/reason required",
+            )
+            evidence(transition.get("evidence"), True)
+            cursor = transition["to_sha"]
+        if coverage == "DELTA_ASSESSED":
+            require(transitions and cursor == data["head_sha"], f"{name}: DELTA_ASSESSED must reach head_sha")
+        if coverage == "EXACT" and check["evidence_sha"] is not None:
+            require(check["evidence_sha"] == data["head_sha"], f"{name}: EXACT evidence SHA differs from head")
+    return data
+
+
+def prose(value):
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("|", "&#124;")
+        .replace("\r", "")
+        .replace("\n", "<br>")
+    )
+
+
+def render(data, observed):
+    lines = [
+        START,
+        "## Delivery record",
+        "",
+        f"Head: `{data['head_sha']}` · observed: {observed} · owner: {prose(data['record_owner'])} · risk: {data['risk']}",
+        "",
+        "Declared evidence; publication does not independently prove execution. Local evidence is unavailable to remote readers.",
+        "",
+        "### Policy",
+    ]
+    for key, value in data["policy"].items():
+        if key != "override":
+            lines.append(f"- {key}: {prose(value)}")
+    override = data["policy"]["override"]
+    lines.append("- override: " + (prose(json.dumps(override, ensure_ascii=False)) if override else "none declared"))
+    lines += [
+        "",
+        "| Check | Result / current coverage | Scope / actor | Evidence SHA | Reason / unfinished owner |",
+        "|---|---|---|---|---|",
+    ]
+    details = []
+    for name in CHECKS:
+        c = data["checks"][name]
+        disposition = " (pending coverage)" if c["coverage"] in ("STALE", "UNKNOWN") else ""
+        lines.append(
+            f"| {name} | {c['result']} / {c['coverage']}{disposition} | {prose(c['scope'])} / {prose(c.get('performed_by') or 'not declared')} | {c['evidence_sha'] or 'none (no execution claimed)'} | {prose(c['reason'] or 'none')} / {prose(c['pending_owner'] or 'none')} |"
+        )
+        if c.get("performed_at"):
+            details.append(f"\n{name} performed_at: {prose(c['performed_at'])}\n")
+        for e in c["evidence"]:
+            details.append(
+                f"\n- {name} evidence ({e['visibility']}{'; unavailable remotely' if e['visibility'] == 'local' else ''}): {prose(e['locator'])} — {prose(e['summary'])}"
+            )
+        for t in c.get("coverage_transitions", []):
+            details.append(f"\n- {name} transition: {prose(json.dumps(t, ensure_ascii=False))}")
+        if c["waiver"]:
+            details.append(f"\n- {name} waiver: {prose(json.dumps(c['waiver'], ensure_ascii=False))}")
+    lines += ["", *details, "", END]
+    return "\n".join(lines)
+
+
+def replace(body, block):
+    require(isinstance(body, str), "PR body unavailable")
+    require(body.count("<!-- ds-delivery-record:") == body.count(START) + body.count(END), "malformed managed markers")
+    require(body.count(START) == body.count(END) and body.count(START) <= 1, "malformed or duplicate managed markers")
+    if START not in body:
+        return body + ("\n\n" if body else "") + block
+    start, end = body.index(START), body.index(END)
+    require(start < end, "reversed managed markers")
+    return body[:start] + block + body[end + len(END) :]
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        print(
+            json.dumps(
+                {"status": "failed", "pr_url": None, "observed_sha": None, "published_sha": None, "error": message}
+            )
+        )
+        self.exit(1, f"ds-pr-delivery-record: {message}\n")
+
+
+def main():
+    parser = Parser(description=__doc__)
+    parser.add_argument("--repo", required=True)
+    parser.add_argument("--pr", required=True, type=int)
+    parser.add_argument("--input", required=True)
+    args = parser.parse_args()
+    observed_sha = None
+    url = None
+
+    def gh(*argv):
+        return subprocess.run(
+            ["gh", "pr", *argv, str(args.pr), "--repo", args.repo],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout
+
+    def view():
+        return json.loads(gh("view", "--json", "headRefOid,body,url"))
+
+    def matching(pr):
+        nonlocal observed_sha, url
+        observed_sha, url = pr["headRefOid"], pr["url"]
+        if observed_sha != data["head_sha"]:
+            raise HeadChanged("remote head changed; reassess and republish")
+
+    try:
+        require(re.fullmatch(r"[^/\s]+/[^/\s]+", args.repo) and args.pr > 0, "repo OWNER/REPO and positive PR required")
+        with open(args.input, encoding="utf-8") as stream:
+            data = validate(json.load(stream))
+        initial = view()
+        matching(initial)
+        try:
+            decision = json.loads(gh("view", "--json", "reviewDecision"))["reviewDecision"]
+            require(
+                decision in ("", None, "APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"), "unexpected reviewDecision"
+            )
+            data["policy"]["github_review_decision"] = decision or "NONE"
+        except (ValueError, KeyError, subprocess.SubprocessError):
+            data["policy"]["github_review_decision"] = "UNKNOWN"
+        observed = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        block = render(data, observed)
+        replace(initial["body"], block)
+        current = view()
+        matching(current)
+        if current["body"] != initial["body"]:
+            replace(current["body"], block)
+            latest = view()
+            matching(latest)
+            require(latest["body"] == current["body"], "body contention persists; retry after reconciling edits")
+        body = replace(current["body"], block)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".md") as stream:
+            stream.write(body)
+            stream.flush()
+            gh("edit", "--body-file", stream.name)
+        readback = view()
+        matching(readback)
+        require(readback["body"] == body, "published body readback mismatch")
+        print(
+            json.dumps(
+                {"status": "published", "pr_url": url, "observed_sha": observed_sha, "published_sha": data["head_sha"]}
+            )
+        )
+        return 0
+    except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as exc:
+        code = 2 if isinstance(exc, HeadChanged) else 1
+        print(
+            json.dumps(
+                {
+                    "status": "head_changed" if code == 2 else "failed",
+                    "pr_url": url,
+                    "observed_sha": observed_sha,
+                    "published_sha": None,
+                    "error": str(exc),
+                }
+            )
+        )
+        print(f"ds-pr-delivery-record: {exc}", file=sys.stderr)
+        return code
+
+
+class HeadChanged(ValueError):
+    pass
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -29,6 +29,19 @@
 - Skeptic rounds (tier):
 - Findings summary:
 
+<!-- ds-delivery-record:v1:start -->
+## Delivery record (provisional)
+
+Owner: <actual PR owner>. Remote SHA binding follows PR creation.
+- Human approval: PENDING — owner must establish actual approval policy/evidence.
+- Protocol review: PENDING — owner must collect applicable review evidence/exemptions.
+- CI: PENDING — owner/platform must observe current checks.
+- QA: PENDING — owner must collect scoped QA evidence/exemptions.
+- Human UAT: PENDING — owner must establish request/policy; N/A if neither requires it.
+
+Procedure: content/references/delivery-record.md
+<!-- ds-delivery-record:v1:end -->
+
 ## Related issues
 
 <!-- e.g. Closes #123, Refs #456 -->

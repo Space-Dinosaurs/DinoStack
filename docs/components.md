@@ -5,7 +5,7 @@
 - Code standards - documentation evidence, tool selection, reuse, quality gates, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
 - Conventions - writing style, project structure, session context, git workflow
 
-**Reference docs** (42 .md docs plus 3 example .yml files; `content/references/` is the authoritative list) - detailed protocol specs loaded on trigger:
+**Reference docs** (43 .md docs plus 3 example .yml files; `content/references/` is the authoritative list) - detailed protocol specs loaded on trigger:
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
 - Agent team - roles, composed flows, decision rules, spawn requirements
@@ -14,6 +14,7 @@
 - Multi-developer coordination - parallel sessions, branch and worktree hygiene
 - Regression test obligation - when a fix requires a regression test and what counts
 - Doc-sync obligation - when a reality-asserting change must update intent-layer docs in the same PR
+- Delivery record - SHA-bound human approval, protocol review, CI, QA and UAT declarations for team PRs
 - Capability preflight - pre-spawn dependency checks, advisory vs blocking mode
 - Capture classification - guardrail-first precedence for learning-capture decisions
 - Conductor operating rules - permission fallbacks, learnings pipeline, carve-outs
