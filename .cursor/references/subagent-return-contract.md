@@ -221,7 +221,7 @@ overflow, and is bounded by construction). It does NOT use Shape-2's
 true-adjacent numeric cap, fixed-length spec, or bounded-by-nature value
 literal forms - none of these apply to a single physical `Label: value`
 line the way they do to a multi-line schema leaf or report placeholder.
-`skeptic.md` is this shape under an additional constraint: its seven
+`skeptic.md` is this shape under an additional constraint: its six
 lines are validated verbatim by the conductor
 (`content/references/skeptic-protocol.md` Section 11;
 `content/commands/ds-skeptic.md:68`; `content/commands/ds-wrap.md:439,443`)

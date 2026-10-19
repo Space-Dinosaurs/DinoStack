@@ -353,7 +353,7 @@ CAP_RE = re.compile(
 # independently re-read and confirmed to carry a real structured return
 # under a "### N. Return" sub-step or "## Phase 6: Produce the Drift
 # Report" heading - not "no such section under any name"; skeptic.md's
-# seven conductor-validated Sign-off format lines were confirmed verbatim
+# six conductor-validated Sign-off format lines were confirmed verbatim
 # against content/commands/ds-skeptic.md:69 and
 # content/commands/ds-wrap.md:439,443.
 # Unit 4 (return-contract migration) moved dependency-auditor.md and
@@ -1616,7 +1616,7 @@ def test_shape3_goal_condition_evaluator_is_now_compliant():
 def test_shape3_skeptic_is_now_compliant():
     """Unit 1 (DS return-contract migration) added the additive
     finding-description cap sentence to skeptic.md's Calibration section
-    without touching any of its seven conductor-validated Sign-off format
+    without touching any of its six conductor-validated Sign-off format
     lines - skeptic.md is now fully Shape-3 compliant."""
     path = AGENTS_DIR / "skeptic.md"
     violations = check_contract(path.read_text(), "skeptic.md")

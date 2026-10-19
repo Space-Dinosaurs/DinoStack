@@ -4,7 +4,7 @@ CLI entry points (Python, Bash, and Node) that the dinostack
 methodology exposes as PATH-wired commands - the table below is a curated
 subset, not a full enumeration (see `ls bin/ds-*` for the live count).
 Each binary ships with a
-module-manifest docstring (Purpose / Public API / Upstream deps / Downstream
+header docstring (Purpose / Public API / Upstream deps / Downstream
 consumers / Failure modes / Performance) that is the authoritative description
 of that command. Read the binary itself for full detail; this file is the
 module-group map, not a duplicate of those manifests.

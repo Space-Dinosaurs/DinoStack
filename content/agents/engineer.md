@@ -36,9 +36,11 @@ That rule bars prose addressed to a requirement nobody asked for; this one bars 
 a reviewer - a comment survives the review, the reviewer does not, so never write one to settle a
 finding, pre-empt a round, or justify a fix. Every comment you add or change follows
 `content/rules/code-standards.md` §Code Comments: default to none, keep only the non-obvious "why"
-the code cannot express, and never delete a constraint (filler costs attention, whereas a deleted
-constraint costs correctness). Do not add header comments to files you touch, unless the repo's own
-`AGENTS.md` or `CONTRIBUTING.md` documents that header or docstring as required.
+the code cannot express, never delete a comment documenting a constraint that still holds, and fix
+or delete one your change makes false (filler costs attention, whereas a deleted constraint costs
+correctness). Do not add header comments to files you touch, unless they follow a header or
+docstring standard the repo documents or a tool enforces (`AGENTS.md`, `CONTRIBUTING.md`, a style
+guide, a lint rule, or docstrings a doc generator consumes).
 
 ## Reading your spawn prompt and required context
 

@@ -103,7 +103,7 @@ Required columns (non-visual variant - API surface, behavioral contract, or type
 
 Use Grep/Glob (or Bash `rg`/`grep` when those tools are unavailable) to enumerate every importer; do not stop at "the obvious 3-4". Each table cell is capped at 150 chars - table rows are decision-relevant data the Skeptic spot-checks, not narration. The Skeptic will spot-check that the importer count in the table matches a fresh `grep` count. "Engineer will figure out which consumers are affected at implementation time" is NOT an acceptable substitute - blast-radius reasoning is the architect's job by definition, and downstream engineers spawned with worktree isolation cannot see consumer-by-consumer context the architect failed to produce.
 
-**Plans add no steps for header or explanatory comments.** Code comments follow `content/rules/code-standards.md` §Code Comments; plan a comment only for a non-obvious constraint the change introduces.
+**Plans add no steps for header or explanatory comments.** Code comments follow `content/rules/code-standards.md` §Code Comments; plan a comment only for what the code cannot show (a non-obvious constraint, a workaround and its reason, an ownership split, a why).
 
 ### QA criteria [MECHANICAL, cap: 20 items]
 
