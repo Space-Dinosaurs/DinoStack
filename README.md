@@ -215,7 +215,7 @@ The per-project marker only has effect in combination with the global activation
 - `debugger_on_failure` - boolean, default `false`. Interposes a Debugger diagnosis step before each Phase 7 engineer fix pass on quality-gate failures (Elevated path only).
 - `qa_default_skip` - reserved; no-op. Documented for schema completeness; does not alter QA-gate behavior.
 - `model_profile` - enum (`default` | `budget`), default `"default"` (absent key resolves to `"default"`). `budget` passes a model one tier below each role's default; never applies to security-auditor, mandated-Tier-3 reviewers, or Plan+ADR-tier authoring.
-- `auto_merge_on_ci_green` - boolean, default `false`. When `true`, Phase 12 squash-merges the PR after CI passes, the PR is ready, and no reviewer has requested changes. Also governs an event-keyed follow-through rule covering ad-hoc work and CI-timeout auto-merge; full detail: `content/references/conventions-detail.md` §Auto-merge follow-through.
+- `auto_merge_on_ci_green` - boolean, default `false`. When `true`, Phase 12 squash-merges the PR after CI passes, the PR is ready, and no reviewer has requested changes. Each merge/new queue uses a published SHA-bound delivery record (`content/references/delivery-record.md`). Also governs an event-keyed follow-through rule covering ad-hoc work and CI-timeout auto-merge; full detail: `content/references/conventions-detail.md` §Auto-merge follow-through.
 - `capability_preflight_mode` - enum (`advisory` | `blocking`), default `blocking`. Controls whether a missing required agent dependency warns-and-proceeds or halts the spawn.
 - `perceptual_diff_enabled` - boolean, default `false`. Opt-in Playwright screenshot diff against committed baselines; raises auto-Major on drift.
 - `theme_aware` - boolean, default `false`. Opt-in per-theme QA tuples; qa-engineer runs scenarios in both light and dark themes.
@@ -273,7 +273,7 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Code standards - documentation evidence, tool selection, reuse, quality gates, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
 - Conventions - writing style and length discipline, project structure, session context, git workflow
 
-**Reference docs** (42 files) - detailed protocol specs loaded on trigger:
+**Reference docs** (43 files) - detailed protocol specs loaded on trigger:
 
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
@@ -284,6 +284,7 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Multi-developer coordination - parallel sessions, branch and worktree hygiene
 - Regression test obligation - when a fix requires a regression test and what counts
 - Doc-sync obligation - when a reality-asserting change must update intent-layer docs in the same PR
+- Delivery record - SHA-bound human approval, protocol review, CI, QA and UAT declarations for team PRs
 - Cross-harness agent teams - `ds-team` CLI, team.yml schema, cross-harness dispatch and collection
 - Evidence-on-disk - spill/sketch/rehydrate protocol for large worker tool outputs
 - Learnings capture instruction - what counts as a learning, the in-flight `ds-learning-shard append` path for the four roles it belongs to (`engineer`, `adr-generator`, `product-discovery`, `release-orchestrator`), and the `learnings_candidate[]` digest field for the three roles whose return contract declares it

@@ -747,7 +747,7 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 
 **Knowledge-strand sweep.** Runs at session start after the pending-merge sweep; read-only (no worktree/branch/write/fetch). Checks the same five-file set as `/ds-wrap` Part G for uncommitted changes versus `origin/<BASE_BRANCH>`, honoring `knowledge_commit_exclude` so an operator-excluded file is never surfaced; emits a non-blocking `KNOWLEDGE-STRAND:` notice pointing at `/ds-wrap` when found. See `content/references/conventions-detail.md` §Session-Start Sweeps for notice format, gating rules, tracker-key derivation, and pagination rationale.
 
-**Sibling-PR auto-merge sweep.** Runs at session start after the knowledge-strand sweep. Entirely inert (zero `gh` calls) unless `auto_merge_on_ci_green` is `true`; when enabled, rebases every other open, non-draft PR the agent owns (`gh pr list --author "@me"`) whose auto-merge is ALREADY enabled (`autoMergeRequest` non-null) but stuck `BEHIND` a moved `$BASE_BRANCH` - it never newly queues a PR's auto-merge, only unsticks one this mechanism (or the operator) already queued. See `content/references/conventions-detail.md` §Session-Start Sweeps -> "Sibling-PR auto-merge sweep" for the procedure and soft-fail contract.
+**Sibling-PR auto-merge sweep.** Runs at session start after the knowledge-strand sweep. Entirely inert (zero `gh` calls) unless `auto_merge_on_ci_green` is `true`; when enabled, rebases every other open, non-draft PR the agent owns (`gh pr list --author "@me"`) whose auto-merge is ALREADY enabled (`autoMergeRequest` non-null) but stuck `BEHIND` a moved `$BASE_BRANCH` - it never newly queues a PR's auto-merge, suspends auto-merge before rebasing and leaves it off pending the owning flow's refreshed evidence and guarded requeue. See `content/references/conventions-detail.md` §Session-Start Sweeps -> "Sibling-PR auto-merge sweep" for the procedure and soft-fail contract.
 
 **Session context.** **The read contract is unchanged: read `.agentic/context.md` as the first action of every session.** How it is produced changed: the Stop hook writes this session's own `.agentic/context.d/<session_id>.md` shard after every agent turn, and `.agentic/context.md` is then recomposed as a DERIVED ROLLUP of `.agentic/_wrap.md` (the curated region) plus the shard set. Nothing writes `context.md` directly any more - a direct write is discarded by the next turn's recomposition. Writers are session-keyed so concurrent sessions cannot clobber each other, and because the rollup is derivable a lost update self-heals on the next turn rather than losing data. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/ds-wrap` is available for richer on-demand summarization; it writes `_wrap.md`. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
@@ -837,9 +837,11 @@ git worktree add .agentic/worktrees/<branch-name> -b <branch-name> HEAD
 
 **Merging:** After Skeptic sign-off, subagent branches merge back into the conductor's current branch. The conductor's branch (not the individual subagent branch) then opens a PR into `main`. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
 
+**PR delivery records (all team PRs).** Follow `content/references/delivery-record.md`: provisional at creation, refresh after owner push/rebase and before merge/new queue; suspend queued head advancement first. Publish separate human approval, protocol review, CI, QA and UAT evidence with SHA coverage, reasons and unfinished owners. Every merge/new queue (including authorized `--admin`) requires successful publication and `--match-head-commit` using its published_sha; failure blocks that action. Existing approval authority and review/QA exemptions remain in force.
+
 **Merge-time tracker writeback.** An agent's own `gh pr merge` exiting 0 outside `/ds-implement-ticket` Phase 12 auto-merge fires `/ds-ticket-status-sync <TICKET_ID> --pr <PR_NUMBER> --no-confirm`. `--auto` exiting 0 means QUEUED, not merged, and does not fire it. Full: `content/references/conventions-detail.md` §Merge-Time Tracker Writeback.
 
-**Auto-merge follow-through.** Whenever an agent has opened a PR it owns against `$BASE_BRANCH` and `auto_merge_on_ci_green` is `true` in `.agentic/config.json`, IT un-drafts the PR if needed and queues `gh pr merge <N> --squash --delete-branch --auto`, re-drafting (`gh pr ready --undo`) ONLY IF IT performed that un-draft itself and the queue then fails - never touching a PR the operator had already marked ready, since "Allow auto-merge" may be off. This is the ad-hoc instruction, never gated on a particular command; Phase 10, Phase 12, and the sweep instantiate it unevenly - full breakdown: `content/references/conventions-detail.md` §Auto-merge follow-through. `--auto` exiting 0 means QUEUED, not merged. When the toggle is `false` (default), nothing fires and **a turn must state the PR's real state, never a future merge intention it has no mechanism to carry out**.
+**Auto-merge follow-through.** Whenever an agent has opened a PR it owns against `$BASE_BRANCH` and `auto_merge_on_ci_green` is `true` in `.agentic/config.json`, IT un-drafts the PR if needed and queues `gh pr merge <N> --match-head-commit <published_sha> --squash --delete-branch --auto`, re-drafting (`gh pr ready --undo`) ONLY IF IT performed that un-draft itself and the queue then fails - never touching a PR the operator had already marked ready, since "Allow auto-merge" may be off. The ad-hoc rule is never gated on a particular command; Phase 10, Phase 12 and the sweep differ - full detail: `content/references/conventions-detail.md` §Auto-merge follow-through. `--auto` exiting 0 means QUEUED, not merged. When the toggle is `false` (default), nothing fires and **a turn must state the PR's real state, never a future merge intention it has no mechanism to carry out**.
 
 **Cleanup:** retire or hold each carrier at completion (`ds-retire-carrier`; `content/references/worktree-lifecycle.md` §Carrier lifecycle by purpose). Between tasks, no completed carrier stays without a recorded hold.
 
@@ -2761,7 +2763,7 @@ Purpose: Detailed conventions reference blocks extracted from
          shape, Phase 10's timeout un-draft-then-queue procedure
          `@harness:phase10-timeout-auto-merge-queue` and its resume check
          `@harness:phase10-resume-auto-merge-check`, and the sibling-PR
-         sweep's never-newly-queues invariant; the short resident
+         sweep's suspend-before-rebase/leave-queue-off invariant; the short resident
          rule-statement lives in content/rules/conventions.md § Git
          Workflow);
          the Context Economy rules; and the External Comment Discipline
@@ -2776,7 +2778,8 @@ Public API: Read-only reference document. Cross-referenced from:
             content/rules/conventions.md (inline pointers replacing these
             verbose blocks).
 
-Upstream deps: content/rules/conventions.md (parent rules file; read that
+Upstream deps: content/references/delivery-record.md (publication/coverage contract);
+               content/rules/conventions.md (parent rules file; read that
                file first for Writing Style, Project Structure Convention,
                Session Context and Memory, and Git Workflow rules).
 
@@ -2908,9 +2911,9 @@ Then append each surfaced file's `<path>:<hash>` key to `.agentic/.knowledge-str
 
 Runs at session start, after the knowledge-strand sweep. Skip entirely - zero `gh` calls - unless `auto_merge_on_ci_green` is `true` in `.agentic/config.json` (same toggle "Phase 10 timeout call site" below and `content/commands/ds-implement-ticket.md` Phase 12's "Conditional auto-merge" already gate on). When the toggle is `false` (default), this sweep fires no behavior and states no merge intention.
 
-**This sweep never newly queues a PR.** It only unsticks a PR whose auto-merge is already enabled (`autoMergeRequest` is non-null - GitHub sets this the moment `gh pr merge --auto` or the repo's own merge-queue UI enables it) but has gone `BEHIND` because the base branch moved since it was queued: `--auto` alone does not rebase a stale branch, so a queued PR can sit stuck indefinitely without this sweep. A PR the agent never queued (`autoMergeRequest` null) is never touched, regardless of its `mergeStateStatus` - this is what keeps the blast radius bounded to PRs this same mechanism (or the operator, manually) already opted in, never every open PR the agent happens to own.
+**This sweep never newly queues a PR.** It suspends and rebases a PR whose auto-merge is already enabled (`autoMergeRequest` is non-null - GitHub sets this the moment `gh pr merge --auto` or the repo's own merge-queue UI enables it) but has gone `BEHIND` because the base branch moved since it was queued: `--auto` alone does not rebase a stale branch, so a queued PR can sit stuck indefinitely without this sweep. A PR the agent never queued (`autoMergeRequest` null) is never touched, regardless of its `mergeStateStatus` - this is what keeps the blast radius bounded to PRs this same mechanism (or the operator, manually) already opted in, never every open PR the agent happens to own.
 
-List every other open, non-draft PR the agent owns (`gh pr list --author "@me"`, capped at `--limit 100`; beyond that this sweep does not paginate) against `$BASE_BRANCH`, and for each PR whose `mergeStateStatus` is `BEHIND` and whose `autoMergeRequest` is already set, rebase it (ascending PR-number order, FIFO) to unstick the existing queue - never re-invoking `gh pr merge --auto`, since the queue already exists and re-triggering it is unnecessary. A `mergeStateStatus` of `UNKNOWN` (GitHub computes mergeability lazily) fails the `BEHIND` match and is silently skipped this pass, same as `CLEAN` or any other non-`BEHIND` value - not a distinct case. Word-splitting note: the loop below reads one PR number per line via `IFS= read -r`, not unquoted `for N in $VAR` - the latter is safe under bash but silently fails to split on newlines under zsh, collapsing a multi-line result into one malformed argument. Preconditions this block does not itself establish or guard: `$AUTO_MERGE_ON_CI_GREEN`, `$GH_REPO`, and `$BASE_BRANCH` are assumed already resolved per Setup (as at every other call site in this methodology), and a `jq` binary is assumed present on PATH (same assumption every other `jq`-consuming block here makes).
+List every other open, non-draft PR the agent owns (`gh pr list --author "@me"`, capped at `--limit 100`; beyond that this sweep does not paginate) against `$BASE_BRANCH`, and for each PR whose `mergeStateStatus` is `BEHIND` and whose `autoMergeRequest` is already set, suspend auto-merge, then rebase it (ascending PR-number order, FIFO). Leave the queue off pending refreshed coverage under `content/references/delivery-record.md`; the owning flow must publish/resolve before a guarded requeue. A `mergeStateStatus` of `UNKNOWN` (GitHub computes mergeability lazily) fails the `BEHIND` match and is silently skipped this pass, same as `CLEAN` or any other non-`BEHIND` value - not a distinct case. Word-splitting note: the loop below reads one PR number per line via `IFS= read -r`, not unquoted `for N in $VAR` - the latter is safe under bash but silently fails to split on newlines under zsh, collapsing a multi-line result into one malformed argument. Preconditions this block does not itself establish or guard: `$AUTO_MERGE_ON_CI_GREEN`, `$GH_REPO`, and `$BASE_BRANCH` are assumed already resolved per Setup (as at every other call site in this methodology), and a `jq` binary is assumed present on PATH (same assumption every other `jq`-consuming block here makes).
 
 ```bash
 # @harness:sibling-pr-sweep
@@ -2920,8 +2923,12 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
     STUCK_NUMBERS=$(echo "$SIBLING_PRS" | jq -r '[.[] | select(.mergeStateStatus == "BEHIND" and .isDraft == false and .autoMergeRequest != null) | .number] | sort | .[]')
     while IFS= read -r N; do
       [ -n "$N" ] || continue
+      if ! gh pr merge "$N" --repo "$GH_REPO" --disable-auto 2>/dev/null; then
+        echo "[phase: sibling-pr-sweep | pr=$N | result: suspension-failed-head-unchanged]"
+        continue
+      fi
       if gh pr update-branch "$N" --repo "$GH_REPO" --rebase 2>/dev/null; then
-        echo "[phase: sibling-pr-sweep | pr=$N | result: rebased-unstuck-queue]"
+        echo "[phase: sibling-pr-sweep | pr=$N | result: rebased-pending-coverage-queue-off | owner=owning-flow]"
       else
         echo "[phase: sibling-pr-sweep | pr=$N | result: rebase-failed]"
       fi
@@ -2930,17 +2937,19 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
 fi
 ```
 
-Soft-fail per PR - a single PR's rebase failure is reported and the sweep continues to the next PR; a single PR's failure never blocks the sweep or the rest of the session-start sequence. Rebasing does not itself merge anything or fire a tracker writeback; the session-start pending-merge sweep remains the sole mechanism that pushes the dev-complete transition once the already-queued merge actually lands.
+Soft-fail per PR - a single PR's rebase failure is reported and the sweep continues to the next PR; a single PR's failure never blocks the sweep or the rest of the session-start sequence. Rebasing does not itself merge anything or fire a tracker writeback; the session-start pending-merge sweep remains the sole mechanism that pushes the dev-complete transition once an owning flow resolves coverage, republishes, requeues and the merge actually lands. After rebase the owning flow must publish pending coverage at the new head per `content/references/delivery-record.md`; report that duty and continue the sweep.
 
 ## Auto-merge follow-through
 
 Parent rule: `content/rules/conventions.md` §Git Workflow ("Auto-merge follow-through") carries the trigger, the toggle-`false` honest-report duty, and the QUEUED-not-merged fact in resident form; the toggle-`true` reporting duty (name the queue as QUEUED, not the merge as done) is detail-only, stated in full just below. This section is the full mechanism; the two are one rule split by load tier, never two rules.
 
-**The trigger is the event, not a command.** Whenever an agent has opened a PR it owns against `$BASE_BRANCH` and `auto_merge_on_ci_green` is `true`, IT un-drafts the PR if needed and queues `gh pr merge <N> --squash --delete-branch --auto`, re-drafting (`gh pr ready --undo`) ONLY IF IT performed that un-draft itself and the queue attempt then fails - never touching a PR the operator had already marked ready - so a repo without "Allow auto-merge" enabled is never left stranded ready-for-review by IT's own action - this is the actionable instruction, and an ad-hoc session (conductor-orchestrated work, a bare `gh pr create`, multi-unit fan-out) follows it directly with no command precondition. It is not one mechanism, it is three, and they differ - the three sites, verified against the code (a shorter version of the same three-way distinction is also resident in `content/rules/conventions.md` § Git Workflow; several other project docs also describe this toggle's behavior and point back here - this section is the full detail, not the only description):
+**Delivery prerequisite (all three sites).** Collect/publish per `content/references/delivery-record.md` after creation, every owner push/rebase and immediately before merge/new queue. Suspend an existing queue before head advancement; failed suspension prevents advancement. Resolve applicable checks under existing authority and use only successfully published_sha as `--match-head-commit`, including authorized `--admin` requests. No unguarded retry or fresh-query substitute.
 
-1. **`/ds-implement-ticket` Phase 12's conditional auto-merge - immediate merge, drafts refused, `--auto` only on one narrow sub-branch.** Phase 12 requires `isDraft: false` before attempting anything (`auto-merge-skipped` otherwise) - it never un-drafts, because a draft never reaches this code. Its dominant branch is `gh pr merge <N> --squash --delete-branch` with **no** `--auto`: an immediate merge that fires tracker writeback (W7) on success. `--auto` appears only on the narrow sub-branch where Phase 11e just pushed a `chore(knowledge):` commit and CI is re-running for that reason alone - see Phase 12's own "Conditional auto-merge" section for that sub-branch's full detail; not restated here.
-2. **Phase 10's timeout handling - checks, un-drafts if needed, then queues `--auto`.** Unlike Phase 12, the PR here is EXPECTED to still be a draft on a fresh timeout (Phase 10b's un-draft never ran - it is conditional on Phase 10 result: `passed`) - but that is not a hard invariant: a resumed poll cycle, or an operator manually marking the PR ready between polls, can mean it is already non-draft by the time this block runs. The block checks `isDraft` at runtime rather than assuming, un-drafts only if that check says `true`, then queues `gh pr merge <N> --squash --delete-branch --auto`. Full procedure: "Phase 10 timeout call site (full procedure)" below.
-3. **The session-start sibling-PR sweep - never queues, only unsticks.** It rebases an open PR whose auto-merge is already enabled (by site 1 or 2, or by the operator manually) but stuck `BEHIND` a moved base; it never calls `gh pr merge` itself. See "Sibling-PR auto-merge sweep" above.
+**The trigger is the event, not a command.** Whenever an agent has opened a PR it owns against `$BASE_BRANCH` and `auto_merge_on_ci_green` is `true`, IT un-drafts the PR if needed and queues `gh pr merge <N> --match-head-commit <published_sha> --squash --delete-branch --auto`, re-drafting (`gh pr ready --undo`) ONLY IF IT performed that un-draft itself and the queue attempt then fails - never touching a PR the operator had already marked ready - so a repo without "Allow auto-merge" enabled is never left stranded ready-for-review by IT's own action - this is the actionable instruction, and an ad-hoc session (conductor-orchestrated work, a bare `gh pr create`, multi-unit fan-out) follows it directly with no command precondition. It is not one mechanism, it is three, and they differ - the three sites, verified against the code (a shorter version of the same three-way distinction is also resident in `content/rules/conventions.md` § Git Workflow; several other project docs also describe this toggle's behavior and point back here - this section is the full detail, not the only description):
+
+1. **`/ds-implement-ticket` Phase 12's conditional auto-merge - immediate merge, drafts refused, `--auto` only on one narrow sub-branch.** Phase 12 requires `isDraft: false` before attempting anything (`auto-merge-skipped` otherwise) - it never un-drafts, because a draft never reaches this code. Its dominant branch is `gh pr merge <N> --match-head-commit <published_sha> --squash --delete-branch` with **no** `--auto`: an immediate merge that fires tracker writeback (W7) on success. `--auto` appears only on the narrow sub-branch where Phase 11e just pushed a `chore(knowledge):` commit and CI is re-running for that reason alone - see Phase 12's own "Conditional auto-merge" section for that sub-branch's full detail; not restated here.
+2. **Phase 10's timeout handling - checks, un-drafts if needed, then queues `--auto`.** Unlike Phase 12, the PR here is EXPECTED to still be a draft on a fresh timeout (Phase 10b's un-draft never ran - it is conditional on Phase 10 result: `passed`) - but that is not a hard invariant: a resumed poll cycle, or an operator manually marking the PR ready between polls, can mean it is already non-draft by the time this block runs. The block checks `isDraft` at runtime rather than assuming, un-drafts only if that check says `true`, then queues `gh pr merge <N> --match-head-commit <published_sha> --squash --delete-branch --auto`. Full procedure: "Phase 10 timeout call site (full procedure)" below.
+3. **The session-start sibling-PR sweep - suspends, rebases and leaves queue off.** It suspends and rebases an open PR whose auto-merge is already enabled (by site 1 or 2, or by the operator manually) but stuck `BEHIND` a moved base; it never requests merge or enables a queue itself (its `--disable-auto` call only suspends). See "Sibling-PR auto-merge sweep" above.
 
 **Honest-report obligation.** When `auto_merge_on_ci_green` is `false` (default), nothing queues, and a turn must state the PR's real state - never a future merge intention it has no mechanism to carry out. "Next I merge those two once CI is green" describes an event nothing in the session will actually perform once the turn ends. When a queue was placed, `--auto` exiting 0 means QUEUED, not MERGED, and the report must say so, not claim the merge happened.
 
@@ -2951,12 +2960,16 @@ Called from `content/commands/ds-implement-ticket.md` Phase 10's Outcome routing
 ```bash
 # @harness:phase10-timeout-auto-merge-queue
 if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
+  DELIVERY_PUBLISHED_SHA=""
+  if DELIVERY_PUBLICATION=$(ds-pr-delivery-record --repo "$GH_REPO" --pr "$PR_NUMBER" --input "$DELIVERY_RECORD_INPUT"); then
+    DELIVERY_PUBLISHED_SHA=$(printf '%s' "$DELIVERY_PUBLICATION" | jq -er '.published_sha | select(type == "string" and length == 40 and test("^[0-9a-f]{40}$"))') || DELIVERY_PUBLISHED_SHA=""
+  fi
   WAS_DRAFT=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json isDraft -q .isDraft 2>/dev/null)
   UNDRAFTED_HERE=false
   if [ "$WAS_DRAFT" = "true" ]; then
     gh pr ready "$PR_NUMBER" --repo "$GH_REPO" 2>/dev/null && UNDRAFTED_HERE=true
   fi
-  if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch --auto 2>/dev/null; then
+  if [ -n "$DELIVERY_PUBLISHED_SHA" ] && gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch --auto 2>/dev/null; then
     echo "[phase: ci-wait | result: timeout | auto-merge-queued: true | pr=$PR_NUMBER]"
     AUTO_MERGE_QUEUED=true
   else
@@ -4009,6 +4022,226 @@ This section holds the forensic/mechanical detail behind the background-by-defau
 **Payload capture (2026-07-07).** The harness DOES pass `run_in_background` through to the PreToolUse hook payload for `Agent` spawns (confirmed by live payload capture 2026-07-07 - hook tool_input keys for an Agent spawn observed as `description`/`prompt`/`run_in_background`/`subagent_type`, correcting the earlier assumption that the field was stripped).
 
 **Asymmetric allow/deny mechanics.** `hooks/enforce-background-spawn.py` enforces background-by-default on both `Task` and `Agent`, with an asymmetric rule per tool: on `Agent`, only an explicit `run_in_background: false` is denied - an absent field allows (Agent already backgrounds by default at the harness level, so omitting it is the correct norm) and `true` also allows; on `Task` (legacy), only `run_in_background: true` allows - absent, `false`, or any non-boolean value denies. The hook retains two active responsibilities: (a) `run_in_background` enforcement for both `Task` and `Agent` per the asymmetric rule above, and (b) cross-harness teamrun-sentinel suppression for both `Task` and `Agent` when `.agentic/teamrun/.active` is live.
+
+---
+
+### delivery-record
+
+<!--
+Purpose: Canonical SHA-bound PR evidence and publication procedure.
+Public API: version 1 input to bin/ds-pr-delivery-record; DELIVERY_RECORD_INPUT
+            names the assessment JSON in executable calling examples.
+Upstream deps: actual project/GitHub policy, review findings, CI, QA and human evidence.
+Downstream consumers: ticket Phases 9/11d/11e/12, universal PR workflow,
+                      timeout queue, sibling sweep, PR template.
+Failure modes: missing evidence stays pending; failed publication blocks agent
+               merge/new queue. GitHub has no body CAS; no background watcher.
+Performance: one bounded publication per creation/head change/merge request.
+-->
+
+# PR delivery records
+
+Every team PR carries separate human approval, protocol review, CI, QA and human
+UAT declarations at the live remote `headRefOid`. The record is declared evidence,
+not independent proof of execution. This procedure catches a late push or rebase
+being merged under evidence from an earlier head. It remains a permanent
+publication floor; it introduces no GitHub required check or approval policy.
+
+## Collect and assess
+
+At PR creation include the provisional section below, then immediately collect
+and publish a SHA-bound provisional record after obtaining the PR number. For
+ticket flows use that ticket's keyed loop state, final findings log and QA
+artifacts. Preserve the three `## Review rigor` labels: `Brief / Plan path`,
+`Skeptic rounds (tier)`, `Findings summary`. Refresh their actual values when
+collecting final evidence. Missing logs mean unknown/pending, never zero findings.
+Valid Trivial/Low review and QA exemptions remain valid with concrete reasons.
+Keep the populated Review rigor section separate from the managed block.
+The advisory `pr-review-rigor.yml` check validates text presence only; its success
+does not prove execution, SHA coverage or evidence quality.
+
+Collect the five checks at the current remote SHA, not local HEAD. Each scope
+names actual checks/scenarios, their limitations and required follow-up. A local
+artifact needs a substantive summary in the public body; label its locator local
+and unavailable remotely. Screenshots substantiate only what they actually show.
+Review evidence includes round/tier, findings and unresolved exceptions. Preserve
+existing non-Critical cap and Minor-fix exceptions with their actual authority;
+Critical findings cannot be waived. Pending work always names who acts next and
+what they must do. Browser/agent testing is QA. UAT PASS identifies the actual
+human who accepted named scenarios. If UAT was neither requested nor required,
+use N/A with that applicability reason; otherwise leave it pending its human owner.
+
+Discover actual platform approval requirements and project protocol separately.
+`policy.source` cites where authority was established. Failed discovery means an
+explicit unknown explanation, never “no approval required.” A human approval PASS
+identifies the actual human, actual reviewed SHA and evidence; an agent's Skeptic
+sign-off does not fulfil GitHub APPROVED. The publisher independently observes
+GitHub's aggregate `reviewDecision` (empty => NONE, retrieval failure => UNKNOWN).
+That observation neither grants approval nor proves the declared human checked
+the current head. Honour configured requirements. An existing explicit project
+admin authorization may permit autonomous merge; record its actual authority and
+whether override is intended or already exercised in `policy.override.reason`.
+Refresh after an observed bypass when possible. Never invent authority for
+another project or impose a new human prerequisite on an already authorized path.
+This record does not change live settings, required CI or the existing review/QA
+floors and INCONCLUSIVE acceptance rules.
+
+## Version 1 input
+
+Run `ds-pr-delivery-record --repo OWNER/REPO --pr NUMBER --input FILE`.
+Its permanent compatibility symlink invokes the same helper. The JSON object
+contains `version: 1`, full lowercase 40-character `head_sha`, `record_owner`,
+`risk` (Trivial, Low, Elevated), `policy`, and `checks`.
+
+`policy` always contains nonempty `source`, `github_requirement`,
+`protocol_requirement` (actual requirements or explicit unknown explanations),
+`github_review_decision` (APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, NONE,
+UNKNOWN; overwritten with the live observation), and `override` (null or the
+waiver object below).
+
+`checks` has exactly `human_approval`, `protocol_review`, `ci`, `qa`, `uat`.
+Each contains all these fields:
+
+| Field | Meaning |
+|---|---|
+| result | PASS, FAIL, PENDING, INCONCLUSIVE, N/A, WAIVED |
+| scope | Nonempty actual scope/scenarios; WAIVED scope names the declared head |
+| coverage | EXACT, DELTA_ASSESSED, STALE, UNKNOWN |
+| evidence_sha | Actual execution/review SHA, or null when not executed/unknown |
+| evidence | Array of `{locator, visibility, summary}`; visibility public or local |
+| reason | Concrete applicability, uncertainty, waiver or next-action reason; otherwise null |
+| pending_owner | Actual unfinished-work owner; otherwise null |
+| waiver | Null except WAIVED; object `{authorized_by, authority, evidence, reason}` |
+
+`performed_by` is optional except PASS requires an actual actor. Human approval
+and UAT identify humans, not the recording agent. `performed_at` is optional;
+never invent a timestamp. Evidence summaries must substantiate the claimed scope.
+Waiver and override evidence arrays must be nonempty and cite existing authority;
+recording authority grants none.
+
+PASS requires nonempty evidence, actual actor, scope and execution SHA. FAIL needs
+evidence, reason and pending owner; use the execution SHA if known. PENDING and
+INCONCLUSIVE need reason and pending owner; include attempted evidence if
+available, and leave SHA null if never executed. N/A requires an applicability
+reason, null execution SHA, owner and waiver, and EXACT applicability assessment
+at this head. WAIVED requires reason and complete waiver, and may have null
+execution SHA. Non-WAIVED checks always have null waiver.
+
+Coverage is independent of historical result. After a head change retain PASS
+and its original evidence SHA but mark STALE until rerun or explicitly assessed.
+STALE/UNKNOWN always have reason/next action and owner; they are effectively
+pending coverage and cannot satisfy an applicable required merge/queue check.
+EXACT evidence uses the current head. DELTA_ASSESSED requires a nonempty
+`coverage_transitions` array (otherwise optional, default `[]`): each entry has
+`from_sha`, `to_sha`, `assessed_by`, nonempty evidence array and reason. The
+continuous chain starts at evidence_sha and ends at head_sha. Do not relabel old
+evidence with a new execution SHA.
+
+For metadata-only deltas, compare both exact SHAs and document why each affected
+check remains applicable. Behavioral deltas follow existing review/QA rules;
+rebases include base-context and conflict assessment. Unknown comparisons stay
+pending. An evidence SHA is not proof that the intervening changes were assessed.
+
+Example pending check (repeat for all five checks with their actual scopes):
+
+```json
+{"result":"PENDING","scope":"required CI at remote head","coverage":"UNKNOWN",
+ "evidence_sha":null,"evidence":[],"reason":"wait for platform checks",
+ "pending_owner":"PR owner and GitHub CI","waiver":null}
+```
+
+Bad: “QA PASS at new SHA” copied from an earlier browser run.
+Good: “QA PASS at original SHA, STALE; PR owner must assess the rebase before queue.”
+
+## Publish and consume
+
+The managed block uses `<!-- ds-delivery-record:v1:start -->` and
+`<!-- ds-delivery-record:v1:end -->`. Only that span is replaced. User prose,
+North Star, QA Evidence and Review rigor remain outside it. Malformed or duplicate
+markers fail visibly. The publisher fetches the remote head/body, observes review
+decision, rereads before editing and permits one fresh-body rebuild if the body
+changed, then fails if contention continues. It uses `gh pr edit --body-file`
+and reads back both head and body. No GitHub compare-and-swap exists: an
+unobserved simultaneous edit can still be lost. A racing record remains
+attributable to the SHA printed inside it; no future-head guarantee is made.
+
+Exit 0 means successful publication/readback at requested remote SHA. Exit 1 is
+validation/API/publication/readback failure; 2 is observed head movement. JSON
+stdout always includes `published_sha`: full requested SHA on success, null on
+failure, plus status, PR URL and observed SHA. Work can continue after failure,
+but agent merge/new queue must wait for resolved assessment and successful
+publication. Use the exit status AND validated published_sha, never a fresh query,
+observed_sha or local HEAD as a substitute. Prepare `DELIVERY_RECORD_INPUT` anew
+from current evidence immediately before this source block:
+
+```bash
+# @harness:delivery-record-publish
+DELIVERY_PUBLISHED_SHA=""
+if DELIVERY_PUBLICATION=$(ds-pr-delivery-record --repo "$GH_REPO" --pr "$PR_NUMBER" --input "$DELIVERY_RECORD_INPUT"); then
+  DELIVERY_PUBLISHED_SHA=$(printf '%s' "$DELIVERY_PUBLICATION" | jq -er '.published_sha | select(type == "string" and length == 40 and test("^[0-9a-f]{40}$"))') || DELIVERY_PUBLISHED_SHA=""
+fi
+```
+
+Every immediate merge or new auto-merge/queue request, including authorized
+`--admin` paths and sibling requeue, must use that successful publication cycle's
+SHA as `gh pr merge --match-head-commit "$DELIVERY_PUBLISHED_SHA"` along with
+existing authorized flags. No request if the SHA is empty. If publication/request
+fails or the head mismatches, reassess affected evidence/policy, republish and
+retry with the newly published SHA. Never retry with only a fresh queried SHA or
+omit the guard. This binds acceptance of the request, not later external pushes
+to an already accepted queue. CI may be PENDING in the normal GitHub queue with
+owner/platform dependency; required checks remain authoritative. Resolve other
+applicable required checks under existing authority before requesting merge.
+
+Universal/ad-hoc and sibling owning flows use the same publication block above,
+then this request block. Set `DELIVERY_MERGE_MODE` to immediate, auto, or admin
+only under the existing project authorization; admin means an immediate authorized
+bypass and must have its intended override recorded in policy first.
+
+```bash
+# @harness:delivery-record-merge
+if [ -n "$DELIVERY_PUBLISHED_SHA" ]; then
+  case "$DELIVERY_MERGE_MODE" in
+    immediate) gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch ;;
+    auto) gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch --auto ;;
+    admin) gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch --admin ;;
+  esac
+fi
+```
+
+## Head changes and queued work
+
+Refresh after every owner push/rebase, after ticket Phase 11e and immediately
+before merge/queue with current CI. Before advancing an already queued head,
+observe `autoMergeRequest` and successfully disable auto-merge via
+`gh pr merge --disable-auto`; if observation or disable fails, do not advance.
+Then push/rebase, collect a new record with uncovered checks pending (preserving
+original evidence SHAs), assess affected review/QA and only then requeue under
+existing authority using published_sha. The sibling sweep suspends before
+rebase and leaves the queue off, reports pending coverage and continues other
+PRs. Its owning flow must collect/publish/resolve before requeue. An external
+push stales the record; there is no watcher. Queue observations are at a named
+SHA/time, not promises of future applicability.
+
+Initial provisional PR body, before a remote binding exists:
+
+```markdown
+<!-- ds-delivery-record:v1:start -->
+## Delivery record (provisional)
+
+Owner: <actual PR owner>. Remote SHA binding follows PR creation.
+- Human approval: PENDING — owner must establish actual approval policy/evidence.
+- Protocol review: PENDING — owner must collect applicable review evidence/exemptions.
+- CI: PENDING — owner/platform must observe current checks.
+- QA: PENDING — owner must collect scoped QA evidence/exemptions.
+- Human UAT: PENDING — owner must establish request/policy; N/A if neither requires it.
+
+Procedure: content/references/delivery-record.md
+<!-- ds-delivery-record:v1:end -->
+```
+
+After creation replace the provisional section with the managed publication;
+never carry a stale provisional section alongside a final record.
 
 ---
 
@@ -9748,7 +9981,7 @@ recorded (the tool's ledger record) so it stays visible in a later session.
 
 ## Feature worktree cleanup commands
 
-Integration and feature checkouts retire at completion per §Carrier lifecycle by purpose. Merging is `gh pr merge <number> --squash --delete-branch`; that is the merge protocol, not a cleanup step.
+Integration and feature checkouts retire at completion per §Carrier lifecycle by purpose. Merging first requires the published delivery record in `content/references/delivery-record.md`, then `gh pr merge <number> --squash --delete-branch --match-head-commit "$DELIVERY_PUBLISHED_SHA"` using its validated `published_sha`; that is the merge protocol, not a cleanup step.
 
 Same-PR rework rounds (see §Round-N rework mechanic below) mean one persistent branch per ticket instead of `-rN` siblings that each needed their own worktree, so `-rN` proliferation should drop. This is unaffected by the squash-merge-defeats-prune hazard: the branch-gone-from-origin / four-layer subsumption predicate (§Branch prune below) remains the correct predicate for cleanup either way, and prune logic itself is untouched by this change.
 
@@ -10078,7 +10311,9 @@ mystery to investigate.
 
 ### Ship-with-teardown
 
-`gh pr ready <number>`, then `gh pr merge --squash --delete-branch`
+`gh pr ready <number>`, then publish the delivery record per
+`content/references/delivery-record.md` and use its validated `published_sha`:
+`gh pr merge <number> --squash --delete-branch --match-head-commit "$DELIVERY_PUBLISHED_SHA"`
 (`--admin` where required). Post the `tweak-release:` comment (or rely on
 the PR leaving the discovery set). **Teardown:** `--delete-branch` deletes
 the branch the visibility worktree (if any - see below) has checked out,
@@ -20657,6 +20892,8 @@ Use the existing Summary-first body and append QA evidence after PR creation.
 
 **`## North Star alignment` (binding, both cases).** Never leave `[pillar]` or `[trade-off]` literal - an unfilled placeholder counts as an absent section. With no `docs/overview/vision.md` in the ticket repo, fill the section `N/A - no docs/overview/vision.md in this repository`. With one, fill from the architect plan's pillars - including those cutting AGAINST the change, not only the supporting ones - or `N/A - <reason>` under the rule `.github/PULL_REQUEST_TEMPLATE.md` states for its own copy. Emit at `gh pr create` time, not a later `gh pr edit`: `--body-file` bypasses that template, which only populates web-UI PRs. `check-vision-alignment` gates this on the DinoStack repo; elsewhere it may not gate at all.
 
+Set `DELIVERY_RECORD_OWNER` to the actual PR owner before either body variant.
+
 ```bash
 if [ "$UNIT_IS_BEHAVIOR_VISIBLE" = "true" ] && [ "${#QA_EVIDENCE_URLS[@]}" -gt 0 ]; then
   # Case A: behavior-visible unit - lead with QA Evidence so reviewers see runtime confirmation first
@@ -20682,6 +20919,19 @@ if [ "$UNIT_IS_BEHAVIOR_VISIBLE" = "true" ] && [ "${#QA_EVIDENCE_URLS[@]}" -gt 0
 
 - Pillar(s) advanced (see docs/overview/vision.md): [pillar]
 - Trade-off or pillar this could regress, if any: [trade-off, or "none identified"]
+
+<!-- ds-delivery-record:v1:start -->
+## Delivery record (provisional)
+
+Owner: $DELIVERY_RECORD_OWNER. Remote SHA binding follows PR creation.
+- Human approval: PENDING — owner must establish actual approval policy/evidence.
+- Protocol review: PENDING — owner must collect applicable review evidence/exemptions.
+- CI: PENDING — owner/platform must observe current checks.
+- QA: PENDING — owner must collect scoped QA evidence/exemptions.
+- Human UAT: PENDING — owner must establish request/policy; N/A if neither requires it.
+
+Procedure: content/references/delivery-record.md
+<!-- ds-delivery-record:v1:end -->
 
 ## Test plan
 - [ ] [step 1]
@@ -20714,6 +20964,19 @@ else
 - Pillar(s) advanced (see docs/overview/vision.md): [pillar]
 - Trade-off or pillar this could regress, if any: [trade-off, or "none identified"]
 
+<!-- ds-delivery-record:v1:start -->
+## Delivery record (provisional)
+
+Owner: $DELIVERY_RECORD_OWNER. Remote SHA binding follows PR creation.
+- Human approval: PENDING — owner must establish actual approval policy/evidence.
+- Protocol review: PENDING — owner must collect applicable review evidence/exemptions.
+- CI: PENDING — owner/platform must observe current checks.
+- QA: PENDING — owner must collect scoped QA evidence/exemptions.
+- Human UAT: PENDING — owner must establish request/policy; N/A if neither requires it.
+
+Procedure: content/references/delivery-record.md
+<!-- ds-delivery-record:v1:end -->
+
 ## Test plan
 - [ ] [step 1]
 - [ ] [step 2]
@@ -20735,7 +20998,7 @@ fi
 
 For `TRACKER=none`, omit the tracker reference block line and drop the `[TICKET_PREFIX]-NNN:` prefix from `--title`.
 
-Capture the PR number from the URL printed by `gh pr create`.
+Capture the PR number from the URL printed by `gh pr create`. Immediately collect and publish the provisional remote-SHA record per `content/references/delivery-record.md`; keep pending checks owned.
 
 ### Ticket-rework ledger write
 
@@ -20745,7 +21008,7 @@ Capture the PR number from the URL printed by `gh pr create`.
 - `REWORK_DETECTION` is `false`.
 - `TICKET_ID` is null or empty (pure-freeform work has nothing to key a ledger record on).
 
-**`pr_number` is derived at the write site, never read from `$PR_NUMBER`.** `$PR_NUMBER` is an in-context variable that is not reset between tickets in a batch; a failed `gh pr create` on ticket 2 would leave ticket 1's number in it and record the wrong PR against ticket 2. Derive it live from the currently-resolved `$BRANCH_NAME` using the same `gh pr view` lookup pattern Phase 11d uses. If the derivation yields nothing, skip the write - a record with no PR number is not a record. `$BRANCH_NAME` is a lookup key only; it is recorded in the `branch` field for forensics and is never an identity key (see `content/references/ticket-rework.md` §`pr_number` as the sole identity key).
+**`pr_number` is derived at the write site, never read from `$PR_NUMBER`.** `$PR_NUMBER` is an in-context variable that is not reset between tickets in a batch; a failed `gh pr create` on ticket 2 would leave ticket 1's number in it and record the wrong PR against ticket 2. Derive it live from the currently-resolved `$BRANCH_NAME` using `gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number`. If the derivation yields nothing, skip the write - a record with no PR number is not a record. `$BRANCH_NAME` is a lookup key only; it is recorded in the `branch` field for forensics and is never an identity key (see `content/references/ticket-rework.md` §`pr_number` as the sole identity key).
 
 **One line, one `write()`.** The record is appended as a single `O_APPEND` write of one complete line. Never compose the line from multiple appends - the offset-atomicity guarantee that makes a lockless append safe is per-`write()`-call, not per-logical-record. There is no write-time lock and no read-before-write; all deduplication happens on read, keyed on `pr_number`.
 
@@ -21173,68 +21436,17 @@ Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|
 
 ---
 
-## Phase 11d: Review-rigor PR-body evidence (soft-fail)
+## Phase 11d: Delivery record and Review rigor
 
-**This is an INDEPENDENT top-level phase - it does not depend on any wrap-ticket return field.** Most tickets produce no `MEMORY.md`/`decisions.md` appends - this phase fires regardless, on every PR where Phase 9 ran, whether or not wrap-ticket captured anything.
-
-**Trigger:** runs after Phase 11b. Skip entirely when Phase 9 was skipped (no PR was opened).
-
-**Purpose:** appends a `## Review rigor` section to the PR body recording the Brief/Plan path, Skeptic round count and tier, and the final findings tally, so a reviewer can see review depth without reconstructing it from `loop-state-$LOOP_KEY.json` or the session transcript.
-
-**Ordering dependency:** this step reads `.agentic/loop-state-$LOOP_KEY.json` `loop_state.findings_log` in its final (all-closed) state, set by Phase 6 Step 3's clean-exit auto-close - so it must run AFTER that, not necessarily before Phase 12 (Phase 12's write is read-modify-write and preserves `findings_log` unchanged; see Phase 12's own note). Phase 11d happens to precede Phase 12 in phase order regardless (see the Phase 11b trigger note above).
-
-**Ticket scoping (closes a pre-existing latent bug).** The five `jq` reads below had **no ticket scoping at all** before per-ticket keying: they read one shared `.agentic/loop-state.json`, so in a batch they reported whichever ticket last wrote it. Every PR's `## Review rigor` section could therefore attribute another ticket's round count, tier, and findings tally to this ticket, with no gate able to fail on it. Reading `.agentic/loop-state-$LOOP_KEY.json` scopes them to this ticket by construction. Every read stays soft-fail (`2>/dev/null` plus a literal default) - an absent keyed file yields the same `n/a` / `0` defaults as before, never an error.
-
-```bash
-# Phase 11d: Review-rigor PR-body evidence (soft-fail)
-# BRIEF_PATH / ARCHITECT_PLAN_PATH are the shell-variable form of the conductor's in-context
-# brief_path / architect_plan_path state (the same values passed to wrap-ticket's Phase 11b
-# spawn inputs above) - "n/a" when absent, matching the existing $BRANCH_NAME / $GH_REPO pattern.
-
-# Gate 1: PR resolvability only.
-RR_PR_NUMBER=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number 2>/dev/null || true)
-
-if [ -n "$RR_PR_NUMBER" ]; then
-  RR_EXISTING_BODY=$(gh pr view "$RR_PR_NUMBER" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
-
-  # Gate 2: idempotency - skip if body already has a filled contract line.
-  if ! printf '%s' "$RR_EXISTING_BODY" | grep -qE '^- (Brief / Plan path|Skeptic rounds \(tier\)|Findings summary):[[:space:]]*[^[:space:]]'; then
-    RR_BRIEF_OR_PLAN="n/a - single-unit Elevated"
-    if [ -n "$BRIEF_PATH" ] && [ "$BRIEF_PATH" != "n/a" ]; then
-      RR_BRIEF_OR_PLAN="$BRIEF_PATH"
-    elif [ -n "$ARCHITECT_PLAN_PATH" ] && [ "$ARCHITECT_PLAN_PATH" != "n/a" ]; then
-      RR_BRIEF_OR_PLAN="$ARCHITECT_PLAN_PATH"
-    fi
-
-    TIER_DISPLAY=$(jq -r 'if (.loop_state | has("tier")) then (.loop_state.tier|tostring) else "2 (default, undeclared)" end' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo "2 (default, undeclared)")
-    ROUNDS=$(jq -r '.loop_state.iteration // "n/a"' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo "n/a")
-
-    # Findings tally: count final findings_log entries by severity (all should be status:closed here).
-    RR_CRITICAL=$(jq '[.loop_state.findings_log[]? | select(.severity=="Critical")] | length' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo 0)
-    RR_MAJOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Major")] | length' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo 0)
-    RR_MINOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Minor")] | length' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo 0)
-    if [ "${RR_CRITICAL:-0}" = "0" ] && [ "${RR_MAJOR:-0}" = "0" ] && [ "${RR_MINOR:-0}" = "0" ]; then
-      RR_FINDINGS_SUMMARY="No findings"
-    else
-      RR_FINDINGS_SUMMARY="Critical: ${RR_CRITICAL:-0}, Major: ${RR_MAJOR:-0}, Minor: ${RR_MINOR:-0}"
-    fi
-
-    RR_APPEND_FILE="/tmp/review-rigor-pr-body-$$"
-    {
-      printf '\n\n## Review rigor\n\n'
-      printf -- '- Brief / Plan path: %s\n' "$RR_BRIEF_OR_PLAN"
-      printf -- '- Skeptic rounds (tier): %s (Tier: %s)\n' "$ROUNDS" "$TIER_DISPLAY"
-      printf -- '- Findings summary: %s\n' "$RR_FINDINGS_SUMMARY"
-    } > "$RR_APPEND_FILE"
-
-    printf '%s%s' "$RR_EXISTING_BODY" "$(cat "$RR_APPEND_FILE")" > "/tmp/review-rigor-full-body-$$"
-    gh pr edit "$RR_PR_NUMBER" --repo "$GH_REPO" --body-file "/tmp/review-rigor-full-body-$$" 2>/dev/null || true
-    rm -f "$RR_APPEND_FILE" "/tmp/review-rigor-full-body-$$" 2>/dev/null || true
-  fi
-fi
-```
-
-**Failure semantics:** every step soft-fails (`|| true` / `2>/dev/null`). A missing `gh`, an unresolvable PR, or a malformed `loop-state-$LOOP_KEY.json` never blocks Phase 12. Does NOT write `loop-state-$LOOP_KEY.json`.
+Independent of wrap-ticket; run after Phase 11b whenever Phase 9 created a PR.
+Collect this ticket's actual review/findings, QA, CI, human approval policy and
+UAT evidence per `content/references/delivery-record.md`. Populate/refresh the
+three Review rigor labels (Brief / Plan path, Skeptic rounds (tier), Findings
+summary) from the keyed loop state; missing findings stay unknown, never default
+to “No findings.” Preserve applicable exemptions with reasons. Publish the
+SHA-bound managed record using `DELIVERY_RECORD_INPUT`. Repeat after Phase 11e
+and immediately before any merge/new queue. Publication failure leaves work open
+but blocks agent merge/new queue until resolved; knowledge capture stays soft-fail.
 
 ---
 
@@ -21262,7 +21474,7 @@ A successful push leaves the operator's LOCAL `$BRANCH_NAME` one commit behind `
 
 **Portability.** The block is written for both bash and zsh. zsh does not word-split unquoted expansions, so no list is ever built by splitting a variable; `awk` receives `$BRANCH_NAME` via `-v` rather than `ENVIRON[...]` (the variable is conductor-substituted, not exported, so `ENVIRON` resolves empty under both shells); and no variable is named `path` or `status`, both of which collide with zsh specials.
 
-**Absolute soft-fail.** Nothing in Phase 11e can block Phase 12 or fail the ticket. The block contains zero `exit` statements by contract; every failure branch prints a warning and continues.
+**Absolute soft-fail for knowledge capture.** Nothing in Phase 11e fails the ticket; unresolved delivery publication still blocks merge/new queue under the canonical procedure. The block contains zero `exit` statements by contract; every failure branch prints a warning and continues.
 
 **Candidate set**, in this fixed order: `MEMORY.md`, `decisions.md`, `.agentic/learnings.md`, `AGENTS.md`, `.agentic/tracking.md`. **There is no path-prefix floor.** A categorical refusal to touch anything under `.agentic/*` is precisely the defect that made this phase's deleted predecessor ship zero commits - `.agentic/learnings.md` is a first-class candidate here.
 
@@ -21686,8 +21898,20 @@ else
               echo "WARNING: [phase: knowledge-commit] commit-tree failed - skipping knowledge commit."
               KC_STATUS="commit-failed"
             else
-              KC_PUSH_ERR=$(git -C "$REPO" push origin "${KC_SHA}:refs/heads/${BRANCH_NAME}" 2>&1 >/dev/null)
-              if [ $? -eq 0 ]; then
+              KC_QUEUE=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json autoMergeRequest 2>/dev/null)
+              KC_CAN_PUSH=false
+              if printf '%s' "$KC_QUEUE" | jq -e 'has("autoMergeRequest")' >/dev/null 2>&1; then
+                if [ "$(printf '%s' "$KC_QUEUE" | jq -r '.autoMergeRequest == null')" = "true" ] || gh pr merge "$BRANCH_NAME" --repo "$GH_REPO" --disable-auto; then
+                  KC_CAN_PUSH=true
+                fi
+              fi
+              KC_PUSH_OK=false
+              if [ "$KC_CAN_PUSH" = "true" ]; then
+                KC_PUSH_ERR=$(git -C "$REPO" push origin "${KC_SHA}:refs/heads/${BRANCH_NAME}" 2>&1 >/dev/null) && KC_PUSH_OK=true
+              else
+                KC_PUSH_ERR="queue observation/suspension failed; head unchanged"
+              fi
+              if [ "$KC_PUSH_OK" = "true" ]; then
                 KC_STATUS="committed"
                 # files_committed is populated HERE and ONLY here.
                 KC_JSON_FILES="$KC_JSON_STAGED"
@@ -21718,7 +21942,9 @@ ds-emit knowledge_commit - "${TICKET_ID:--}" "{\"site\":\"phase-11e\",\"status\"
 
 **CI interaction.** With `auto_merge_on_ci_green: false` (the default) there is no interaction to reason about: the PR stays open, CI re-runs against the new tip, and the human merges when it is green. With `auto_merge_on_ci_green: true`, Phase 12 re-derives the knowledge-commit condition from `gh` and queues GitHub's own auto-merge, which completes only once the checks are green.
 
-**The honest residual: Phase 10a cannot re-fire.** By the time Phase 11e runs, Phases 10b, 11, 11b, and 11d have all executed, and nothing revisits the CI-wait phase. If the knowledge commit turns a required check red, no phase notices and the PR is left red for a human to resolve. Three things bound the exposure and none of them eliminates it: the commit touches at most five markdown files; the `NOTE:` line above announces the re-run at the moment it happens; and `knowledge_commit_on_pr: false` disables the phase outright. A "re-enter Phase 10a" loop was considered and rejected as out of scope - it would need its own iteration cap, a convergence short-circuit, and an escalation path, which is a feature of its own rather than a clause of this one.
+**Delivery refresh (binding).** After this block, collect/publish the new remote-head record per `content/references/delivery-record.md`, retaining original review/QA evidence SHAs with pending coverage until assessed. Leave any suspended queue off until applicable checks are resolved and a guarded request succeeds.
+
+**CI after the late push.** Phase 10a does not re-fire. Final delivery collection observes current CI before any merge/new queue; unresolved results remain owned. GitHub's required checks govern an accepted queue. There is no background monitor for later failures; report the current state rather than promise a future merge. `knowledge_commit_on_pr: false` still disables this phase.
 
 **Per-unit attribution is out of reach and is not attempted.** Fan-out unit branches are merged and `git branch -d`'d at the Phase 5/6 boundary, before Phase 6 fires; `findings_log` entries carry no unit tag; and neither `wrap-ticket` nor `learning-extractor` accepts a unit identifier. What Phase 11e delivers is therefore per-**ticket** attribution. The minimal change that would make per-unit attribution possible - propagate the orchestration planner's per-unit slug into each per-unit Skeptic `findings_log` entry as a `unit` field, and add a `unit` key to `learning-extractor`'s LRN schema - is recorded here as a separate ticket's scope, not built as part of this phase.
 
@@ -21743,6 +21969,10 @@ rm -f .agentic/qa.md.snapshot-<ticket_id> 2>/dev/null || true
 ```bash
 # @harness:phase12-auto-merge
 if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
+  DELIVERY_PUBLISHED_SHA=""
+  if DELIVERY_PUBLICATION=$(ds-pr-delivery-record --repo "$GH_REPO" --pr "$PR_NUMBER" --input "$DELIVERY_RECORD_INPUT"); then
+    DELIVERY_PUBLISHED_SHA=$(printf '%s' "$DELIVERY_PUBLICATION" | jq -er '.published_sha | select(type == "string" and length == 40 and test("^[0-9a-f]{40}$"))') || DELIVERY_PUBLISHED_SHA=""
+  fi
   PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json isDraft,mergeable,reviewDecision 2>/dev/null)
   IS_DRAFT=$(echo "$PR_STATE" | jq -r '.isDraft')
   MERGEABLE=$(echo "$PR_STATE" | jq -r '.mergeable')
@@ -21757,9 +21987,9 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
     *)                    KC_KNOWLEDGE_PUSHED=false ;;
   esac
 
-  if [ "$IS_DRAFT" = "false" ] && [ "$MERGEABLE" = "MERGEABLE" ] && [ "$REVIEW_DECISION" != "CHANGES_REQUESTED" ]; then
+  if [ -n "$DELIVERY_PUBLISHED_SHA" ] && [ "$IS_DRAFT" = "false" ] && [ "$MERGEABLE" = "MERGEABLE" ] && [ "$REVIEW_DECISION" != "CHANGES_REQUESTED" ]; then
     if [ "$KC_KNOWLEDGE_PUSHED" = "true" ]; then
-      if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch --auto 2>/dev/null; then
+      if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch --auto 2>/dev/null; then
         echo "[phase: auto-merge-queued | pr=$PR_NUMBER | reason=knowledge-commit-ci-rerun]"
         # W7 does NOT fire: --auto exiting 0 means QUEUED, not MERGED. The
         # dev-complete transition is pushed by the session-start pending-merge
@@ -21774,7 +22004,7 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
       else
         echo "[phase: auto-merge-deferred | pr=$PR_NUMBER | reason=knowledge-commit-ci-rerun - merge when checks are green]"
       fi
-    elif gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch 2>/dev/null; then
+    elif gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch 2>/dev/null; then
       echo "[phase: auto-merged | pr=$PR_NUMBER]"
       # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
       # with target_state: $TRACKER_STATE_DEV_COMPLETE, forward_only_guard: true.

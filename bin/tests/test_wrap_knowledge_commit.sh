@@ -94,10 +94,10 @@ fi
 # 3. The Review-rigor step must exist under its NEW phase label and must no
 #    longer say "Phase 11c" anywhere in ds-implement-ticket.md (reusing 11c
 #    would falsify ticket-rework.md's Trivial-path claim - see spec item 16).
-if grep -qF '## Phase 11d: Review-rigor PR-body evidence (soft-fail)' "$IMPLEMENT_TICKET"; then
+if grep -qF '## Phase 11d: Delivery record and Review rigor' "$IMPLEMENT_TICKET"; then
   _pass "Review-rigor promoted to its own '## Phase 11d' heading"
 else
-  _fail "'## Phase 11d: Review-rigor PR-body evidence (soft-fail)' not found in $IMPLEMENT_TICKET - the promoted top-level heading is missing or mislabeled."
+  _fail "'## Phase 11d: Delivery record and Review rigor' not found in $IMPLEMENT_TICKET - the promoted top-level heading is missing or mislabeled."
 fi
 
 COUNT_11C=$(grep -c '11c' "$IMPLEMENT_TICKET" || true)

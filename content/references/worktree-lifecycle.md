@@ -166,7 +166,7 @@ recorded (the tool's ledger record) so it stays visible in a later session.
 
 ## Feature worktree cleanup commands
 
-Integration and feature checkouts retire at completion per §Carrier lifecycle by purpose. Merging is `gh pr merge <number> --squash --delete-branch`; that is the merge protocol, not a cleanup step.
+Integration and feature checkouts retire at completion per §Carrier lifecycle by purpose. Merging first requires the published delivery record in `content/references/delivery-record.md`, then `gh pr merge <number> --squash --delete-branch --match-head-commit "$DELIVERY_PUBLISHED_SHA"` using its validated `published_sha`; that is the merge protocol, not a cleanup step.
 
 Same-PR rework rounds (see §Round-N rework mechanic below) mean one persistent branch per ticket instead of `-rN` siblings that each needed their own worktree, so `-rN` proliferation should drop. This is unaffected by the squash-merge-defeats-prune hazard: the branch-gone-from-origin / four-layer subsumption predicate (§Branch prune below) remains the correct predicate for cleanup either way, and prune logic itself is untouched by this change.
 
@@ -496,7 +496,9 @@ mystery to investigate.
 
 ### Ship-with-teardown
 
-`gh pr ready <number>`, then `gh pr merge --squash --delete-branch`
+`gh pr ready <number>`, then publish the delivery record per
+`content/references/delivery-record.md` and use its validated `published_sha`:
+`gh pr merge <number> --squash --delete-branch --match-head-commit "$DELIVERY_PUBLISHED_SHA"`
 (`--admin` where required). Post the `tweak-release:` comment (or rely on
 the PR leaving the discovery set). **Teardown:** `--delete-branch` deletes
 the branch the visibility worktree (if any - see below) has checked out,

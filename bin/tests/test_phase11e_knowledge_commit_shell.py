@@ -118,6 +118,12 @@ def _script(fixture: git_fixture.Fixture, block: str | None = None) -> str:
 
 
 def _run(fixture: git_fixture.Fixture, shell: str, block: str | None = None):
+    stub_dir = fixture.repo_dir.parent / ".delivery-test-bin"
+    stub_dir.mkdir(exist_ok=True)
+    gh = stub_dir / "gh"
+    gh.write_text('#!/bin/sh\nprintf \'%s\\n\' \'{"autoMergeRequest":null}\'\n')
+    gh.chmod(0o755)
+    fixture.env["PATH"] = str(stub_dir) + os.pathsep + fixture.env["PATH"]
     return subprocess.run(
         [shell, "-c", _script(fixture, block)],
         cwd=str(fixture.repo_dir),
@@ -1076,34 +1082,13 @@ esac
 exit 1
 """
 
-_JQ_STUB = r"""#!/bin/sh
-exec python3 -c '
-import sys, json
-flt = sys.argv[1]
-default = None
-if "//" in flt:
-    flt, default = flt.split("//", 1)
-    flt, default = flt.strip(), default.strip().strip("\"")
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    print(default if default is not None else "null"); raise SystemExit(0)
-value = data.get(flt.lstrip("."))
-if value is None:
-    value = default if default is not None else "null"
-if isinstance(value, bool):
-    value = "true" if value else "false"
-print(value)
-' "$2"
-"""
-
-
 def _phase12_env(tmp_path: Path, **overrides: str) -> tuple[dict[str, str], Path]:
     bin_dir = tmp_path / "gh-stub-bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     log_path = bin_dir / "gh-argv.log"
     log_path.write_text("", encoding="utf-8")
-    for name, body in (("gh", _GH_STUB.replace("__LOG__", str(log_path))), ("jq", _JQ_STUB)):
+    for name, body in (("gh", _GH_STUB.replace("__LOG__", str(log_path))),
+                       ("ds-pr-delivery-record", '#!/bin/sh\nprintf \'%s\\n\' \'{"published_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}\'\n')):
         stub = bin_dir / name
         stub.write_text(body, encoding="utf-8")
         stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)

@@ -139,6 +139,9 @@ def _gh_stub_env(tmp_path: Path, **overrides: str) -> tuple[dict, Path]:
     stub = bin_dir / "gh"
     stub.write_text(_GH_STUB.replace("__LOG__", str(log_path)), encoding="utf-8")
     stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    publisher = bin_dir / "ds-pr-delivery-record"
+    publisher.write_text('#!/bin/sh\nprintf \'%s\\n\' \'{"published_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}\'\n')
+    publisher.chmod(0o755)
     env = dict(os.environ)
     env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
     env.update(overrides)
@@ -448,7 +451,7 @@ def test_resume_when_already_merged_skips_without_a_second_merge_call(tmp_path, 
     _assert_completed(result)
 
     argv = _gh_argv(log_path)
-    assert [c for c in argv if c[:2] == ["pr", "merge"]] == [], (
+    assert [c for c in argv if c[:2] == ["pr", "merge"] and "--disable-auto" not in c] == [], (
         f"no gh pr merge call is permitted on the resume-check path: {argv}"
     )
     views = [c for c in argv if c[:2] == ["pr", "view"]]
@@ -592,9 +595,8 @@ def test_sibling_sweep_never_newly_queues_an_unqueued_behind_pr(tmp_path, shell)
 @pytest.mark.parametrize("shell", SHELLS)
 def test_sibling_sweep_unsticks_only_an_already_queued_behind_pr(tmp_path, shell):
     """Positive control for the assertion above, and confirms the sweep
-    NEVER re-invokes `gh pr merge` (it only rebases to unstick an existing
-    queue). Mutation this catches: re-adding a `gh pr merge --auto` call
-    after the rebase, which would be a redundant re-queue at best."""
+    suspends before rebasing and leaves the queue off. A new merge or queue
+    request must wait for the owning flow to refresh coverage."""
     shell = _shell_or_skip(shell)
     _require_jq()
     pr_list_json = (
@@ -612,11 +614,11 @@ def test_sibling_sweep_unsticks_only_an_already_queued_behind_pr(tmp_path, shell
     argv = _gh_argv(log_path)
     rebases = [c for c in argv if c[:2] == ["pr", "update-branch"]]
     assert [c[2] for c in rebases] == ["7"], argv
-    assert [c for c in argv if c[:2] == ["pr", "merge"]] == [], (
-        f"the sweep must never call gh pr merge - it only unsticks an "
+    assert [c for c in argv if c[:2] == ["pr", "merge"] and "--disable-auto" not in c] == [], (
+        f"the sweep must never enable a queue - it only suspends an "
         f"existing queue: {argv}"
     )
-    assert "pr=7" in result.stdout and "rebased-unstuck-queue" in result.stdout, result.stdout
+    assert "pr=7" in result.stdout and "rebased-pending-coverage-queue-off" in result.stdout, result.stdout
 
 
 @pytest.mark.parametrize("shell", SHELLS)
