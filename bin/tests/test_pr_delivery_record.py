@@ -1,4 +1,10 @@
-"""Execute the publisher and calling Markdown against a persistent fake GitHub."""
+"""Purpose: Exercise the publisher and calling Markdown against a persistent fake GitHub.
+Public API: pytest-discovered test cases and the github fixture.
+Upstream deps: pytest, Python stdlib, lib.md_shell_extract, publisher CLI and calling Markdown.
+Downstream consumers: bin-tests CI and local pytest runs.
+Failure modes: assertion failures or subprocess timeouts; GitHub state stays in temporary files.
+Performance: subprocess-backed cases; no network calls.
+"""
 
 import copy
 import json
@@ -183,6 +189,28 @@ def test_publish_refresh_preserves_body_and_local_scope(github):
     assert proc.returncode == 0
     assert state_get(github)["body"].count(START) == 1
     assert state_get(github)["body"].count(END) == 1
+
+
+@pytest.mark.parametrize("result", ["FAIL", "INCONCLUSIVE"])
+def test_attempted_check_with_unknown_sha_rendering(github, result):
+    data = record()
+    check = passed()
+    check.update(
+        result=result,
+        coverage="UNKNOWN",
+        evidence_sha=None,
+        reason="Execution attempted; checked SHA unavailable",
+        pending_owner="PR owner",
+    )
+    data["checks"]["qa"] = check
+    proc, publication = publish(github, data)
+    assert proc.returncode == 0, proc.stderr
+    assert publication["published_sha"] == A
+    body = state_get(github)["body"]
+    qa_row = next(line for line in body.splitlines() if line.startswith("| qa |"))
+    assert f"| qa | {result} / UNKNOWN (pending coverage)" in qa_row
+    assert "none (not executed or SHA unknown)" in qa_row
+    assert "none (no execution claimed)" not in body
 
 
 @pytest.mark.parametrize(

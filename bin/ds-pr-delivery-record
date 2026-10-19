@@ -175,7 +175,7 @@ def render(data, observed):
         c = data["checks"][name]
         disposition = " (pending coverage)" if c["coverage"] in ("STALE", "UNKNOWN") else ""
         lines.append(
-            f"| {name} | {c['result']} / {c['coverage']}{disposition} | {prose(c['scope'])} / {prose(c.get('performed_by') or 'not declared')} | {c['evidence_sha'] or 'none (no execution claimed)'} | {prose(c['reason'] or 'none')} / {prose(c['pending_owner'] or 'none')} |"
+            f"| {name} | {c['result']} / {c['coverage']}{disposition} | {prose(c['scope'])} / {prose(c.get('performed_by') or 'not declared')} | {c['evidence_sha'] or 'none (not executed or SHA unknown)'} | {prose(c['reason'] or 'none')} / {prose(c['pending_owner'] or 'none')} |"
         )
         if c.get("performed_at"):
             details.append(f"\n{name} performed_at: {prose(c['performed_at'])}\n")
