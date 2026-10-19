@@ -274,6 +274,47 @@ def test_merged_input_marker_counts_after_the_grace_period(tmp_path, capsys, mon
     assert capsys.readouterr().out.strip() == ""
 
 
-def test_results_counts_top_level_results_since_the_offset(tmp_path, capsys):
-    log = [RESULT, assistant("x"), dict(RESULT, parent_tool_use_id="nested"), RESULT]
-    assert guarded(tmp_path, capsys, log, mode="results", marker_offset=1) == "1 4"
+NOTIFIED = dict(RESULT, origin=dict(kind="task-notification", producer="session-task"))
+PEER = dict(RESULT, origin=dict(kind="peer", name="conductor"))
+
+
+def backdate(tmp_path):
+    log = tmp_path / "lane.jsonl"
+    os.utime(log, (log.stat().st_atime - 5, log.stat().st_mtime - 5))
+
+
+def test_pending_counts_only_stdin_answers_since_the_offset(tmp_path, capsys):
+    log = [RESULT, assistant("x"), dict(RESULT, parent_tool_use_id="nested"), NOTIFIED, PEER, RESULT]
+    assert guarded(tmp_path, capsys, log, mode="pending", marker_offset=1, results_needed=2) == "1 6"
+    assert guarded(tmp_path, capsys, log, mode="pending", marker_offset=1, results_needed=1) == "0 6"
+
+
+def test_notification_results_do_not_answer_a_queued_send(tmp_path, capsys, monkeypatch):
+    # The queued send's own turn has not run: an unmarked stdin answer, then a notification
+    # turn that prints the marker.
+    log = [assistant("ack"), RESULT, assistant("LANE-DONE from a notification turn"), NOTIFIED]
+    monkeypatch.setenv("DS_LANE_MIDTURN_GRACE_S", "1")
+    assert guarded(tmp_path, capsys, log, results_needed=2) == ""
+    assert guarded(tmp_path, capsys, log, mode="pending", results_needed=2) == "1 4"
+
+
+def test_notification_results_cannot_strand_a_marked_lane(tmp_path, capsys, monkeypatch):
+    # The send merged into the marked running turn; a notification turn followed. Counting the
+    # notification result as an answer left the lane alive forever.
+    log = [assistant("LANE-DONE merged"), RESULT, assistant("noted"), NOTIFIED]
+    monkeypatch.setenv("DS_LANE_MIDTURN_GRACE_S", "1")
+    assert guarded(tmp_path, capsys, log, results_needed=2) == ""
+    backdate(tmp_path)
+    runtime.events(str(tmp_path / "lane.meta"), "marker")
+    assert capsys.readouterr().out.strip() == "done"
+    runtime.events(str(tmp_path / "lane.meta"), "pending")
+    assert capsys.readouterr().out.strip() == "0 4"
+
+
+def test_marker_from_a_notification_turn_counts_once_inputs_are_answered(tmp_path, capsys):
+    finished_by_notification = [RESULT, assistant("LANE-DONE task finished"), NOTIFIED]
+    assert guarded(tmp_path, capsys, finished_by_notification) == "done"
+    stale = [RESULT, assistant("LANE-DONE before the follow-up"), NOTIFIED, assistant("ack"), RESULT]
+    assert guarded(tmp_path, capsys, stale, results_needed=2) == ""
+    answered = stale + [assistant("LANE-DONE follow-up done"), PEER]
+    assert guarded(tmp_path, capsys, answered, results_needed=2) == "done"

@@ -87,9 +87,10 @@
 #   (the detached opener `start`/`resume` fork), `__close-tab <own-tty>
 #   <conductor-tty> <tab-log>` (the detached closer a watch tab forks),
 #   `__autoclose <name> <pid> <run-dir>` (the per-lane sentinel launch
-#   forks), and `__close-locked <name> <done|any|close|stop>` and
-#   `__send-locked <name> <text>` (the halves of the sentinel, reap, close,
-#   stop and send that run under run/<name>.lock; run dir from DS_LANE_RUN_DIR).
+#   forks), and `__close-locked <name> <done|any|close|stop|exited|reap-exited>`
+#   and `__send-locked <name> <text>` (the halves of the sentinel, reap, close,
+#   stop, send and exited-lane status writes that run under run/<name>.lock;
+#   run dir from DS_LANE_RUN_DIR).
 #   run/<name>.tab.log lines, tmux viewer: `opened: tmux` then `focus:
 #   untouched (detached tmux window <window id> lane-<name> in session
 #   <session id>)`, or one of `tab skipped: <not inside tmux|no tmux|tmux
@@ -162,12 +163,15 @@
 #   blocked: alive/up until exit, dead/down after. Native Windows detachment
 #   is unsupported. Tabs are optional and never fail a successful launch.
 #   The marker guard: a marker without its turn's result, or from a turn
-#   before the last input sent, closes and reports nothing; when queued input
-#   merges into the running turn (fewer results than inputs) it counts only
-#   after DS_LANE_MIDTURN_GRACE_S of a quiet log ending in a result. Locking:
+#   before the one that answered the last input sent, closes and reports
+#   nothing. Only results without `origin` answer stdin input (background-task
+#   notification and peer turns carry it). When queued input merges into a
+#   running turn (fewer answers than inputs, and no other trace in the stream)
+#   the marker counts only after DS_LANE_MIDTURN_GRACE_S of a quiet log ending
+#   in a result. Locking:
 #   send, close, stop and the sentinel's close serialize on run/<name>.lock, a
 #   flock held only by a python process (no lane or sentinel inherits it) and
-#   re-checked under it; send, close and stop wait 10 s then refuse `lane
+#   re-checked under it, as are the exit status writes of routine commands; send, close and stop wait 10 s then refuse `lane
 #   '<n>' is busy`, the sentinel and reap skip and retry. Residual: with
 #   DS_LANE_BG_CEILING_MS=0 a closed done or blocked lane whose background
 #   tasks still run stays PROC up and holds its slot; `stop` is the remedy.
@@ -298,9 +302,8 @@ count_live() {
       n=$((n + 1))
     else
       lane_harness "$name" > /dev/null || exit 1
-      rm -f "$f"
-      kill_feeder "$name"
-      persist_exit "$name"
+      # Under the lane lock, like every lane status write; a busy lock leaves it to a later call.
+      lane_locked "$name" 1 __close-locked "$name" exited > /dev/null || true
     fi
   done
   echo "$n"
@@ -441,9 +444,10 @@ converge() { # converge [exempt]
   echo "$n"
 }
 
-# The lock-holding half of close_marked (done|any), cmd_close (close) and cmd_stop (stop). For
-# done|any it re-checks everything and exits 3 when there is nothing to close.
-close_locked() { # close_locked <name> <done|any|close|stop>
+# The lock-holding half of close_marked (done|any), cmd_close (close), cmd_stop (stop), and the
+# exited-lane writes of count_live and cmd_list (exited) and cmd_reap (reap-exited). Every mode
+# but close and stop re-checks under the lock and exits 3 when there is nothing to do.
+close_locked() { # close_locked <name> <done|any|close|stop|exited|reap-exited>
   local name="$1" mode="$2" state pid
   case "$mode" in
     done|any)
@@ -478,6 +482,23 @@ close_locked() { # close_locked <name> <done|any|close|stop>
       meta_set "$name" status stopped
       meta_set "$name" end_epoch "$(date +%s)"
       ;;
+    exited)
+      ! is_live_lane "$name" || exit 3
+      rm -f "$RUN_DIR/$name.pid"
+      kill_feeder "$name"
+      persist_exit "$name"
+      ;;
+    reap-exited)
+      [[ -f "$RUN_DIR/$name.pid" ]] || exit 3
+      ! is_live_lane "$name" || exit 3
+      capture_session "$name"
+      state="$(lane_marker "$name")"
+      meta_set "$name" status "${state:-dead}"
+      rm -f "$RUN_DIR/$name.pid"
+      kill_feeder "$name"
+      meta_set "$name" end_epoch "$(file_mtime "$RUN_DIR/$name.jsonl" || date +%s)"
+      echo "${state:-dead}"
+      ;;
     *) die "unknown close mode '$mode'" ;;
   esac
 }
@@ -492,19 +513,16 @@ send_refusals() { # send_refusals <name>
 }
 
 # The lock-holding half of cmd_send. Re-checks the lane, records in results_needed how many
-# top-level results answer every input sent so far, then writes the message.
+# stdin-answering results this input and those still unanswered need, then writes the message.
 send_locked() { # send_locked <name> <text>
-  local name="$1" text="$2" counts results lines needed
+  local name="$1" text="$2" counts pending lines
   send_refusals "$name"
   is_live_lane "$name" || die "lane '$name' is not running; use 'ds-lane resume $name <text>'"
   is_live_feeder "$name" || die "lane '$name' has no open input channel (closed, or started by another launcher)"
-  counts="$(python3 "$RUNTIME_HELPER" events "$RUN_DIR/$name.meta" results)" || exit 1
-  results="${counts% *}"
+  counts="$(python3 "$RUNTIME_HELPER" events "$RUN_DIR/$name.meta" pending)" || exit 1
+  pending="${counts% *}"
   lines="${counts#* }"
-  needed="$(meta_get "$name" results_needed)"
-  [[ "$needed" =~ ^[1-9][0-9]*$ ]] || needed=1
-  if (( needed > results )); then needed=$(( needed - results + 1 )); else needed=1; fi
-  meta_set "$name" results_needed "$needed"
+  meta_set "$name" results_needed "$(( pending + 1 ))"
   meta_set "$name" marker_offset "$lines"
   meta_set "$name" status running
   write_input "$name" "$text"
@@ -542,13 +560,8 @@ cmd_reap() {
     [[ -e "$f" ]] || continue
     name="$(basename "$f" .pid)"
     if ! is_live_lane "$name"; then
-      capture_session "$name"
-      state="$(lane_marker "$name")"
-      meta_set "$name" status "${state:-dead}"
-      rm -f "$RUN_DIR/$name.pid"
-      kill_feeder "$name"
-      meta_set "$name" end_epoch "$(file_mtime "$RUN_DIR/$name.jsonl" || date +%s)"
-      echo "reaped $name (${state:-dead}): exited"
+      state="$(lane_locked "$name" 1 __close-locked "$name" reap-exited)" || continue
+      echo "reaped $name ($state): exited"
       n=$((n + 1))
       continue
     fi
@@ -738,7 +751,9 @@ cmd_list() { # cmd_list [name...]
       proc="up"; state="alive"
     else
       proc="down"; state="dead"
-      persist_exit "$name"
+      if [[ "$(meta_get "$name" status)" == running ]] || lane_fatal "$name"; then
+        lane_locked "$name" 1 __close-locked "$name" exited > /dev/null || true
+      fi
     fi
     marker="$(lane_marker "$name")"
     if [[ -n "$marker" ]]; then state="$marker"; fi

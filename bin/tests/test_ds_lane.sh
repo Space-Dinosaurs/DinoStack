@@ -422,6 +422,16 @@ wait "$stop_pid"
 wait_until 10 proc_gone ls
 lane list ls > /dev/null
 check "a stop racing the sentinel's close ends stopped" meta_is ls status stopped
+# An exited lane's status is persisted under the lane lock, so it waits out a locked write.
+start_idle px
+hold_lock "$RUN/px.lock" "$TMP/px.held" "$TMP/px.release"
+kill -9 "$(cat "$RUN/px.pid")" "$(cat "$RUN/px.tailpid")" 2> /dev/null
+wait_until 10 proc_gone px
+lane count > /dev/null
+check "count does not persist an exit while the lane lock is held" eq "$(meta_value px status)|$(test -e "$RUN/px.pid" && echo pid)" 'running|pid'
+touch "$TMP/px.release"
+lane list px > /dev/null
+check "the exit is persisted once the lock is free" eq "$(meta_value px status)|$(test -e "$RUN/px.pid" && echo pid)" 'dead|'
 
 # --- wait ---
 wait_rc() { cat "$TMP/$1.rc" 2> /dev/null; }

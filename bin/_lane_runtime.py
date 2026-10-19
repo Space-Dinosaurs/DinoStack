@@ -2,10 +2,12 @@
 """Purpose: Resolve and validate ds-lane's saved harness runtime and backend events.
 Public API: Internal resolve, saved, events, and owns commands used by ds-lane.
     `events <meta> marker` (Claude) prints done/blocked only once a top-level result
-    follows the marker and results_needed results have arrived (or, with fewer, the
-    last top-level event is a result and the log has been quiet DS_LANE_MIDTURN_GRACE_S,
-    default 300). `events <meta> results` prints "<top-level results since
-    marker_offset> <complete log lines>" from one read.
+    follows the marker and the marker comes from the turn that answered the last of
+    results_needed stdin inputs, or a later turn (or, with fewer answers, once the
+    last top-level event is a result and the log has been quiet
+    DS_LANE_MIDTURN_GRACE_S, default 300: a merged input leaves no trace). Only
+    results without `origin` answer stdin input; notification and peer turns carry it. `events <meta> pending` prints "<inputs not yet
+    answered since marker_offset> <complete log lines>" from one read.
 Upstream deps: Python stdlib, ps; native Claude transcripts and Codex rollouts.
 Downstream consumers: bin/ds-lane, bin/tests/test_ds_lane.sh.
 Failure modes: Refuses unknown identity, policy, resources and process ownership.
@@ -360,21 +362,39 @@ def events(path, mode):
     def top_result(e):
         return e.get("type") == "result" and e.get("parent_tool_use_id") is None
 
+    def stdin_result(e):
+        # Background-task notifications and peer messages start turns of their own, and their
+        # results carry `origin`; only a result without it answers an input sent on stdin.
+        return top_result(e) and e.get("origin") is None
+
+    def needed():
+        return max(1, int(meta.get("results_needed") or "1"))
+
+    def quiet_after_result(events):
+        # A queued input runs as soon as the current turn ends, so a log quiet this long after a
+        # result has consumed every input, including one merged into a running turn (which gets
+        # no result of its own and leaves no other trace in the stream).
+        top = [e for e in events if e.get("parent_tool_use_id") is None]
+        grace = float(os.environ.get("DS_LANE_MIDTURN_GRACE_S") or "300")
+        return bool(top) and top_result(top[-1]) and time.time() - log.stat().st_mtime >= grace
+
     if mode == "fatal":
         print("1" if any(fatal(e) for e in current) else "0")
-    elif mode == "results":
-        # One read: the top-level result count since marker_offset and the complete-line count.
+    elif mode == "pending":
+        # One read: inputs not yet answered since marker_offset, and the complete-line count.
         data = log.read_bytes() if log.exists() else b""
         complete = data.split(b"\n")[:-1]
-        count = 0
+        events_since = []
         for line in complete[offset:]:
             try:
                 value = json.loads(line)
             except (json.JSONDecodeError, UnicodeDecodeError):
                 continue
-            if isinstance(value, dict) and top_result(value):
-                count += 1
-        print(count, len(complete))
+            if isinstance(value, dict):
+                events_since.append(value)
+        answered = sum(1 for e in events_since if stdin_result(e))
+        pending = 0 if answered >= needed() or quiet_after_result(events_since) else needed() - answered
+        print(pending, len(complete))
     elif mode == "marker":
         if any(fatal(e) for e in current):
             return
@@ -387,20 +407,17 @@ def events(path, mode):
                 elif line.startswith("LANE-BLOCKED"):
                     marker, marker_at = "blocked", index
         if marker and harness == "claude":
-            # A marker counts once its turn's result has arrived and every input sent so far has
-            # been answered; a send records how many results that takes in results_needed.
-            needed = max(1, int(meta.get("results_needed") or "1"))
-            results = [i for i, e in enumerate(current) if top_result(e)]
-            settled = (
-                len(results) >= needed
-                and results[-1] > marker_at
-                and (needed < 2 or marker_at > results[needed - 2])
-            )
-            if not settled and 0 < len(results) < needed and results[-1] > marker_at:
-                # Queued input merged into the running turn yields fewer results than inputs.
-                top = [e for e in current if e.get("parent_tool_use_id") is None]
-                grace = float(os.environ.get("DS_LANE_MIDTURN_GRACE_S") or "300")
-                settled = bool(top) and top_result(top[-1]) and time.time() - log.stat().st_mtime >= grace
+            # A marker counts once a top-level result ends its turn and it comes from the turn that
+            # answered the last input sent (results_needed counts those inputs), or a later turn,
+            # including a notification-started one.
+            ended = any(top_result(e) for e in current[marker_at + 1 :])
+            answers = [i for i, e in enumerate(current) if stdin_result(e)]
+            if len(answers) >= needed():
+                anchor = answers[needed() - 1]
+                turn_start = max((i for i in range(anchor) if top_result(current[i])), default=-1)
+                settled = ended and marker_at > turn_start
+            else:
+                settled = ended and quiet_after_result(current)
             if not settled:
                 marker = ""
         if marker:
