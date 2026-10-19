@@ -215,9 +215,10 @@ messages are delivered by `resume` after exit. Both support task markers,
 status, tail, reap, wait, stop and exact-session resume. Fatal backend events
 override completion markers; a successful turn alone is not task completion.
 A Claude lane closes its own input once its turn ends with `LANE-DONE`, so it
-exits and frees its slot with no command run; `LANE-BLOCKED` keeps it open.
-Routine commands reap first, `send` refuses a `done` lane (use `resume` after
-exit), and `wait <name>...` blocks until a named lane is done, blocked or dead.
+exits and frees its slot with no command run. Routine commands reap first,
+which also closes a `LANE-BLOCKED` lane's input, so its ruling goes by `resume`
+once it has exited. `send` refuses a `done` lane (use `resume` after exit), and
+`wait <name>...` blocks until a named lane is done, blocked or dead.
 
 Resume uses the original saved executable, config, cwd and permission context,
 even when another harness invokes it. Claude preserves its live permission

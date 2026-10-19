@@ -360,3 +360,17 @@ def test_a_started_turn_defeats_the_grace_period(tmp_path, capsys, started):
     log = [ended, RESULT] + BETWEEN_TURNS + started
     assert guarded(tmp_path, capsys, log, results_needed=2) == ""
     assert guarded(tmp_path, capsys, log, mode="pending", results_needed=2).split()[0] == "1"
+
+
+def test_consecutive_results_close_one_turn(tmp_path, capsys):
+    # One real turn ended in two results with no init between them (nd6dt, result_index 7 and 8).
+    turn = [INIT, assistant("LANE-DONE finished"), dict(NOTIFIED, result_index=7), dict(RESULT, result_index=8)]
+    assert guarded(tmp_path, capsys, turn) == "done"
+    assert guarded(tmp_path, capsys, [RESULT] + BETWEEN_TURNS + turn, results_needed=2) == "done"
+
+
+def test_grouped_results_still_end_at_a_turn_boundary(tmp_path, capsys):
+    earlier = [INIT, assistant("LANE-DONE before the follow-up"), RESULT]
+    later = [INIT, assistant("ack"), NOTIFIED, RESULT]
+    assert guarded(tmp_path, capsys, earlier + later, results_needed=2) == ""
+    assert guarded(tmp_path, capsys, earlier[1:] + later[1:], results_needed=2) == ""

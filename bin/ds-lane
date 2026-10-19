@@ -12,9 +12,11 @@
 #   Exit 0 on success, 1 on any refusal or error (message on stderr); `wait`
 #   alone also exits 2, at its ceiling.
 #   A live Claude lane closes its own input once its turn's top-level result
-#   follows LANE-DONE (a detached sentinel per lane; meta closed_by=autoclose);
-#   LANE-BLOCKED stays open. `start`, `resume`, `list`, `count`, `send` and
-#   `wait` first reap silently: they close every marked live Claude lane
+#   follows LANE-DONE (a detached sentinel per lane; meta closed_by=autoclose).
+#   The sentinel leaves a LANE-BLOCKED lane open, but the next reaping command
+#   closes it, so its ruling normally goes by `resume` once PROC is down.
+#   `start`, `resume`, `list`, `count`, `send` and `wait` first reap
+#   silently: they close every marked live Claude lane
 #   (`send` exempts its own target, so a ruling can still reach a live blocked
 #   lane). `send` refuses a done lane (`lane '<n>' is done; start a new lane,
 #   or resume it after it exits`) and a blocked lane whose input is closed
@@ -185,8 +187,10 @@
 #   DS_LANE_TAB_WAIT_S (default 8 s: a tab open with Cmd-T unanswered takes
 #   about 4.5 s) for the tab outcome; the lane is already running by then. Tab
 #   open runs detached and may wait DS_LANE_TAB_LOCK_WAIT_S for the lock.
-#   Sentinel, per idle lane: one kill -0 and one log size read per poll (2 s);
-#   about 3 python3 calls per log change, or every 30 s.
+#   Sentinel: per poll (2 s), one kill -0 and one log size read. On a pass
+#   where the log grew (every poll on a busy lane), or every 30 s, it also
+#   runs about 3 python3 calls, one of which parses the current run's log:
+#   about 0.11 s user CPU per pass on a 45 MB log (measured).
 #
 # Retirement: delete when supported harnesses supply native conductor lanes.
 # ---------------------------------------------------------------------------
@@ -477,7 +481,6 @@ close_locked() { # close_locked <name> <done|any|close|stop|exited|reap-exited>
   case "$mode" in
     done|any)
       { is_live_lane "$name" && is_live_feeder "$name"; } || exit 3
-      [[ "$(meta_get "$name" status)" != stopped ]] || exit 3
       state="$(lane_marker "$name")"
       case "$mode:$state" in done:done|any:done|any:blocked) ;; *) exit 3 ;; esac
       kill_feeder "$name"

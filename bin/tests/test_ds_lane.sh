@@ -414,6 +414,21 @@ check "the sentinel survives a busy lock" kill -0 "${lh_sentinel:-0}"
 touch "$TMP/lh.release"
 check "the sentinel closes the lane on a later pass" wait_until 10 meta_is lh closed_by autoclose
 wait_until 10 proc_gone lh
+# send re-checks under the lane lock: a lane that finishes while send waits for the lock is refused.
+start_idle sr
+kill "$(sentinel_of sr)" 2> /dev/null
+hold_lock "$RUN/sr.lock" "$TMP/sr.held" "$TMP/sr.release"
+before_in="$(shasum "$RUN/sr.in")"
+lane send sr "late input" > "$TMP/sr.out" 2>&1 &
+send_pid=$!
+check "send waits for a held lane lock after its unlocked checks" wait_until 10 pgrep -f -- "$RUN/sr.lock 10 "
+finish_by_append sr
+touch "$TMP/sr.release"
+wait "$send_pid"; rc=$?
+check "send refuses, under the lock, a lane that finished while it waited" died_with "$rc" "$(cat "$TMP/sr.out")" "lane 'sr' is done; start a new lane, or resume it after it exits"
+check "the send refused under the lock leaves .in unchanged" eq "$(shasum "$RUN/sr.in")" "$before_in"
+lane close sr > /dev/null
+wait_until 10 proc_gone sr
 start_idle ls
 hold_lock "$RUN/ls.lock" "$TMP/ls.held" "$TMP/ls.release"
 finish_by_append ls

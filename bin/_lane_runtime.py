@@ -314,7 +314,8 @@ def events(path, mode):
     meta = metadata(path)
     harness = harness_of(meta)
     log = Path(path).with_suffix(".jsonl")
-    values = list(records(log)) if log.exists() else []
+    # Only these modes read the whole log; the sentinel's marker check reads the current run only.
+    values = list(records(log)) if log.exists() and mode in ("session", "texts", "result") else []
     offset = int(meta.get("marker_offset", "0"))
     current = []
     if log.exists():
@@ -374,6 +375,24 @@ def events(path, mode):
     def top(e):
         return e.get("parent_tool_use_id") is None
 
+    def init(e):
+        return top(e) and e.get("type") == "system" and e.get("subtype") == "init"
+
+    def activity(e):
+        # Turn content: every turn opens with a top-level init, then assistant and user events.
+        return init(e) or (top(e) and e.get("type") in ("assistant", "user"))
+
+    def turn_start(end):
+        # Index just before the turn that ended with the result at <end>. One turn can end in
+        # several consecutive results (merged notifications), so results with no turn content
+        # between them share a turn; it starts at its init, else after the previous turn's results.
+        i = end - 1
+        while i >= 0 and not activity(current[i]):
+            i -= 1
+        while i >= 0 and not (init(current[i]) or top_result(current[i])):
+            i -= 1
+        return i
+
     def stamp(e):
         value = e.get("timestamp")
         try:
@@ -393,10 +412,7 @@ def events(path, mode):
         if not ends:
             return False
         after = events[ends[-1] + 1 :]
-        if any(
-            top(e) and (e.get("type") in ("assistant", "user") or (e.get("type") == "system" and e.get("subtype") == "init"))
-            for e in after
-        ):
+        if any(activity(e) for e in after):
             return False
         stamps = [t for t in (stamp(e) for e in events[: ends[-1]] if top(e)) if t is not None]
         ended_at = max(stamps) if stamps else log.stat().st_mtime
@@ -439,8 +455,7 @@ def events(path, mode):
             answers = [i for i, e in enumerate(current) if stdin_result(e)]
             if len(answers) >= needed():
                 anchor = answers[needed() - 1]
-                turn_start = max((i for i in range(anchor) if top_result(current[i])), default=-1)
-                settled = ended and marker_at > turn_start
+                settled = ended and marker_at > turn_start(anchor)
             else:
                 settled = ended and quiet_after_result(current)
             if not settled:
