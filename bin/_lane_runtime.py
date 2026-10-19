@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Purpose: Resolve and validate ds-lane's saved harness runtime and backend events.
 Public API: Internal resolve, saved, events, and owns commands used by ds-lane.
+    `events <meta> marker` (Claude) prints done/blocked only once a top-level result
+    follows the marker and results_needed results have arrived (or, with fewer, the
+    last top-level event is a result and the log has been quiet DS_LANE_MIDTURN_GRACE_S,
+    default 300). `events <meta> results` prints "<top-level results since
+    marker_offset> <complete log lines>" from one read.
 Upstream deps: Python stdlib, ps; native Claude transcripts and Codex rollouts.
 Downstream consumers: bin/ds-lane, bin/tests/test_ds_lane.sh.
 Failure modes: Refuses unknown identity, policy, resources and process ownership.
@@ -15,6 +20,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -351,19 +357,52 @@ def events(path, mode):
             )
         )
 
+    def top_result(e):
+        return e.get("type") == "result" and e.get("parent_tool_use_id") is None
+
     if mode == "fatal":
         print("1" if any(fatal(e) for e in current) else "0")
+    elif mode == "results":
+        # One read: the top-level result count since marker_offset and the complete-line count.
+        data = log.read_bytes() if log.exists() else b""
+        complete = data.split(b"\n")[:-1]
+        count = 0
+        for line in complete[offset:]:
+            try:
+                value = json.loads(line)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            if isinstance(value, dict) and top_result(value):
+                count += 1
+        print(count, len(complete))
     elif mode == "marker":
         if any(fatal(e) for e in current):
             return
-        marker = ""
-        for e in current:
+        marker, marker_at = "", -1
+        for index, e in enumerate(current):
             for line in text(e).splitlines():
                 line = line.lstrip(" \t*#>`")
                 if line.startswith("LANE-DONE"):
-                    marker = "done"
+                    marker, marker_at = "done", index
                 elif line.startswith("LANE-BLOCKED"):
-                    marker = "blocked"
+                    marker, marker_at = "blocked", index
+        if marker and harness == "claude":
+            # A marker counts once its turn's result has arrived and every input sent so far has
+            # been answered; a send records how many results that takes in results_needed.
+            needed = max(1, int(meta.get("results_needed") or "1"))
+            results = [i for i, e in enumerate(current) if top_result(e)]
+            settled = (
+                len(results) >= needed
+                and results[-1] > marker_at
+                and (needed < 2 or marker_at > results[needed - 2])
+            )
+            if not settled and 0 < len(results) < needed and results[-1] > marker_at:
+                # Queued input merged into the running turn yields fewer results than inputs.
+                top = [e for e in current if e.get("parent_tool_use_id") is None]
+                grace = float(os.environ.get("DS_LANE_MIDTURN_GRACE_S") or "300")
+                settled = bool(top) and top_result(top[-1]) and time.time() - log.stat().st_mtime >= grace
+            if not settled:
+                marker = ""
         if marker:
             print(marker)
     elif mode == "session":

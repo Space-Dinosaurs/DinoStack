@@ -8,7 +8,8 @@
 #          keep today's artifact). Also asserts the "launch" wiring: item 8
 #          names ds-lane, says so when ds-lane is not on PATH and names a
 #          missing session tool, ## Launched
-#          lanes names ds-lane doctor, ds-lane start and ds-lane reap, relays
+#          lanes names ds-lane doctor, ds-lane start, ds-lane reap and
+#          ds-lane wait, relays
 #          the tool's `fix:` lines and sets DS_LANE_NO_TAB=1 once doctor
 #          reports tabs unavailable, takes lane file paths from ds-lane path, states the queue
 #          rebuild rule and has no per-lane "open a new session" print, the State
@@ -111,7 +112,7 @@ launched="$(awk '/^## Launched lanes$/{in_l=1; next} in_l && /^## /{in_l=0} in_l
 if [[ -z "$launched" ]]; then
   _fail "$REF_PATH has no ## Launched lanes section"
 else
-  for cmd in 'ds-lane doctor' 'ds-lane start' 'ds-lane reap'; do
+  for cmd in 'ds-lane doctor' 'ds-lane start' 'ds-lane reap' 'ds-lane wait'; do
     if grep -qF "$cmd" <<<"$launched"; then
       _pass "## Launched lanes names $cmd"
     else

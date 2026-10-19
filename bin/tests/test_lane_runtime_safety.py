@@ -221,3 +221,59 @@ exec "'''
     assert result.returncode == 0, result.stderr
     assert "dead" in result.stdout and "down" in result.stdout
     assert runtime.metadata(run / "owned.meta")["status"] == "dead"
+
+
+def assistant(text):
+    return dict(type="assistant", parent_tool_use_id=None, message=dict(content=[dict(type="text", text=text)]))
+
+
+RESULT = dict(type="result", parent_tool_use_id=None, subtype="success", is_error=False)
+FATAL = dict(type="result", parent_tool_use_id=None, subtype="error_during_execution", is_error=True)
+
+
+def guarded(tmp_path, capsys, log, mode="marker", **meta):
+    path = tmp_path / "lane.meta"
+    write_meta(path, harness="claude", claude_bin="/bin/sh", **meta)
+    path.with_suffix(".jsonl").write_text("".join(json.dumps(e) + "\n" for e in log))
+    capsys.readouterr()
+    runtime.events(str(path), mode)
+    return capsys.readouterr().out.strip()
+
+
+def test_marker_needs_a_trailing_result(tmp_path, capsys):
+    assert guarded(tmp_path, capsys, [RESULT, assistant("LANE-DONE early")]) == ""
+    assert guarded(tmp_path, capsys, [RESULT, assistant("LANE-DONE ok"), RESULT]) == "done"
+    assert guarded(tmp_path, capsys, [assistant("LANE-BLOCKED why?"), RESULT]) == "blocked"
+
+
+def test_fatal_result_after_the_marker_suppresses_it(tmp_path, capsys):
+    assert guarded(tmp_path, capsys, [assistant("LANE-DONE ok"), FATAL]) == ""
+    assert guarded(tmp_path, capsys, [assistant("LANE-DONE ok"), RESULT, FATAL]) == ""
+
+
+def test_marker_before_the_last_needed_turn_is_ignored(tmp_path, capsys):
+    first_turn = [assistant("LANE-DONE first"), RESULT]
+    assert guarded(tmp_path, capsys, first_turn, results_needed=2) == ""
+    assert guarded(tmp_path, capsys, first_turn + [assistant("ack"), RESULT], results_needed=2) == ""
+    later = first_turn + [assistant("LANE-DONE second"), RESULT]
+    assert guarded(tmp_path, capsys, later, results_needed=2) == "done"
+
+
+def test_merged_input_marker_counts_after_the_grace_period(tmp_path, capsys, monkeypatch):
+    merged = [assistant("LANE-DONE merged"), RESULT]
+    monkeypatch.setenv("DS_LANE_MIDTURN_GRACE_S", "1")
+    assert guarded(tmp_path, capsys, merged, results_needed=2) == ""
+    log = tmp_path / "lane.jsonl"
+    os.utime(log, (log.stat().st_atime - 5, log.stat().st_mtime - 5))
+    runtime.events(str(tmp_path / "lane.meta"), "marker")
+    assert capsys.readouterr().out.strip() == "done"
+    with log.open("a") as stream:
+        stream.write(json.dumps(assistant("still going")) + "\n")
+    os.utime(log, (log.stat().st_atime - 5, log.stat().st_mtime - 5))
+    runtime.events(str(tmp_path / "lane.meta"), "marker")
+    assert capsys.readouterr().out.strip() == ""
+
+
+def test_results_counts_top_level_results_since_the_offset(tmp_path, capsys):
+    log = [RESULT, assistant("x"), dict(RESULT, parent_tool_use_id="nested"), RESULT]
+    assert guarded(tmp_path, capsys, log, mode="results", marker_offset=1) == "1 4"

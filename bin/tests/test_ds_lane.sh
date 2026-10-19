@@ -100,6 +100,13 @@ jq -cn --arg s "$sid" --arg c "$PWD" --arg m "$mode" '{type: "system", subtype: 
 while IFS= read -r line; do
   text="$(printf '%s' "$line" | jq -r '.message.content')"
   case "$text" in
+    # A turn still in progress: an assistant event, then its marker and result only once the test
+    # creates the release file.
+    *STUB-HOLD*)
+      jq -cn '{type: "assistant", parent_tool_use_id: null, message: {content: [{type: "text", text: "working"}]}}'
+      n=0
+      while [ ! -e "$STUB_LOG_DIR/release" ] && [ $n -lt 600 ]; do sleep 0.1; n=$((n + 1)); done
+      out="LANE-DONE held turn finished" ;;
     *STUB-FINISH*) out="LANE-DONE stub finished" ;;
     *STUB-BLOCK*) out="LANE-BLOCKED stub needs a decision" ;;
     *) out="ack" ;;
@@ -214,6 +221,35 @@ tab_line_is() { [[ "$(last_tab_line "$1")" == "$2" ]]; }
 tab_lines() { wc -l < "$RUN/$1.tab.log" 2> /dev/null | tr -d ' '; }
 tab_lines_above() { [[ "$(tab_lines "$1")" -gt "$2" ]]; }
 has_file() { [[ -s "$1" ]]; }
+meta_value() { sed -n "s/^$2=//p" "$RUN/$1.meta" | tail -n1; }
+meta_is() { [[ "$(meta_value "$1" "$2")" == "$3" ]]; }
+log_has() { grep -q -- "$2" "$RUN/$1.jsonl" 2> /dev/null; }
+results_are() { [[ "$(grep -c '"type":"result"' "$RUN/$1.jsonl" 2> /dev/null)" == "$2" ]]; }
+feeder_live() { local p; p="$(cat "$RUN/$1.tailpid" 2> /dev/null)" && [[ -n "$p" ]] && kill -0 "$p" 2> /dev/null; }
+proc_gone() { ! kill -0 "$(meta_value "$1" pid)" 2> /dev/null; }
+sentinel_of() { pgrep -f -- "__autoclose $1 [0-9]+ $RUN" | head -n1; }
+# Starts a lane and waits for its first turn's result, so events appended later follow it.
+start_idle() { lane start "$1" "$PROMPT" > /dev/null 2>&1; wait_until 10 log_has "$1" '"type":"result"'; }
+# Finishes a lane by appending its marker turn to the log, with no ds-lane command.
+finish_by_append() {
+  printf '%s\n' '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"LANE-DONE appended"}]}}' \
+    '{"type":"result","subtype":"success","is_error":false,"result":"LANE-DONE appended"}' >> "$RUN/$1.jsonl"
+}
+# Holds <lock> from a python process (macOS has no flock(1)) until <release> exists; <ready> marks
+# the lock as taken.
+hold_lock() { # hold_lock <lock> <ready> <release>
+  python3 -c '
+import fcntl, os, sys, time
+fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT, 0o600)
+fcntl.flock(fd, fcntl.LOCK_EX)
+open(sys.argv[2], "w").close()
+for _ in range(600):
+    if os.path.exists(sys.argv[3]):
+        break
+    time.sleep(0.1)
+' "$1" "$2" "$3" &
+  wait_until 5 test -e "$2"
+}
 
 # Runs a command with a controlling terminal (cwd: the primary checkout, tabs enabled).
 run_in_pty() { # run_in_pty <outfile> <command...>
@@ -238,7 +274,7 @@ open_in_pty() { # open_in_pty <name> [env assignments...]
 
 # --- R1/R2: help and literal hygiene ---
 help_cmds="$("$TOOL" help | awk '/^  [a-z]/ { print $1 }' | tr '\n' ' ')"
-check "help lists all 15 commands" eq "$help_cmds" "start send close reap resume list tail watch open open-all stop resume-hint count path doctor "
+check "help lists all 16 commands" eq "$help_cmds" "start send close reap resume list wait tail watch open open-all stop resume-hint count path doctor "
 check "no host-specific literal in bin/ds-lane (R2)" bash -c '! grep -nE "/Users/|claude-moment8|authentic8" "$1"' _ "$TOOL"
 
 out="$(cd "$PRIMARY" && env -u DS_LANE_HARNESS "$TOOL" start no-harness "$PROMPT" 2>&1)"; rc=$?
@@ -273,22 +309,43 @@ check "lane a alive after start" state_is a alive
 check "permission mode taken from DS_LANE_PERMISSION_MODE" eq "$(init_field a permissionMode)" bypassPermissions
 check "lane runs in the primary checkout" eq "$(init_field a cwd)" "$PRIMARY"
 check "count is 1" eq "$(lane count)" 1
+sentinel="$(sentinel_of a)"
+check "a Claude lane gets an autoclose sentinel" test -n "$sentinel"
+check "the sentinel leads its own process group (setsid)" eq "$(ps -o pgid= -p "${sentinel:-0}" 2> /dev/null | tr -d ' ')" "${sentinel:-none}"
+check "the sentinel's argv names the run dir" contains "$(ps -o args= -p "${sentinel:-0}" 2> /dev/null)" "$TMP/"
+wait_until 10 log_has a '"type":"result"'
 lane send a "STUB-FINISH please" > /dev/null
-check "lane a reports done after a finishing send" wait_until 10 state_is a done
-out="$(lane reap)"
-check "reap closes a LANE-DONE lane" contains "$out" "reaped a (done): stdin closed"
-check "reaped lane exits" wait_until 10 lane_down a
+# No ds-lane command runs between the finishing send and these predicates.
+check "lane a closes its own input after LANE-DONE" wait_until 10 meta_is a closed_by autoclose
+check "the self-closed lane records done" meta_is a status done
+check "the self-closed lane's feeder file is gone" test ! -e "$RUN/a.tailpid"
+check "the self-closed lane exits with no command run" wait_until 10 proc_gone a
+check "the sentinel exits with its lane" wait_until 10 bash -c '! kill -0 "$1" 2> /dev/null' _ "$sentinel"
 check "count back to 0" eq "$(lane count)" 0
+check "a self-closed lane lists done/down" eq "$(list_col a 3)|$(list_col a 4)" 'done|down'
+before_in="$(shasum "$RUN/a.in")"
+out="$(lane send a "more work" 2>&1)"; rc=$?
+check "send refuses a done lane" died_with "$rc" "$out" "lane 'a' is done; start a new lane, or resume it after it exits"
+check "a send refused as done leaves .in unchanged" eq "$(shasum "$RUN/a.in")" "$before_in"
+a_sid="$(init_field a session_id)"
+lane resume a "STUB-FINISH resumed" > /dev/null 2>&1
+check "a done lane resumes on its recorded session" contains "$(tail -n1 "$LOG/claude-args")" "--resume $a_sid "
+check "the resumed lane closes itself again" wait_until 10 meta_is a closed_by autoclose
+wait_until 10 proc_gone a
 
 DS_LANE_MAX=1 lane start b "$PROMPT" > /dev/null 2>&1
 out="$(DS_LANE_MAX=1 lane start c "$PROMPT" 2>&1)"; rc=$?
-check "cap refuses a second lane at DS_LANE_MAX=1" died_with "$rc" "$out" "refusing: 1 lanes running (max 1)"
+check "cap refuses a second lane at DS_LANE_MAX=1" died_with "$rc" "$out" "refusing: 1 lanes running (max 1); a finished lane frees its slot when its process exits (see 'ds-lane list')"
 check "refused lane wrote no files" eq "$(ls "$RUN" | grep -c '^c\.')" 0
 
+wait_until 10 log_has b '"type":"result"'
 lane send b "STUB-BLOCK" > /dev/null
-check "lane b reports blocked" wait_until 10 state_is b blocked
+wait_until 10 log_has b '"result":"LANE-BLOCKED'
+sleep 3
+check "a LANE-BLOCKED lane's feeder is still live 3s later with no command run" feeder_live b
 out="$(lane reap)"
-check "reap closes a LANE-BLOCKED lane" contains "$out" "reaped b (blocked): stdin closed"
+check "reap closes a LANE-BLOCKED lane with unchanged output" eq "$out" "reaped b (blocked): stdin closed
+reaped 1 lane(s)"
 check "blocked lane exits" wait_until 10 lane_down b
 b_sid="$(init_field b session_id)"
 lane resume b "STUB-FINISH ruling given" > /dev/null 2>&1
@@ -296,6 +353,115 @@ check "resume relaunches on the recorded session" contains "$(tail -n1 "$LOG/cla
 check "resumed lane reports done" wait_until 10 state_is b done
 lane reap > /dev/null
 wait_until 10 lane_down b
+
+# --- routine commands reap first; send refuses a closed blocked lane ---
+start_idle bl
+lane send bl "STUB-BLOCK" > /dev/null
+wait_until 10 log_has bl '"result":"LANE-BLOCKED'
+out="$(lane list bl)"
+check "list closes a marked lane silently" eq "$(printf '%s\n' "$out" | wc -l | tr -d ' ')|$(printf '%s\n' "$out" | grep -c reaped)" '2|0'
+check "list closed the blocked lane's input" test ! -e "$RUN/bl.tailpid"
+check "the implicitly reaped lane records blocked" meta_is bl status blocked
+before_in="$(shasum "$RUN/bl.in")"
+out="$(lane send bl "ruling" 2>&1)"; rc=$?
+check "send refuses a blocked lane whose input is closed" died_with "$rc" "$out" "lane 'bl' is blocked and its input is closed; deliver the ruling with 'ds-lane resume bl <file>' once 'ds-lane list' shows PROC down"
+check "a send refused as blocked leaves .in unchanged" eq "$(shasum "$RUN/bl.in")" "$before_in"
+wait_until 10 proc_gone bl
+start_idle bc
+lane send bc "STUB-BLOCK" > /dev/null
+wait_until 10 log_has bc '"result":"LANE-BLOCKED'
+check "count prints only an integer while closing a marked lane" bash -c '[[ "$1" =~ ^[0-9]+$ ]]' _ "$(lane count)"
+check "count closed the blocked lane's input" test ! -e "$RUN/bc.tailpid"
+wait_until 10 proc_gone bc
+start_idle br
+lane send br "STUB-BLOCK" > /dev/null
+wait_until 10 log_has br '"result":"LANE-BLOCKED'
+out="$(lane send br "STUB-FINISH ruling" 2>&1)"; rc=$?
+check "send still delivers a ruling to a live blocked lane" eq "$rc|${out%% *}" "0|sent"
+check "the ruled lane then closes itself" wait_until 10 meta_is br closed_by autoclose
+wait_until 10 proc_gone br
+
+# --- a send that lands mid-turn: the earlier turn's marker never closes the lane ---
+rm -f "$LOG/release"
+start_idle mt
+lane send mt "STUB-HOLD" > /dev/null
+wait_until 10 log_has mt '"text":"working"'
+lane send mt "second message" > /dev/null
+check "a send that lands mid-turn records results_needed=2" meta_is mt results_needed 2
+touch "$LOG/release"
+wait_until 10 results_are mt 3
+sleep 3
+check "an earlier turn's marker never closes the lane" feeder_live mt
+check "an earlier turn's marker leaves closed_by unset" eq "$(meta_value mt closed_by)" ""
+check "an earlier turn's marker is not reported" state_is mt alive
+lane send mt "STUB-FINISH third" > /dev/null
+check "the lane closes after its own last turn's marker" wait_until 10 meta_is mt closed_by autoclose
+wait_until 10 proc_gone mt
+rm -f "$LOG/release"
+
+# --- the sentinel survives a held lock; a stop racing it ends stopped ---
+start_idle lh
+lh_sentinel="$(sentinel_of lh)"
+hold_lock "$RUN/lh.lock" "$TMP/lh.held" "$TMP/lh.release"
+finish_by_append lh
+sleep 5
+check "the sentinel cannot close while the lane lock is held" feeder_live lh
+check "the sentinel survives a busy lock" kill -0 "${lh_sentinel:-0}"
+touch "$TMP/lh.release"
+check "the sentinel closes the lane on a later pass" wait_until 10 meta_is lh closed_by autoclose
+wait_until 10 proc_gone lh
+start_idle ls
+hold_lock "$RUN/ls.lock" "$TMP/ls.held" "$TMP/ls.release"
+finish_by_append ls
+sleep 3
+lane stop ls > /dev/null 2>&1 &
+stop_pid=$!
+sleep 0.5
+touch "$TMP/ls.release"
+wait "$stop_pid"
+wait_until 10 proc_gone ls
+lane list ls > /dev/null
+check "a stop racing the sentinel's close ends stopped" meta_is ls status stopped
+
+# --- wait ---
+wait_rc() { cat "$TMP/$1.rc" 2> /dev/null; }
+wait_bg() { (lane wait "$1" > "$TMP/$1.out" 2>&1; echo $? > "$TMP/$1.rc") & }
+start_idle w1
+wait_bg w1
+sleep 1
+lane send w1 "STUB-FINISH" > /dev/null
+check "wait returns when a lane finishes" wait_until 15 has_file "$TMP/w1.rc"
+check "wait exits 0 on done and lists the lane" eq "$(wait_rc w1)|$(awk '$1 == "w1" { print $3 }' "$TMP/w1.out")" '0|done'
+start_idle w2
+wait_bg w2
+sleep 1
+lane send w2 "STUB-BLOCK" > /dev/null
+check "wait returns when a lane blocks" wait_until 15 has_file "$TMP/w2.rc"
+check "wait exits 0 on blocked" eq "$(wait_rc w2)|$(awk '$1 == "w2" { print $3 }' "$TMP/w2.out")" '0|blocked'
+start_idle w3
+wait_bg w3
+sleep 1
+kill -9 "$(cat "$RUN/w3.pid")" "$(cat "$RUN/w3.tailpid")" 2> /dev/null
+check "wait returns when a lane dies" wait_until 15 has_file "$TMP/w3.rc"
+check "wait exits 0 on dead" eq "$(wait_rc w3)|$(awk '$1 == "w3" { print $3 }' "$TMP/w3.out")" '0|dead'
+SECONDS=0
+out="$(lane wait w1 w2)"; rc=$?
+check "wait returns at once when no named lane is alive" eq "$rc|$(( SECONDS < 3 ))" '0|1'
+start_idle w4
+out="$(lane wait --ceiling 2 w4)"; rc=$?
+check "wait exits 2 at the ceiling" eq "$rc" 2
+check "wait prints the ceiling line last" eq "$(printf '%s\n' "$out" | tail -n1)" "wait: ceiling 2s reached; still alive: w4; run 'ds-lane wait' again"
+check "wait lists the lanes before the ceiling line" eq "$(printf '%s\n' "$out" | awk '$1 == "w4" { print $3 }')" alive
+out="$(DS_LANE_WAIT_CEILING_S=1 lane wait w4)"; rc=$?
+check "DS_LANE_WAIT_CEILING_S sets the ceiling" eq "$rc|$(printf '%s\n' "$out" | tail -n1)" "2|wait: ceiling 1s reached; still alive: w4; run 'ds-lane wait' again"
+out="$(lane wait w4 nosuch 2>&1)"; rc=$?
+check "wait refuses an unknown lane" died_with "$rc" "$out" "no such lane: nosuch"
+out="$(lane wait 2>&1)"; rc=$?
+check "wait with no names is a usage error" died_with "$rc" "$out" "usage: ds-lane wait [--ceiling <s>] <name>..."
+out="$(lane wait --ceiling 7200 w4 2>&1)"; rc=$?
+check "wait refuses a ceiling above 7199" died_with "$rc" "$out" "wait ceiling must be whole seconds from 1 to 7199"
+lane stop w4 > /dev/null
+wait_until 10 lane_down w4
 
 lane start c "$PROMPT" > /dev/null 2>&1
 out="$(lane list a b | awk 'NR > 1 { print $1 }' | tr '\n' ' ')"
@@ -319,7 +485,6 @@ check "resume-hint names CLAUDE_CONFIG_DIR when set" contains "$out" "&& CLAUDE_
 mkdir -p "$TMP/home/.claude" "$TMP/home/.codex"
 ln -s "$CLAUDE_CONFIG_DIR" "$TMP/config-link"
 claude_config_env() { tail -n1 "$LOG/claude-runtime" | cut -d'|' -f2; }
-meta_value() { sed -n "s/^$2=//p" "$RUN/$1.meta" | tail -n1; }
 (cd "$PRIMARY" && env -u CLAUDE_CONFIG_DIR HOME="$TMP/home" "$TOOL" start cu "$PROMPT" > /dev/null 2>&1)
 check "unset CLAUDE_CONFIG_DIR stays unset in the lane" eq "$(claude_config_env)" unset
 check "unset CLAUDE_CONFIG_DIR still resolves the default config dir" eq "$(meta_value cu config_dir)" "$TMP/home/.claude"
@@ -1299,6 +1464,9 @@ check "Codex close explains finite input" contains "$out" 'bounded input already
 check "Codex close preserves all files and execution" eq "$(run_snapshot)" "$before"
 codex_lane reap > /dev/null
 check "Codex marked live process is not killed by reap" eq "$(list_col cx-live 4)" up
+out="$(codex_lane wait cx-live)"; rc=$?
+check "wait returns at once on a marked live Codex lane" eq "$rc|$(printf '%s\n' "$out" | awk '$1 == "cx-live" { print $3 "|" $4 }')" '0|done|up'
+check "wait leaves a live Codex lane running" eq "$(list_col cx-live 4)" up
 DS_LANE_MAX=2 lane start mixed "$PROMPT" > /dev/null 2>&1
 out="$(DS_LANE_MAX=2 codex_lane start over "$PROMPT" 2>&1)"; rc=$?
 check "both harnesses share lane capacity" died_with "$rc" "$out" 'refusing: 2 lanes running'
@@ -1391,13 +1559,20 @@ check "read-only mode is preserved" eq "$(tail -n1 "$LOG/codex-runtime" | jq -r 
 write_context "$PRIMARY"
 
 # Claude saved runtime, fatal result precedence and explicit legacy recovery.
-lane start cf "$PROMPT" > /dev/null 2>&1
-cf_sid="$(meta_value cf session_id)"
-printf '%s\n' '{"type":"system","subtype":"init","parent_tool_use_id":"nested","session_id":"wrong-subagent"}' '{"type":"result","parent_tool_use_id":"nested","is_error":true,"subtype":"error_nested"}' '{"type":"assistant","message":{"content":[{"type":"text","text":"LANE-DONE nested-error positive control"}]}}' >> "$RUN/cf.jsonl"
-check "Claude nested terminal errors do not override main marker" state_is cf done
-check "Claude nested init cannot replace main session id" eq "$(meta_value cf session_id)" "$cf_sid"
-printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"LANE-DONE before fatal"}]}}' '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"fatal Claude"}' >> "$RUN/cf.jsonl"
+start_idle cn
+cn_sid="$(meta_value cn session_id)"
+printf '%s\n' '{"type":"system","subtype":"init","parent_tool_use_id":"nested","session_id":"wrong-subagent"}' '{"type":"result","parent_tool_use_id":"nested","is_error":true,"subtype":"error_nested"}' '{"type":"assistant","message":{"content":[{"type":"text","text":"LANE-DONE nested-error positive control"}]}}' '{"type":"result","subtype":"success","is_error":false,"result":"LANE-DONE nested-error positive control"}' >> "$RUN/cn.jsonl"
+check "Claude nested terminal errors do not override main marker" state_is cn done
+check "Claude nested init cannot replace main session id" eq "$(meta_value cn session_id)" "$cn_sid"
+wait_until 10 proc_gone cn
+start_idle cf
+printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"LANE-DONE before fatal"}]}}' >> "$RUN/cf.jsonl"
+sleep 3
+check "a marker with no result yet leaves the feeder open" feeder_live cf
+printf '%s\n' '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"fatal Claude"}' >> "$RUN/cf.jsonl"
+sleep 3
 check "Claude fatal result suppresses DONE while live" eq "$(list_col cf 3)|$(list_col cf 4)" 'alive|up'
+check "Claude fatal result after a marker never closes the feeder" feeder_live cf
 lane reap > /dev/null
 check "Claude fatal result never closes feeder" test -s "$RUN/cf.tailpid"
 lane close cf > /dev/null
