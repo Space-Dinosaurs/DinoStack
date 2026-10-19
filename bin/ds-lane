@@ -22,7 +22,8 @@
 #   list' shows PROC down`), writing nothing. A marker counts only once a
 #   top-level result follows it and every input sent so far has been answered
 #   (meta results_needed, set by start/resume/send); see _lane_runtime.py.
-#   `wait [--ceiling <s>] <name>...` re-checks every 5 s, reaping each pass,
+#   `wait [--ceiling <s>] <name>...` re-checks every DS_LANE_WAIT_POLL_S (default
+#   5 s), reaping each pass,
 #   and returns when a named lane alive on entry is done, blocked or dead (at
 #   once if none was): prints `list <names>`, exit 0. At the ceiling it prints
 #   the same list then `wait: ceiling <N>s reached; still alive: <names>; run
@@ -78,7 +79,9 @@
 #   for tests; not propagated into the watch tab), DS_LANE_TAB_WAIT_S (whole
 #   seconds `start`/`resume` wait for the tab outcome, default 8),
 #   DS_LANE_WAIT_CEILING_S (default 1500, 1-7199), DS_LANE_MIDTURN_GRACE_S
-#   (default 300, read by _lane_runtime.py).
+#   (default 300, read by _lane_runtime.py), DS_LANE_AUTOCLOSE_POLL_S (sentinel
+#   poll, default 2) and DS_LANE_WAIT_POLL_S (default 5); a lane's sentinel
+#   keeps the values its `start`/`resume` caller had.
 #   The lane gets the caller's CLAUDE_CONFIG_DIR (Codex: CODEX_HOME) exactly
 #   as set, and none when the caller had none: Claude Code's macOS keychain
 #   entry depends on whether the variable is set. `resume` and `resume-hint`
@@ -167,8 +170,10 @@
 #   nothing. Only results without `origin` answer stdin input (background-task
 #   notification and peer turns carry it). When queued input merges into a
 #   running turn (fewer answers than inputs, and no other trace in the stream)
-#   the marker counts only after DS_LANE_MIDTURN_GRACE_S of a quiet log ending
-#   in a result. Locking:
+#   the marker counts only once no turn has started for DS_LANE_MIDTURN_GRACE_S
+#   after the last result (events between turns, such as task progress, do
+#   not count). A lane closed on a marker keeps reporting that done or blocked
+#   after exit unless a fatal event overrides it. Locking:
 #   send, close, stop and the sentinel's close serialize on run/<name>.lock, a
 #   flock held only by a python process (no lane or sentinel inherits it) and
 #   re-checked under it, as are the exit status writes of routine commands; send, close and stop wait 10 s then refuse `lane
@@ -180,7 +185,7 @@
 #   DS_LANE_TAB_WAIT_S (default 8 s: a tab open with Cmd-T unanswered takes
 #   about 4.5 s) for the tab outcome; the lane is already running by then. Tab
 #   open runs detached and may wait DS_LANE_TAB_LOCK_WAIT_S for the lock.
-#   Sentinel, per idle lane: one kill -0 and one log size read every 2 s;
+#   Sentinel, per idle lane: one kill -0 and one log size read per poll (2 s);
 #   about 3 python3 calls per log change, or every 30 s.
 #
 # Retirement: delete when supported harnesses supply native conductor lanes.
@@ -196,6 +201,12 @@ MAX_LANES="${DS_LANE_MAX:-5}"
 BG_CEILING="${DS_LANE_BG_CEILING_MS:-0}"
 
 TAB_LOCK="${DS_LANE_TAB_LOCK:-/tmp/ds-lane-tab-$(id -u).lock}"
+
+# Poll intervals in seconds: the per-lane sentinel (a positive number) and `wait` (whole seconds).
+AUTOCLOSE_POLL_S="${DS_LANE_AUTOCLOSE_POLL_S:-2}"
+[[ "$AUTOCLOSE_POLL_S" =~ ^[0-9]*[.]?[0-9]+$ && "$AUTOCLOSE_POLL_S" =~ [1-9] ]] || AUTOCLOSE_POLL_S=2
+WAIT_POLL_S="${DS_LANE_WAIT_POLL_S:-5}"
+[[ "$WAIT_POLL_S" =~ ^[1-9][0-9]*$ ]] || WAIT_POLL_S=5
 
 die() { echo "ds-lane: $*" >&2; exit 1; }
 
@@ -343,6 +354,20 @@ WATCH_FILTER='fromjson? | (
 )'
 
 lane_marker() { python3 "$RUNTIME_HELPER" events "$RUN_DIR/$1.meta" marker; }
+
+# The lane's task outcome: its marker, else the done or blocked status recorded when its input was
+# closed on a marker (the marker guard is time-dependent, and output can follow the close), unless
+# a fatal event has overridden it since.
+lane_outcome() {
+  local state
+  state="$(lane_marker "$1")"
+  if [[ -z "$state" ]]; then
+    case "$(meta_get "$1" status)" in
+      done|blocked) lane_fatal "$1" || state="$(meta_get "$1" status)" ;;
+    esac
+  fi
+  echo "$state"
+}
 
 # Append one stream-json user message to the lane's input file.
 write_input() { # write_input <name> <text>
@@ -492,7 +517,7 @@ close_locked() { # close_locked <name> <done|any|close|stop|exited|reap-exited>
       [[ -f "$RUN_DIR/$name.pid" ]] || exit 3
       ! is_live_lane "$name" || exit 3
       capture_session "$name"
-      state="$(lane_marker "$name")"
+      state="$(lane_outcome "$name")"
       meta_set "$name" status "${state:-dead}"
       rm -f "$RUN_DIR/$name.pid"
       kill_feeder "$name"
@@ -505,7 +530,7 @@ close_locked() { # close_locked <name> <done|any|close|stop|exited|reap-exited>
 
 # Refuses a send to a done lane, or to a blocked lane whose input is already closed.
 send_refusals() { # send_refusals <name>
-  case "$(lane_marker "$1")" in
+  case "$(lane_outcome "$1")" in
     done) die "lane '$1' is done; start a new lane, or resume it after it exits" ;;
     blocked) is_live_feeder "$1" || die "lane '$1' is blocked and its input is closed; deliver the ruling with 'ds-lane resume $1 <file>' once 'ds-lane list' shows PROC down" ;;
   esac
@@ -530,8 +555,8 @@ send_locked() { # send_locked <name> <text>
 }
 
 # Per-Claude-lane sentinel, detached by launch: closes the lane's input once its guarded marker is
-# done, so a finished lane exits and frees its slot with no ds-lane command run. Each 2 s pass is a
-# kill -0 and a log size read; the full check runs when the size changed or 30 s have passed. Exits
+# done, so a finished lane exits and frees its slot with no ds-lane command run. Each pass
+# (DS_LANE_AUTOCLOSE_POLL_S, default 2 s) is a kill -0 and a log size read; the full check runs when the size changed or 30 s have passed. Exits
 # when <pid> is no longer the live lane or its feeder is gone.
 autoclose() { # autoclose <name> <pid>
   set +e
@@ -550,7 +575,7 @@ autoclose() { # autoclose <name> <pid>
         *) last="" ;;
       esac
     fi
-    sleep 2
+    sleep "$AUTOCLOSE_POLL_S"
   done
 }
 
@@ -755,7 +780,7 @@ cmd_list() { # cmd_list [name...]
         lane_locked "$name" 1 __close-locked "$name" exited > /dev/null || true
       fi
     fi
-    marker="$(lane_marker "$name")"
+    marker="$(lane_outcome "$name")"
     if [[ -n "$marker" ]]; then state="$marker"; fi
     start="$(meta_get "$name" start_epoch)"
     end="$(meta_get "$name" end_epoch)"
@@ -796,7 +821,7 @@ cmd_stop() {
 }
 
 # A lane is alive while its process runs and it shows no task marker (the list STATE `alive`).
-lane_alive() { is_live_lane "$1" && [[ -z "$(lane_marker "$1")" ]]; }
+lane_alive() { is_live_lane "$1" && [[ -z "$(lane_outcome "$1")" ]]; }
 
 # Blocks until a named lane that was alive on entry no longer is, reaping on every pass.
 cmd_wait() { # cmd_wait [--ceiling <s>] <name>...
@@ -824,7 +849,7 @@ cmd_wait() { # cmd_wait [--ceiling <s>] <name>...
       echo "wait: ceiling ${ceiling}s reached; still alive: ${entry[*]}; run 'ds-lane wait' again"
       exit 2
     fi
-    sleep $(( left < 5 ? left : 5 ))
+    sleep $(( left < WAIT_POLL_S ? left : WAIT_POLL_S ))
     converge > /dev/null
     for name in "${entry[@]}"; do lane_alive "$name" || break 2; done
   done

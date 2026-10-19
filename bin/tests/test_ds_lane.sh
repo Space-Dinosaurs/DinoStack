@@ -187,6 +187,9 @@ export DS_LANE_HARNESS=claude
 unset CODEX_THREAD_ID CLAUDECODE CLAUDE_CODE_SESSION_ID AE_ADAPTER CODEX_HOME DS_LANE_CODEX_BIN DS_LANE_CODEX_CONTEXT_FILE
 mkdir -p "$CLAUDE_CONFIG_DIR"
 export DS_LANE_NO_TAB=1
+# Shorter sentinel and wait polls; the sleeps below that give the sentinel a chance to act span
+# at least three sentinel polls.
+export DS_LANE_AUTOCLOSE_POLL_S=0.5 DS_LANE_WAIT_POLL_S=1
 # The Terminal cases below run on the opted-in Terminal path, outside tmux.
 export DS_LANE_VIEWER=terminal
 unset TMUX TMUX_PANE
@@ -227,7 +230,8 @@ log_has() { grep -q -- "$2" "$RUN/$1.jsonl" 2> /dev/null; }
 results_are() { [[ "$(grep -c '"type":"result"' "$RUN/$1.jsonl" 2> /dev/null)" == "$2" ]]; }
 feeder_live() { local p; p="$(cat "$RUN/$1.tailpid" 2> /dev/null)" && [[ -n "$p" ]] && kill -0 "$p" 2> /dev/null; }
 proc_gone() { ! kill -0 "$(meta_value "$1" pid)" 2> /dev/null; }
-sentinel_of() { pgrep -f -- "__autoclose $1 [0-9]+ $RUN" | head -n1; }
+# Found by the lane's own pid, so the run-dir argument is checked separately.
+sentinel_of() { pgrep -f -- "__autoclose $1 $(cat "$RUN/$1.pid" 2> /dev/null) " | head -n1; }
 # Starts a lane and waits for its first turn's result, so events appended later follow it.
 start_idle() { lane start "$1" "$PROMPT" > /dev/null 2>&1; wait_until 10 log_has "$1" '"type":"result"'; }
 # Finishes a lane by appending its marker turn to the log, with no ds-lane command.
@@ -390,7 +394,7 @@ lane send mt "second message" > /dev/null
 check "a send that lands mid-turn records results_needed=2" meta_is mt results_needed 2
 touch "$LOG/release"
 wait_until 10 results_are mt 3
-sleep 3
+sleep 1.5
 check "an earlier turn's marker never closes the lane" feeder_live mt
 check "an earlier turn's marker leaves closed_by unset" eq "$(meta_value mt closed_by)" ""
 check "an earlier turn's marker is not reported" state_is mt alive
@@ -404,7 +408,7 @@ start_idle lh
 lh_sentinel="$(sentinel_of lh)"
 hold_lock "$RUN/lh.lock" "$TMP/lh.held" "$TMP/lh.release"
 finish_by_append lh
-sleep 5
+sleep 2
 check "the sentinel cannot close while the lane lock is held" feeder_live lh
 check "the sentinel survives a busy lock" kill -0 "${lh_sentinel:-0}"
 touch "$TMP/lh.release"
@@ -413,7 +417,7 @@ wait_until 10 proc_gone lh
 start_idle ls
 hold_lock "$RUN/ls.lock" "$TMP/ls.held" "$TMP/ls.release"
 finish_by_append ls
-sleep 3
+sleep 1.5
 lane stop ls > /dev/null 2>&1 &
 stop_pid=$!
 sleep 0.5
@@ -422,6 +426,16 @@ wait "$stop_pid"
 wait_until 10 proc_gone ls
 lane list ls > /dev/null
 check "a stop racing the sentinel's close ends stopped" meta_is ls status stopped
+# A lane closed on a marker keeps reporting it after exit, even once later output means the
+# marker guard (here waiting on a second answer) no longer settles.
+start_idle gc
+lane send gc "STUB-FINISH" > /dev/null
+wait_until 10 meta_is gc closed_by autoclose
+wait_until 10 proc_gone gc
+echo "results_needed=2" >> "$RUN/gc.meta"
+printf '%s\n' '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"background output"}]}}' >> "$RUN/gc.jsonl"
+check "reap keeps a closed lane's recorded done" eq "$(lane reap | head -n1)|$(meta_value gc status)" 'reaped gc (done): exited|done'
+check "list keeps reporting a closed lane done after exit" eq "$(list_col gc 3)|$(list_col gc 4)" 'done|down'
 # An exited lane's status is persisted under the lane lock, so it waits out a locked write.
 start_idle px
 hold_lock "$RUN/px.lock" "$TMP/px.held" "$TMP/px.release"
@@ -1390,7 +1404,7 @@ write_context "$PRIMARY"
 codex_lane() {
   (cd "$PRIMARY" && env -u CLAUDE_CODE_SESSION_ID -u CLAUDECODE -u CODEX_THREAD_ID -u AE_ADAPTER DS_LANE_HARNESS=codex DS_LANE_CODEX_BIN="$CODEX_STUB" CODEX_HOME="$CODEX_CONFIG" DS_LANE_CODEX_CONTEXT_FILE="$CONTEXT" "$TOOL" "$@")
 }
-run_snapshot() { find "$RUN" -type f -exec shasum {} \; | sort; }
+run_snapshot() { find "$RUN" -type f -exec shasum {} + | sort; }
 assert_refusal() {
   local label="$1" needle="$2" before out rc; shift 2
   before="$(run_snapshot)"
@@ -1577,10 +1591,10 @@ check "Claude nested init cannot replace main session id" eq "$(meta_value cn se
 wait_until 10 proc_gone cn
 start_idle cf
 printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"LANE-DONE before fatal"}]}}' >> "$RUN/cf.jsonl"
-sleep 3
+sleep 1.5
 check "a marker with no result yet leaves the feeder open" feeder_live cf
 printf '%s\n' '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"fatal Claude"}' >> "$RUN/cf.jsonl"
-sleep 3
+sleep 1.5
 check "Claude fatal result suppresses DONE while live" eq "$(list_col cf 3)|$(list_col cf 4)" 'alive|up'
 check "Claude fatal result after a marker never closes the feeder" feeder_live cf
 lane reap > /dev/null

@@ -3,9 +3,9 @@
 Public API: Internal resolve, saved, events, and owns commands used by ds-lane.
     `events <meta> marker` (Claude) prints done/blocked only once a top-level result
     follows the marker and the marker comes from the turn that answered the last of
-    results_needed stdin inputs, or a later turn (or, with fewer answers, once the
-    last top-level event is a result and the log has been quiet
-    DS_LANE_MIDTURN_GRACE_S, default 300: a merged input leaves no trace). Only
+    results_needed stdin inputs, or a later turn (or, with fewer answers, once no
+    turn has started since the last result for DS_LANE_MIDTURN_GRACE_S, default 300,
+    counted from that turn's last timestamped event: a merged input leaves no trace). Only
     results without `origin` answer stdin input; notification and peer turns carry it. `events <meta> pending` prints "<inputs not yet
     answered since marker_offset> <complete log lines>" from one read.
 Upstream deps: Python stdlib, ps; native Claude transcripts and Codex rollouts.
@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 
@@ -370,13 +371,37 @@ def events(path, mode):
     def needed():
         return max(1, int(meta.get("results_needed") or "1"))
 
+    def top(e):
+        return e.get("parent_tool_use_id") is None
+
+    def stamp(e):
+        value = e.get("timestamp")
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() if isinstance(value, str) else None
+        except ValueError:
+            return None
+
     def quiet_after_result(events):
-        # A queued input runs as soon as the current turn ends, so a log quiet this long after a
+        # A queued input runs as soon as the current turn ends, so a lane idle this long after a
         # result has consumed every input, including one merged into a running turn (which gets
-        # no result of its own and leaves no other trace in the stream).
-        top = [e for e in events if e.get("parent_tool_use_id") is None]
+        # no result of its own and leaves no other trace in the stream). Every turn (stdin,
+        # notification or peer) opens with a top-level init, so a turn has started since the last
+        # result only if an init, assistant or user event follows it; other events (task progress,
+        # command lifecycle, commands_changed) arrive between turns and change neither that nor the
+        # clock, which runs from the ended turn's last timestamped event (else the log's mtime).
+        ends = [i for i, e in enumerate(events) if top_result(e)]
+        if not ends:
+            return False
+        after = events[ends[-1] + 1 :]
+        if any(
+            top(e) and (e.get("type") in ("assistant", "user") or (e.get("type") == "system" and e.get("subtype") == "init"))
+            for e in after
+        ):
+            return False
+        stamps = [t for t in (stamp(e) for e in events[: ends[-1]] if top(e)) if t is not None]
+        ended_at = max(stamps) if stamps else log.stat().st_mtime
         grace = float(os.environ.get("DS_LANE_MIDTURN_GRACE_S") or "300")
-        return bool(top) and top_result(top[-1]) and time.time() - log.stat().st_mtime >= grace
+        return time.time() - ended_at >= grace
 
     if mode == "fatal":
         print("1" if any(fatal(e) for e in current) else "0")
