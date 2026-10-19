@@ -88,12 +88,6 @@ files on every session and the reference docs on the triggers described in agent
 - **references/regression-test-obligation.md** - per-finding regression-test obligation: every
   Skeptic finding fixed during a task must come with a regression test that would have caught it;
   read when fixing a Skeptic finding to confirm what counts as a valid regression test.
-
-## Rules (read on trigger)
-
-- **rules/module-manifest.md** - encouraged manifest header format for non-trivial source files;
-  read when creating or substantially modifying a file that exports a public symbol, exceeds ~50
-  LOC, or implements a side-effecting operation.
 SKILLEOF
 
 echo "  + dinostack/SKILL.md"

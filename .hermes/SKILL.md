@@ -289,50 +289,6 @@ Preamble:
 
 **Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields, the optional `learnings_candidate[]` field routing, and conductor consumption rules.
 
-<!--
-Purpose: Defines the tiered planning-artifact protocol (Brief and Plan) that
-         sits between orchestration-planner output and the first engineer
-         spawn. Mechanically promotes multi-unit Elevated work to a written
-         Brief or Plan with a verification gate before any worker is spawned.
-
-Public API: This file is methodology prose, not code. It is consumed by the
-            conductor at the promotion gate (post orchestration-planner,
-            pre engineer spawn), by the Skeptic when reviewing Brief or
-            Plan artifacts, and by /ds-brief (content/commands/ds-brief.md) which
-            produces the Brief artifact via interactive dialogue before the
-            promotion gate runs.
-
-Upstream deps: METHODOLOGY.md §Delegation (architect plan + Skeptic gate, Open
-               Questions hard gate, Worker preamble execution contract);
-               METHODOLOGY.md §Risk Classification (Trivial/Elevated taxonomy,
-               Declaration format); METHODOLOGY.md §Task Decomposition
-               (orchestration-planner output as input to the promotion check);
-               METHODOLOGY.md §Cross-session loop resume (loop-state.json
-               schema for brief_path / plan_path / promotion_tier);
-               content/rules/module-manifest.md (manifest header contract);
-               content/references/planning-artifacts.md (trigger table,
-               gate-semantics authoring sequences, and Brief/Plan templates
-               that this section's body defers to for authoring detail).
-
-Downstream consumers: METHODOLOGY.md §Delegation (Worker preamble references
-                      brief_path / plan_path); METHODOLOGY.md §Task
-                      Decomposition (cites this section for Plan-tier
-                      pre-worker authoring); METHODOLOGY.md §Cross-session
-                      loop resume (records brief_path / plan_path /
-                      promotion_tier); METHODOLOGY.md §Risk Classification
-                      (Declaration format optionally includes Brief / Plan);
-                      METHODOLOGY.md §Protocol Details (cross-link entry).
-
-Failure modes: Prose; does not execute. Drift between this section and the
-               cross-references above is a Minor Skeptic finding (stale
-               manifest or stale cross-reference). Operator failure mode this
-               section exists to prevent: multi-unit Elevated work proceeding
-               without a committed problem statement, success criteria,
-               non-goals, and verification plan.
-
-Performance: Standard.
--->
-
 ## Planning Artifacts
 
 The promotion gate that sits between orchestration-planner output and the first engineer spawn: 0-1 Elevated units -> no Brief; 2-5 -> Brief; 6+ or cross-track or multi-session -> Plan. See `content/references/planning-artifacts.md` for the trigger table, track definition, gate-semantics authoring sequences, Brief template, Plan-tier directory layout, promotion mechanics, and `qa_default_skip` definition.
@@ -665,9 +621,9 @@ Verify consequential assumptions about library, framework, or SDK behavior again
 
 Prefer suitable dedicated tools when available; use shell tools when they are unavailable or do not cover the task. Choose efficient output and measure cost before adopting new tools. Read `content/references/code-standards-detail.md` §Tool Discipline when choosing search tools or evaluating tool integrations.
 
-## Module Manifests
+## Code Comments
 
-Non-trivial source files (exported symbols consumed elsewhere, over ~50 lines of logic, or side effects) are encouraged to carry a manifest header. Read `content/rules/module-manifest.md` for fields and exemptions when creating or substantially modifying one. Skeptic reports manifest gaps as **Minor**.
+Default to no comment. Add one only for what the code cannot show: a non-obvious constraint, a workaround and its reason, an ownership split, or a why. Never restate the code, narrate the change, cite a ticket or review finding, write a multi-line explanatory block, or add a file or module header comment. When a comment is needed, write one short line where it applies and match the surrounding comment density. Fix or delete an existing comment your change makes false, never delete a constraint comment, and do not sweep untouched comments. A header or docstring standard the repo documents in its own `AGENTS.md` or `CONTRIBUTING.md` takes precedence. Skeptic reports an unnecessary added comment as **Minor**; a missing comment is a finding (**Minor**) only when the diff introduces a non-obvious constraint and leaves it undocumented.
 
 ## DRY and Abstraction
 
@@ -701,7 +657,7 @@ Operator attention is the scarce resource this methodology protects and the prim
 
 **Write for the permanent audience.** Review residue is what usually buries it. An artifact written during a review loop has a temporary audience - the reviewer, the Skeptic, the QA round - and a permanent one, reading the source, the commit history, the PR, or the ticket months later. Only the permanent audience remains, so write for it alone. Prose that exists to stop a reviewer raising a point again is review exhaust: a reviewer is answered in the round, not in the artifact. Round history and rejected-alternative defences are two instances, not the set - the test is whether the line would earn its place had no review happened. State a real constraint once, neutrally, where it applies, and prefer an assertion that fails over a comment that asks.
 
-**Delete comments that explain what the code already makes apparent.** That is the test for a comment, not length or comment-to-code ratio, and filler bloats the diff so a reviewer pays for every line of it. Over-applying this is the worse defect: filler costs attention, a deleted constraint costs correctness. What earns its place is the non-obvious "why" the code cannot express - why this ordering, why a name is excluded from a guard, why something cannot be deleted and what would allow it. The test reaches explanatory comments only and never licenses cutting a mandated module manifest (`content/rules/module-manifest.md`); equally, a manifest is no licence to narrate - fill its fields, not a rationale essay.
+**Code comments follow `content/rules/code-standards.md` §Code Comments.**
 
 **Emphasis is a scarce budget, not a per-item defence.** In agent-authored output addressed to an operator - a PR body, tracker comment, commit message, source comment, or turn to the operator - thirty bolded phrases compete with the primary information and obscure it, the same defect expressed typographically; if more than about five phrases in one such artifact are bolded, none should be. Never use capitals for emphasis. Methodology reference prose is outside this cap, where bolded lead-ins carry the scannability the parse test rewards.
 
@@ -2012,8 +1968,8 @@ Purpose: Canonical authoring guidance for command files, skill definitions, and
          context even when the artifact is unused, so it must enumerate when to
          fire rather than summarize behavior) and bad/good example-pair seeding
          (concrete pairs encode taste via few-shot transfer more reliably than
-         abstract rules). Also states the module-manifest encouragement for new
-         command files (§3) and the Pillar-8 gate/mechanism authoring discipline
+         abstract rules). Also states the wiring a new command needs (§3) and
+         the Pillar-8 gate/mechanism authoring discipline
          for any command or agent definition that authors a new enforcement
          mechanism (§4).
 
@@ -2023,9 +1979,6 @@ Public API: Read on trigger when authoring or editing a command file
             (content/agents/*.md). Referenced from content/SKILL.md (Reference
             Docs section) and content/commands/ds-update-agentic-engineering.md
             (command-authoring note for the methodology-edit flow).
-
-Upstream deps: content/rules/module-manifest.md (manifest guidance for new
-               command files).
 
 Downstream consumers: authors of new commands, skills, and agent definitions;
                       authors of new gates/hooks/enforcement mechanisms defined
@@ -2139,14 +2092,7 @@ says no", so the agent can self-correct on the first pass. If the output is only
 occasionally off, a single good example plus an abstract rule is enough; the
 pair earns its space only when the miss is recurring.
 
-## 3. Module-manifest header for new command files
-
-New command files, and any other non-trivial file, are encouraged to carry the
-module-manifest header block (Skeptic reports gaps as Minor). See `content/rules/module-manifest.md` for the
-required fields (Purpose, Public API, Upstream dependencies, Downstream
-consumers, Failure modes, Performance).
-`content/commands/ds-failure-audit.md` is the reference example of a command
-file with a complete manifest.
+## 3. Wiring a new command
 
 A new command is not done when its file is written. It must also be wired in:
 registered in `bin/ds-help` (the full command inventory), and covered by the
@@ -2820,7 +2766,6 @@ A project's intent is encoded across a small set of artifacts. Treat them as a c
 - `.agentic/findings.md` - curated Skeptic-finding patterns; gitignored/machine-local. Written by `findings-curator` at Phase 6 loop exit.
 - `.agentic/qa-regressions.md` - curated QA regression patterns; committed. Written by `qa-regressions-curator` at Phase 6b QA FAIL.
 - `qa.md` - QA triggers and project-specific quirks the QA engineer needs to know.
-- Module manifests - file-level intent embedded in the source itself (see `module-manifest.md`).
 - `glossary.md` - the project's Ubiquitous Language (see below).
 
 Together these form the project's **intent layer**. Drift in any of them is **intent debt** - the system stops reflecting what we meant to build, and downstream agents and humans drift along with the artifacts. Keep them current. A stale entry is worse than a missing one because readers trust it.
@@ -4428,7 +4373,7 @@ A nested sub-conductor tier (a "unit-lead" that runs its own Skeptic/QA loop and
 
 Every intent-layer doc that counts, lists, or describes part of the system is a reality assertion. When a change makes that assertion false and the doc is not updated in the same change, the doc becomes **intent debt** - the artifact stops reflecting what the system actually is, and downstream agents and humans read the stale text, trust it, and drift along with it.
 
-This is the doc-level analogue of the regression-test obligation (`content/references/regression-test-obligation.md`) and the module-manifest staleness rule (`content/rules/module-manifest.md`): a reality-asserting change carries an in-PR obligation to keep the asserting artifact true, and the Skeptic verifies it before sign-off.
+This is the doc-level analogue of the regression-test obligation (`content/references/regression-test-obligation.md`): a reality-asserting change carries an in-PR obligation to keep the asserting artifact true, and the Skeptic verifies it before sign-off.
 
 The default posture is **not to trip**. Most diffs do not change anything a doc asserts. Over-documenting is itself drift - do not add speculative doc edits to changes that do not meet the predicate.
 
@@ -4471,7 +4416,7 @@ This is a **standing every-round check**, not a fix-round-only check. Apply the 
 - Not tripped -> no finding.
 - Tripped + correctly updated -> no finding.
 - Tripped + missing/incomplete -> **Minor**, whatever its shape: a non-misleading omission, a now-stale or false count/list/path/convention/behavior assertion, or a stale assertion on a load-bearing public-facing doc that actively misleads on how to use, install, or extend the system (e.g. README install steps, documented command/agent surface, canonical path). Minor does not block sign-off; the misleading-public-doc case stays Minor and is routed through the `Blocking-minor:` sign-off line.
-- When a round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale module manifest, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the next verification is a prose-scoped re-check, not a full fresh round - see `content/references/skeptic-protocol.md` §Prose-scoped re-check.
+- When a round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale code comment, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the next verification is a prose-scoped re-check, not a full fresh round - see `content/references/skeptic-protocol.md` §Prose-scoped re-check.
 
 Finding string format:
 
@@ -6015,7 +5960,6 @@ Public API: Read-only reference document. Cross-referenced from:
 Upstream deps: content/sections/03-planning-artifacts.md (parent section;
                read that section first for the promotion-threshold summary
                and blocking/non-blocking rules);
-               content/rules/module-manifest.md (manifest header contract);
                content/rules/conventions.md §Project Overview Layer.
 
 Downstream consumers: Conductor flows: Brief authoring (Gate semantics step 6),
@@ -7178,7 +7122,6 @@ Public API: Referenced by section number across the methodology. Key sections:
   Section 14 - Skeptic calibration and meta-review telemetry
 
 Upstream deps: content/agents/skeptic.md (Skeptic agent identity),
-               content/rules/module-manifest.md (manifest policy enforced by Skeptic),
                content/agents/engineer.md (Worker the Skeptic reviews),
                METHODOLOGY.md (risk classification, re-route limits, QA gate)
 
@@ -7620,11 +7563,11 @@ The number of permitted Skeptic rounds scales with task complexity:
 
 ### Prose-scoped re-check
 
-When a round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale module manifest, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the next verification is a **prose-scoped re-check**: the reviewer verifies only (a) the changed prose lines against live tree facts, and (b) that the fix introduced no new false claim anywhere in the enclosing unit - the full module manifest for a manifest fix, the full containing section or document header for a doc-sync fix - read that unit end to end, not only the changed lines and their immediate context - not a full fresh adversarial pass. The reviewer establishes this trigger itself by diffing the fix commit(s) since the last reviewed SHA - engineer self-classification is not evidence. Any hunk that is parsed, executed, or byte-pinned by a test or hook (embedded command, grep pattern, frontmatter, hook-read docstring, golden-pinned block) counts as a behavior change and disqualifies the lever. The reviewer may always elect a full pass. This is a verification-cost lever only, and any code/test/behavior finding found during the narrower pass still escalates normally. It does not apply while any code/test/behavior finding remains unresolved.
+When a round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale code comment, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the next verification is a **prose-scoped re-check**: the reviewer verifies only (a) the changed prose lines against live tree facts, and (b) that the fix introduced no new false claim anywhere in the enclosing unit - the full comment block for a comment fix, the full containing section or document header for a doc-sync fix - read that unit end to end, not only the changed lines and their immediate context - not a full fresh adversarial pass. The reviewer establishes this trigger itself by diffing the fix commit(s) since the last reviewed SHA - engineer self-classification is not evidence. Any hunk that is parsed, executed, or byte-pinned by a test or hook (embedded command, grep pattern, frontmatter, hook-read docstring, golden-pinned block) counts as a behavior change and disqualifies the lever. The reviewer may always elect a full pass. This is a verification-cost lever only, and any code/test/behavior finding found during the narrower pass still escalates normally. It does not apply while any code/test/behavior finding remains unresolved.
 
 **Invocation.** The conductor names the narrowed spawn explicitly at Step 8 of the Core Loop below (`## 2. The Core Loop`) and states what it must carry - notably the fix commit range (`sha1..sha2`), since Global-context field 6 (the branch diff) does not supply this. The Skeptic's sign-off in this mode carries a mandatory `Scope:` line (see `content/agents/skeptic.md` §Sign-off format) declaring the range and which finding IDs were prose-only; the `Active search:` attestation is scoped accordingly and must not claim a full adversarial pass it did not run.
 
-**Precedence with the cognitive-surrender audit note (§Cognitive surrender check below):** in a scoped round, the audit note's "independently re-read end-to-end" requirement applies to the scoped unit (the changed prose lines plus the enclosing manifest/section/header), not the whole diff. If the rubber-stamp trigger (two-iteration clean agreement) fires while a scoped round is active, the full-pass obligation wins - the Skeptic runs a full adversarial pass, not a second scoped one.
+**Precedence with the cognitive-surrender audit note (§Cognitive surrender check below):** in a scoped round, the audit note's "independently re-read end-to-end" requirement applies to the scoped unit (the changed prose lines plus the enclosing comment block/section/header), not the whole diff. If the rubber-stamp trigger (two-iteration clean agreement) fires while a scoped round is active, the full-pass obligation wins - the Skeptic runs a full adversarial pass, not a second scoped one.
 
 **Recurrence rule.** On the second occurrence of a count/enumeration-staleness finding against the same file, the recommended fix is deleting or de-numeralizing the claim rather than re-correcting the number - a narrower restatement of a stale claim re-asserts the same drift-prone shape, while deletion ends the class. This is the default expectation for both the engineer and the Skeptic, not a hard mandate.
 
@@ -7660,7 +7603,7 @@ The audit-note mechanism is the **primary** defense against the rubber-stamp / c
 
 **Minor** — Optional. Does not block sign-off by default (see the `Blocking-minor:` sign-off line in `content/agents/skeptic.md` §Sign-off format for the narrow exception). When Minor findings are present at sign-off, the primary agent spawns a general-purpose agent (background) to apply them, except `Beyond AC:` Minors, which are recorded as deferred (`content/agents/skeptic.md` §Calibration) - no follow-up Skeptic review is required, regardless of file type. Minor-fix Workers are an intentional exception to the "modifies protocol or infrastructure files" Elevated signal. Examples: style improvements, non-critical logging gaps, minor documentation issues, low-impact optimizations.
 
-**Behavior class determines severity.** A finding is eligible for Critical or Major only when it is a behavior finding: a defect in the shipped code or its runtime, an unmet acceptance criterion or `qa_criteria` scenario, unrequested behavior or a guard in a diff or a plan step (`content/agents/skeptic.md` steps 0.5 and 3.8), or a security/data-boundary issue. Fabricated or internally inconsistent evidence is an integrity finding and is also eligible. A defect in the diff's own code quality - duplication, a missed existing abstraction, copy-paste - is a code defect and is eligible. A defect in the methodology's own paperwork about the code - doc-sync, count-sync, module manifest, attestation wording, plan prose (not a planned guard; step 0.5), and test strength - is classified **Minor**, never Critical or Major. The reviewer still runs every check it ran before; only the tier it assigns changed. A paperwork defect that would mislead a caller on a correctness or security path stays Minor and is marked with the existing `Blocking-minor:` line; it is never reclassified upward.
+**Behavior class determines severity.** A finding is eligible for Critical or Major only when it is a behavior finding: a defect in the shipped code or its runtime, an unmet acceptance criterion or `qa_criteria` scenario, unrequested behavior or a guard in a diff or a plan step (`content/agents/skeptic.md` steps 0.5 and 3.8), or a security/data-boundary issue. Fabricated or internally inconsistent evidence is an integrity finding and is also eligible. A defect in the diff's own code quality - duplication, a missed existing abstraction, copy-paste - is a code defect and is eligible. A defect in the methodology's own paperwork about the code - doc-sync, count-sync, attestation wording, plan prose (not a planned guard; step 0.5), and test strength - is classified **Minor**, never Critical or Major. The reviewer still runs every check it ran before; only the tier it assigns changed. A paperwork defect that would mislead a caller on a correctness or security path stays Minor and is marked with the existing `Blocking-minor:` line; it is never reclassified upward.
 
 - **Missing telemetry emit at an instrumented boundary.** When a conductor spawns engineer/skeptic/qa and `.agentic/events.jsonl` does not contain the corresponding `spawn_start`/`spawn_complete` events (or, for ad-hoc sessions, the hook-emitted `spawn_start` with `data.source:"hook"`) for that boundary, flag as **Minor**. Does not block sign-off; surfaced for awareness so cost dashboards stay accurate. (`conductor_direct` is deprecated and no longer emitted; its absence is not a finding.)
 
@@ -7872,7 +7815,7 @@ Changes made:
 
 The structured sign-off format is required for every Skeptic response, whether findings exist or not:
 
-The verdict line comes FIRST (see `content/agents/skeptic.md` §Sign-off format, the canonical statement of this ordering and its rationale): it is the primary piece of information the block carries, and it is never placed behind the process attestations. The findings justifying it follow; `Reviewed:` and the four attestations form the audit tail.
+The verdict line comes FIRST (see `content/agents/skeptic.md` §Sign-off format, the canonical statement of this ordering and its rationale): it is the primary piece of information the block carries, and it is never placed behind the process attestations. The findings justifying it follow; `Reviewed:` and the three attestations form the audit tail.
 
 ```
 No unresolved Critical or Major findings. Sign-off granted.
@@ -7883,7 +7826,6 @@ If all counts are zero, write instead: Findings: No findings.
 Reviewed: [files/components examined]
   (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
-Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 Neutrality check: [pass | N steer(s) found (listed above)]
 [Optional, only when applicable: Round value: low - <reason>]
@@ -7940,17 +7882,16 @@ Round 4 (most recent):
 
 ### Sign-off validation
 
-The primary agent treats a Skeptic response as a valid sign-off only when it contains **the mandatory elements** as distinct lines. There are seven mandatory elements, always required on every Skeptic response regardless of review type. The `(a)`-`(l)` labels below are stable identifiers for cross-referencing, not an emission order - the emission order is the template above, verdict first:
+The primary agent treats a Skeptic response as a valid sign-off only when it contains **the mandatory elements** as distinct lines. There are six mandatory elements, always required on every Skeptic response regardless of review type. The `(a)`-`(l)` labels below are stable identifiers for cross-referencing, not an emission order - the emission order is the template above, verdict first:
 
 - (a) a line beginning "Reviewed:"
 - (b) a line beginning "Findings:"
 - (c) an "Active search:" line
 - (d) the phrase "No unresolved Critical or Major findings. Sign-off granted."
-- (g) a "Manifest check:" line, reporting the result of the module manifest check (content/agents/skeptic.md Step 8)
 - (h) a "Test-CI-wiring check:" line, reporting the result of the new-test-CI-wiring check (content/agents/skeptic.md Step 11.5)
 - (l) a "Neutrality check:" line, reporting the result of the neutrality check (content/agents/skeptic.md Step 3.9)
 
-A response missing any of the seven mandatory elements - including one containing only the phrase "Sign-off granted" without the rest - is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round, though the round-cap hook charges it unless its `What to review:` body is byte-identical to the last round's (§4.5 Counter lifecycle).
+A response missing any of the six mandatory elements - including one containing only the phrase "Sign-off granted" without the rest - is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round, though the round-cap hook charges it unless its `What to review:` body is byte-identical to the last round's (§4.5 Counter lifecycle).
 
 Further conditional elements are required only when their triggering condition holds, and simply absent (not a defect) otherwise:
 
@@ -7960,7 +7901,7 @@ Further conditional elements are required only when their triggering condition h
 - (j) `Round value: low` line: optional, added only when the Skeptic judges that a further round would buy little on an otherwise-clean or Minor-only state (see §Round budget and value-per-round gate). Never valid while a Critical or Major remains unresolved. Its absence is never format-noncompliant.
 - (k) `Blocking-minor:` line: optional, added only when the Skeptic marks a specific Minor finding as blocking sign-off despite Section 6's default that Minors never block. States the finding id/description and the reason. Its absence is never format-noncompliant.
 
-Reviews for which none of the conditional triggers hold - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the seven mandatory elements only; (e), (f), (i), (j), and (k) do not apply, and their absence is not format-noncompliant for those reviews.
+Reviews for which none of the conditional triggers hold - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the six mandatory elements only; (e), (f), (i), (j), and (k) do not apply, and their absence is not format-noncompliant for those reviews.
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 
@@ -9217,7 +9158,7 @@ summary:
   `goal-condition-evaluator.md` are both fully compliant. `skeptic.md`:
   Unit 1 added one narrow, additive cap declaration on finding-description
   length (300 chars) to the Calibration section, without altering,
-  retagging, or restructuring any of its seven conductor-validated Sign-off
+  retagging, or restructuring any of its six conductor-validated Sign-off
   format lines. `goal-condition-evaluator.md` (final unit): its second
   template's Evidence value is now `"evaluator-error: <one-line reason>"`
   - the one-line marker form (`SHAPE2_ONE_LINE_RE`, reused as-is by Shape
@@ -9386,8 +9327,7 @@ Public API: Read-only reference document. Consumers (shipped across units
 Upstream deps: docs/planning/ticket-rework/architect-plan.md (Skeptic-
                approved, 3 rounds, source of the design decisions this doc
                records); docs/planning/ticket-rework/brief.md (problem
-               framing and success criteria); content/rules/module-
-               manifest.md (this header's format); content/references/
+               framing and success criteria); content/references/
                regression-test-obligation.md and content/references/
                qa-regression-obligation.md (structural precedent for a new
                reference doc with no prior art in this domain).
@@ -9408,8 +9348,8 @@ Failure modes: this is documentation, not executable code - no runtime
                schema, write anchor, or concurrency mechanism described here
                changes in ds-implement-ticket.md or ds-ticket-triage.md
                without a matching update to this file, the doc becomes
-               active misinformation per the module-manifest staleness
-               rule - treat any such drift as a doc-sync obligation.
+               active misinformation - treat any such drift as a doc-sync
+               obligation.
 
 Performance: Standard (static reference text; no runtime cost).
 -->
@@ -11588,7 +11528,7 @@ Required columns (non-visual variant - API surface, behavioral contract, or type
 
 Use Grep/Glob (or Bash `rg`/`grep` when those tools are unavailable) to enumerate every importer; do not stop at "the obvious 3-4". Each table cell is capped at 150 chars - table rows are decision-relevant data the Skeptic spot-checks, not narration. The Skeptic will spot-check that the importer count in the table matches a fresh `grep` count. "Engineer will figure out which consumers are affected at implementation time" is NOT an acceptable substitute - blast-radius reasoning is the architect's job by definition, and downstream engineers spawned with worktree isolation cannot see consumer-by-consumer context the architect failed to produce.
 
-**Note any new modules where a manifest is recommended, and any existing manifested files whose manifest may need updating.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, include a step or inline note: `[filename] - new non-trivial module, manifest header recommended (see content/rules/module-manifest.md).` For each existing file modified by the plan that already carries a manifest, include a step or inline note instructing the Worker to update the manifest if the change alters purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics. Skeptic reports manifest gaps as Minor; a stale manifest whose inaccuracy could mislead a caller on a correctness or security path stays Minor and is marked with the existing `Blocking-minor:` line. Plans that modify manifested files without an update step risk introducing Minor findings.
+**Plans add no steps for header or explanatory comments.** Code comments follow `content/rules/code-standards.md` §Code Comments; plan a comment only for a non-obvious constraint the change introduces.
 
 ### QA criteria [MECHANICAL, cap: 20 items]
 
@@ -12177,9 +12117,11 @@ extra error handling, new guards, gates, hooks, or checks (`content/sections/02-
 discipline), or designs for hypothetical future requirements the task did not mention.
 That rule bars prose addressed to a requirement nobody asked for; this one bars prose addressed to
 a reviewer - a comment survives the review, the reviewer does not, so never write one to settle a
-finding, pre-empt a round, or justify a fix. Cut comments that restate what the code already makes
-apparent, but keep non-obvious "why" the code cannot express: filler costs attention, whereas a
-deleted constraint costs correctness. See `content/rules/conventions.md` §Writing Style.
+finding, pre-empt a round, or justify a fix. Every comment you add or change follows
+`content/rules/code-standards.md` §Code Comments: default to none, keep only the non-obvious "why"
+the code cannot express, and never delete a constraint (filler costs attention, whereas a deleted
+constraint costs correctness). Do not add header comments to files you touch, unless the repo's own
+`AGENTS.md` or `CONTRIBUTING.md` documents that header or docstring as required.
 
 ## Reading your spawn prompt and required context
 
@@ -12220,9 +12162,9 @@ When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the executio
 3. Read the relevant files. Understand the existing patterns: naming conventions, error handling style, test structure, module organization. Match them.
 4. Implement the change. Prefer modifying existing files over creating new ones. Keep the diff small and focused.
 5. **Reuse and abstraction self-check.** Before quality gates, review your diff for suitable existing helpers and patterns, consequential duplication, and abstractions that add complexity without improving clarity or maintenance. Apply `content/rules/code-standards.md` §DRY and Abstraction; explain consequential exceptions in your output. This check is mandatory.
-6. **Comment re-read.** List every comment or docstring line your diff adds or changes, plus any commit-message text you write beyond the conductor's template, and apply the Role rule above to each: cut restatement and review exhaust (round numbers, finding ids, text written to settle a reviewer), keeping any real constraint the line carries. Never cut a mandated manifest field, a comment a tool reads, or a non-obvious constraint. The reviewer runs the same test (skeptic.md step 10.5).
+6. **Comment re-read.** List every comment or docstring line your diff adds or changes, plus any commit-message text you write beyond the conductor's template, and apply the Role rule above to each: cut restatement and review exhaust (round numbers, finding ids, text written to settle a reviewer), keeping any real constraint the line carries. Never cut a comment a tool reads or a non-obvious constraint. The reviewer runs the same test (skeptic.md step 10.5).
 7. Run the project's quality gates - lint, typecheck, tests - whatever applies. All must pass before you are done. If a gate fails, fix the code; do not suppress or disable the check.
-8. **Scope trace.** Before returning, map each changed file to the acceptance criterion or named finding it serves, or to the task's stated requirement when the brief states no acceptance criteria (your return's `serves` entries; a doc-sync or manifest update serves the change that triggered it, and a generated or derived file serves the source file it was built from) and revert any hunk that serves neither. If the task needs more than the criteria name, or an architecture decision you were not given, stop and say so in your output rather than silently expanding scope.
+8. **Scope trace.** Before returning, map each changed file to the acceptance criterion or named finding it serves, or to the task's stated requirement when the brief states no acceptance criteria (your return's `serves` entries; a doc-sync update serves the change that triggered it, and a generated or derived file serves the source file it was built from) and revert any hunk that serves neither. If the task needs more than the criteria name, or an architecture decision you were not given, stop and say so in your output rather than silently expanding scope.
 
 ## Quality gates
 
@@ -12237,7 +12179,6 @@ After every implementation:
   - **Async fire-and-forget.** If the diff invokes <!-- shared:async-primitive-list -->an async function, Promise, goroutine, or background task without the caller awaiting or otherwise observing its outcome<!-- /shared -->, confirm there is an explicit failure path at the call site (a `.catch()`/`try-catch`) or a documented supervisor/queue that owns the task's lifecycle and surfaces its errors. An unrelated global error handler that merely logs and continues does not satisfy this - the call site itself needs a failure path (skeptic.md step 4.6).
   - **Per-consumer row verification.** If your spawn brief carries a per-consumer impact table (see architect.md's "Per-consumer impact table" requirement under Implementation steps), confirm each row's `new_behavior` is actually addressed by your diff before returning DONE. A row left unaddressed with no explicit deferral noted in the plan is a gap to close now, not to surface later (skeptic.md step 7).
   - **Doc-sync.** If the diff changes a count, list, path, command, agent, or documented behavior, grep `README.md`, `CONTRIBUTING.md`, `content/SKILL.md` for the changed identifier and fix what went stale. No attestation line. See `content/references/doc-sync-obligation.md`.
-  - **Module manifest.** If the diff creates a file that needs a manifest header, or changes a manifested file's purpose, public API, or failure semantics, add or update its header. See `content/rules/module-manifest.md`.
   - If a check finds nothing to fix, it costs one grep and moves on - do not narrate a clean result at length.
 - Before reporting, run all verification commands one final time in the same message and paste their actual output. Do not rely on checks run earlier in the session.
 
@@ -12736,7 +12677,7 @@ For each generalizable finding, produce one learning entry. Apply this heuristic
 
 - **finding-title**: Use the finding's title/slug from the findings_log. Short, specific.
 - **severity**: Critical or Major (from the findings_log entry).
-- **domain**: A free-tag identifying the area. Choose from the finding context: `adapter-interface`, `zod-schema`, `concurrent-state`, `module-manifest`, `dev-script`, `workspace-config`, `auth`, `api-contract`, `data-migration`, `test-pattern`, or a concise domain name that fits.
+- **domain**: A free-tag identifying the area. Choose from the finding context: `adapter-interface`, `zod-schema`, `concurrent-state`, `dev-script`, `workspace-config`, `auth`, `api-contract`, `data-migration`, `test-pattern`, or a concise domain name that fits.
 - **pattern**: 1-2 sentences describing the class of bug. Written so a future engineer encountering a similar situation would recognize it. Focus on the *symptom* and *root cause*, not the specific file.
 - **fix**: 1-2 sentences describing the fix pattern. Written as actionable guidance: "when you see X, do Y."
 - **source**: File and line reference from the merged_diff where the fix was applied. Format: `<path>:<line>` or PR URL if lines are not available.
@@ -15142,7 +15083,7 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
    - If a trade-off is named and justified somewhere in the artifact, this is not a finding - an un-surfaced trade-off is the problem, not disagreement with a stated one. Note it in your sign-off for the human's visibility even when it is not a finding.
    - If `docs/overview/vision.md` does not exist, skip this step silently.
 3.7. **Spawn-brief provenance check.** Scan Global-context field 7 (conductor spawn brief, claim-bearing text only) for directive-shaped claims - a value, path, count, or root-cause/rationale assertion - that lack a valid provenance tag per the provenance test in `content/sections/04-risk-classification.md`. Any of the 4 tag classes (`[verified: file:line]`, `[per <agent>, unverified]`, `[verified-local: <path> - untracked-by-design|branch-new]`, `[verified-by-execution: <command> - result]`) satisfies the requirement for that claim. A malformed `[verified:]` tag (no evidence the conductor confirmed the cited path against origin/main this session) counts as untagged. A valid field-7 `n/a` (per the canonical reasons in `content/references/skeptic-protocol.md` Section 4.5) silently satisfies this step - no finding - mirroring the Trivial no-Skeptic carve-out. For each untagged directive-shaped claim found, raise a **Major** finding naming the specific claim and stating its provenance is absent.
-3.8. **Diff-scope check.** Runs on every diff this Skeptic reviews, Trivial-tier included. Compare the diff against the acceptance criteria and reviewed implementation steps in the architect plan (field 1), or the spawn brief's stated criteria (field 7) when field 1 is a valid `n/a`. Exempt: a mechanically necessary side effect (a triggered manifest update, CI wiring for an exempt test, a generated adapter artifact); a doc edit only where the diff made that doc stale; a test only when it covers an acceptance criterion or a behavior-defect finding. Any other hunk not named or clearly implied by that scope is a finding: behavior-changing code, and any new guard, gate, hook, or check (`content/sections/02-delegation.md` §Scope discipline) that neither the acceptance criteria nor a reviewed plan step asks for, is **Major**, escalating to **Critical** on a security-sensitive or production-behavior path per the Critical definition; error handling the diff's own new code needs (such as a step 4.6 failure path) is in scope. Behaviorally inert code (formatting, comments, dead code) and a test covering no acceptance criterion or behavior-defect finding are **Minor**, the description starting `Scope drift:`, and are removed at `/ds-implement-ticket` Phase 6 Step 3. Do not flag a hunk the Worker's `serves` mapping or summary accurately justifies as in scope.
+3.8. **Diff-scope check.** Runs on every diff this Skeptic reviews, Trivial-tier included. Compare the diff against the acceptance criteria and reviewed implementation steps in the architect plan (field 1), or the spawn brief's stated criteria (field 7) when field 1 is a valid `n/a`. Exempt: a mechanically necessary side effect (CI wiring for an exempt test, a generated adapter artifact); a doc edit only where the diff made that doc stale; a test only when it covers an acceptance criterion or a behavior-defect finding. Any other hunk not named or clearly implied by that scope is a finding: behavior-changing code, and any new guard, gate, hook, or check (`content/sections/02-delegation.md` §Scope discipline) that neither the acceptance criteria nor a reviewed plan step asks for, is **Major**, escalating to **Critical** on a security-sensitive or production-behavior path per the Critical definition; error handling the diff's own new code needs (such as a step 4.6 failure path) is in scope. Behaviorally inert code (formatting, comments, dead code) and a test covering no acceptance criterion or behavior-defect finding are **Minor**, the description starting `Scope drift:`, and are removed at `/ds-implement-ticket` Phase 6 Step 3. Do not flag a hunk the Worker's `serves` mapping or summary accurately justifies as in scope.
 3.85. **Exclusion-claim verification check.** Every exclusion claim in the plan or PR manifest - an OUT-OF-SCOPE entry, "already shipped in X", "lives on screen/module Y", "handled by ticket Z" - must be verified against the tree or tracker exactly the way in-scope claims are: grep for the named artifact, and confirm the cited ticket/PR exists and says what is claimed. A false exclusion claim is a **Major** finding by default, escalating to **Critical** when it justifies deleting shipped behavior. Reviewers audit what a plan proposes to do; an unverified exclusion claim is the cheapest way for wrong scope to survive review.
 3.9. **Neutrality check.** Scan every field of the Global-context input set (1-7) and the adversarial brief for a conductor-composed hypothesis, suspicion, or conclusion about the artifact under review, in any form and whether tagged or untagged, per the test defined in "Reading your spawn prompt" item 4 above and `content/references/skeptic-protocol.md` Section 7 "Scope of the ban". For each instance found: disregard it entirely when forming your own independent judgment, and raise a **Minor** finding citing the exact offending sentence, noting that the Global-context input set may have been composed non-neutrally so the conductor can review its own composition process. Emit the result of this check via the fixed `Neutrality check:` sign-off line defined below - do not fold it into free-form prose. This step is also the Skeptic's implementation of the general recipient-side self-check required of every subagent by `content/references/subagent-protocol.md` §11 "Spawn-brief provenance" - the `Neutrality check:` line below already satisfies that obligation for Skeptic spawns, so no separate `Provenance check:` line is added to the fixed sign-off sequence.
 4. Apply the brief actively - for each concern it raises, look specifically for that failure mode in the code. Do not skim.
@@ -15151,9 +15092,7 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
 5. Search broadly for other Critical or Major issues beyond what the brief explicitly names.
 6. **Brief coverage check** - re-read the adversarial brief one more time, concern by concern. For each specific failure mode the brief names, confirm you have either raised a finding for it or can explicitly state you checked and found no issue. Do not let a named concern go unaddressed.
 7. **Per-consumer impact check** - if the per-consumer impact table (field 4) is present and not `n/a`, verify that each consumer row's `new_behavior` is reflected in the diff. A consumer row whose `new_behavior` is not addressed by the Worker is a **Major** finding unless the architect plan explicitly defers it. Do not accept the table's row count as complete: before applying this check, independently re-derive the consumer set (Grep/Glob for the changed symbol, utility, or shared path) and diff it against the table. A table that omits a real consumer is itself a **Minor** finding (undercounted per-consumer impact table - a plan-artifact defect), in addition to any unaddressed row.
-8. **Module manifest check** - for any new or modified non-trivial module in the diff (exports a public symbol consumed elsewhere, over ~50 LOC, or implements a side-effecting operation), verify a manifest header is present and reflects the current file. A missing manifest, and a stale one (no longer reflects current purpose, public API, upstream dependencies, downstream consumers, failure modes, or performance characteristics), are both **Minor** findings and do not block sign-off. A stale manifest whose inaccuracy could cause a caller to mishandle a correctness or security path stays Minor and is routed through the `Blocking-minor:` sign-off line. List every manifest issue in the findings so the author can address it. Emit the result of this check via the fixed `Manifest check:` sign-off line defined below - do not fold it into free-form prose.
-
-   **Prose-scoped re-check (verification-cost lever, not a severity change).** When a round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale module manifest, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the NEXT verification is a prose-scoped re-check rather than a full fresh adversarial pass: verify only (a) the changed prose lines against the live tree facts they assert, and (b) that the fix introduced no new false claim anywhere in the enclosing unit - the full module manifest for a manifest fix, the full containing section or document header for a doc-sync fix - read that unit end to end, not only the changed lines and their immediate context. The reviewer establishes this trigger itself by diffing the fix commit(s) since the last reviewed SHA - engineer self-classification is not evidence. Any hunk that is parsed, executed, or byte-pinned by a test or hook (embedded command, grep pattern, frontmatter, hook-read docstring, golden-pinned block) counts as a behavior change and disqualifies the lever. The reviewer may always elect a full pass. A code, test, or behavior finding newly discovered during this narrower pass is classified and escalated normally - it is not suppressed by the narrower scope. This does not apply while any code/test/behavior finding remains unresolved. See `content/references/skeptic-protocol.md` §Prose-scoped re-check for the round-loop mechanics, invocation contract, and required sign-off `Scope:` line this modifies.
+8. **Prose-scoped re-check (verification-cost lever, not a severity change).** When a round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale code comment, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the NEXT verification is a prose-scoped re-check rather than a full fresh adversarial pass: verify only (a) the changed prose lines against the live tree facts they assert, and (b) that the fix introduced no new false claim anywhere in the enclosing unit - the full comment block for a comment fix, the full containing section or document header for a doc-sync fix - read that unit end to end, not only the changed lines and their immediate context. The reviewer establishes this trigger itself by diffing the fix commit(s) since the last reviewed SHA - engineer self-classification is not evidence. Any hunk that is parsed, executed, or byte-pinned by a test or hook (embedded command, grep pattern, frontmatter, hook-read docstring, golden-pinned block) counts as a behavior change and disqualifies the lever. The reviewer may always elect a full pass. A code, test, or behavior finding newly discovered during this narrower pass is classified and escalated normally - it is not suppressed by the narrower scope. This does not apply while any code/test/behavior finding remains unresolved. See `content/references/skeptic-protocol.md` §Prose-scoped re-check for the round-loop mechanics, invocation contract, and required sign-off `Scope:` line this modifies.
 9. **Regression test check** - if this is a fix round (the spawn prompt identifies Critical or Major findings that were addressed), verify each fixed behavior-defect finding (`content/references/regression-test-obligation.md`) has a corresponding regression test, or a documented reason why one is not possible; other findings need none. A missing test without explanation is a **Minor** finding: `Missing regression test for [finding title] - a test that would have caught this failure mode is required.`
 
    **The pre-fix-failure property is required, and post-fix execution alone does not establish it.** Executing the test against the fixed code only proves the test currently passes - it does not prove the test would have failed before the fix, which is exactly the property that distinguishes a real regression test from a vacuous one. This property is established by one of two means, either of which is sufficient: (a) the Worker's summary explicitly attests to having run the test against the unfixed code first and observed it fail, or (b) you (the Skeptic) execute the test against the pre-fix code yourself in an **ephemeral scratch worktree at a run-unique path** - `<scratch>` must be unique per invocation (e.g. `mktemp -d` or `.agentic/skeptic-scratch/$(date +%s)-$$`), never a fixed literal path, so a successive fix round or a concurrent `skeptic_strategy: multi-dimensional` peer reviewing the same diff cannot collide on it - (where feasible - e.g. `git worktree add <scratch> <base-sha>` to create it at the pre-fix base, `git -C <scratch> checkout <head-sha> -- <test-paths>` to apply only the test file(s) from the diff on top of it - not the fix itself - then run the test inside `<scratch>`, confirm it fails for the reason the finding describes, then `git worktree remove --force <scratch>` - `--force` is required because the prior checkout step leaves the scratch worktree with staged changes, which a plain `git worktree remove` refuses to delete) and confirm the failure directly. Never check out the pre-fix base in place in the tree you are reviewing from - that mutates a working tree the Skeptic does not own, and is unsafe when the tree is shared across parallel Skeptic strategies (e.g. `skeptic_strategy: multi-dimensional` fanning a correctness-Skeptic, security-auditor, and perf-analyst out onto the same diff in a single message - one reviewer's in-place checkout would corrupt what the others read). With a scratch worktree there is nothing to restore afterward; removing the worktree is sufficient. **A collection, import, or file-not-found error is NOT a pre-fix failure and does not satisfy (b).** When a fix and its regression test are committed together (the normal case), reverting the fix in place also deletes the test - the run then errors on a missing file, not on the bug the fix addressed, and that error must never be recorded as independent verification. **Deriving `<base-sha>` inline (no PR base-sha guaranteed):** per the Review-environment freshness precondition, `<base-sha>` is only guaranteed on a PR-against-base-branch review - the common `/ds-implement-ticket` inline fix-round case (Step 9's own trigger) has no guaranteed handover. Derive it yourself: `<base-sha>` is the head SHA the prior round reviewed, which the Worker output reports as `briefed_head_sha`; `<head-sha>` is the Worker's stated `commit_sha` or `git rev-parse HEAD`. Without `briefed_head_sha`, (b) is not feasible - never substitute a fix commit's parent, which after checkpoint pushes may already be partly fixed.
@@ -15166,7 +15105,7 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
    - If (a) holds but you were not able to execute the test against the pre-fix code (no Bash tool available to you, missing test infra, an external service dependency, reverting the fix is impractical, or any other concrete blocker), do not settle for a prose excuse - paste the attempted command and its actual error output (the command you tried to run and what it returned: a missing-binary error, a connection failure, an environment error) alongside the stated reason: `Execution not possible in this review environment: [reason]. Attempted: [command]. Error: [pasted error output]`. In that case flag the reliance on attestation as a **Minor** finding: `Regression test attestation unverified by execution - execution against the pre-fix code was not possible in this review environment ([reason]); relying on Worker self-report.` This Minor does not block sign-off on its own and must always be listed.
    - Regardless of whether execution was possible, continue to Step 12's `raw_output` spot-check below - a Worker's pasted transcript is never proof by itself.
 10. **Doc-sync check** - a **standing check** applied every round (not fix-round-only). Apply the trigger predicate from `content/references/doc-sync-obligation.md` to the diff: ask whether any sentence, count, or list in README.md, CONTRIBUTING.md, or content/SKILL.md (or an affected `content/sections`/`content/references` cross-reference) becomes false or incomplete because of this diff. Not tripped -> no finding. Tripped and correctly updated -> no finding. Tripped and missing/incomplete -> **Minor**, whatever its shape (a non-misleading omission, a now-stale count/list/path/convention/behavior assertion, or a public-facing doc that actively misleads on how to use, install, or extend the system - that last case stays Minor and is routed through the `Blocking-minor:` sign-off line). Uncertainty is not an exemption - grep the docs for the changed identifier or count and resolve.
-10.5. **Comment-discipline check** - applied every round. Scope: every comment or docstring line the diff adds or changes, in any language; PR body or tracker-comment text supplied in the Worker output; on a review of an open PR, that PR's body. Apply `content/rules/conventions.md` §Length discipline; the test is never length or comment-to-code ratio. A comment that restates what the code or diff already shows is a finding. Review exhaust (round numbers, finding ids, text written to settle a reviewer) is a finding; when it is attached to a real constraint, the finding is the label, not the constraint. The emphasis cap and no-capitals rule apply to every artifact in scope, and PR text and Worker-drafted tracker-comment text also get `content/references/conventions-detail.md` §External Comment Discipline. Each finding is **Minor**; its description starts with `Comment discipline:` and names the exact span (file:line or section, plus the quoted text). Removing a comment that carried a non-obvious constraint is also a Minor, routed through the `Blocking-minor:` sign-off line when the constraint guards correctness or security. Exempt: mandated module-manifest fields; comments that tools read (lint and type pragmas, `<!-- shared: -->` markers, `@harness:` anchors, SPDX and license headers, shebangs, generated-file banners); a required PR section's heading and presence (never its content).
+10.5. **Comment-discipline check** - applied every round. Scope: every comment or docstring line the diff adds or changes, in any language; PR body or tracker-comment text supplied in the Worker output; on a review of an open PR, that PR's body. Apply `content/rules/code-standards.md` §Code Comments to code comments and `content/rules/conventions.md` §Length discipline to PR and tracker text; the test is never length or comment-to-code ratio. A comment that restates what the code or diff already shows is a finding, and so is an added file or module header block. Review exhaust (round numbers, finding ids, text written to settle a reviewer) is a finding; when it is attached to a real constraint, the finding is the label, not the constraint. The emphasis cap and no-capitals rule apply to every artifact in scope, and PR text and Worker-drafted tracker-comment text also get `content/references/conventions-detail.md` §External Comment Discipline. Each finding is **Minor**; its description starts with `Comment discipline:` and names the exact span (file:line or section, plus the quoted text). Removing a comment that carried a non-obvious constraint is also a Minor, routed through the `Blocking-minor:` sign-off line when the constraint guards correctness or security. A missing comment is never a finding, except a non-obvious constraint the diff introduces and leaves undocumented, which is a Minor with the same prefix. Exempt: a header or docstring the repo's own `AGENTS.md` or `CONTRIBUTING.md` documents as required (for example the CLI header docstring in DinoStack's `bin/AGENTS.md`); comments that tools read (lint and type pragmas, `<!-- shared: -->` markers, `@harness:` anchors, SPDX and license headers, shebangs, generated-file banners); a required PR section's heading and presence (never its content).
 11. **Smoke-test gate check** - when reviewing an Elevated engineer return, check `quality_gate_results.smoke_test`. If the value is `not_run` and the diff has a runtime path (i.e. the change is not one of the documented skip reasons: pure-backend-library, config-only, type-only-refactor, docs-only), that is a **Major** finding. `skipped` with a stated valid reason from that list is acceptable.
 11.5. **New-test-CI-wiring check** - for each NEW test file in the diff <!-- shared:test-file-glob-list -->(matches `*/tests/*`, `test_*.py`, `*.test.*`, `*.spec.*`, or a file added to an existing test-only directory), grep `.github/workflows/*.yml` and `.github/workflows/*.yaml` for a reference to that file, its containing glob, or an auto-discovering runner covering its directory (e.g. a `pytest <dir>` invocation)<!-- /shared -->. A new test file with no matching CI invocation is a **Minor** finding: "New test file [path] is not wired into any CI workflow - a test that never runs provides no regression protection." Emit the result via the `Test-CI-wiring check:` sign-off line defined below.
 12. **`raw_output` substance spot-check.** This is a standalone step with its own trigger, independent of Step 11 - run it on EVERY Worker return, whether or not a `quality_gate_results` block or any other structured enum field is present. Its trigger is the presence of ANY pasted evidence or transcript in a Worker return - a structured `quality_gate_results` block, a free-form "Quality gates:" section, or any inline command transcript. A return with no `quality_gate_results` block does not exempt it from this step; the free-form-transcript case is exactly what this step exists to catch. Do not accept the enum value (`pass`/`fail`/`skipped`/`not_run`) or a pasted transcript at face value - verify the `raw_output` content is actually consistent with the claim it supports. For every concrete artifact the raw output names, cross-check it against the diff and the repository (via Read/Grep/Glob, or Bash execution per Step 9 when available). The artifact types below are split by which rule governs each:
@@ -15180,7 +15119,7 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
 
 The conductor validates this format exactly. Use it verbatim - do not paraphrase the structural lines.
 
-The verdict line comes FIRST - it is the one piece of information every reader of this block needs, and it must never be buried behind the process attestations. The findings that justify it follow, then the audit tail (`Reviewed:` and the four attestations). Every line below is mandatory; the ordering is what changed, not the content.
+The verdict line comes FIRST - it is the one piece of information every reader of this block needs, and it must never be buried behind the process attestations. The findings that justify it follow, then the audit tail (`Reviewed:` and the three attestations). Every line below is mandatory; the ordering is what changed, not the content.
 
 ```
 No unresolved Critical or Major findings. Sign-off granted.
@@ -15190,7 +15129,6 @@ If all counts are zero, write instead: Findings: No findings.
 Reviewed: [files/components examined]
   (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
-Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 Neutrality check: [pass | N steer(s) found (listed above)]
 ```
@@ -15201,7 +15139,7 @@ Neutrality check: [pass | N steer(s) found (listed above)]
 Scope: prose-scoped re-check (<sha1>..<sha2>; findings <ids> prose-only)
 ```
 
-In this mode, the `Active search:` line must not claim a full adversarial pass it did not run - state instead: `Active search: I have re-read the changed prose lines and the enclosing unit (manifest/section/header) end to end for <sha1>..<sha2>; I have not re-run the full adversarial brief.` If a code, test, or behavior finding surfaces during the narrowed read, escalate to a full pass immediately (see the rules governing the lever) rather than completing sign-off in scoped mode.
+In this mode, the `Active search:` line must not claim a full adversarial pass it did not run - state instead: `Active search: I have re-read the changed prose lines and the enclosing unit (comment block/section/header) end to end for <sha1>..<sha2>; I have not re-run the full adversarial brief.` If a code, test, or behavior finding surfaces during the narrowed read, escalate to a full pass immediately (see the rules governing the lever) rather than completing sign-off in scoped mode.
 
 If Critical or Major findings remain unresolved, replace the first line (the granted verdict) with the withheld verdict and the resolution list, keeping both at the top of the block ahead of the findings list:
 
@@ -15230,10 +15168,10 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 - Only classify as Critical or Major what would cause real problems in production, violates the stated requirements, or exceeds them per step 3.8.
 - Style preferences, non-critical naming choices, and minor documentation gaps belong in Minor.
 - The goal is to catch genuine problems, not to find something to flag. "Looks fine but could be improved" is a Minor, not a Major.
-- A suggestion whose fix adds work beyond the acceptance criteria (a hypothetical scenario, extra hardening, a test or guard nothing requires) is Minor, its description starting `Beyond AC:`; it never blocks and the conductor records it as deferred. A defect in what the diff does, or a standing-check finding (steps 8, 10, 10.5, 11.5), is never `Beyond AC:`.
+- A suggestion whose fix adds work beyond the acceptance criteria (a hypothetical scenario, extra hardening, a test or guard nothing requires) is Minor, its description starting `Beyond AC:`; it never blocks and the conductor records it as deferred. A defect in what the diff does, or a standing-check finding (steps 10, 10.5, 11.5), is never `Beyond AC:`.
 - **Unnecessary abstraction:** flag concrete complexity or maintenance costs from speculative helpers, wrappers, or configuration layers under `content/rules/code-standards.md` §DRY and Abstraction. Do not demand work for hypothetical future scenarios or infer a defect from caller count or export status alone.
-- **Paperwork findings are Minor.** Module manifests (missing or stale), doc-sync drift, and a new test file with no matching CI invocation (Step 11.5) are all **Minor** - the checks still run and every gap is still listed, but none of them blocks sign-off by default. A paperwork gap that would mislead a caller on a correctness or security path stays Minor and is routed through the `Blocking-minor:` sign-off line. Report the manifest and CI-wiring results via the `Manifest check:` and `Test-CI-wiring check:` sign-off lines.
-- **Finding-description length:** cap each per-finding description (the `[CLASSIFICATION] - description (file:line or region)` text in the Findings list) at 300 chars. This is additive scope guidance only - it does not alter, retag, or restructure any of the seven conductor-validated Sign-off format lines in the section above (`content/references/subagent-return-contract.md` Shape 3).
+- **Paperwork findings are Minor.** Doc-sync drift and a new test file with no matching CI invocation (Step 11.5) are both **Minor** - the checks still run and every gap is still listed, but none of them blocks sign-off by default. A paperwork gap that would mislead a caller on a correctness or security path stays Minor and is routed through the `Blocking-minor:` sign-off line. Report the CI-wiring result via the `Test-CI-wiring check:` sign-off line.
+- **Finding-description length:** cap each per-finding description (the `[CLASSIFICATION] - description (file:line or region)` text in the Findings list) at 300 chars. This is additive scope guidance only - it does not alter, retag, or restructure any of the six conductor-validated Sign-off format lines in the section above (`content/references/subagent-return-contract.md` Shape 3).
 
 ## Rules
 
@@ -19738,8 +19676,6 @@ Use the orchestration-planner's output to drive agent spawning decisions if Phas
 
 Read the orchestration-planner's output to make the routing determination below if Phase 3b ran; read the architect's output directly if Phase 3b was skipped.
 
-**Module manifests:** Files modified should carry module manifests per `~/DinoStack/.claude/skills/dinostack/rules/module-manifest.md` when non-trivial. Skeptic reports manifest gaps as Minor in Phase 6; a gap whose inaccuracy could mislead a caller on a correctness or security path stays Minor and is marked `Blocking-minor:`. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
-
 **Tracker writeback note.** In Progress (W1) is written at Phase 1, not here - Phase 5 deliberately has no W1 site. Do not re-add one.
 
 ### If work is a single logical unit (or units must be sequential):
@@ -22507,7 +22443,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
    > "Does the split preserve every fact and instruction from the original CLAUDE.md? For each bucket: is any agentic content still sitting in the residual CLAUDE.md that should have moved to AGENTS.md? Is any project-specific Claude-only instruction incorrectly promoted to the tool-agnostic AGENTS.md where Codex/Cursor/Gemini will also read it? Are the MEMORY.md additions stable facts (rationale, dated observations) rather than temporary task state? Is the proposed AGENTS.md under 45 lines and does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions, Session start)? Did any implementation detail or rationale paragraph remain in AGENTS.md that belongs in MEMORY.md instead? Is the residual CLAUDE.md genuinely Claude-Code-specific, or is it agentic content that was dropped into the wrong bucket?"
 
-   Require the standard sign-off format: `No unresolved Critical or Major findings. Sign-off granted. ... Findings: ... Reviewed: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... Neutrality check:` (verdict first - see `content/agents/skeptic.md` §Sign-off format)
+   Require the standard sign-off format: `No unresolved Critical or Major findings. Sign-off granted. ... Findings: ... Reviewed: ... Active search: ... Test-CI-wiring check: ... Neutrality check:` (verdict first - see `content/agents/skeptic.md` §Sign-off format)
 
    **PRESENT the three-way split to the user BEFORE applying** (diff-style preview):
 
@@ -24114,7 +24050,7 @@ The Skeptic is always a fresh spawn - never resumed, never continued from a prio
 
 ## Step 3 - Read findings
 
-A valid sign-off contains all mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the seven always-required lines, emitted verdict-first - the sign-off phrase, Findings:, Reviewed:, Active search:, Manifest check:, Test-CI-wiring check:, Neutrality check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements apply only when their triggering condition holds - see Section 11 for when).
+A valid sign-off contains all mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the six always-required lines, emitted verdict-first - the sign-off phrase, Findings:, Reviewed:, Active search:, Test-CI-wiring check:, Neutrality check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements apply only when their triggering condition holds - see Section 11 for when).
 
 If any element is missing: spawn a new Skeptic with explicit format instructions ("Your previous response did not conform to the required sign-off format. Please restate your findings and sign-off using the required format."). This format re-invocation is not counted as a new adversarial round, though the round-cap hook charges it unless its What to review body is byte-identical to the last round's (§4.5 Counter lifecycle). Limit: 3 format re-invocations. If still noncompliant after 3, escalate to the human.
 
@@ -24477,7 +24413,7 @@ Produces a single Markdown report containing:
 
 1. **Coverage summary** - language and test framework detected, total source files, total test files, line/branch coverage if a coverage tool is available.
 2. **Gap report** - ranked list of source modules with weak or absent coverage, each entry annotated with:
-   - The module's purpose (pulled from its module manifest if present).
+   - The module's purpose (pulled from its header comment or docstring if present).
    - Why the gap matters (blast radius, side effects, intent-layer signals).
    - The risk classification (High / Medium / Low) of leaving it uncovered.
 3. **Recommended additions** - 3 to 10 specific test files where adding cases would close the highest-leverage gaps, with one-sentence rationale per recommendation.
@@ -24508,11 +24444,11 @@ If a coverage tool is configured and runnable in the project's normal way, run i
 
 ### Step 3 - Build the source / test cross-reference
 
-For each non-trivial source module (per the criteria in `module-manifest.md`):
+For each non-trivial source module (exports a symbol consumed elsewhere, over ~50 lines of logic, or has side effects):
 
 - Find any test files that import or reference the module by name.
-- Pull the module's manifest header if present - `Purpose`, `Public API`, `Failure modes`, and `Downstream consumers` are the inputs that drive risk ranking.
-- Note any side-effecting operations declared in the manifest (network, disk, DB, external service) - these elevate the risk of leaving the module uncovered.
+- Pull the module's header comment or docstring if present - its stated purpose, public API, failure modes, and consumers are the inputs that drive risk ranking.
+- Note any side-effecting operations (network, disk, DB, external service) - these elevate the risk of leaving the module uncovered.
 
 For each test file:
 
@@ -24523,11 +24459,11 @@ For each test file:
 
 Score each uncovered or weakly-covered module against:
 
-- **Blast radius** - downstream consumers count from manifest; modules with many consumers rank higher.
-- **Side effects** - manifest-declared I/O, mutation, or external calls rank higher than pure functions.
+- **Blast radius** - downstream consumer count (importers); modules with many consumers rank higher.
+- **Side effects** - I/O, mutation, or external calls rank higher than pure functions.
 - **Public surface** - exported symbols rank higher than internal helpers.
 - **Recent change activity** - modules modified in the last 30 days that gained no test changes rank higher.
-- **Failure mode severity** - manifest-declared failure modes that mention data loss, security, or silent corruption rank highest.
+- **Failure mode severity** - documented or evident failure modes that mention data loss, security, or silent corruption rank highest.
 
 Classify as High / Medium / Low risk for leaving uncovered.
 
@@ -25435,7 +25371,7 @@ Out of scope (direct Edit/Write is fine; normal Trivial/Elevated tiers apply):
 
 Note: `.claude/skills/dinostack/**` files are symlinks into `content/` - editing them is functionally editing `content/`, so they remain IN scope via the `content/**` rule above. This is a clarification, not a separate scope.
 
-**Command authoring:** when a Step 1 edit adds or rewrites a command file (`content/commands/*.md`), follow `content/references/command-authoring.md` - trigger-keyword "When to use" descriptions, bad/good example-pair seeding, and the module-manifest header. New commands must be registered in `bin/ds-help` (the full command inventory); `content/SKILL.md`'s Commands section is a curated subset, so list a command there only when it warrants prominent placement.
+**Command authoring:** when a Step 1 edit adds or rewrites a command file (`content/commands/*.md`), follow `content/references/command-authoring.md` - trigger-keyword "When to use" descriptions and bad/good example-pair seeding. New commands must be registered in `bin/ds-help` (the full command inventory); `content/SKILL.md`'s Commands section is a curated subset, so list a command there only when it warrants prominent placement.
 
 ## Step 0a - Directory gate (run before Step 0)
 
@@ -26650,7 +26586,7 @@ Require this statement before sign-off: "Active search: I have applied the adver
 
 **Step 3 — Validate sign-off format.**
 
-A valid sign-off requires the mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the seven always-required lines, emitted verdict-first: the sign-off phrase, Findings:, Reviewed:, Active search:, Manifest check:, Test-CI-wiring check:, Neutrality check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply to this internal review). If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
+A valid sign-off requires the mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the six always-required lines, emitted verdict-first: the sign-off phrase, Findings:, Reviewed:, Active search:, Test-CI-wiring check:, Neutrality check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply to this internal review). If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
 If Critical or Major findings remain: spawn a new draft Worker with the original draft and findings, get a revised draft, then spawn a fresh Skeptic (Step 2). Repeat until sign-off. If the same finding is contested across 2+ re-routes without resolution, escalate to the user.
 
@@ -26906,9 +26842,9 @@ Otherwise skip that target silently.
    >
    > Require this statement before sign-off: "Active search: I walked the original section by section and verified every fact appears in the compressed output, independently re-ran every cited positive-match grep and falsity-proof check for deleted or merged entries, and for every SUPERSEDED_MERGE independently re-read the superseding prose and re-verified the fact-by-fact mapping."
    >
-   > Sign-off format (verdict first): "No unresolved Critical or Major findings. Sign-off granted. ... Findings: ... Reviewed: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... Neutrality check:"
+   > Sign-off format (verdict first): "No unresolved Critical or Major findings. Sign-off granted. ... Findings: ... Reviewed: ... Active search: ... Test-CI-wiring check: ... Neutrality check:"
 
-3. Validate sign-off format the same way Step 3 does (the mandatory elements per `content/references/skeptic-protocol.md` Section 11 - the seven always-required lines; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply here). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
+3. Validate sign-off format the same way Step 3 does (the mandatory elements per `content/references/skeptic-protocol.md` Section 11 - the six always-required lines; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply here). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
    If Critical or Major findings remain: spawn a new curation Worker with the same target-file line (path and counts, never the content), the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 3 re-routes, then skip compression/curation for that target this session and log the failure in Step 6.
 

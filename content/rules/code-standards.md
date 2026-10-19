@@ -6,9 +6,9 @@ Verify consequential assumptions about library, framework, or SDK behavior again
 
 Prefer suitable dedicated tools when available; use shell tools when they are unavailable or do not cover the task. Choose efficient output and measure cost before adopting new tools. Read `content/references/code-standards-detail.md` §Tool Discipline when choosing search tools or evaluating tool integrations.
 
-## Module Manifests
+## Code Comments
 
-Non-trivial source files (exported symbols consumed elsewhere, over ~50 lines of logic, or side effects) are encouraged to carry a manifest header. Read `content/rules/module-manifest.md` for fields and exemptions when creating or substantially modifying one. Skeptic reports manifest gaps as **Minor**.
+Default to no comment. Add one only for what the code cannot show: a non-obvious constraint, a workaround and its reason, an ownership split, or a why. Never restate the code, narrate the change, cite a ticket or review finding, write a multi-line explanatory block, or add a file or module header comment. When a comment is needed, write one short line where it applies and match the surrounding comment density. Fix or delete an existing comment your change makes false, never delete a constraint comment, and do not sweep untouched comments. A header or docstring standard the repo documents in its own `AGENTS.md` or `CONTRIBUTING.md` takes precedence. Skeptic reports an unnecessary added comment as **Minor**; a missing comment is a finding (**Minor**) only when the diff introduces a non-obvious constraint and leaves it undocumented.
 
 ## DRY and Abstraction
 

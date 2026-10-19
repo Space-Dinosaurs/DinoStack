@@ -6,14 +6,6 @@ applyTo: "content/**"
 
 These rules apply when authoring or modifying files under `content/`.
 
-## Module Manifests
-
-Non-trivial modules should carry a manifest header. Any source file that exports a
-public symbol consumed by another module, is over ~50 lines of non-trivial logic, or
-implements a side-effecting operation (network, disk, database, external service) should
-include a manifest comment at the top of the file. Required fields: Module/Purpose,
-Role, Inputs, Outputs, Side-effects, Consumers, Failure modes.
-
 ## DRY and Abstraction
 
 Do not Repeat Yourself. Before writing new content:

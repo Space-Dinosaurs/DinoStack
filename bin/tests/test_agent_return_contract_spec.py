@@ -1096,7 +1096,6 @@ SKEPTIC_REQUIRED_LINE_PREFIXES = (
     "Findings:",
     "Active search:",
     "No unresolved Critical or Major findings. Sign-off granted.",
-    "Manifest check:",
     "Test-CI-wiring check:",
     "Neutrality check:",
 )
@@ -1220,7 +1219,7 @@ def check_shape3(text, filename="<fixture>"):
 
 
 def check_shape3_skeptic(text, filename="skeptic.md"):
-    """skeptic.md's narrow special case: the seven conductor-validated lines
+    """skeptic.md's narrow special case: the six conductor-validated lines
     from skeptic-protocol.md Section 11 must be present verbatim (and never
     retagged) WITHIN THE '## Sign-off format' SECTION ITSELF, and a
     cap-keyword sentence referencing 'finding' with a numeric bound must

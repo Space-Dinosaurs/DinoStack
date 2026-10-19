@@ -27,8 +27,7 @@ Public API: Read-only reference document. Consumers (shipped across units
 Upstream deps: docs/planning/ticket-rework/architect-plan.md (Skeptic-
                approved, 3 rounds, source of the design decisions this doc
                records); docs/planning/ticket-rework/brief.md (problem
-               framing and success criteria); content/rules/module-
-               manifest.md (this header's format); content/references/
+               framing and success criteria); content/references/
                regression-test-obligation.md and content/references/
                qa-regression-obligation.md (structural precedent for a new
                reference doc with no prior art in this domain).
@@ -49,8 +48,8 @@ Failure modes: this is documentation, not executable code - no runtime
                schema, write anchor, or concurrency mechanism described here
                changes in ds-implement-ticket.md or ds-ticket-triage.md
                without a matching update to this file, the doc becomes
-               active misinformation per the module-manifest staleness
-               rule - treat any such drift as a doc-sync obligation.
+               active misinformation - treat any such drift as a doc-sync
+               obligation.
 
 Performance: Standard (static reference text; no runtime cost).
 -->

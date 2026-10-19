@@ -18,7 +18,6 @@ Public API: Referenced by section number across the methodology. Key sections:
   Section 14 - Skeptic calibration and meta-review telemetry
 
 Upstream deps: content/agents/skeptic.md (Skeptic agent identity),
-               content/rules/module-manifest.md (manifest policy enforced by Skeptic),
                content/agents/engineer.md (Worker the Skeptic reviews),
                METHODOLOGY.md (risk classification, re-route limits, QA gate)
 
@@ -460,11 +459,11 @@ The number of permitted Skeptic rounds scales with task complexity:
 
 ### Prose-scoped re-check
 
-When a round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale module manifest, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the next verification is a **prose-scoped re-check**: the reviewer verifies only (a) the changed prose lines against live tree facts, and (b) that the fix introduced no new false claim anywhere in the enclosing unit - the full module manifest for a manifest fix, the full containing section or document header for a doc-sync fix - read that unit end to end, not only the changed lines and their immediate context - not a full fresh adversarial pass. The reviewer establishes this trigger itself by diffing the fix commit(s) since the last reviewed SHA - engineer self-classification is not evidence. Any hunk that is parsed, executed, or byte-pinned by a test or hook (embedded command, grep pattern, frontmatter, hook-read docstring, golden-pinned block) counts as a behavior change and disqualifies the lever. The reviewer may always elect a full pass. This is a verification-cost lever only, and any code/test/behavior finding found during the narrower pass still escalates normally. It does not apply while any code/test/behavior finding remains unresolved.
+When a round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale code comment, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the next verification is a **prose-scoped re-check**: the reviewer verifies only (a) the changed prose lines against live tree facts, and (b) that the fix introduced no new false claim anywhere in the enclosing unit - the full comment block for a comment fix, the full containing section or document header for a doc-sync fix - read that unit end to end, not only the changed lines and their immediate context - not a full fresh adversarial pass. The reviewer establishes this trigger itself by diffing the fix commit(s) since the last reviewed SHA - engineer self-classification is not evidence. Any hunk that is parsed, executed, or byte-pinned by a test or hook (embedded command, grep pattern, frontmatter, hook-read docstring, golden-pinned block) counts as a behavior change and disqualifies the lever. The reviewer may always elect a full pass. This is a verification-cost lever only, and any code/test/behavior finding found during the narrower pass still escalates normally. It does not apply while any code/test/behavior finding remains unresolved.
 
 **Invocation.** The conductor names the narrowed spawn explicitly at Step 8 of the Core Loop below (`## 2. The Core Loop`) and states what it must carry - notably the fix commit range (`sha1..sha2`), since Global-context field 6 (the branch diff) does not supply this. The Skeptic's sign-off in this mode carries a mandatory `Scope:` line (see `content/agents/skeptic.md` §Sign-off format) declaring the range and which finding IDs were prose-only; the `Active search:` attestation is scoped accordingly and must not claim a full adversarial pass it did not run.
 
-**Precedence with the cognitive-surrender audit note (§Cognitive surrender check below):** in a scoped round, the audit note's "independently re-read end-to-end" requirement applies to the scoped unit (the changed prose lines plus the enclosing manifest/section/header), not the whole diff. If the rubber-stamp trigger (two-iteration clean agreement) fires while a scoped round is active, the full-pass obligation wins - the Skeptic runs a full adversarial pass, not a second scoped one.
+**Precedence with the cognitive-surrender audit note (§Cognitive surrender check below):** in a scoped round, the audit note's "independently re-read end-to-end" requirement applies to the scoped unit (the changed prose lines plus the enclosing comment block/section/header), not the whole diff. If the rubber-stamp trigger (two-iteration clean agreement) fires while a scoped round is active, the full-pass obligation wins - the Skeptic runs a full adversarial pass, not a second scoped one.
 
 **Recurrence rule.** On the second occurrence of a count/enumeration-staleness finding against the same file, the recommended fix is deleting or de-numeralizing the claim rather than re-correcting the number - a narrower restatement of a stale claim re-asserts the same drift-prone shape, while deletion ends the class. This is the default expectation for both the engineer and the Skeptic, not a hard mandate.
 
@@ -500,7 +499,7 @@ The audit-note mechanism is the **primary** defense against the rubber-stamp / c
 
 **Minor** — Optional. Does not block sign-off by default (see the `Blocking-minor:` sign-off line in `content/agents/skeptic.md` §Sign-off format for the narrow exception). When Minor findings are present at sign-off, the primary agent spawns a general-purpose agent (background) to apply them, except `Beyond AC:` Minors, which are recorded as deferred (`content/agents/skeptic.md` §Calibration) - no follow-up Skeptic review is required, regardless of file type. Minor-fix Workers are an intentional exception to the "modifies protocol or infrastructure files" Elevated signal. Examples: style improvements, non-critical logging gaps, minor documentation issues, low-impact optimizations.
 
-**Behavior class determines severity.** A finding is eligible for Critical or Major only when it is a behavior finding: a defect in the shipped code or its runtime, an unmet acceptance criterion or `qa_criteria` scenario, unrequested behavior or a guard in a diff or a plan step (`content/agents/skeptic.md` steps 0.5 and 3.8), or a security/data-boundary issue. Fabricated or internally inconsistent evidence is an integrity finding and is also eligible. A defect in the diff's own code quality - duplication, a missed existing abstraction, copy-paste - is a code defect and is eligible. A defect in the methodology's own paperwork about the code - doc-sync, count-sync, module manifest, attestation wording, plan prose (not a planned guard; step 0.5), and test strength - is classified **Minor**, never Critical or Major. The reviewer still runs every check it ran before; only the tier it assigns changed. A paperwork defect that would mislead a caller on a correctness or security path stays Minor and is marked with the existing `Blocking-minor:` line; it is never reclassified upward.
+**Behavior class determines severity.** A finding is eligible for Critical or Major only when it is a behavior finding: a defect in the shipped code or its runtime, an unmet acceptance criterion or `qa_criteria` scenario, unrequested behavior or a guard in a diff or a plan step (`content/agents/skeptic.md` steps 0.5 and 3.8), or a security/data-boundary issue. Fabricated or internally inconsistent evidence is an integrity finding and is also eligible. A defect in the diff's own code quality - duplication, a missed existing abstraction, copy-paste - is a code defect and is eligible. A defect in the methodology's own paperwork about the code - doc-sync, count-sync, attestation wording, plan prose (not a planned guard; step 0.5), and test strength - is classified **Minor**, never Critical or Major. The reviewer still runs every check it ran before; only the tier it assigns changed. A paperwork defect that would mislead a caller on a correctness or security path stays Minor and is marked with the existing `Blocking-minor:` line; it is never reclassified upward.
 
 - **Missing telemetry emit at an instrumented boundary.** When a conductor spawns engineer/skeptic/qa and `.agentic/events.jsonl` does not contain the corresponding `spawn_start`/`spawn_complete` events (or, for ad-hoc sessions, the hook-emitted `spawn_start` with `data.source:"hook"`) for that boundary, flag as **Minor**. Does not block sign-off; surfaced for awareness so cost dashboards stay accurate. (`conductor_direct` is deprecated and no longer emitted; its absence is not a finding.)
 
@@ -712,7 +711,7 @@ Changes made:
 
 The structured sign-off format is required for every Skeptic response, whether findings exist or not:
 
-The verdict line comes FIRST (see `content/agents/skeptic.md` §Sign-off format, the canonical statement of this ordering and its rationale): it is the primary piece of information the block carries, and it is never placed behind the process attestations. The findings justifying it follow; `Reviewed:` and the four attestations form the audit tail.
+The verdict line comes FIRST (see `content/agents/skeptic.md` §Sign-off format, the canonical statement of this ordering and its rationale): it is the primary piece of information the block carries, and it is never placed behind the process attestations. The findings justifying it follow; `Reviewed:` and the three attestations form the audit tail.
 
 ```
 No unresolved Critical or Major findings. Sign-off granted.
@@ -723,7 +722,6 @@ If all counts are zero, write instead: Findings: No findings.
 Reviewed: [files/components examined]
   (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
-Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 Neutrality check: [pass | N steer(s) found (listed above)]
 [Optional, only when applicable: Round value: low - <reason>]
@@ -780,17 +778,16 @@ Round 4 (most recent):
 
 ### Sign-off validation
 
-The primary agent treats a Skeptic response as a valid sign-off only when it contains **the mandatory elements** as distinct lines. There are seven mandatory elements, always required on every Skeptic response regardless of review type. The `(a)`-`(l)` labels below are stable identifiers for cross-referencing, not an emission order - the emission order is the template above, verdict first:
+The primary agent treats a Skeptic response as a valid sign-off only when it contains **the mandatory elements** as distinct lines. There are six mandatory elements, always required on every Skeptic response regardless of review type. The `(a)`-`(l)` labels below are stable identifiers for cross-referencing, not an emission order - the emission order is the template above, verdict first:
 
 - (a) a line beginning "Reviewed:"
 - (b) a line beginning "Findings:"
 - (c) an "Active search:" line
 - (d) the phrase "No unresolved Critical or Major findings. Sign-off granted."
-- (g) a "Manifest check:" line, reporting the result of the module manifest check (content/agents/skeptic.md Step 8)
 - (h) a "Test-CI-wiring check:" line, reporting the result of the new-test-CI-wiring check (content/agents/skeptic.md Step 11.5)
 - (l) a "Neutrality check:" line, reporting the result of the neutrality check (content/agents/skeptic.md Step 3.9)
 
-A response missing any of the seven mandatory elements - including one containing only the phrase "Sign-off granted" without the rest - is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round, though the round-cap hook charges it unless its `What to review:` body is byte-identical to the last round's (§4.5 Counter lifecycle).
+A response missing any of the six mandatory elements - including one containing only the phrase "Sign-off granted" without the rest - is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round, though the round-cap hook charges it unless its `What to review:` body is byte-identical to the last round's (§4.5 Counter lifecycle).
 
 Further conditional elements are required only when their triggering condition holds, and simply absent (not a defect) otherwise:
 
@@ -800,7 +797,7 @@ Further conditional elements are required only when their triggering condition h
 - (j) `Round value: low` line: optional, added only when the Skeptic judges that a further round would buy little on an otherwise-clean or Minor-only state (see §Round budget and value-per-round gate). Never valid while a Critical or Major remains unresolved. Its absence is never format-noncompliant.
 - (k) `Blocking-minor:` line: optional, added only when the Skeptic marks a specific Minor finding as blocking sign-off despite Section 6's default that Minors never block. States the finding id/description and the reason. Its absence is never format-noncompliant.
 
-Reviews for which none of the conditional triggers hold - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the seven mandatory elements only; (e), (f), (i), (j), and (k) do not apply, and their absence is not format-noncompliant for those reviews.
+Reviews for which none of the conditional triggers hold - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the six mandatory elements only; (e), (f), (i), (j), and (k) do not apply, and their absence is not format-noncompliant for those reviews.
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 

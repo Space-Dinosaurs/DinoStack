@@ -354,7 +354,6 @@ hooks/tests/test-session-end-wrap-state-mark.js
 hooks/tests/test-state-mark-legacy-active.js
 hooks/tests/test-stop-context-cadence.js
 hooks/tests/test-stop-context-session-log.js
-content/sections/03-planning-artifacts.md
 content/sections/09-events-log.md
 docs/agentic-engineering-comparison.html
 scripts/codex-skills.py

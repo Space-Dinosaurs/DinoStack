@@ -148,7 +148,7 @@ in a blocker. Canonical candidate-branch and fail-closed details:
   task decomposition, and worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
 
 - **rules/code-standards.md** - the engineering contract for documentation evidence, tool
-  selection, manifests, reuse, quality gates, and dependencies; detailed procedures load on trigger.
+  selection, code comments, reuse, quality gates, and dependencies; detailed procedures load on trigger.
 
 - **rules/conventions.md** - writing style including length discipline (write for the permanent
   audience), project structure, session context and memory handling, and git workflow including
@@ -223,9 +223,3 @@ Run manual workflow 'ds-help' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds
   every shard carries, and the split/regenerate round-trip's entry-loss and reordering
   refusal guards; read when working on `$AE_REPO_DIR/bin/ds-memory-shard`, `$AE_REPO_DIR/bin/ds-memory-capture`, `$AE_REPO_DIR/hooks/lib/memory-shard.js`,
   or any writer that captures a fact into a shard.
-
-## Rules (read on trigger)
-
-- **rules/module-manifest.md** - encouraged manifest header format for non-trivial source files;
-  read when creating or substantially modifying a file that exports a public symbol, exceeds ~50
-  LOC, or implements a side-effecting operation.

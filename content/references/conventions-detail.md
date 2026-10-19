@@ -73,7 +73,6 @@ A project's intent is encoded across a small set of artifacts. Treat them as a c
 - `.agentic/findings.md` - curated Skeptic-finding patterns; gitignored/machine-local. Written by `findings-curator` at Phase 6 loop exit.
 - `.agentic/qa-regressions.md` - curated QA regression patterns; committed. Written by `qa-regressions-curator` at Phase 6b QA FAIL.
 - `qa.md` - QA triggers and project-specific quirks the QA engineer needs to know.
-- Module manifests - file-level intent embedded in the source itself (see `module-manifest.md`).
 - `glossary.md` - the project's Ubiquitous Language (see below).
 
 Together these form the project's **intent layer**. Drift in any of them is **intent debt** - the system stops reflecting what we meant to build, and downstream agents and humans drift along with the artifacts. Keep them current. A stale entry is worse than a missing one because readers trust it.

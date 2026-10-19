@@ -14,7 +14,6 @@ Public API: Read-only reference document. Cross-referenced from:
 Upstream deps: content/sections/03-planning-artifacts.md (parent section;
                read that section first for the promotion-threshold summary
                and blocking/non-blocking rules);
-               content/rules/module-manifest.md (manifest header contract);
                content/rules/conventions.md §Project Overview Layer.
 
 Downstream consumers: Conductor flows: Brief authoring (Gate semantics step 6),

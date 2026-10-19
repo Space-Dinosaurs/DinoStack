@@ -267,10 +267,9 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
 ## What's included
 
-**Rules** (3 files) - the core methodology:
+**Rules** (2 files) - the core methodology:
 
-- Module manifest - encouraged manifest header format for non-trivial source files (exports, 50+ LOC, or side-effecting)
-- Code standards - documentation evidence, tool selection, reuse, quality gates, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
+- Code standards - documentation evidence, tool selection, code comments, reuse, quality gates, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
 - Conventions - writing style and length discipline, project structure, session context, git workflow
 
 **Reference docs** (43 files) - detailed protocol specs loaded on trigger:

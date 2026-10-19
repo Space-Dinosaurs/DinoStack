@@ -84,7 +84,7 @@ Every PR must declare which adapters it affects. The PR template includes a chec
 ## Editing content
 
 **Edit in `content/`, never in adapter files directly.** The `content/` directory is the single source of truth:
-- `content/rules/` - the 3 rule files (module-manifest, code-standards, conventions)
+- `content/rules/` - the 2 rule files (code-standards, conventions)
 - `content/references/` - the 43 reference docs (activation-detail, agent-team, base-branch-sync, capability-preflight, capture-classification, code-standards-detail, command-authoring, conductor-operating-rules, conductor-turn-format, conventions-detail, cross-harness-teams, cross-session-loop-resume, delegation-detail, delivery-record, design-goals, digest-return-pattern, doc-sync-obligation, events-log, evidence-on-disk, frontend-discipline, handoff-evaluation, learnings-capture-instruction, memory-shard-convention, model-discovery, multi-developer-coordination, obsolescence-signal, planning-artifacts, qa-gate, qa-regression-obligation, regression-test-obligation, risk-config-and-tiers, role-models, runbook-conductor, skeptic-protocol, spawn-presets, subagent-protocol, subagent-return-contract, task-state-file, ticket-rework, tracker-writeback, trigger-catalog, worktree-lifecycle, wrap-context-format)
 - `content/commands/` - the 29 command files (ds-change-delta, ds-config, ds-cost, ds-disable, ds-help, ds-identity, ds-status, ds-brief, ds-cleanup-worktrees, ds-configure-team, ds-failure-audit, ds-feedback-triage, ds-implement-ticket, ds-init-project, ds-memory-update, ds-migrate-project, ds-evaluate, ds-harness-upgrade-prep, ds-prune-harness, ds-representation-audit, ds-skeptic, ds-skill-candidates, ds-test-suite-comprehension, ds-ticket-status-sync, ds-ticket-triage, ds-update, ds-update-agentic-engineering, ds-wrap, ds-wrap-deferred)
 - `content/agents/` - the 18 agent definitions (adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, goal-condition-evaluator, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, product-discovery, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket)
@@ -154,7 +154,7 @@ When contributing a new feature, pick the right home for each artifact:
 
 | Audience | Where it lives |
 |---|---|
-| Code reader | Module manifest header in the source file itself - see `content/rules/module-manifest.md` |
+| Code reader | The code itself, with a comment only for what the code cannot show - see `content/rules/code-standards.md` §Code Comments. `bin/` and `hooks/` scripts keep the header docstring their own `AGENTS.md` documents. |
 | End user of the feature | `content/commands/<command>.md` or `content/references/<ref>.md`. Note: editing `content/**` requires rebuilding adapters in the same PR, or CI (`check-adapter-sync` / `methodology-drift`) fails. |
 | Operator / maintainer of a non-trivial feature | A committed feature README co-located with the code (e.g. `hooks/<feature>.README.md`). Include: how to enable/configure it, what state it owns, how to stop/reset it, the security model, and the rollback procedure. This is the committed home for content that would otherwise be stranded in `docs/planning/`. |
 | Durable facts and decisions | `MEMORY.md` and `decisions.md`, where the project tracks them as committed files - in DinoStack itself both are gitignored local scratch (DS-129), so use the relevant `AGENTS.md` (agent-facing conventions) instead. |
@@ -165,8 +165,7 @@ When contributing a new feature, pick the right home for each artifact:
 Before opening a PR for a new feature:
 
 - [ ] Keep planning artifacts in `docs/planning/` local - do not commit them.
-- [ ] Migrate durable rationale (risk register, rollback plan, security model, operator runbook) out of local planning docs into a committed home (feature README and/or module manifests).
-- [ ] Add a module manifest to any non-trivial new source file (encouraged, not required; Skeptic reports gaps as Minor) (`content/rules/module-manifest.md` defines "non-trivial").
+- [ ] Migrate durable rationale (risk register, rollback plan, security model, operator runbook) out of local planning docs into a committed home (a feature README).
 - [ ] Add or update the user-facing command/reference doc if the feature is user-invokable, and rebuild adapters (the pre-commit hook does this automatically on `content/` changes; to rebuild manually, run each adapter's `build.sh` - `check-adapter-sync` CI verifies all of them).
 - [ ] Sign every commit with `git commit -s` - the DCO check is required.
 

@@ -5,8 +5,8 @@ Purpose: Canonical authoring guidance for command files, skill definitions, and
          context even when the artifact is unused, so it must enumerate when to
          fire rather than summarize behavior) and bad/good example-pair seeding
          (concrete pairs encode taste via few-shot transfer more reliably than
-         abstract rules). Also states the module-manifest encouragement for new
-         command files (§3) and the Pillar-8 gate/mechanism authoring discipline
+         abstract rules). Also states the wiring a new command needs (§3) and
+         the Pillar-8 gate/mechanism authoring discipline
          for any command or agent definition that authors a new enforcement
          mechanism (§4).
 
@@ -16,9 +16,6 @@ Public API: Read on trigger when authoring or editing a command file
             (content/agents/*.md). Referenced from content/SKILL.md (Reference
             Docs section) and content/commands/ds-update-agentic-engineering.md
             (command-authoring note for the methodology-edit flow).
-
-Upstream deps: content/rules/module-manifest.md (manifest guidance for new
-               command files).
 
 Downstream consumers: authors of new commands, skills, and agent definitions;
                       authors of new gates/hooks/enforcement mechanisms defined
@@ -132,14 +129,7 @@ says no", so the agent can self-correct on the first pass. If the output is only
 occasionally off, a single good example plus an abstract rule is enough; the
 pair earns its space only when the miss is recurring.
 
-## 3. Module-manifest header for new command files
-
-New command files, and any other non-trivial file, are encouraged to carry the
-module-manifest header block (Skeptic reports gaps as Minor). See `content/rules/module-manifest.md` for the
-required fields (Purpose, Public API, Upstream dependencies, Downstream
-consumers, Failure modes, Performance).
-`content/commands/ds-failure-audit.md` is the reference example of a command
-file with a complete manifest.
+## 3. Wiring a new command
 
 A new command is not done when its file is written. It must also be wired in:
 registered in `bin/ds-help` (the full command inventory), and covered by the
