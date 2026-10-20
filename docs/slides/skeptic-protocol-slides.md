@@ -309,7 +309,7 @@ The 3-pass Skeptic cap and the per-finding 2-re-route rule are separate ceilings
   .callout { font-size: 0.74em; padding: 0.28em 0.9em; margin-top: 0.2em; }
 </style>
 
-On round 2+, the primary agent prepends a preflight list to the brief so the fresh Skeptic doesn't re-raise a prior finding as a new one:
+On round 2+, or any round answering a human review, the primary agent adds a preflight list under its own heading, outside the brief paragraph, so the fresh Skeptic doesn't re-raise a prior finding as a new one:
 
 ```
 The following findings were raised in prior rounds and the Worker has

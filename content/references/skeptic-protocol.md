@@ -106,7 +106,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 3. **Primary agent spawns a fresh Skeptic** (background, using the `skeptic` agent at `content/agents/skeptic.md`) with:
    - The adversarial brief verbatim
    - The Worker's complete output (inline or as file paths)
-   - The resolved issues preflight list (empty on round 1 unless answering a human review; see Section 4)
+   - The resolved issues preflight list (see Section 4)
 
    The agent file owns the classification rules, evaluation process, and sign-off format. The orchestrator's job is to supply the brief, the preflight list, and the artifact to review.
 
@@ -193,7 +193,7 @@ The conductor maintains an exchange log across Skeptic rounds to enforce the 2-r
 
 ## 4. The Resolved Issues Preflight List
 
-Before invoking each new Skeptic (rounds 2+, or any round answering a human review), the primary agent prepends this block to the adversarial brief:
+Before invoking each new Skeptic (rounds 2+, or any round answering a human review), the primary agent adds this block under its own heading (`**Resolved issues preflight:**` or a `##` line), never inside the adversarial brief paragraph, where the neutrality hook reads a quoted review as a steer:
 
 ```
 The following findings were raised in prior rounds and the Worker has since

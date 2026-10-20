@@ -136,7 +136,7 @@ The conductor MUST evaluate capture at each of these 7 events and emit a
 2. **A Critical or Major Skeptic finding is resolved, or a human reviewer requests
    changes.** After sign-off, evaluate whether the fix pattern is generalizable. LRN
    if the bug recurs, KNW if it is env/tooling knowledge. On CHANGES_REQUESTED, capture
-   is MUST: one KNW entry, Domain `reviewer-bar`, recording the reviewer's stated
+   is MUST: one `user-pattern` event, `domain_tag: reviewer-bar`, recording the reviewer's stated
    standards, which later briefs in that repo carry.
 
 3. **A tool or command failure is worked around.** At the workaround moment, the
