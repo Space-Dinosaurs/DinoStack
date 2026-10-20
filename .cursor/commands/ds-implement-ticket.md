@@ -1373,7 +1373,7 @@ Your plan MUST:
    diff and reviews (`gh pr view N --json reviews,comments` and `gh api
    repos/{owner}/{repo}/pulls/N/comments`, N the PR above) before planning. Plan a sweep per review
    comment (`skeptic-protocol.md` §Round budget item 6) and say whether a concern repeats an
-   earlier review's. State your conclusion explicitly, even if it is "the prior attempt
+   earlier one. State your conclusion explicitly, even if it is "the prior attempt
    looks complete and this appears to be planned continuation" - that is a finding, not a
    non-answer, and the Skeptic will grade it.
 2. Include at least one `qa_criteria` scenario that exercises the specific regression or gap
@@ -1585,7 +1585,7 @@ Spawn one `engineer` agent per unit in sequence. Each agent prompt should includ
 - The branch name to work on
 - The repo path: `$REPO`
 - Instruction to run `$QUALITY_CMD` from the repo root before finishing and fix any errors
-- The repo's `reviewer-bar` entries from `.agentic/learnings.md`, verbatim, if any
+- Any `reviewer-bar` entries from `.agentic/learnings.md`, verbatim
 
 **Prior ticket context (inject only when `COMMENT_THREAD_SUMMARY` is non-empty):**
 
@@ -1861,7 +1861,7 @@ Spawn a `skeptic` agent with:
 - The full diff: `git -C $REPO diff origin/$BASE_BRANCH..HEAD`
 - The ticket description as the success criteria
 - The QA section from the ticket as acceptance tests
-- **When `IS_REWORK` is true:** the same `## PRIOR ATTEMPT(S) OPENED A PR - THIS IS REWORK` block injected into the Phase 3 architect brief, verbatim (same fields, same null-render rule), followed by: `Verify that the failure mode which brought this ticket back is actually addressed. Read the prior PR's diff. Withholding sign-off because the new diff does not demonstrably close the prior gap is a correct outcome.` Gated solely on `IS_REWORK` - this bullet is independent of `COMMENT_THREAD_SUMMARY` and fires at `TRACKER=none`. After a human CHANGES_REQUESTED review, iteration 1 also gets the Step 1 `## Prior iteration findings` block: one `H<n>` entry (`skeptic-protocol.md` Section 4) per comment the rework addresses, not one the operator declined.
+- **When `IS_REWORK` is true:** the same `## PRIOR ATTEMPT(S) OPENED A PR - THIS IS REWORK` block injected into the Phase 3 architect brief, verbatim (same fields, same null-render rule), followed by: `Verify that the failure mode which brought this ticket back is actually addressed. Read the prior PR's diff. Withholding sign-off because the new diff does not demonstrably close the prior gap is a correct outcome.` Gated solely on `IS_REWORK` - this bullet is independent of `COMMENT_THREAD_SUMMARY` and fires at `TRACKER=none`. After a human CHANGES_REQUESTED review, seed `findings_log` with one entry per comment the rework addresses (`id: H<n>`, `severity: Major`, `status: open`, description per `skeptic-protocol.md` Section 4), none the operator declined.
 - **The Global-context input set** (`## Global-context inputs` block, required per `content/references/skeptic-protocol.md` Section 4.5): field 1 = `$ARCHITECT_PLAN_PATH` (or its `n/a - <reason>` per the enumerated set, or a truthful specific reason if none applies, if the architect was skipped); field 2 = `$BRIEF_PATH` (or `n/a - single Elevated unit (no Brief required by the promotion gate)` when no Brief tier applied); field 3 = the unit's `qa_criteria` block verbatim (from the Brief, or the architect plan if no Brief; `n/a - <reason>` only when genuinely absent per the Phase 0a-pre migration); field 4 = the per-consumer impact table verbatim if the architect plan produced one for a shared-utility surface, else `n/a - non-shared-utility surface (importer count below 5 threshold)`; field 5 = the related files list from the architect plan / orchestration-planner unit boundary, plus the absolute primary-checkout path of `.agentic/learnings.md` when it holds `reviewer-bar` entries; field 6 = `$UNIT_KEY | ` + diff above; field 7 per §4.5.
 
 For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md`.
@@ -1945,7 +1945,7 @@ Emit the inline breadcrumb:
 
 **Loop entry (repeat until termination):**
 
-**Step 1.** Spawn `skeptic` with adversarial brief. On iteration 2+, prepend the "Prior iteration findings" block to the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format), keeping any `H<n>` entries. Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`. Add the draft PR body free text (Summary bullets, North Star, Test plan - drafted on iteration 1, updated when a round changes what it describes) to the Worker output; Phase 9 uses it. Apply `Comment discipline:` findings whose span is in that draft yourself and mark them `closed`.
+**Step 1.** Spawn `skeptic` with adversarial brief. When `findings_log` has open or addressed entries, put the "Prior iteration findings" block before the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`. Add the draft PR body free text (Summary bullets, North Star, Test plan - drafted on iteration 1, updated when a round changes what it describes) to the Worker output; Phase 9 uses it. Apply `Comment discipline:` findings whose span is in that draft yourself and mark them `closed`.
 
 **Telemetry emit (V1):** Bracket the Skeptic `Agent` tool call with:
 ```
@@ -1966,7 +1966,7 @@ ds-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id
 ```
 ## Prior iteration findings
 
-The following findings were raised in earlier iterations. For each:
+The following findings were raised earlier or by a human review. For each:
 - If the current diff shows the finding was addressed: mark it CLOSED with a one-line confirmation.
 - If the current diff does NOT show the finding was addressed: re-raise it using [PREV: <id>] prefix in the finding title.
 - Do not invent new instances of a closed finding without new evidence.

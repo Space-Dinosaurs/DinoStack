@@ -3942,16 +3942,6 @@
       "source_token": ".agentic"
     },
     {
-      "expected_target": ".agentic/learnings.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
-      "kind": "operational",
-      "occurrence_hash": "12bf112e3f3483bc4f313d8b6e3f5110c0cbc84596be70b7d6169321f4e9b0ef",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/learnings.md"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "TIMEOUT_POLLS",
       "kind": "display-only",
@@ -4380,16 +4370,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/learnings.md"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "19b8f15cf77ece28b973f28dd2086518172733d9fda5b4340c1001bc1818443d",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "Read"
     },
     {
       "expected_target": "spawn_agent message",
@@ -10710,6 +10690,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "RESULT"
+    },
+    {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "79b3b4ca1c7c18695b57e601d0362ef8d06165fa1c3779642bb4f982b8588f1b",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/learnings.md"
     },
     {
       "expected_target": ".agentic/batch-state.json",
@@ -20220,6 +20210,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "else"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "ff0c1262bb0ed3f1f6c63f5443999eb16fd60115fcd7b89a7876a8a3ca6e775d",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "Read"
     },
     {
       "expected_target": "jq",
