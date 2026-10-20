@@ -3302,6 +3302,16 @@
       "source_token": "then"
     },
     {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "/pulls",
+      "kind": "display-only",
+      "occurrence_hash": "063409d662d05166d79c1dfb69bdf0205e55cbebe2e00083acc15965a3d9f144",
+      "resolution_mode": "display-only",
+      "scope": "display-only",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/pulls"
+    },
+    {
       "expected_target": "spawn_agent",
       "generated_token": "spawn_agent",
       "kind": "operational",
@@ -6840,6 +6850,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "rm"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "3e5b3962609e1354287e586f933a2c77b6d7dd8372ed9fefd6823538c565419f",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "bin/ds-learning-shard",
@@ -10910,6 +10930,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "Task"
+    },
+    {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "7cf846c300c9ed6aa26b0cc010029a33261c36e9f385dd99f476ab1d88abcb1c",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/learnings.md"
     },
     {
       "expected_target": "bin/ds-migrate",
@@ -17852,16 +17882,6 @@
       "source_token": "echo"
     },
     {
-      "expected_target": ".agentic/learnings.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
-      "kind": "operational",
-      "occurrence_hash": "e00efa1de19943ca169613ce0954ef292007806ba5bf1460b81663680d6bd38a",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/learnings.md"
-    },
-    {
       "expected_target": "spawn_agent",
       "generated_token": "spawn_agent",
       "kind": "operational",
@@ -17920,16 +17940,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/task-state-file.md"
-    },
-    {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "e0c07c87d4f91665ba724ca57c2aef7bd49e667517c1a40334fca1e1480d8cef",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": ".agentic/batch-state.json",
@@ -19660,16 +19670,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "cut"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "/pulls",
-      "kind": "display-only",
-      "occurrence_hash": "f7752e2846428e31279151ddbea8ed29b4fe4b634865ecd9d9da10f76ac3412a",
-      "resolution_mode": "display-only",
-      "scope": "display-only",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/pulls"
     },
     {
       "expected_target": "true",

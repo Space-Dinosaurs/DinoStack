@@ -387,7 +387,7 @@ else:
 
 | last_phase | last_phase_action | Resume action |
 |---|---|---|
-| skeptic | spawned | Re-spawn Skeptic with current diff (`git diff origin/$BASE_BRANCH..HEAD`). On iteration 2+, include prior-iteration findings block from `findings_log` (same as normal iteration 2+ behavior). |
+| skeptic | spawned | Re-spawn Skeptic with current diff (`git diff origin/$BASE_BRANCH..HEAD`). When `findings_log` has open or addressed entries, include the prior-iteration findings block (as in Phase 6 Step 1). |
 | skeptic | returned | Skeptic output was received but Engineer fix pass was not yet spawned. Re-classify findings from `findings_log` (entries with status=open) and spawn the Engineer fix pass. |
 | engineer | spawned | Check `git status --porcelain` on the branch. If clean: re-spawn Engineer with same open findings brief. If dirty (uncommitted changes): ask human "The Engineer had uncommitted changes. Discard and re-run, or commit what's there and re-run Skeptic?" |
 | engineer | returned | Engineer returned but loop did not advance. Use `last_engineer_summary` from state file. Re-enter Skeptic spawn step. |
@@ -1374,9 +1374,9 @@ another wave - AE cannot tell which, and does not guess. Treat it as the former.
 
 Your plan MUST:
 1. Identify what the prior attempt missed, got wrong, or left incomplete. Read the prior PR's
-   diff and reviews (`gh pr view N --json reviews,comments` and `gh api
-   repos/{owner}/{repo}/pulls/N/comments`, N the PR above) before planning. Plan a sweep per review
-   comment (`skeptic-protocol.md` §Round budget item 6) and say whether a concern repeats an
+   diff and reviews (`gh pr view N --json reviews,comments`, `gh api
+   repos/{owner}/{repo}/pulls/N/comments`, N the PR above) before planning. Plan a per-comment
+   sweep (`skeptic-protocol.md` §Round budget item 6) and say whether a concern repeats an
    earlier one. State your conclusion explicitly, even if it is "the prior attempt
    looks complete and this appears to be planned continuation" - that is a finding, not a
    non-answer, and the Skeptic will grade it.
@@ -1590,6 +1590,7 @@ Spawn one `engineer` agent per unit in sequence. Each agent prompt should includ
 - The repo path: `$REPO`
 - Instruction to run `$QUALITY_CMD` from the repo root before finishing and fix any errors
 - Any `reviewer-bar` entries from `.agentic/learnings.md`, verbatim
+- Human-review rework: sweep the whole diff for each comment's class; list fixed sites beyond those cited
 
 **Prior ticket context (inject only when `COMMENT_THREAD_SUMMARY` is non-empty):**
 
@@ -1866,7 +1867,7 @@ Spawn a `skeptic` agent with:
 - The ticket description as the success criteria
 - The QA section from the ticket as acceptance tests
 - **When `IS_REWORK` is true:** the same `## PRIOR ATTEMPT(S) OPENED A PR - THIS IS REWORK` block injected into the Phase 3 architect brief, verbatim (same fields, same null-render rule), followed by: `Verify that the failure mode which brought this ticket back is actually addressed. Read the prior PR's diff. Withholding sign-off because the new diff does not demonstrably close the prior gap is a correct outcome.` Gated solely on `IS_REWORK` - this bullet is independent of `COMMENT_THREAD_SUMMARY` and fires at `TRACKER=none`. After a human CHANGES_REQUESTED review, seed `findings_log` with one entry per comment the rework addresses (`id: H<n>`, `severity: Major`, `status: open`, description per `skeptic-protocol.md` Section 4), none the operator declined.
-- **The Global-context input set** (`## Global-context inputs` block, required per `content/references/skeptic-protocol.md` Section 4.5): field 1 = `$ARCHITECT_PLAN_PATH` (or its `n/a - <reason>` per the enumerated set, or a truthful specific reason if none applies, if the architect was skipped); field 2 = `$BRIEF_PATH` (or `n/a - single Elevated unit (no Brief required by the promotion gate)` when no Brief tier applied); field 3 = the unit's `qa_criteria` block verbatim (from the Brief, or the architect plan if no Brief; `n/a - <reason>` only when genuinely absent per the Phase 0a-pre migration); field 4 = the per-consumer impact table verbatim if the architect plan produced one for a shared-utility surface, else `n/a - non-shared-utility surface (importer count below 5 threshold)`; field 5 = the related files list from the architect plan / orchestration-planner unit boundary, plus the absolute primary-checkout path of `.agentic/learnings.md` when it holds `reviewer-bar` entries; field 6 = `$UNIT_KEY | ` + diff above; field 7 per §4.5.
+- **The Global-context input set** (`## Global-context inputs` block, required per `content/references/skeptic-protocol.md` Section 4.5): field 1 = `$ARCHITECT_PLAN_PATH` (or its `n/a - <reason>` per the enumerated set, or a truthful specific reason if none applies, if the architect was skipped); field 2 = `$BRIEF_PATH` (or `n/a - single Elevated unit (no Brief required by the promotion gate)` when no Brief tier applied); field 3 = the unit's `qa_criteria` block verbatim (from the Brief, or the architect plan if no Brief; `n/a - <reason>` only when genuinely absent per the Phase 0a-pre migration); field 4 = the per-consumer impact table verbatim if the architect plan produced one for a shared-utility surface, else `n/a - non-shared-utility surface (importer count below 5 threshold)`; field 5 = the related files list from the architect plan / orchestration-planner unit boundary, plus the primary-checkout `.agentic/learnings.md` absolute path when it holds `reviewer-bar` entries; field 6 = `$UNIT_KEY | ` + diff above; field 7 per §4.5.
 
 For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md`.
 
@@ -2055,7 +2056,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 - The open Critical and Major findings from `findings_log` (status=open), verbatim
 - The `last_engineer_summary` from the prior iteration
 - Third-or-later round: `skeptic-protocol.md` §Round budget item 7
-- Same defect class as a prior round's Major at a new site: name the class and state that every instance is in scope for this pass, not only the cited sites; this qualifies the two verbatim instructions below (`skeptic-protocol.md` §Round budget item 6)
+- An `H<n>` finding, or a prior round's Major class at a new site: name the class and state that every instance is in scope for this pass, not only the cited sites; this qualifies the two verbatim instructions below (`skeptic-protocol.md` §Round budget item 6)
 - **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase, not "the prior engineer changed files X, Y, Z". Paste the prior return summary in full (or, when the prior output was committed code, paste the full diff or list the committed files plus their relevant excerpts). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a Skeptic finding listed below. Each edit you make must trace to a specific finding id."* Rationale: a fresh subagent has no session context, so a brief that says "address findings and return revised outputs" causes the Engineer to regenerate from scratch — producing output that diverges from the scoped change because it has no access to prior-iteration state. Anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes.
 - Instruction: "Address only the findings listed below. Do not expand scope. Do not refactor, rename, or clean up code outside the finding scope. For each finding, confirm in your summary what you changed and why it addresses the finding."
 - The branch name, repo path, and pushed head SHA; never deliver this pass to the prior engineer via `SendMessage` (`content/sections/02-delegation.md`, "Fix passes are fresh spawns")
