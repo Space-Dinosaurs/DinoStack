@@ -1100,8 +1100,8 @@ def _review(state):
     ("echo '[{\"number\": 10, \"state\": \"MERGED\", \"reviews\": []}, "
      "{\"number\": 11, \"state\": \"MERGED\", \"reviews\": []}]'", 0, ""),
     ("echo '[{\"number\": 10, \"state\": \"MERGED\", \"reviews\": []}]'", None,
-     ", changes-requested n/a (gh unavailable)"),
-    ("exit 1", None, ", changes-requested n/a (gh unavailable)"),
+     ", changes-requested n/a"),
+    ("exit 1", None, ", changes-requested n/a"),
 ])
 def test_pr_outcome_counts_changes_requested_reviews_from_gh(tmp_path, monkeypatch, capsys,
                                                              gh_script, expected, suffix):

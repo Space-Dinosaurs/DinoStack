@@ -48,9 +48,8 @@ Public API: ds-eval --repo P [P ...] [--since S] [--until U] [--base REF]
             Each outcome then gains `, H changes-requested` when gh shows
             H >= 1 CHANGES_REQUESTED reviews on the item's PRs, from any
             author, automated reviews such as /ds-review-pr included, or
-            `, changes-requested n/a (gh unavailable)` when gh is
-            disabled, missing or failed or does not list one of those PRs,
-            never 0.
+            `, changes-requested n/a` when gh was disabled, failed, or
+            did not list one of the item's PRs, never 0.
             [keepalive] (per repo): pings fired/passed/dropped/deleted/
             wrapped/unclassified, ping tokens and priced usd per outcome,
             returns after idle per gap bucket with and without a ping that
@@ -174,7 +173,7 @@ def _item_cells(r: dict, row: dict) -> tuple:
     else:
         rounds = "n/a (no skeptic spawn)"
     h = row["changes_requested"]
-    reviews = ", changes-requested n/a (gh unavailable)" if h is None else f", {h} changes-requested" if h else ""
+    reviews = ", changes-requested n/a" if h is None else f", {h} changes-requested" if h else ""
     return (f"{_item_tag(r, row)}{row['key']}", ",".join(str(t) for t in row["tiers"]), usd, wall, rounds,
             _pr_outcome(row) + reviews)
 

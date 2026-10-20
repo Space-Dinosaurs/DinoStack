@@ -131,8 +131,8 @@ Public API:
         CHANGES_REQUESTED reviews from any author, automated reviews such
         as /ds-review-pr included, per gh, on the item's PRs (pr_numbers,
         its key and own PRs, and merged_outside_window), and None when gh
-        is disabled or unavailable for its repo or one of those PRs is
-        not among the 1000 gh lists. work_items.summary is
+        was disabled or failed for its repo, or did not list one of those
+        PRs (only the 1000 most recent are listed). work_items.summary is
         {items, usd_median, wall_seconds_median}, the two medians as
         metric envelopes.
     session_summary(session, repo) -> dict
