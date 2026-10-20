@@ -87,11 +87,12 @@ def skeptic_row(ts, agent_id, iteration=None, signed_off=None, findings=None, ta
 
 
 def inp(sessions=(), hook_rows=(), fires=(), prs=(), labels=(), slug="acme/w", gh_states=None,
-        gh_status="disabled (--no-gh)", repo="/r"):
+        gh_status="disabled (--no-gh)", repo="/r", gh_changes_requested=()):
     return {"repo": repo, "sessions": list(sessions), "hook_rows": list(hook_rows), "events_present": True,
             "fires": None if fires is None else list(fires), "pattern": PATTERN, "prefixes": ["AUT"],
             "base": "main", "base_source": "explicit", "base_diagnostics": [],
             "prs": None if prs is None else list(prs), "slug": slug, "gh_states": gh_states,
+            "gh_changes_requested": None if gh_changes_requested is None else dict(gh_changes_requested),
             "gh_status": gh_status, "labels": None if labels is None else list(labels)}
 
 
@@ -1088,6 +1089,43 @@ def test_reverted_item_and_partial_spawn_wall_are_stated(tmp_path, monkeypatch, 
     _head, rows = _item_lines(out)
     assert rows[1][0::5] == ["AUT-1", "merged #7, 1 follow-up, reverted"]
     assert rows[2][:4] == ["AUT-3", "1", "$4.00", "1m 00s (1/2 spawns)"]
+
+
+def _review(state):
+    return {"state": state, "author": {"login": "h"}}
+
+
+@pytest.mark.parametrize("gh_script,expected,suffix", [
+    ("cat \"$(dirname \"$0\")/prs.json\"", 3, ", 3 changes-requested"),
+    ("echo '[{\"number\": 10, \"state\": \"MERGED\", \"reviews\": []}]'", 0, ""),
+    ("exit 1", None, ", changes-requested n/a (gh unavailable)"),
+])
+def test_pr_outcome_counts_changes_requested_reviews_from_gh(tmp_path, monkeypatch, capsys,
+                                                             gh_script, expected, suffix):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    for var in tr._lib.CONFIG_DIR_ENV:
+        monkeypatch.delenv(var, raising=False)
+    repo = _repo_with_history(tmp_path)
+    store = _write_store(tmp_path, repo)
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "prs.json").write_text(json.dumps([
+        {"number": 10, "state": "MERGED", "reviews": [_review("CHANGES_REQUESTED"), _review("APPROVED")]},
+        {"number": 11, "state": "MERGED", "reviews": [_review("CHANGES_REQUESTED"), _review("CHANGES_REQUESTED")]},
+        {"number": 12, "state": "MERGED", "reviews": [_review("CHANGES_REQUESTED")]},
+    ]))
+    (bindir / "gh").write_text(f"#!/bin/sh\n{gh_script}\n")
+    (bindir / "gh").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(ev, "_feedback_items", lambda r: [])
+    report = ev.evaluate([repo], START, END, base="main", use_gh=True, stores=[store], rates=RATES)
+    (row,) = report["work_items"]["items"]["value"]
+    assert (row["key"], row["pr_numbers"], row["changes_requested"]) == ("AUT-1", [10, 11], expected)
+    cli._print_table(report)
+    _head, rows = _item_lines(capsys.readouterr().out)
+    assert rows[1][0::5] == ["AUT-1", "merged #10, 1 follow-up" + suffix]
 
 
 def test_items_summary_is_a_median_not_a_mean():

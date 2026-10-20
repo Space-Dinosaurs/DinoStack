@@ -127,8 +127,12 @@ Public API:
         body (a count only: a mention is not a landing).
         The last two are [] and 0 when the search found none, and None
         when the item has a first_merged_pr (not searched) or the base
-        ref could not be read. work_items.summary is {items, usd_median,
-        wall_seconds_median}, the two medians as metric envelopes.
+        ref could not be read. `changes_requested` is the number of
+        CHANGES_REQUESTED reviews, per gh, on the item's PRs (pr_numbers,
+        its key and own PRs, and merged_outside_window), and None when gh
+        is disabled or unavailable for its repo. work_items.summary is
+        {items, usd_median, wall_seconds_median}, the two medians as
+        metric envelopes.
     session_summary(session, repo) -> dict
         {session_id, repo, first_ts (ISO), entrypoint, model, version,
         cost_usd, empty}. `empty` is is_empty_session(session).
@@ -186,7 +190,8 @@ Upstream deps: Python 3 stdlib; bin/_lib.py (resolve_base_branch, _run),
     `ds-feedback list --status triaged --repo <repo>` (operator fire labels,
     read unless use_feedback is False; a pure read that creates nothing),
     and, unless use_gh is False, `gh pr list` (open/closed
-    state of engineer PRs not shown merged on the base ref).
+    state of engineer PRs not shown merged on the base ref, and each PR's
+    CHANGES_REQUESTED review count).
 
 Downstream consumers: bin/ds-eval (CLI); bin/ds-evaluate (/ds-evaluate's
     signal collection, via bin/ds-eval); bin/ds-change-delta (moved
@@ -779,12 +784,13 @@ def _repo_slug(repo) -> str | None:
     return m.group(1) if m else None
 
 
-def _gh_pr_states(slug: str) -> dict[int, str] | None:
-    """State of the repo's 1000 most recent PRs. Not `--search`: the search
-    API answers an inaccessible repo with an empty list and exit 0, which
-    would read as "no PRs" instead of "gh unavailable"."""
+def _gh_pr_states(slug: str) -> tuple[dict[int, str], dict[int, int]] | None:
+    """State and CHANGES_REQUESTED review count of the repo's 1000 most
+    recent PRs. Not `--search`: the search API answers an inaccessible repo
+    with an empty list and exit 0, which would read as "no PRs" instead of
+    "gh unavailable"."""
     proc = _LIB._run(
-        ["gh", "pr", "list", "--repo", slug, "--state", "all", "--limit", "1000", "--json", "number,state"],
+        ["gh", "pr", "list", "--repo", slug, "--state", "all", "--limit", "1000", "--json", "number,state,reviews"],
         timeout=GH_TIMEOUT_SECONDS,
     )
     if proc.returncode != 0:
@@ -793,8 +799,10 @@ def _gh_pr_states(slug: str) -> dict[int, str] | None:
         rows = json.loads(proc.stdout)
     except ValueError:
         return None
-    return {r["number"]: str(r.get("state", "")).lower() for r in rows
-            if isinstance(r, dict) and isinstance(r.get("number"), int)}
+    rows = [r for r in rows if isinstance(r, dict) and isinstance(r.get("number"), int)]
+    return ({r["number"]: str(r.get("state", "")).lower() for r in rows},
+            {r["number"]: sum(1 for rv in r.get("reviews", ()) if rv.get("state") == "CHANGES_REQUESTED")
+             for r in rows})
 
 
 def _feedback_items(repo: str) -> list[dict] | None:
@@ -890,12 +898,12 @@ def _load_repo(repo: Path, start: datetime, end: datetime, base, ticket_re, use_
     for pr in prs or []:
         pr["in_window"] = pr["merged_at"] < end
     slug = _repo_slug(repo)
-    gh_states, gh_status = None, "disabled (--no-gh)"
+    gh_states, gh_changes, gh_status = None, None, "disabled (--no-gh)"
     if use_gh:
         if slug is None:
             gh_status = "unavailable: no github origin remote"
         else:
-            gh_states = _gh_pr_states(slug)
+            gh_states, gh_changes = _gh_pr_states(slug) or (None, None)
             gh_status = "ok" if gh_states is not None else "unavailable: gh pr list failed"
     labels = _feedback_items(str(repo)) if use_feedback else None
     sessions = _TRANSCRIPTS.sessions(repo, start, end, stores)
@@ -904,7 +912,7 @@ def _load_repo(repo: Path, start: datetime, end: datetime, base, ticket_re, use_
         "events_present": events is not None, "fires": fires, "pattern": pattern,
         "prefixes": sorted(prefixes), "base": base_ref, "base_source": base_source,
         "base_diagnostics": base_diag, "prs": prs, "slug": slug,
-        "gh_states": gh_states, "gh_status": gh_status, "labels": labels,
+        "gh_states": gh_states, "gh_changes_requested": gh_changes, "gh_status": gh_status, "labels": labels,
     }
 
 
@@ -1267,7 +1275,10 @@ def _work_items(spawns: list[dict], inputs: list[dict], returns: list[dict], key
         })
     _landing_evidence(rows, inputs, start, end)
     for row in rows:
-        del row["_pr_candidates"]
+        counts = next(i for i in inputs if i["repo"] == row["repo"])["gh_changes_requested"]
+        numbers = set(row["pr_numbers"]) | row.pop("_pr_candidates")
+        numbers |= {pr["number"] for pr in row["merged_outside_window"] or []}
+        row["changes_requested"] = None if counts is None else sum(counts.get(n, 0) for n in numbers)
 
     if not rows:
         items_metric = _absent("no keyed work items")
