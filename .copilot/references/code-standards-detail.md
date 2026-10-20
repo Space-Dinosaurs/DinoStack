@@ -67,7 +67,9 @@ After editing code with a preview server running, always verify with `agent-brow
 
 ## Discovery-Based Check Discipline
 
-A discovery-based check is one whose pass/fail result depends on a set of items it finds at run time (files matching a glob, lines matching a pattern, entries produced by a scan) rather than a fixed, hand-typed expectation. This class of check passes vacuously - and certifies a gap closed that is still open - the moment its discovery step silently returns zero items: an empty result is trivially "consistent" with almost any assertion built on top of it.
+A discovery-based check is one whose pass/fail result depends on a set of items it finds at run time (files matching a glob, lines matching a pattern, entries produced by a scan) rather than a fixed, hand-typed expectation. This class of check passes vacuously - and certifies a gap closed that is still open - the moment its discovery step silently returns zero items: an empty result is trivially "consistent" with almost any assertion built on top of it. A lint, test, or typecheck run an engineer reports is this class: report `vacuous` per `content/agents/engineer.md`. The MUST below binds checks DinoStack or an engineer authors, not the repo's existing gate command.
+
+ESLint in a dot-path worktree (`.claude/worktrees/`, `.agentic/worktrees/`): in eslintrc mode, `ignorePatterns` inherited from the primary checkout's config (directly or through `extends`) can drop every worktree file, and an explicit file then prints "File ignored by default" and exits 0. Re-run on the explicit changed-file paths with `--no-ignore`, leaving out any changed file the repo itself ignores (`--no-ignore` lints those too), and report that result.
 
 Every discovery-based check MUST hard-fail on zero discovered items, and MUST do so in one of three detectable forms. A check written in a fourth, undetectable idiom is a standards violation to be reported, not a guard silently missed:
 

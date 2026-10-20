@@ -133,9 +133,11 @@ The conductor MUST evaluate capture at each of these 7 events and emit a
    brief that names a root cause is a trigger. Apply guardrail-first (can a test
    encode this?) then write KNW or LRN as appropriate.
 
-2. **A Critical or Major Skeptic finding is resolved.** After sign-off, evaluate
-   whether the fix pattern is generalizable. LRN if the bug recurs, KNW if it is
-   env/tooling knowledge.
+2. **A Critical or Major Skeptic finding is resolved, or a human reviewer requests
+   changes.** After sign-off, evaluate whether the fix pattern is generalizable. LRN
+   if the bug recurs, KNW if it is env/tooling knowledge. On CHANGES_REQUESTED, capture
+   is MUST: one `user-pattern` event, `domain_tag: reviewer-bar`, recording the reviewer's stated
+   standards, which later briefs in that repo carry.
 
 3. **A tool or command failure is worked around.** At the workaround moment, the
    conductor MUST also emit a `tool_failure_workaround` event to `.agentic/events.jsonl`:
