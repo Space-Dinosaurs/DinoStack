@@ -46,9 +46,11 @@ Public API: ds-eval --repo P [P ...] [--since S] [--until U] [--base REF]
                 neither. A PR that is open, closed, or merged to another
                 branch reads this way too.
             Each outcome then gains `, H changes-requested` when gh shows
-            H >= 1 CHANGES_REQUESTED reviews on the item's PRs, or
+            H >= 1 CHANGES_REQUESTED reviews on the item's PRs, from any
+            author, automated reviews such as /ds-review-pr included, or
             `, changes-requested n/a (gh unavailable)` when gh is
-            disabled, missing or failed, never 0.
+            disabled, missing or failed or does not list one of those PRs,
+            never 0.
             [keepalive] (per repo): pings fired/passed/dropped/deleted/
             wrapped/unclassified, ping tokens and priced usd per outcome,
             returns after idle per gap bucket with and without a ping that

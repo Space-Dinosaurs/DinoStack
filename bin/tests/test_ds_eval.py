@@ -87,12 +87,12 @@ def skeptic_row(ts, agent_id, iteration=None, signed_off=None, findings=None, ta
 
 
 def inp(sessions=(), hook_rows=(), fires=(), prs=(), labels=(), slug="acme/w", gh_states=None,
-        gh_status="disabled (--no-gh)", repo="/r", gh_changes_requested=()):
+        gh_status="disabled (--no-gh)", repo="/r"):
     return {"repo": repo, "sessions": list(sessions), "hook_rows": list(hook_rows), "events_present": True,
             "fires": None if fires is None else list(fires), "pattern": PATTERN, "prefixes": ["AUT"],
             "base": "main", "base_source": "explicit", "base_diagnostics": [],
             "prs": None if prs is None else list(prs), "slug": slug, "gh_states": gh_states,
-            "gh_changes_requested": None if gh_changes_requested is None else dict(gh_changes_requested),
+            "gh_changes_requested": dict.fromkeys(range(1000), 0),
             "gh_status": gh_status, "labels": None if labels is None else list(labels)}
 
 
@@ -793,7 +793,7 @@ def test_evaluate_end_to_end_and_cli_no_gh(tmp_path, monkeypatch, capsys):
     (agentic / "tasks.jsonl").write_text(json.dumps({"ticket_id": "AUT-1"}) + "\n")
     calls = []
     monkeypatch.setattr(ev, "_feedback_items", lambda r: [])
-    monkeypatch.setattr(ev, "_gh_pr_states", lambda *a: calls.append(a))
+    monkeypatch.setattr(ev, "_gh_pr_states_and_changes", lambda *a: calls.append(a))
     report = ev.evaluate([repo], START, END, base="main", use_gh=False, stores=[store], rates=RATES)
     assert calls == []
     assert report["cost"]["reconciled"] == {"status": "OK", "usd": 3.5, "sessions": 1, "session_ids": ["sess1"],
@@ -803,10 +803,10 @@ def test_evaluate_end_to_end_and_cli_no_gh(tmp_path, monkeypatch, capsys):
     assert report["work_items"]["items"]["value"][0]["pr_numbers"] == [10, 11]
     assert report["work_items"]["pr_outcome"]["value"]["merged_prs_in_window"] == 2
     assert report["meta"]["ticket_pattern"][str(repo)].startswith("(?<![A-Za-z0-9])(?:AUT)")
-    monkeypatch.setattr(ev, "_gh_pr_states", lambda slug: None)
+    monkeypatch.setattr(ev, "_gh_pr_states_and_changes", lambda slug: None)
     report = ev.evaluate([repo], START, END, base="main", use_gh=True, stores=[store], rates=RATES)
     assert report["meta"]["gh"][str(repo)] == "unavailable: gh pr list failed"
-    monkeypatch.setattr(ev, "_gh_pr_states", lambda *a: calls.append(a))
+    monkeypatch.setattr(ev, "_gh_pr_states_and_changes", lambda *a: calls.append(a))
 
     monkeypatch.setattr(cli, "_EVAL", ev)
     rc = cli.main(["--repo", str(repo), "--since", "2026-10-01", "--until", "2026-10-08", "--no-gh",
@@ -1097,7 +1097,10 @@ def _review(state):
 
 @pytest.mark.parametrize("gh_script,expected,suffix", [
     ("cat \"$(dirname \"$0\")/prs.json\"", 3, ", 3 changes-requested"),
-    ("echo '[{\"number\": 10, \"state\": \"MERGED\", \"reviews\": []}]'", 0, ""),
+    ("echo '[{\"number\": 10, \"state\": \"MERGED\", \"reviews\": []}, "
+     "{\"number\": 11, \"state\": \"MERGED\", \"reviews\": []}]'", 0, ""),
+    ("echo '[{\"number\": 10, \"state\": \"MERGED\", \"reviews\": []}]'", None,
+     ", changes-requested n/a (gh unavailable)"),
     ("exit 1", None, ", changes-requested n/a (gh unavailable)"),
 ])
 def test_pr_outcome_counts_changes_requested_reviews_from_gh(tmp_path, monkeypatch, capsys,
@@ -1126,6 +1129,22 @@ def test_pr_outcome_counts_changes_requested_reviews_from_gh(tmp_path, monkeypat
     cli._print_table(report)
     _head, rows = _item_lines(capsys.readouterr().out)
     assert rows[1][0::5] == ["AUT-1", "merged #10, 1 follow-up" + suffix]
+
+
+def test_changes_requested_counts_each_pr_once_across_all_of_the_items_prs(tmp_path, monkeypatch, capsys):
+    """AUT-1's #7 is both a merged ticket-id PR and its own created PR, and
+    counts once. AUT-2's #300 is found only by the undated base-ref search."""
+    own = sub("e9", description="AUT-1 more", prs=[("acme/w", 7, T(2, 6))])
+    fixture = _items_fixture(tmp_path, _ITEM_PRS, extra=[own])
+    fixture["gh_changes_requested"] = {7: 1, 8: 1, 99: 0, 300: 2}
+    wide = [{"number": 300, "subject": "fix: AUT-2 y (#300)", "merged_at": END + timedelta(days=20), "ids": ["AUT-2"]}]
+    report, out = _text(monkeypatch, capsys, fixture, wide=wide)
+    by_key = {r["key"]: r["changes_requested"] for r in report["work_items"]["items"]["value"]}
+    assert by_key == {"AUT-1": 2, "AUT-2": 2, "AUT-3": 0}
+    _head, rows = _item_lines(out)
+    assert [r[0::5] for r in rows[1:]] == [["AUT-1", "merged #7, 1 follow-up, 2 changes-requested"],
+                                           ["AUT-3", "no merge found"],
+                                           ["AUT-2", "merged #300 (after window), 2 changes-requested"]]
 
 
 def test_items_summary_is_a_median_not_a_mean():
