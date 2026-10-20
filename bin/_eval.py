@@ -788,9 +788,9 @@ def _repo_slug(repo) -> str | None:
 
 def _gh_pr_states_and_changes(slug: str) -> tuple[dict[int, str], dict[int, int]] | None:
     """State and CHANGES_REQUESTED review count (any author, automated
-    reviews included) of the repo's 1000 most recent PRs. Not `--search`: the search API answers an inaccessible repo
-    with an empty list and exit 0, which would read as "no PRs" instead of
-    "gh unavailable"."""
+    reviews included) of the repo's 1000 most recent PRs. Not `--search`:
+    the search API answers an inaccessible repo with an empty list and exit
+    0, which would read as "no PRs" instead of "gh unavailable"."""
     proc = _LIB._run(
         ["gh", "pr", "list", "--repo", slug, "--state", "all", "--limit", "1000", "--json", "number,state,reviews"],
         timeout=GH_TIMEOUT_SECONDS,
