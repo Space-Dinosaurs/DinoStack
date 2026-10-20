@@ -87,7 +87,7 @@ When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the executio
 ## Quality gates
 
 After every implementation:
-- Run available lint and typecheck commands. Fix any errors introduced by your changes. Do not introduce new warnings.
+- Run available lint and typecheck commands. Fix any errors introduced by your changes. Do not introduce new warnings. Run lint at least once by explicit path on a changed file it covers, since only an explicit path surfaces an ignore warning. A gate whose own output shows zero files or tests checked, or reports its inputs ignored (ESLint "File ignored by default"), is `vacuous`, which blocks like `fail` (ESLint worktree case: `content/references/code-standards-detail.md` §Discovery-Based Check Discipline); never run `tsc <file>` or a test runner on a source file to check this.
 - Run tests if a test command exists. All must pass. If a pre-existing test is broken by your change and the break is intentional (e.g., updating behavior), note it explicitly.
 - For new code: ensure it is exercised by the build (imported, registered, wired up). Dead code is a common mistake.
 - **Runtime smoke test (happy-path).** After the static gates pass, exercise the change once at runtime on its primary happy path - boot the server and hit the affected route (this server is not bounded by your run - it survives it, so killing it is yours to do, per `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership), run the CLI command you changed, render the component once, or call the modified function with a realistic input. This is a bounded sanity check that the code actually runs, not a full QA pass: one happy-path exercise, no edge-case or regression sweep. It does NOT replace the independent qa-engineer verification that runs after Skeptic sign-off - thorough and adversarial runtime checks remain qa-engineer's job; this self-smoke exists only to catch obvious breakage before review and cut QA-fail bounces. Skip it only when the change has no runtime path to exercise: a pure backend library with no entrypoint, config-only, a type-only refactor, or docs-only (note: `dep-bump-no-runtime-change` is a valid `qa_skip` enum but is intentionally excluded from the smoke skip list, because a dependency bump can still affect a runtime path worth catching here). When you skip, record which of those reasons applies in your return. Paste the smoke command and its actual output alongside the other gate output.
@@ -129,9 +129,9 @@ files_modified:
     summary: <one-line description>
     serves: <one-line acceptance criterion or finding id this file serves>
 quality_gate_results:
-  lint: pass | fail | not_run
-  typecheck: pass | fail | not_run
-  test: pass | fail | not_run
+  lint: pass | fail | vacuous | not_run
+  typecheck: pass | fail | vacuous | not_run
+  test: pass | fail | vacuous | not_run
   smoke_test: pass | fail | skipped | not_run   # skipped = no runtime path (state which: pure-backend-library | config-only | type-only-refactor | docs-only); not_run on a runtime-capable change is a Skeptic finding
   raw_output: |
     <truncated to 4000 chars; tail-wins on truncation>
@@ -170,9 +170,9 @@ JSON-Schema fragment (informative; the conductor uses this to validate):
       "type": "object",
       "required": ["lint", "typecheck", "test", "smoke_test", "raw_output"],
       "properties": {
-        "lint": { "enum": ["pass", "fail", "not_run"] },
-        "typecheck": { "enum": ["pass", "fail", "not_run"] },
-        "test": { "enum": ["pass", "fail", "not_run"] },
+        "lint": { "enum": ["pass", "fail", "vacuous", "not_run"] },
+        "typecheck": { "enum": ["pass", "fail", "vacuous", "not_run"] },
+        "test": { "enum": ["pass", "fail", "vacuous", "not_run"] },
         "smoke_test": { "enum": ["pass", "fail", "skipped", "not_run"] },
         "raw_output": { "type": "string", "maxLength": 4000 }
       }
@@ -193,7 +193,7 @@ After the structured block, return a plain-text summary covering:
 
 - **What was changed** - files modified or created, what each change does, and the acceptance criterion or finding each serves
 - **Why** - brief rationale for any non-obvious decisions made during implementation
-- **Quality gates** - which commands you ran and their actual output. Report each gate on its own line in the form `gate_name: pass|fail` (e.g. `lint: pass`, `typecheck: pass`, `tests: pass`). If a gate was not run, write `gate_name: not_run`. Report the runtime smoke test as `smoke_test: pass|fail|skipped` (state the skip reason when skipped).
+- **Quality gates** - which commands you ran and their actual output. Report each gate on its own line in the form `gate_name: pass|fail|vacuous` (e.g. `lint: pass`, `typecheck: pass`, `tests: pass`). If a gate was not run, write `gate_name: not_run`. Report the runtime smoke test as `smoke_test: pass|fail|skipped` (state the skip reason when skipped).
 - **Out of scope** - anything the prompt implied but you deliberately did not do, and why
 - **Blockers or open questions** - anything that needs human input or a follow-up decision
 

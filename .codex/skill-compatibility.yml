@@ -3122,6 +3122,16 @@
       "source_token": "git"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "03615d8352c24b34c3e62a69918ef9c033ced2ce6ee56a890279eadb776a7662",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "then",
       "generated_token": "then",
       "kind": "operational",
@@ -3940,6 +3950,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic"
+    },
+    {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "12bf112e3f3483bc4f313d8b6e3f5110c0cbc84596be70b7d6169321f4e9b0ef",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/learnings.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -13932,16 +13952,6 @@
       "source_token": "select"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "a7400ed3cded7bd57ae9592b33279fac8b9c3e8557ea30ceaec91a7663ad6a75",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "an",
       "kind": "display-only",
@@ -17062,16 +17072,6 @@
       "source_token": "-C"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "d468984e9668381d1ffc0b6313e9ff64299a7ca09172b36b7448e10211fad4ac",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "mv",
       "generated_token": "mv",
       "kind": "operational",
@@ -17862,6 +17862,16 @@
       "source_token": "echo"
     },
     {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "e00efa1de19943ca169613ce0954ef292007806ba5bf1460b81663680d6bd38a",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/learnings.md"
+    },
+    {
       "expected_target": "spawn_agent",
       "generated_token": "spawn_agent",
       "kind": "operational",
@@ -17920,6 +17930,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/task-state-file.md"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "e0c07c87d4f91665ba724ca57c2aef7bd49e667517c1a40334fca1e1480d8cef",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": ".agentic/batch-state.json",
@@ -19650,6 +19670,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "cut"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "/pulls",
+      "kind": "display-only",
+      "occurrence_hash": "f7752e2846428e31279151ddbea8ed29b4fe4b634865ecd9d9da10f76ac3412a",
+      "resolution_mode": "display-only",
+      "scope": "display-only",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/pulls"
     },
     {
       "expected_target": "true",

@@ -65,6 +65,7 @@ See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block
 **Resolved issues preflight:**
 - Round 1: "No prior rounds. This is round 1."
 - Rounds 2+: "The following findings were raised in prior rounds and the Worker has since claimed a fix. Determine for yourself whether each is now resolved; do not raise one as a new finding without saying which prior finding it is: [list each: C1/M1/etc: description]"
+- Any round answering a human review: add one `[H<n>: "<review comment, verbatim, line breaks collapsed to ' / '>"]` entry per comment the rework addresses.
 
 Evaluate and return your findings using the sign-off format from your agent definition.
 ---

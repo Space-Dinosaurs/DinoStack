@@ -106,7 +106,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 3. **Primary agent spawns a fresh Skeptic** (background, using the `skeptic` agent at `content/agents/skeptic.md`) with:
    - The adversarial brief verbatim
    - The Worker's complete output (inline or as file paths)
-   - The resolved issues preflight list (empty on round 1; see Section 4)
+   - The resolved issues preflight list (empty on round 1 unless answering a human review; see Section 4)
 
    The agent file owns the classification rules, evaluation process, and sign-off format. The orchestrator's job is to supply the brief, the preflight list, and the artifact to review.
 
@@ -193,7 +193,7 @@ The conductor maintains an exchange log across Skeptic rounds to enforce the 2-r
 
 ## 4. The Resolved Issues Preflight List
 
-Before invoking each new Skeptic (rounds 2+), the primary agent prepends this block to the adversarial brief:
+Before invoking each new Skeptic (rounds 2+, or any round answering a human review), the primary agent prepends this block to the adversarial brief:
 
 ```
 The following findings were raised in prior rounds and the Worker has since
@@ -203,6 +203,7 @@ raise one as a new finding without saying which prior finding it is.
 [C1: <description of finding>]
 [C2: <description of finding>]
 [M1: <description of finding>]
+[H1: "<human review comment, verbatim, line breaks collapsed to ' / '>"]
 ...
 ```
 
@@ -453,7 +454,7 @@ The number of permitted Skeptic rounds scales with task complexity:
 
 **5. Self-inflicted-round rule.** Nothing distinguishes, by default, a round that found a pre-existing defect from a round whose finding is a direct consequence of the immediately-prior round's own fix diff - a self-inflicted round. A single session ran three of these back to back: a cosmetic guard added to satisfy round N's finding created a new Critical in round N+1; a docstring guarantee shipped in round N was falsified by the Skeptic's own re-read in round N+1; a fabricated explanation for an observed failure shipped in round N and was corrected in round N+1. All three were pure loss - cost spent repairing damage the loop itself introduced, not verifying pre-existing risk. Before spawning round N+1, the conductor states explicitly whether the round's finding is self-inflicted (a direct consequence of round N's fix diff) or pre-existing (present before round N's fix). **Two consecutive self-inflicted rounds is an automatic escalate** - not another spend, and not counted against the round-budget cap as a normal round: it is diagnostic evidence that the fix approach itself is unstable and needs human arbitration, exactly as a convergence failure (`content/sections/05-qa-gate.md` §Convergence failure) does.
 
-**6. Continue-vs-reshape signal.** Before spawning round N+1, compare round N's findings to round N-1's by severity and site, not by count alone. Falling severity across rounds at novel sites is convergence and justifies continuing under item 1's normal per-round accounting. Constant severity with the same defect class relocating - the same kind of finding reappearing at a different site rather than resolving - means the artifact itself needs reshaping: stop spending rounds on another pass of the same review shape and change what is being reviewed (the plan, the test, the enforcement mechanism itself), not who reviews it. When neither pattern clearly holds - severity is mixed, or too few rounds exist to compare - default to convergence (continue), and let item 1's round cap and ship-or-escalate branch be the backstop if the ambiguity persists to the cap. When round N's Major is the same defect class as a round N-1 Major at a new site, the next fix-pass brief names the class and directs the engineer to find every instance (a grep, or a test exercising the class; on a third-or-later round item 7 applies, so remove the surface rather than add a test) and fix them all. Uncited instances are in scope for that pass.
+**6. Continue-vs-reshape signal.** Before spawning round N+1, compare round N's findings to round N-1's by severity and site, not by count alone. Falling severity across rounds at novel sites is convergence and justifies continuing under item 1's normal per-round accounting. Constant severity with the same defect class relocating - the same kind of finding reappearing at a different site rather than resolving - means the artifact itself needs reshaping: stop spending rounds on another pass of the same review shape and change what is being reviewed (the plan, the test, the enforcement mechanism itself), not who reviews it. When neither pattern clearly holds - severity is mixed, or too few rounds exist to compare - default to convergence (continue), and let item 1's round cap and ship-or-escalate branch be the backstop if the ambiguity persists to the cap. When round N's Major is the same defect class as a round N-1 Major at a new site, or a human reviewer requests changes (each comment a class; "there might be more" makes the sweep whole-diff), the next fix-pass brief names the class and directs the engineer to find every instance (a grep, or a test exercising the class; on a third-or-later round item 7 applies, so remove the surface rather than add a test) and fix them all. Uncited instances are in scope for that pass, and the engineer's return lists the ones it fixed.
 
 **7. Subtract surface on a third-or-later fix round.** When a fix round is the third or later on the same unit, the fix-round brief instructs the engineer to REMOVE redundant surface rather than add coverage for it. Four consecutive rounds on one unit each added surface that became the next round's defect site until subtraction broke the pattern (KNW-20260827-016). Fix-round briefs point here; they do not restate this rule. Under the default cap of 3 in item 1, a fourth-or-later round is reached only via an operator grant at the cap (item 1), never by continuing the loop.
 
@@ -523,7 +524,7 @@ When reviewing, check spec compliance first - does the implementation do what wa
 
 **A comment that explains what the code makes apparent, or carries review exhaust, is a finding.** See `content/agents/skeptic.md` Step 10.5 (Minor; over-deletion of a constraint routes via `Blocking-minor:`).
 
-**A plan component with no stated requirement is a finding, on a plan review.** Before probing plan correctness, the Skeptic asks whether the plan's own "Simplest viable alternative" would satisfy the acceptance criteria, and requires each component beyond it to be tied to a stated requirement rather than an inferred motivation. It then asks whether each justified component's mechanism is the codebase's idiomatic one, not a prototype's or a bespoke one. See `content/agents/skeptic.md` Step 0.5 for the check (plan-review only) and severity defaults (Minor; Major for cross-component DOM coupling or a binding mechanism; no finding when the acceptance criteria or an explicit technical constraint requires the mechanism, and a prototype never qualifies unless the acceptance criteria state the values).
+**A plan component with no stated requirement is a finding, on a plan review.** Before probing plan correctness, the Skeptic asks whether the plan's own "Simplest viable alternative" would satisfy the acceptance criteria, and requires each component beyond it to be tied to a stated requirement rather than an inferred motivation. It then asks whether each justified component's mechanism is the codebase's idiomatic one, not a prototype's or a bespoke one. See `content/agents/skeptic.md` Step 0.5 for the check (plans; Step 2.5 asks its mechanism question of diffs) and severity defaults (Minor; Major for cross-component DOM coupling or a binding mechanism; no finding when the acceptance criteria or an explicit technical constraint requires the mechanism, and a prototype never qualifies unless the acceptance criteria state the values).
 
 **An unverified exclusion claim is a finding.** An OUT-OF-SCOPE entry, an "already shipped in X" claim, or a "handled by ticket Z" claim must be grepped and verified against the tree or tracker exactly like an in-scope claim - false exclusion claims are the cheapest way for wrong scope to survive review. See `content/agents/skeptic.md` Step 3.85 for the check and severity default (Major, Critical when it justifies deleting shipped behavior).
 
@@ -578,7 +579,7 @@ Field 7 (conductor spawn brief, claim-bearing text only) exists to satisfy the p
 
 **No carve-out for operator-attribution - that specific channel remains banned.** A review brief is the wrong place to adjudicate whether the operator said it. Legitimate operator-directed scoping is still served without this carve-out: a category-level Brief extension (above) covers a genuine domain concern.
 
-**What is not a steer** (illustrative, not exhaustive - the test is CONDUCTOR-COMPOSED vs. VERIFIED-OR-SOURCED-AND-ATTRIBUTED, not membership in this list): a resolved-issues preflight entry restating a prior finding; a domain-specific brief extension naming a category of concern rather than a specific suspected defect; a per-consumer impact table entry; an Engineer's `DONE_WITH_CONCERNS` concerns passed through attributed to the Engineer; and a named subagent's recommended adversarial brief passed through attributed to that agent.
+**What is not a steer** (illustrative, not exhaustive - the test is CONDUCTOR-COMPOSED vs. VERIFIED-OR-SOURCED-AND-ATTRIBUTED, not membership in this list): a resolved-issues preflight entry restating a prior finding, including an `H<n>` entry quoting a human review verbatim; a domain-specific brief extension naming a category of concern rather than a specific suspected defect; a per-consumer impact table entry; an Engineer's `DONE_WITH_CONCERNS` concerns passed through attributed to the Engineer; and a named subagent's recommended adversarial brief passed through attributed to that agent.
 
 **Worked examples:**
 

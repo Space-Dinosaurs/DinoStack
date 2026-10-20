@@ -67,7 +67,9 @@ After editing code with a preview server running, always verify with `agent-brow
 
 ## Discovery-Based Check Discipline
 
-A discovery-based check is one whose pass/fail result depends on a set of items it finds at run time (files matching a glob, lines matching a pattern, entries produced by a scan) rather than a fixed, hand-typed expectation. This class of check passes vacuously - and certifies a gap closed that is still open - the moment its discovery step silently returns zero items: an empty result is trivially "consistent" with almost any assertion built on top of it.
+A discovery-based check is one whose pass/fail result depends on a set of items it finds at run time (files matching a glob, lines matching a pattern, entries produced by a scan) rather than a fixed, hand-typed expectation. This class of check passes vacuously - and certifies a gap closed that is still open - the moment its discovery step silently returns zero items: an empty result is trivially "consistent" with almost any assertion built on top of it. A lint, test, or typecheck run an engineer reports is this class: report `vacuous` per `content/agents/engineer.md`. The MUST below binds checks DinoStack or an engineer authors, not the repo's existing gate command.
+
+ESLint in a dot-path worktree (`.claude/worktrees/`, `.agentic/worktrees/`): in eslintrc mode a worktree config without `root: true` cascades to the primary checkout's config, the path relative to that config's base begins with a dot segment, and the default `.*` ignore drops every file. A negated `--ignore-pattern` does not override it. When the worktree's config is the repo's only eslintrc config, run `eslint --no-eslintrc -c <worktree config>` (`--no-eslintrc` also drops nested configs) and report that run's result; otherwise report `vacuous`.
 
 Every discovery-based check MUST hard-fail on zero discovered items, and MUST do so in one of three detectable forms. A check written in a fourth, undetectable idiom is a standards violation to be reported, not a guard silently missed:
 
