@@ -3,6 +3,16 @@
 
 # Changelog
 
+## 2026-10-19
+
+### Breaking Changes
+
+- **#1030** [minimal code comments by default, module manifests retired](https://github.com/Space-Dinosaurs/DinoStack/pull/1030) - tyson-solara6
+
+### Features
+
+- **#1029** [bind delivery evidence to the final remote head](https://github.com/Space-Dinosaurs/DinoStack/pull/1029) - tyson-solara6
+
 ## 2026-10-17
 
 ### Documentation
