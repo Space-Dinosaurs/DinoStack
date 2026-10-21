@@ -381,6 +381,13 @@ check "send still delivers a ruling to a live blocked lane" eq "$rc|${out%% *}" 
 check "the ruled lane then closes itself" wait_until 10 meta_is br closed_by autoclose
 wait_until 10 proc_gone br
 
+start_idle big
+head -c 1200000 /dev/zero | tr '\0' x > "$TMP/big.msg"
+out="$(lane send big "$TMP/big.msg" 2>&1)"; rc=$?
+check "send delivers a message larger than the argv limits" eq "$rc|$out|$(tail -n1 "$RUN/big.in" | jq -r '.message.content | length')" "0|sent 1200000 chars to big|1200000"
+lane close big > /dev/null
+wait_until 10 proc_gone big
+
 # --- a send that lands mid-turn: the earlier turn's marker never closes the lane ---
 rm -f "$LOG/release"
 start_idle mt

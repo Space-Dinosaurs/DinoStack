@@ -93,9 +93,9 @@
 #   <conductor-tty> <tab-log>` (the detached closer a watch tab forks),
 #   `__autoclose <name> <pid> <run-dir>` (the per-lane sentinel launch
 #   forks), and `__close-locked <name> <done|any|close|stop|exited|reap-exited>`
-#   and `__send-locked <name> <text>` (the halves of the sentinel, reap, close,
-#   stop, send and exited-lane status writes that run under run/<name>.lock;
-#   run dir from DS_LANE_RUN_DIR).
+#   and `__send-locked <name>`, text on stdin (the halves of the sentinel,
+#   reap, close, stop, send and exited-lane status writes that run under
+#   run/<name>.lock; run dir from DS_LANE_RUN_DIR).
 #   run/<name>.tab.log lines, tmux viewer: `opened: tmux` then `focus:
 #   untouched (detached tmux window <window id> lane-<name> in session
 #   <session id>)`, or one of `tab skipped: <not inside tmux|no tmux|tmux
@@ -374,7 +374,7 @@ lane_outcome() {
 
 # Append one stream-json user message to the lane's input file.
 write_input() { # write_input <name> <text>
-  jq -cn --arg t "$2" '{type: "user", message: {role: "user", content: $t}}' >> "$RUN_DIR/$1.in"
+  printf '%s' "$2" | jq -Rsc '{type: "user", message: {role: "user", content: .}}' >> "$RUN_DIR/$1.in"
 }
 
 # Text argument, or the contents of a readable file.
@@ -530,8 +530,9 @@ send_refusals() { # send_refusals <name>
 }
 
 # results_needed: stdin answers this input and any still-unanswered earlier ones need.
-send_locked() { # send_locked <name> <text>
-  local name="$1" text="$2" counts pending lines
+send_locked() { # send_locked <name>, text on stdin
+  local name="$1" text counts pending lines
+  text="$(cat)"
   send_refusals "$name"
   is_live_lane "$name" || die "lane '$name' is not running; use 'ds-lane resume $name <text>'"
   is_live_feeder "$name" || die "lane '$name' has no open input channel (closed, or started by another launcher)"
@@ -727,7 +728,8 @@ cmd_send() {
   is_live_feeder "$name" || die "lane '$name' has no open input channel (closed, or started by another launcher)"
   text="$(text_or_file "$2")"
   [[ -n "$text" ]] || die "empty message"
-  lane_locked_or_die "$name" __send-locked "$name" "$text"
+  # stdin, not argv: Linux caps one argument at 128 KiB.
+  lane_locked_or_die "$name" __send-locked "$name" <<< "$text"
 }
 
 cmd_close() {
