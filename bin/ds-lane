@@ -178,8 +178,9 @@
 #   after exit unless a fatal event overrides it. Locking:
 #   send, close, stop and the sentinel's close serialize on run/<name>.lock, a
 #   flock held only by a python process (no lane or sentinel inherits it) and
-#   re-checked under it, as are the exit status writes of routine commands; send, close and stop wait 10 s then refuse `lane
-#   '<n>' is busy`, the sentinel and reap skip and retry. Residual: with
+#   re-checked under it, as are the exit status writes of routine commands.
+#   send, close and stop wait 10 s then refuse `lane '<n>' is busy`; the
+#   sentinel and reap skip and retry. Residual: with
 #   DS_LANE_BG_CEILING_MS=0 a closed done or blocked lane whose background
 #   tasks still run stays PROC up and holds its slot; `stop` is the remedy.
 #
@@ -206,7 +207,7 @@ BG_CEILING="${DS_LANE_BG_CEILING_MS:-0}"
 
 TAB_LOCK="${DS_LANE_TAB_LOCK:-/tmp/ds-lane-tab-$(id -u).lock}"
 
-# Poll intervals in seconds: the per-lane sentinel (a positive number) and `wait` (whole seconds).
+# Sentinel poll may be fractional; `wait` poll is whole seconds.
 AUTOCLOSE_POLL_S="${DS_LANE_AUTOCLOSE_POLL_S:-2}"
 [[ "$AUTOCLOSE_POLL_S" =~ ^[0-9]*[.]?[0-9]+$ && "$AUTOCLOSE_POLL_S" =~ [1-9] ]] || AUTOCLOSE_POLL_S=2
 WAIT_POLL_S="${DS_LANE_WAIT_POLL_S:-5}"
@@ -317,7 +318,7 @@ count_live() {
       n=$((n + 1))
     else
       lane_harness "$name" > /dev/null || exit 1
-      # Under the lane lock, like every lane status write; a busy lock leaves it to a later call.
+      # Status writes take the lane lock; a busy lock leaves this to a later call.
       lane_locked "$name" 1 __close-locked "$name" exited > /dev/null || true
     fi
   done
@@ -359,9 +360,7 @@ WATCH_FILTER='fromjson? | (
 
 lane_marker() { python3 "$RUNTIME_HELPER" events "$RUN_DIR/$1.meta" marker; }
 
-# The lane's task outcome: its marker, else the done or blocked status recorded when its input was
-# closed on a marker (the marker guard is time-dependent, and output can follow the close), unless
-# a fatal event has overridden it since.
+# The guard can stop settling after a close, so a recorded done/blocked stands unless fatal.
 lane_outcome() {
   local state
   state="$(lane_marker "$1")"
@@ -427,14 +426,11 @@ conductor_tty() {
 
 LANE_LOCK_WAIT_S=10
 
-# Runs `ds-lane <internal-command> <args...>` in a child while a python process holds
-# run/<name>.lock. The child gets this run dir explicitly instead of re-deriving it.
 lane_locked() { # lane_locked <name> <wait_s> <internal-command> <args...>
   local name="$1" wait="$2"; shift 2
   with_lock "$RUN_DIR/$name.lock" "$wait" env DS_LANE_RUN_DIR="$RUN_DIR" "$SELF" "$@"
 }
 
-# lane_locked for send, close and stop, where a busy or unusable lock is a refusal.
 lane_locked_or_die() { # lane_locked_or_die <name> <internal-command> <args...>
   local name="$1" rc=0
   lane_locked "$name" "$LANE_LOCK_WAIT_S" "${@:2}" || rc=$?
@@ -446,9 +442,7 @@ lane_locked_or_die() { # lane_locked_or_die <name> <internal-command> <args...>
   esac
 }
 
-# Closes a live Claude lane's input when its guarded marker is done (done) or done/blocked (any),
-# re-checked under the lane lock. Prints the state it closed. Returns 0 closed, 3 nothing to
-# close, anything else busy or error: the caller skips the lane and a later pass retries.
+# Returns 0 closed (prints the state), 3 nothing to close, else busy or error (retry later).
 close_marked() { # close_marked <name> <done|any>
   local state rc=0
   state="$(lane_marker "$1" 2> /dev/null)" || return 4
@@ -457,8 +451,6 @@ close_marked() { # close_marked <name> <done|any>
   return "$rc"
 }
 
-# Prunes exited lanes, then closes every marked live Claude lane except <exempt>. Prints the
-# live count.
 converge() { # converge [exempt]
   local n f name
   n="$(count_live)" || exit 1
@@ -473,9 +465,7 @@ converge() { # converge [exempt]
   echo "$n"
 }
 
-# The lock-holding half of close_marked (done|any), cmd_close (close), cmd_stop (stop), and the
-# exited-lane writes of count_live and cmd_list (exited) and cmd_reap (reap-exited). Every mode
-# but close and stop re-checks under the lock and exits 3 when there is nothing to do.
+# Runs under the lane lock; every mode but close and stop exits 3 when there is nothing to do.
 close_locked() { # close_locked <name> <done|any|close|stop|exited|reap-exited>
   local name="$1" mode="$2" state pid
   case "$mode" in
@@ -486,7 +476,7 @@ close_locked() { # close_locked <name> <done|any|close|stop|exited|reap-exited>
       kill_feeder "$name"
       meta_set "$name" status "$state"
       meta_set "$name" end_epoch "$(date +%s)"
-      if [[ "$mode" == done ]]; then meta_set "$name" closed_by autoclose; fi
+      if [[ "$mode" == "done" ]]; then meta_set "$name" closed_by autoclose; fi
       echo "$state"
       ;;
     close)
@@ -531,7 +521,6 @@ close_locked() { # close_locked <name> <done|any|close|stop|exited|reap-exited>
   esac
 }
 
-# Refuses a send to a done lane, or to a blocked lane whose input is already closed.
 send_refusals() { # send_refusals <name>
   case "$(lane_outcome "$1")" in
     done) die "lane '$1' is done; start a new lane, or resume it after it exits" ;;
@@ -540,8 +529,7 @@ send_refusals() { # send_refusals <name>
   return 0
 }
 
-# The lock-holding half of cmd_send. Re-checks the lane, records in results_needed how many
-# stdin-answering results this input and those still unanswered need, then writes the message.
+# results_needed: stdin answers this input and any still-unanswered earlier ones need.
 send_locked() { # send_locked <name> <text>
   local name="$1" text="$2" counts pending lines
   send_refusals "$name"
@@ -557,10 +545,7 @@ send_locked() { # send_locked <name> <text>
   echo "sent ${#text} chars to $name"
 }
 
-# Per-Claude-lane sentinel, detached by launch: closes the lane's input once its guarded marker is
-# done, so a finished lane exits and frees its slot with no ds-lane command run. Each pass
-# (DS_LANE_AUTOCLOSE_POLL_S, default 2 s) is a kill -0 and a log size read; the full check runs when the size changed or 30 s have passed. Exits
-# when <pid> is no longer the live lane or its feeder is gone.
+# A full check runs only when the log grew or every 30 s.
 autoclose() { # autoclose <name> <pid>
   set +e
   local name="$1" pid="$2" size last="" checked=-30
@@ -571,7 +556,7 @@ autoclose() { # autoclose <name> <pid>
       checked=$SECONDS
       is_live_lane "$name" "$pid" || exit 0
       is_live_feeder "$name" || exit 0
-      close_marked "$name" done > /dev/null
+      close_marked "$name" "done" > /dev/null
       case "$?" in
         0) exit 0 ;;
         3) last="$size" ;;
@@ -677,8 +662,7 @@ os.execv(argv[0], argv)
     sleep 0.5
   done
   if [[ "$HARNESS" == claude ]]; then
-    # Detached like the lane (setsid, HUP ignored before the fork, no shared stdio), so neither a
-    # terminal hangup nor a caller reading this command's output waits on it.
+    # Detached so neither a hangup nor a caller reading this command's output waits on it.
     trap '' HUP
     nohup python3 -c '
 import os, sys
@@ -823,10 +807,8 @@ cmd_stop() {
   lane_locked_or_die "$name" __close-locked "$name" stop
 }
 
-# A lane is alive while its process runs and it shows no task marker (the list STATE `alive`).
 lane_alive() { is_live_lane "$1" && [[ -z "$(lane_outcome "$1")" ]]; }
 
-# Blocks until a named lane that was alive on entry no longer is, reaping on every pass.
 cmd_wait() { # cmd_wait [--ceiling <s>] <name>...
   local ceiling="${DS_LANE_WAIT_CEILING_S:-1500}" name start left
   local -a entry=()
@@ -906,11 +888,8 @@ cmd_watch() {
   done
 }
 
-# Runs a command while a python process holds a flock on <file>. The kernel drops the lock when
-# the holder exits, so a dead holder never leaves a stale lock and nothing ever has to break one.
-# The descriptor is close-on-exec, so the command and anything it starts never inherit the lock.
-# Exit 200 = busy after <wait_s>, 201 = lock file unusable (directory, symlink, not ours);
-# otherwise the command's own exit status.
+# A python process holds the flock, so it dies with its holder and no child inherits it (cloexec).
+# Exit 200: busy after <wait_s>; 201: lock file unusable; otherwise the command's own status.
 with_lock() { # with_lock <file> <wait_s> <command...>
   python3 -c '
 import fcntl, os, subprocess, sys, time

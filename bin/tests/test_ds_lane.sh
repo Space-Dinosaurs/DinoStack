@@ -100,8 +100,7 @@ jq -cn --arg s "$sid" --arg c "$PWD" --arg m "$mode" '{type: "system", subtype: 
 while IFS= read -r line; do
   text="$(printf '%s' "$line" | jq -r '.message.content')"
   case "$text" in
-    # A turn still in progress: an assistant event, then its marker and result only once the test
-    # creates the release file.
+    # A turn in progress: its marker and result wait for the release file.
     *STUB-HOLD*)
       jq -cn '{type: "assistant", parent_tool_use_id: null, message: {content: [{type: "text", text: "working"}]}}'
       n=0
@@ -187,8 +186,7 @@ export DS_LANE_HARNESS=claude
 unset CODEX_THREAD_ID CLAUDECODE CLAUDE_CODE_SESSION_ID AE_ADAPTER CODEX_HOME DS_LANE_CODEX_BIN DS_LANE_CODEX_CONTEXT_FILE
 mkdir -p "$CLAUDE_CONFIG_DIR"
 export DS_LANE_NO_TAB=1
-# Shorter sentinel and wait polls; the sleeps below that give the sentinel a chance to act span
-# at least three sentinel polls.
+# Sleeps that give the sentinel a chance to act span at least three of these polls.
 export DS_LANE_AUTOCLOSE_POLL_S=0.5 DS_LANE_WAIT_POLL_S=1
 # The Terminal cases below run on the opted-in Terminal path, outside tmux.
 export DS_LANE_VIEWER=terminal
@@ -234,13 +232,11 @@ proc_gone() { ! kill -0 "$(meta_value "$1" pid)" 2> /dev/null; }
 sentinel_of() { pgrep -f -- "__autoclose $1 $(cat "$RUN/$1.pid" 2> /dev/null) " | head -n1; }
 # Starts a lane and waits for its first turn's result, so events appended later follow it.
 start_idle() { lane start "$1" "$PROMPT" > /dev/null 2>&1; wait_until 10 log_has "$1" '"type":"result"'; }
-# Finishes a lane by appending its marker turn to the log, with no ds-lane command.
 finish_by_append() {
   printf '%s\n' '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"LANE-DONE appended"}]}}' \
     '{"type":"result","subtype":"success","is_error":false,"result":"LANE-DONE appended"}' >> "$RUN/$1.jsonl"
 }
-# Holds <lock> from a python process (macOS has no flock(1)) until <release> exists; <ready> marks
-# the lock as taken.
+# Python holds the lock because macOS has no flock(1).
 hold_lock() { # hold_lock <lock> <ready> <release>
   python3 -c '
 import fcntl, os, sys, time
@@ -441,8 +437,7 @@ wait "$stop_pid"
 wait_until 10 proc_gone ls
 lane list ls > /dev/null
 check "a stop racing the sentinel's close ends stopped" meta_is ls status stopped
-# A lane closed on a marker keeps reporting it after exit, even once later output means the
-# marker guard (here waiting on a second answer) no longer settles.
+# A lane closed on a marker keeps reporting it after exit, even when the guard no longer settles.
 start_idle gc
 lane send gc "STUB-FINISH" > /dev/null
 wait_until 10 meta_is gc closed_by autoclose

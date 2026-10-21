@@ -291,8 +291,7 @@ def test_pending_counts_only_stdin_answers_since_the_offset(tmp_path, capsys):
 
 
 def test_notification_results_do_not_answer_a_queued_send(tmp_path, capsys, monkeypatch):
-    # The queued send's own turn has not run: an unmarked stdin answer, then a notification
-    # turn that prints the marker.
+    # The queued send's own turn has not run yet.
     log = [assistant("ack"), RESULT, assistant("LANE-DONE from a notification turn"), NOTIFIED]
     monkeypatch.setenv("DS_LANE_MIDTURN_GRACE_S", "1")
     assert guarded(tmp_path, capsys, log, results_needed=2) == ""
@@ -300,8 +299,7 @@ def test_notification_results_do_not_answer_a_queued_send(tmp_path, capsys, monk
 
 
 def test_notification_results_cannot_strand_a_marked_lane(tmp_path, capsys, monkeypatch):
-    # The send merged into the marked running turn, then a notification turn ran: a notification
-    # result answers no stdin input, so only the grace period settles the lane.
+    # The send merged into the marked turn; the notification result answers no stdin input.
     log = [assistant("LANE-DONE merged"), RESULT, assistant("noted"), NOTIFIED]
     monkeypatch.setenv("DS_LANE_MIDTURN_GRACE_S", "1")
     assert guarded(tmp_path, capsys, log, results_needed=2) == ""
@@ -363,7 +361,7 @@ def test_a_started_turn_defeats_the_grace_period(tmp_path, capsys, started):
 
 
 def test_consecutive_results_close_one_turn(tmp_path, capsys):
-    # One real turn ended in two results with no init between them (nd6dt, result_index 7 and 8).
+    # A real turn ended in two results with no init between them.
     turn = [INIT, assistant("LANE-DONE finished"), dict(NOTIFIED, result_index=7), dict(RESULT, result_index=8)]
     assert guarded(tmp_path, capsys, turn) == "done"
     assert guarded(tmp_path, capsys, [RESULT] + BETWEEN_TURNS + turn, results_needed=2) == "done"

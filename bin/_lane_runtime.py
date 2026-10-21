@@ -3,10 +3,10 @@
 Public API: Internal resolve, saved, events, and owns commands used by ds-lane.
     `events <meta> marker` (Claude) prints done/blocked only once a top-level result
     follows the marker and the marker comes from the turn that answered the last of
-    results_needed stdin inputs, or a later turn (or, with fewer answers, once no
-    turn has started since the last result for DS_LANE_MIDTURN_GRACE_S, default 300,
-    counted from that turn's last timestamped event: a merged input leaves no trace). Only
-    results without `origin` answer stdin input; notification and peer turns carry it. `events <meta> pending` prints "<inputs not yet
+    results_needed stdin inputs, or a later turn. With fewer answers, it counts once
+    no turn has started since the last result for DS_LANE_MIDTURN_GRACE_S (default
+    300), counted from that turn's last timestamped event. Only results without
+    `origin` answer stdin input. `events <meta> pending` prints "<inputs not yet
     answered since marker_offset> <complete log lines>" from one read.
 Upstream deps: Python stdlib, ps; native Claude transcripts and Codex rollouts.
 Downstream consumers: bin/ds-lane, bin/tests/test_ds_lane.sh.
@@ -314,7 +314,6 @@ def events(path, mode):
     meta = metadata(path)
     harness = harness_of(meta)
     log = Path(path).with_suffix(".jsonl")
-    # Only these modes read the whole log; the sentinel's marker check reads the current run only.
     values = list(records(log)) if log.exists() and mode in ("session", "texts", "result") else []
     offset = int(meta.get("marker_offset", "0"))
     current = []
@@ -365,8 +364,7 @@ def events(path, mode):
         return e.get("type") == "result" and e.get("parent_tool_use_id") is None
 
     def stdin_result(e):
-        # Background-task notifications and peer messages start turns of their own, and their
-        # results carry `origin`; only a result without it answers an input sent on stdin.
+        # Notification and peer turns' results carry `origin`; only stdin answers lack it.
         return top_result(e) and e.get("origin") is None
 
     def needed():
@@ -379,13 +377,10 @@ def events(path, mode):
         return top(e) and e.get("type") == "system" and e.get("subtype") == "init"
 
     def activity(e):
-        # Turn content: every turn opens with a top-level init, then assistant and user events.
         return init(e) or (top(e) and e.get("type") in ("assistant", "user"))
 
     def turn_start(end):
-        # Index just before the turn that ended with the result at <end>. One turn can end in
-        # several consecutive results (merged notifications), so results with no turn content
-        # between them share a turn; it starts at its init, else after the previous turn's results.
+        # One turn can end in several consecutive results; they share it.
         i = end - 1
         while i >= 0 and not activity(current[i]):
             i -= 1
@@ -401,13 +396,8 @@ def events(path, mode):
             return None
 
     def quiet_after_result(events):
-        # A queued input runs as soon as the current turn ends, so a lane idle this long after a
-        # result has consumed every input, including one merged into a running turn (which gets
-        # no result of its own and leaves no other trace in the stream). Every turn (stdin,
-        # notification or peer) opens with a top-level init, so a turn has started since the last
-        # result only if an init, assistant or user event follows it; other events (task progress,
-        # command lifecycle, commands_changed) arrive between turns and change neither that nor the
-        # clock, which runs from the ended turn's last timestamped event (else the log's mtime).
+        # Idle this long after a result means queued input ran or merged; a merge leaves no trace.
+        # Events between turns neither start one nor reset the clock (turn timestamp, else mtime).
         ends = [i for i, e in enumerate(events) if top_result(e)]
         if not ends:
             return False
@@ -422,7 +412,7 @@ def events(path, mode):
     if mode == "fatal":
         print("1" if any(fatal(e) for e in current) else "0")
     elif mode == "pending":
-        # One read: inputs not yet answered since marker_offset, and the complete-line count.
+        # Both counts come from one read.
         data = log.read_bytes() if log.exists() else b""
         complete = data.split(b"\n")[:-1]
         events_since = []
@@ -448,9 +438,6 @@ def events(path, mode):
                 elif line.startswith("LANE-BLOCKED"):
                     marker, marker_at = "blocked", index
         if marker and harness == "claude":
-            # A marker counts once a top-level result ends its turn and it comes from the turn that
-            # answered the last input sent (results_needed counts those inputs), or a later turn,
-            # including a notification-started one.
             ended = any(top_result(e) for e in current[marker_at + 1 :])
             answers = [i for i, e in enumerate(current) if stdin_result(e)]
             if len(answers) >= needed():
