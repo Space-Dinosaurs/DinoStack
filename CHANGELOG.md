@@ -3,6 +3,16 @@
 
 # Changelog
 
+## 2026-10-20
+
+### Breaking Changes
+
+- **#1032** [simplicity lens on diffs, class-sweep human reviews, vacuous gates](https://github.com/Space-Dinosaurs/DinoStack/pull/1032) - tyson-solara6
+
+### Features
+
+- **#1031** [count changes-requested reviews in work-item PR outcome](https://github.com/Space-Dinosaurs/DinoStack/pull/1031) - tyson-solara6
+
 ## 2026-10-19
 
 ### Breaking Changes
