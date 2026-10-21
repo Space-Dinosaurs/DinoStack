@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -221,3 +222,153 @@ exec "'''
     assert result.returncode == 0, result.stderr
     assert "dead" in result.stdout and "down" in result.stdout
     assert runtime.metadata(run / "owned.meta")["status"] == "dead"
+
+
+def assistant(text):
+    return dict(type="assistant", parent_tool_use_id=None, message=dict(content=[dict(type="text", text=text)]))
+
+
+RESULT = dict(type="result", parent_tool_use_id=None, subtype="success", is_error=False)
+FATAL = dict(type="result", parent_tool_use_id=None, subtype="error_during_execution", is_error=True)
+
+
+def guarded(tmp_path, capsys, log, mode="marker", **meta):
+    path = tmp_path / "lane.meta"
+    write_meta(path, harness="claude", claude_bin="/bin/sh", **meta)
+    path.with_suffix(".jsonl").write_text("".join(json.dumps(e) + "\n" for e in log))
+    capsys.readouterr()
+    runtime.events(str(path), mode)
+    return capsys.readouterr().out.strip()
+
+
+def test_marker_needs_a_trailing_result(tmp_path, capsys):
+    assert guarded(tmp_path, capsys, [RESULT, assistant("LANE-DONE early")]) == ""
+    assert guarded(tmp_path, capsys, [RESULT, assistant("LANE-DONE ok"), RESULT]) == "done"
+    assert guarded(tmp_path, capsys, [assistant("LANE-BLOCKED why?"), RESULT]) == "blocked"
+
+
+def test_fatal_result_after_the_marker_suppresses_it(tmp_path, capsys):
+    assert guarded(tmp_path, capsys, [assistant("LANE-DONE ok"), FATAL]) == ""
+    assert guarded(tmp_path, capsys, [assistant("LANE-DONE ok"), RESULT, FATAL]) == ""
+
+
+def test_marker_before_the_last_needed_turn_is_ignored(tmp_path, capsys):
+    first_turn = [assistant("LANE-DONE first"), RESULT]
+    assert guarded(tmp_path, capsys, first_turn, results_needed=2) == ""
+    assert guarded(tmp_path, capsys, first_turn + [assistant("ack"), RESULT], results_needed=2) == ""
+    later = first_turn + [assistant("LANE-DONE second"), RESULT]
+    assert guarded(tmp_path, capsys, later, results_needed=2) == "done"
+
+
+def test_merged_input_marker_counts_after_the_grace_period(tmp_path, capsys, monkeypatch):
+    merged = [assistant("LANE-DONE merged"), RESULT]
+    monkeypatch.setenv("DS_LANE_MIDTURN_GRACE_S", "1")
+    assert guarded(tmp_path, capsys, merged, results_needed=2) == ""
+    log = tmp_path / "lane.jsonl"
+    os.utime(log, (log.stat().st_atime - 5, log.stat().st_mtime - 5))
+    runtime.events(str(tmp_path / "lane.meta"), "marker")
+    assert capsys.readouterr().out.strip() == "done"
+    with log.open("a") as stream:
+        stream.write(json.dumps(assistant("still going")) + "\n")
+    os.utime(log, (log.stat().st_atime - 5, log.stat().st_mtime - 5))
+    runtime.events(str(tmp_path / "lane.meta"), "marker")
+    assert capsys.readouterr().out.strip() == ""
+
+
+NOTIFIED = dict(RESULT, origin=dict(kind="task-notification", producer="session-task"))
+PEER = dict(RESULT, origin=dict(kind="peer", name="conductor"))
+
+
+def backdate(tmp_path):
+    log = tmp_path / "lane.jsonl"
+    os.utime(log, (log.stat().st_atime - 5, log.stat().st_mtime - 5))
+
+
+def test_pending_counts_only_stdin_answers_since_the_offset(tmp_path, capsys):
+    log = [RESULT, assistant("x"), dict(RESULT, parent_tool_use_id="nested"), NOTIFIED, PEER, RESULT]
+    assert guarded(tmp_path, capsys, log, mode="pending", marker_offset=1, results_needed=2) == "1 6"
+    assert guarded(tmp_path, capsys, log, mode="pending", marker_offset=1, results_needed=1) == "0 6"
+
+
+def test_notification_results_do_not_answer_a_queued_send(tmp_path, capsys, monkeypatch):
+    # The queued send's own turn has not run yet.
+    log = [assistant("ack"), RESULT, assistant("LANE-DONE from a notification turn"), NOTIFIED]
+    monkeypatch.setenv("DS_LANE_MIDTURN_GRACE_S", "1")
+    assert guarded(tmp_path, capsys, log, results_needed=2) == ""
+    assert guarded(tmp_path, capsys, log, mode="pending", results_needed=2) == "1 4"
+
+
+def test_notification_results_cannot_strand_a_marked_lane(tmp_path, capsys, monkeypatch):
+    # The send merged into the marked turn; the notification result answers no stdin input.
+    log = [assistant("LANE-DONE merged"), RESULT, assistant("noted"), NOTIFIED]
+    monkeypatch.setenv("DS_LANE_MIDTURN_GRACE_S", "1")
+    assert guarded(tmp_path, capsys, log, results_needed=2) == ""
+    backdate(tmp_path)
+    runtime.events(str(tmp_path / "lane.meta"), "marker")
+    assert capsys.readouterr().out.strip() == "done"
+    runtime.events(str(tmp_path / "lane.meta"), "pending")
+    assert capsys.readouterr().out.strip() == "0 4"
+
+
+def test_marker_from_a_notification_turn_counts_once_inputs_are_answered(tmp_path, capsys):
+    finished_by_notification = [RESULT, assistant("LANE-DONE task finished"), NOTIFIED]
+    assert guarded(tmp_path, capsys, finished_by_notification) == "done"
+    stale = [RESULT, assistant("LANE-DONE before the follow-up"), NOTIFIED, assistant("ack"), RESULT]
+    assert guarded(tmp_path, capsys, stale, results_needed=2) == ""
+    answered = stale + [assistant("LANE-DONE follow-up done"), PEER]
+    assert guarded(tmp_path, capsys, answered, results_needed=2) == "done"
+
+
+# Events Claude writes between turns (shapes from real 2.1.287 lane logs); none starts a turn.
+BETWEEN_TURNS = [
+    dict(type="command_lifecycle", command_uuid="c1", state="completed", uuid="u1", session_id="s"),
+    dict(type="system", subtype="commands_changed", commands=[dict(name="dinostack")], uuid="u2", session_id="s"),
+    dict(type="system", subtype="task_progress", task_id="t1", description="Running", uuid="u3", session_id="s"),
+    dict(type="system", subtype="background_tasks_changed", tasks=[], uuid="u4", session_id="s"),
+]
+INIT = dict(type="system", subtype="init", parent_tool_use_id=None, session_id="s")
+
+
+@pytest.mark.parametrize("trailing", BETWEEN_TURNS, ids=lambda e: e.get("subtype") or e["type"])
+def test_events_between_turns_do_not_defeat_the_grace_period(tmp_path, capsys, monkeypatch, trailing):
+    monkeypatch.setenv("DS_LANE_MIDTURN_GRACE_S", "1")
+    log = [assistant("LANE-DONE merged"), RESULT, trailing]
+    assert guarded(tmp_path, capsys, log, results_needed=2) == ""
+    backdate(tmp_path)
+    runtime.events(str(tmp_path / "lane.meta"), "marker")
+    assert capsys.readouterr().out.strip() == "done"
+    runtime.events(str(tmp_path / "lane.meta"), "pending")
+    assert capsys.readouterr().out.strip() == "0 3"
+
+
+def test_grace_clock_runs_from_the_turn_not_later_log_writes(tmp_path, capsys):
+    # Background tasks keep writing progress events, so the log's mtime is always fresh.
+    ended = dict(assistant("LANE-DONE merged"), timestamp="2026-01-01T00:00:00.000Z")
+    log = [ended, RESULT] + BETWEEN_TURNS * 3
+    assert guarded(tmp_path, capsys, log, results_needed=2) == "done"
+    recent = dict(ended, timestamp=datetime.now(timezone.utc).isoformat())
+    assert guarded(tmp_path, capsys, [recent, RESULT] + BETWEEN_TURNS, results_needed=2) == ""
+
+
+@pytest.mark.parametrize(
+    "started", [[INIT], [dict(type="system", subtype="task_notification"), INIT], [assistant("working")]]
+)
+def test_a_started_turn_defeats_the_grace_period(tmp_path, capsys, started):
+    ended = dict(assistant("LANE-DONE merged"), timestamp="2026-01-01T00:00:00.000Z")
+    log = [ended, RESULT] + BETWEEN_TURNS + started
+    assert guarded(tmp_path, capsys, log, results_needed=2) == ""
+    assert guarded(tmp_path, capsys, log, mode="pending", results_needed=2).split()[0] == "1"
+
+
+def test_consecutive_results_close_one_turn(tmp_path, capsys):
+    # A real turn ended in two results with no init between them.
+    turn = [INIT, assistant("LANE-DONE finished"), dict(NOTIFIED, result_index=7), dict(RESULT, result_index=8)]
+    assert guarded(tmp_path, capsys, turn) == "done"
+    assert guarded(tmp_path, capsys, [RESULT] + BETWEEN_TURNS + turn, results_needed=2) == "done"
+
+
+def test_grouped_results_still_end_at_a_turn_boundary(tmp_path, capsys):
+    earlier = [INIT, assistant("LANE-DONE before the follow-up"), RESULT]
+    later = [INIT, assistant("ack"), NOTIFIED, RESULT]
+    assert guarded(tmp_path, capsys, earlier + later, results_needed=2) == ""
+    assert guarded(tmp_path, capsys, earlier[1:] + later[1:], results_needed=2) == ""

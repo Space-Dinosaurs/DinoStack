@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Purpose: Resolve and validate ds-lane's saved harness runtime and backend events.
 Public API: Internal resolve, saved, events, and owns commands used by ds-lane.
+    `events <meta> marker` (Claude) prints done/blocked only once a top-level result
+    follows the marker and the marker comes from the turn that answered the last of
+    results_needed stdin inputs, or a later turn. With fewer answers, it counts once
+    no turn has started since the last result for DS_LANE_MIDTURN_GRACE_S (default
+    300), counted from that turn's last timestamped event. Only results without
+    `origin` answer stdin input. `events <meta> pending` prints "<inputs not yet
+    answered since marker_offset> <complete log lines>" from one read.
 Upstream deps: Python stdlib, ps; native Claude transcripts and Codex rollouts.
 Downstream consumers: bin/ds-lane, bin/tests/test_ds_lane.sh.
 Failure modes: Refuses unknown identity, policy, resources and process ownership.
@@ -15,6 +22,8 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 
@@ -305,7 +314,7 @@ def events(path, mode):
     meta = metadata(path)
     harness = harness_of(meta)
     log = Path(path).with_suffix(".jsonl")
-    values = list(records(log)) if log.exists() else []
+    values = list(records(log)) if log.exists() and mode in ("session", "texts", "result") else []
     offset = int(meta.get("marker_offset", "0"))
     current = []
     if log.exists():
@@ -351,19 +360,93 @@ def events(path, mode):
             )
         )
 
+    def top_result(e):
+        return e.get("type") == "result" and e.get("parent_tool_use_id") is None
+
+    def stdin_result(e):
+        # Notification and peer turns' results carry `origin`; only stdin answers lack it.
+        return top_result(e) and e.get("origin") is None
+
+    def needed():
+        return max(1, int(meta.get("results_needed") or "1"))
+
+    def top(e):
+        return e.get("parent_tool_use_id") is None
+
+    def init(e):
+        return top(e) and e.get("type") == "system" and e.get("subtype") == "init"
+
+    def activity(e):
+        return init(e) or (top(e) and e.get("type") in ("assistant", "user"))
+
+    def turn_start(end):
+        # One turn can end in several consecutive results; they share it.
+        i = end - 1
+        while i >= 0 and not activity(current[i]):
+            i -= 1
+        while i >= 0 and not (init(current[i]) or top_result(current[i])):
+            i -= 1
+        return i
+
+    def stamp(e):
+        value = e.get("timestamp")
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() if isinstance(value, str) else None
+        except ValueError:
+            return None
+
+    def quiet_after_result(events):
+        # Idle this long after a result means queued input ran or merged; a merge leaves no trace.
+        # Events between turns neither start one nor reset the clock (turn timestamp, else mtime).
+        ends = [i for i, e in enumerate(events) if top_result(e)]
+        if not ends:
+            return False
+        after = events[ends[-1] + 1 :]
+        if any(activity(e) for e in after):
+            return False
+        stamps = [t for t in (stamp(e) for e in events[: ends[-1]] if top(e)) if t is not None]
+        ended_at = max(stamps) if stamps else log.stat().st_mtime
+        grace = float(os.environ.get("DS_LANE_MIDTURN_GRACE_S") or "300")
+        return time.time() - ended_at >= grace
+
     if mode == "fatal":
         print("1" if any(fatal(e) for e in current) else "0")
+    elif mode == "pending":
+        # Both counts come from one read.
+        data = log.read_bytes() if log.exists() else b""
+        complete = data.split(b"\n")[:-1]
+        events_since = []
+        for line in complete[offset:]:
+            try:
+                value = json.loads(line)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            if isinstance(value, dict):
+                events_since.append(value)
+        answered = sum(1 for e in events_since if stdin_result(e))
+        pending = 0 if answered >= needed() or quiet_after_result(events_since) else needed() - answered
+        print(pending, len(complete))
     elif mode == "marker":
         if any(fatal(e) for e in current):
             return
-        marker = ""
-        for e in current:
+        marker, marker_at = "", -1
+        for index, e in enumerate(current):
             for line in text(e).splitlines():
                 line = line.lstrip(" \t*#>`")
                 if line.startswith("LANE-DONE"):
-                    marker = "done"
+                    marker, marker_at = "done", index
                 elif line.startswith("LANE-BLOCKED"):
-                    marker = "blocked"
+                    marker, marker_at = "blocked", index
+        if marker and harness == "claude":
+            ended = any(top_result(e) for e in current[marker_at + 1 :])
+            answers = [i for i, e in enumerate(current) if stdin_result(e)]
+            if len(answers) >= needed():
+                anchor = answers[needed() - 1]
+                settled = ended and marker_at > turn_start(anchor)
+            else:
+                settled = ended and quiet_after_result(current)
+            if not settled:
+                marker = ""
         if marker:
             print(marker)
     elif mode == "session":
