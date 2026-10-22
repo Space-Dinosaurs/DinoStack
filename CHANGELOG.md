@@ -3,6 +3,12 @@
 
 # Changelog
 
+## 2026-10-21
+
+### Features
+
+- **#1033** [close finished lanes mechanically](https://github.com/Space-Dinosaurs/DinoStack/pull/1033) - tyson-solara6
+
 ## 2026-10-20
 
 ### Breaking Changes
