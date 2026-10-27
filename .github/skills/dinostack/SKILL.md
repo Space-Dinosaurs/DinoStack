@@ -105,6 +105,16 @@ one, and a test file, including a prose-pin test, is not one either and is grade
 completion requires an architecture decision or significant scope expansion, reclassify and route
 that work through the applicable protocol rather than silently expanding it.
 
+**Finish mode.** A PR enters finish mode once it is approved or QA-passed. At entry its remaining
+work is pinned: merge conflicts, open findings (Skeptic, bot, or human), and open review threads.
+A new finding on the PR's own diff gets a minimal targeted fix with one focused test and the normal
+review - never a new test framework or table, a re-scope, a restructure, or an extra review layer.
+Anything else (an adjacent fix, a refactor, a process improvement) never goes onto the PR being
+finished: a process lesson goes to memory for the next ticket's start, and other work is surfaced
+to the operator as a proposed new ticket in one `## Operator decisions` item, created only per
+`content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline. Before sending any
+brief on a finish-mode PR, check that each instruction removes a pinned item and adds nothing else.
+
 **Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step. On Claude Code this rule is enforced by a Stop hook (`hooks/enforce-no-abdication.py`, wired by `.claude/install.sh`) that detects three shapes in the final assistant message - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - and blocks the session stop, injecting a directive; requires `abdication_guard_enabled: true` in `.agentic/config.json`; set to `false` to opt out once enabled; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`; other adapters rely on the prose rule.
 
 **Auto-invoking `/ds-brief` on planning-intent signals is a valid surface-and-proceed conductor behavior - not a stop-and-ask.** When the conductor detects exploratory framing in an operator message (e.g. "I want to build...", "We should add...", "thinking about..."), it announces the `/ds-brief` session and proceeds unless STOP arrives in the very next operator turn. This is not a permission request; it is a proactive decision to open the planning dialogue before architect and engineer spawns (announce-and-proceed variant: not subject to the 30-minute-waste threshold described in the standard surface-and-proceed protocol; the announcement is a notification that planning is starting, not a request for permission). The trigger-detection signals and suppression list (debugging questions, bug reports, explicit ticket references, direct implementation requests) are defined in `content/commands/ds-brief.md` Section 1.
