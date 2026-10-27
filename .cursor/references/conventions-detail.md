@@ -338,10 +338,10 @@ This rule layers conciseness expectations on top of the structural templates in 
 
 ## Unanswered review threads before re-request
 
-Before re-requesting review on a PR (a re-request, `gh pr edit --add-reviewer`, or `gh pr ready` after rework) or moving its ticket to the in-review state, fetch its review threads with the query in `content/references/skeptic-protocol.md` §Automated-reviewer threads and list every thread with `isResolved == false` whose first comment's author is human (`__typename != "Bot"`). On a PR with no review threads this is a no-op.
+Before re-requesting review on a PR (`gh pr edit --add-reviewer`, or `gh pr ready` after rework), or moving its ticket back to the in-review state on a fix round after the fix is pushed, fetch its review threads with the query in `content/references/skeptic-protocol.md` §Automated-reviewer threads and its author with `gh pr view <n> --json author -q .author.login`. A thread is unanswered when it is unresolved (`isResolved == false`), its first comment's author is non-null, not a bot (`__typename != "Bot"`), and not the PR author (the lane account on its own PR), and its last comment (the last `comments` node; nodes are in order) is not from the PR author. On a PR with no review threads this is a no-op.
 
-- Each listed thread first needs a fix pushed or a reply on the thread that agrees or declines with a reason.
-- A thread intentionally left open is named in the re-request comment instead.
-- Do not re-request while any listed thread has none of these.
+- Each unanswered thread needs, after its last comment, a fix pushed or a reply on the thread that agrees or declines with a reason.
+- A thread intentionally left open is named in a PR comment posted with the re-request (`gh pr comment <n> --body <text>`).
+- Do not re-request review while any unanswered thread has none of these.
 
 Reply with `gh api graphql -f id=<thread id> -f body=<text> -f query='mutation($id:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$id,body:$body}){comment{url}}}'`.

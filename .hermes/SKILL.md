@@ -3050,11 +3050,11 @@ This rule layers conciseness expectations on top of the structural templates in 
 
 ## Unanswered review threads before re-request
 
-Before re-requesting review on a PR (a re-request, `gh pr edit --add-reviewer`, or `gh pr ready` after rework) or moving its ticket to the in-review state, fetch its review threads with the query in `content/references/skeptic-protocol.md` §Automated-reviewer threads and list every thread with `isResolved == false` whose first comment's author is human (`__typename != "Bot"`). On a PR with no review threads this is a no-op.
+Before re-requesting review on a PR (`gh pr edit --add-reviewer`, or `gh pr ready` after rework), or moving its ticket back to the in-review state on a fix round after the fix is pushed, fetch its review threads with the query in `content/references/skeptic-protocol.md` §Automated-reviewer threads and its author with `gh pr view <n> --json author -q .author.login`. A thread is unanswered when it is unresolved (`isResolved == false`), its first comment's author is non-null, not a bot (`__typename != "Bot"`), and not the PR author (the lane account on its own PR), and its last comment (the last `comments` node; nodes are in order) is not from the PR author. On a PR with no review threads this is a no-op.
 
-- Each listed thread first needs a fix pushed or a reply on the thread that agrees or declines with a reason.
-- A thread intentionally left open is named in the re-request comment instead.
-- Do not re-request while any listed thread has none of these.
+- Each unanswered thread needs, after its last comment, a fix pushed or a reply on the thread that agrees or declines with a reason.
+- A thread intentionally left open is named in a PR comment posted with the re-request (`gh pr comment <n> --body <text>`).
+- Do not re-request review while any unanswered thread has none of these.
 
 Reply with `gh api graphql -f id=<thread id> -f body=<text> -f query='mutation($id:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$id,body:$body}){comment{url}}}'`.
 
@@ -20006,7 +20006,7 @@ For full worktree cleanup rules (isolation worktrees, feature worktrees, stale b
 
 **Phase 6 guard (fan-out integration Skeptic).** When fan-out was active in Phase 5 and `SKEPTIC_STRATEGY: integration`, the integration Skeptic from Phase 5 IS the Phase 6 gate - do not spawn a second Skeptic. When `per-unit` or `multi-dimensional`, Phase 6 fires as normal - a standard single Skeptic reviews the combined diff from `BASE_BRANCH` after all merges (`git -C $INTEGRATION_WORKTREE diff origin/$BASE_BRANCH..HEAD`), catching cross-unit interactions per-unit Skeptics (or the per-unit multi-dimensional fan-out) could not see. Phase 6 is NOT skipped for `per-unit` or `multi-dimensional`. For a ticket containing multi-dimensional units this Phase 6 pass is correctness-only, so cross-unit security/perf interactions get no dedicated pass.
 
-**Tracker writeback (W2)** - fires on iteration 1 only: if `TRACKER != none` AND this is the first Skeptic spawn in Phase 6 (not a re-route from a prior engineer fix pass), invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_REVIEW`, `forward_only_guard: true`. Fire-and-forget. If the PR has review threads, apply Phase 10b's thread rule first.
+**Tracker writeback (W2)** — fires on iteration 1 only: if `TRACKER != none` AND this is the first Skeptic spawn in Phase 6 (not a re-route from a prior engineer fix pass), invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_REVIEW`, `forward_only_guard: true`. Fire-and-forget.
 
 [phase: tracker-writeback | site: W2 | target: $TRACKER_STATE_IN_REVIEW | iter: 1]
 
@@ -21216,7 +21216,7 @@ Emit breadcrumb: `[phase: ci-fix-loop | iteration N/3 | failing: <check-names>]`
 
 ## Phase 10b: Mark ready + assign reviewers (conditional on Phase 10 result: passed)
 
-**Thread rule:** if the PR has review threads (a fix round), first apply `content/references/conventions-detail.md` §Unanswered review threads before re-request.
+**Thread rule:** first apply `content/references/conventions-detail.md` §Unanswered review threads before re-request (a no-op when the PR has no review threads).
 
 **Mark ready-for-review:**
 

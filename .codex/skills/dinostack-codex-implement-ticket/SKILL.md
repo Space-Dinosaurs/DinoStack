@@ -1925,7 +1925,7 @@ For full worktree cleanup rules (isolation worktrees, feature worktrees, stale b
 
 **Phase 6 guard (fan-out integration Skeptic).** When fan-out was active in Phase 5 and `SKEPTIC_STRATEGY: integration`, the integration Skeptic from Phase 5 IS the Phase 6 gate - do not spawn a second Skeptic. When `per-unit` or `multi-dimensional`, Phase 6 fires as normal - a standard single Skeptic reviews the combined diff from `BASE_BRANCH` after all merges (`git -C $INTEGRATION_WORKTREE diff origin/$BASE_BRANCH..HEAD`), catching cross-unit interactions per-unit Skeptics (or the per-unit multi-dimensional fan-out) could not see. Phase 6 is NOT skipped for `per-unit` or `multi-dimensional`. For a ticket containing multi-dimensional units this Phase 6 pass is correctness-only, so cross-unit security/perf interactions get no dedicated pass.
 
-**Tracker writeback (W2)** - fires on iteration 1 only: if `TRACKER != none` AND this is the first Skeptic spawn in Phase 6 (not a re-route from a prior engineer fix pass), invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_REVIEW`, `forward_only_guard: true`. Fire-and-forget. If the PR has review threads, apply Phase 10b's thread rule first.
+**Tracker writeback (W2)** — fires on iteration 1 only: if `TRACKER != none` AND this is the first Skeptic spawn in Phase 6 (not a re-route from a prior engineer fix pass), invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_REVIEW`, `forward_only_guard: true`. Fire-and-forget.
 
 [phase: tracker-writeback | site: W2 | target: $TRACKER_STATE_IN_REVIEW | iter: 1]
 
@@ -3135,7 +3135,7 @@ Emit breadcrumb: `[phase: ci-fix-loop | iteration N/3 | failing: <check-names>]`
 
 ## Phase 10b: Mark ready + assign reviewers (conditional on Phase 10 result: passed)
 
-**Thread rule:** if the PR has review threads (a fix round), first apply `$AE_REPO_DIR/content/references/conventions-detail.md` §Unanswered review threads before re-request.
+**Thread rule:** first apply `$AE_REPO_DIR/content/references/conventions-detail.md` §Unanswered review threads before re-request (a no-op when the PR has no review threads).
 
 **Mark ready-for-review:**
 
