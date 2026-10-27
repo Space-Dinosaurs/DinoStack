@@ -217,7 +217,7 @@ The preflight list exists so that a fresh Skeptic does not re-raise an already-a
 When a PR is open, each review thread on it whose first comment is authored by an automated reviewer (Bugbot and similar: GraphQL author `__typename == "Bot"`; its login carries no `[bot]` suffix) is also an `H<n>` entry: that comment verbatim, tagged with its author's login as above. List every such thread, open or resolved by a claimed fix; GitHub's resolved flag is not the reviewer's determination, and step 13's resolution rule applies unchanged. A thread the conductor or operator declines (false positive or out of scope) is omitted, and the decline is recorded as a reply on that thread stating the reason. Fetch the threads with:
 
 ```
-gh api graphql -f owner=<owner> -f repo=<repo> -F pr=<number> -f query='query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100){nodes{isResolved comments(first:50){nodes{author{login __typename} body path}}}}}}}'
+gh api graphql -f owner=<owner> -f repo=<repo> -F pr=<number> -f query='query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100){nodes{id isResolved comments(first:50){nodes{author{login __typename} body path}}}}}}}'
 ```
 
 ---

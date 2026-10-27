@@ -3048,6 +3048,16 @@ The conductor assembles the final PR body. The **Summary** section is ≤ 5 sing
 
 This rule layers conciseness expectations on top of the structural templates in `content/commands/ds-implement-ticket.md` (PR body, tracker comment, ticket description). The templates still apply; this rule governs the substance that fills them.
 
+## Unanswered review threads before re-request
+
+Before re-requesting review on a PR (`gh pr edit --add-reviewer`, or `gh pr ready` after rework), or moving its ticket back to the in-review state on a fix round after the fix is pushed, fetch its review threads with the query in `content/references/skeptic-protocol.md` §Automated-reviewer threads and its author with `gh pr view <n> --json author -q .author.login`. A thread is unanswered when it is unresolved (`isResolved == false`), its first comment's author is non-null, not a bot (`__typename != "Bot"`), and not the PR author (the lane account on its own PR), and its last comment (the last `comments` node; nodes are in order) is not from the PR author. On a PR with no review threads this is a no-op.
+
+- Each unanswered thread needs, after its last comment, a fix pushed or a reply on the thread that agrees or declines with a reason.
+- A thread intentionally left open is named in a PR comment posted with the re-request (`gh pr comment <n> --body <text>`).
+- Do not re-request review while any unanswered thread has none of these.
+
+Reply with `gh api graphql -f id=<thread id> -f body=<text> -f query='mutation($id:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$id,body:$body}){comment{url}}}'`.
+
 ---
 
 ### cross-harness-teams
@@ -7345,7 +7355,7 @@ The preflight list exists so that a fresh Skeptic does not re-raise an already-a
 When a PR is open, each review thread on it whose first comment is authored by an automated reviewer (Bugbot and similar: GraphQL author `__typename == "Bot"`; its login carries no `[bot]` suffix) is also an `H<n>` entry: that comment verbatim, tagged with its author's login as above. List every such thread, open or resolved by a claimed fix; GitHub's resolved flag is not the reviewer's determination, and step 13's resolution rule applies unchanged. A thread the conductor or operator declines (false positive or out of scope) is omitted, and the decline is recorded as a reply on that thread stating the reason. Fetch the threads with:
 
 ```
-gh api graphql -f owner=<owner> -f repo=<repo> -F pr=<number> -f query='query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100){nodes{isResolved comments(first:50){nodes{author{login __typename} body path}}}}}}}'
+gh api graphql -f owner=<owner> -f repo=<repo> -F pr=<number> -f query='query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100){nodes{id isResolved comments(first:50){nodes{author{login __typename} body path}}}}}}}'
 ```
 
 ---
@@ -21205,6 +21215,8 @@ Emit breadcrumb: `[phase: ci-fix-loop | iteration N/3 | failing: <check-names>]`
 ---
 
 ## Phase 10b: Mark ready + assign reviewers (conditional on Phase 10 result: passed)
+
+**Thread rule:** first apply `content/references/conventions-detail.md` §Unanswered review threads before re-request (a no-op when the PR has no review threads).
 
 **Mark ready-for-review:**
 

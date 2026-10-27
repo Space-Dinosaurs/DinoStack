@@ -6192,6 +6192,16 @@
       "source_token": "W1_REASON"
     },
     {
+      "expected_target": "content/references/conventions-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "3424997b2f89025d48b260ce5db439ed1653dd36a2ee2884d027c9e3e729e7c1",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/conventions-detail.md"
+    },
+    {
       "expected_target": "then",
       "generated_token": "then",
       "kind": "operational",

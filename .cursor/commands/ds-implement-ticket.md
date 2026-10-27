@@ -3063,6 +3063,8 @@ Emit breadcrumb: `[phase: ci-fix-loop | iteration N/3 | failing: <check-names>]`
 
 ## Phase 10b: Mark ready + assign reviewers (conditional on Phase 10 result: passed)
 
+**Thread rule:** first apply `content/references/conventions-detail.md` §Unanswered review threads before re-request (a no-op when the PR has no review threads).
+
 **Mark ready-for-review:**
 
 ```bash
