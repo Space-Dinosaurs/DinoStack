@@ -565,6 +565,8 @@ Alongside the Section 8 template it is built from, a Skeptic brief carries three
 
 All three slots are composed INSIDE the brief block - after the `Adversarial brief:` marker and before `What to review:`.
 
+When the reviewed change includes a base-branch merge or rebase that resolved conflicts, the spawn prompt also carries a `Merge-update hunks:` field after `What to review:`, holding the conflict-resolved hunks and the base branch's version of those files, per Section 9 "Merge-update pass".
+
 Every item in every slot takes the form defined at `content/references/subagent-protocol.md` §11 "Brief section form".
 
 - **Attack surface** - the artifacts and mechanisms the review must reach. One artifact per item.
@@ -684,7 +686,7 @@ Workers are decomposed into focused atomic units ("one agent, one task, one prom
 - **Independent elevated units:** one Skeptic per unit. The diff is small, review is fast, findings are high-signal.
 - **Interdependent elevated units** (cross-file or cross-component consistency required): one Skeptic reviewing the combined diff from all related Workers. This integration Skeptic replaces per-unit Skeptics for these units. The most dangerous bugs emerge from interactions between components - a per-unit Skeptic cannot see them.
 - **Low-risk units:** no Skeptic. Direct action with self-check.
-- **Merge-update pass:** when a base-branch merge or rebase resolved conflicts in files the PR rewrote, those resolutions are always in Skeptic scope, never waived as "just a merge". The Skeptic brief includes the conflict-resolved hunks (for a merge commit, `git show --remerge-diff <merge-sha>`; for a rebase, the diff of each conflicted file between the pre-rebase tip and the rebased tip) and the base branch's version of those files, and the Skeptic reviews each resolution against the base branch's behavior there.
+- **Merge-update pass:** when a base-branch merge or rebase resolved conflicts in files the PR changed, those resolutions are always in Skeptic scope, never waived as "just a merge". The Skeptic brief includes the conflict-resolved hunks (for a merge commit, `git show --remerge-diff <merge-sha>` (git 2.36+); for a rebase, `git range-diff <old-base>..<old-tip> <new-base>..<new-tip>`) and the base branch's version of those files, and the Skeptic reviews each resolution against the base branch's behavior there.
 
 The integration Skeptic receives the same adversarial brief (Section 7) and follows the same sign-off format (Section 11). The only difference is scope: it reviews the combined output of multiple focused Workers rather than a single Worker's output.
 

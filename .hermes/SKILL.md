@@ -113,7 +113,8 @@ completion requires an architecture decision or significant scope expansion, rec
 that work through the applicable protocol rather than silently expanding it.
 
 **Finish mode.** A PR enters finish mode once approved: an approving review, a QA pass, or a clean Skeptic
-sign-off with green CI. At entry its remaining work is pinned: merge conflicts, red required checks,
+sign-off with green CI. At entry its remaining work is pinned: merge conflicts (resolutions reviewed per
+`content/references/skeptic-protocol.md` §9 "Merge-update pass"), red required checks,
 whatever makes it mergeable against current base (a rebase, regenerated derived files), open findings not
 already recorded as deferred (Skeptic, bot, or human), and open review threads. A defect in untouched code
 that makes the diff's own behavior wrong (e.g. a caller the diff breaks) counts as a finding on the PR's own
@@ -128,9 +129,10 @@ instruction to add scope overrides this. Before sending any brief on a finish-mo
 instruction removes a pinned item and adds nothing else.
 
 **Time pressure cuts scope, not review.** When the operator asks to go faster, offer two levers: scope
-cuts (drop optional work; defer a pinned item to a ticket only on an operator yes) and parallelism
-(concurrent workers, split PRs). Never offer a narrowed Skeptic scope, a skipped review, or
-push-before-review. A base-branch merge is never waived as "just a merge": see
+cuts (drop optional work; defer a pinned item to a ticket only on an operator yes, never an open
+Critical finding or a red required check) and parallelism (concurrent workers, split PRs). Never
+offer a narrowed Skeptic scope, a skipped review, or push-before-review as a speed lever offered to
+the operator. A base-branch merge is never waived as "just a merge": see
 `content/references/skeptic-protocol.md` §9 "Merge-update pass".
 
 **Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step. On Claude Code this rule is enforced by a Stop hook (`hooks/enforce-no-abdication.py`, wired by `.claude/install.sh`) that detects three shapes in the final assistant message - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - and blocks the session stop, injecting a directive; requires `abdication_guard_enabled: true` in `.agentic/config.json`; set to `false` to opt out once enabled; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`; other adapters rely on the prose rule.
@@ -612,6 +614,7 @@ Claude Code locks each isolation worktree (a double-force `git worktree remove -
 | **Adversarial briefs** | writing the brief for a Skeptic | Run `/ds-skeptic` (brief selection table) or `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md` (Section 8) - domain-specific templates |
 | **Parallel spawning and worktrees** | decomposing work into multiple agents | `~/DinoStack/.claude/skills/dinostack/references/subagent-protocol.md` (Sections 2, 5, 7) - parallel-by-default, worktree isolation rules, check-in behavior |
 | **Task decomposition and review scope** | breaking work into multiple Workers | `~/DinoStack/.claude/skills/dinostack/references/subagent-protocol.md` (Section 6) - decomposition rules; `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md` (Section 9) - review scope guidance |
+| **Merge-update review** | a base-branch merge or rebase resolved conflicts | `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md` (Section 9 "Merge-update pass") - conflict resolutions are always in Skeptic scope |
 | **Agent team composition** | which agent to use and how they compose | `~/DinoStack/.claude/skills/dinostack/references/agent-team.md` - flows (feature, bug, security), decision rules, spawn prompts |
 | **Regression test obligation** | a Worker fixes a Critical or Major Skeptic finding | `~/DinoStack/.claude/skills/dinostack/references/regression-test-obligation.md` - what counts as a valid regression test, the Worker obligation to add one, the Skeptic verification rule |
 | **QA regression-test obligation** | a Worker fixes a qa-engineer FAIL | `~/DinoStack/.claude/skills/dinostack/references/qa-regression-obligation.md` - engineer's regression-test obligation, documented-exception path via `.agentic/qa-regressions.md`, Skeptic verification rule. Symmetric to the Skeptic-side `regression-test-obligation.md` |
@@ -7709,6 +7712,8 @@ Alongside the Section 8 template it is built from, a Skeptic brief carries three
 
 All three slots are composed INSIDE the brief block - after the `Adversarial brief:` marker and before `What to review:`.
 
+When the reviewed change includes a base-branch merge or rebase that resolved conflicts, the spawn prompt also carries a `Merge-update hunks:` field after `What to review:`, holding the conflict-resolved hunks and the base branch's version of those files, per Section 9 "Merge-update pass".
+
 Every item in every slot takes the form defined at `content/references/subagent-protocol.md` §11 "Brief section form".
 
 - **Attack surface** - the artifacts and mechanisms the review must reach. One artifact per item.
@@ -7828,7 +7833,7 @@ Workers are decomposed into focused atomic units ("one agent, one task, one prom
 - **Independent elevated units:** one Skeptic per unit. The diff is small, review is fast, findings are high-signal.
 - **Interdependent elevated units** (cross-file or cross-component consistency required): one Skeptic reviewing the combined diff from all related Workers. This integration Skeptic replaces per-unit Skeptics for these units. The most dangerous bugs emerge from interactions between components - a per-unit Skeptic cannot see them.
 - **Low-risk units:** no Skeptic. Direct action with self-check.
-- **Merge-update pass:** when a base-branch merge or rebase resolved conflicts in files the PR rewrote, those resolutions are always in Skeptic scope, never waived as "just a merge". The Skeptic brief includes the conflict-resolved hunks (for a merge commit, `git show --remerge-diff <merge-sha>`; for a rebase, the diff of each conflicted file between the pre-rebase tip and the rebased tip) and the base branch's version of those files, and the Skeptic reviews each resolution against the base branch's behavior there.
+- **Merge-update pass:** when a base-branch merge or rebase resolved conflicts in files the PR changed, those resolutions are always in Skeptic scope, never waived as "just a merge". The Skeptic brief includes the conflict-resolved hunks (for a merge commit, `git show --remerge-diff <merge-sha>` (git 2.36+); for a rebase, `git range-diff <old-base>..<old-tip> <new-base>..<new-tip>`) and the base branch's version of those files, and the Skeptic reviews each resolution against the base branch's behavior there.
 
 The integration Skeptic receives the same adversarial brief (Section 7) and follows the same sign-off format (Section 11). The only difference is scope: it reviews the combined output of multiple focused Workers rather than a single Worker's output.
 
@@ -24102,6 +24107,8 @@ The neutrality ban applies to every field below, not only field 7 - no sentence 
 See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block format, the enumerated `n/a` rationale set, and Step-0 BLOCKED return semantics. A bare `n/a` is invalid - every `n/a` needs `n/a - <reason>`.
 
 **What to review:** [Worker's complete output - paste inline or give file paths]
+
+**Merge-update hunks:** [when the reviewed change includes a base-branch merge or rebase that resolved conflicts: the conflict-resolved hunks and the base branch's version of those files, per skeptic-protocol.md Section 9 "Merge-update pass"; otherwise omit]
 
 **Resolved issues preflight:**
 - Round 1: "No prior rounds. This is round 1."

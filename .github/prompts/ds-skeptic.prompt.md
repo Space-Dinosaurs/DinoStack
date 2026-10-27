@@ -60,6 +60,8 @@ See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block
 
 **What to review:** [Worker's complete output - paste inline or give file paths]
 
+**Merge-update hunks:** [when the reviewed change includes a base-branch merge or rebase that resolved conflicts: the conflict-resolved hunks and the base branch's version of those files, per skeptic-protocol.md Section 9 "Merge-update pass"; otherwise omit]
+
 **Resolved issues preflight:**
 - Round 1: "No prior rounds. This is round 1."
 - Rounds 2+: "The following findings were raised in prior rounds and the Worker has since claimed a fix. Determine for yourself whether each is now resolved; do not raise one as a new finding without saying which prior finding it is: [list each: C1/M1/etc: description]"

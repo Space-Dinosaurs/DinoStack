@@ -113,7 +113,8 @@ completion requires an architecture decision or significant scope expansion, rec
 that work through the applicable protocol rather than silently expanding it.
 
 **Finish mode.** A PR enters finish mode once approved: an approving review, a QA pass, or a clean Skeptic
-sign-off with green CI. At entry its remaining work is pinned: merge conflicts, red required checks,
+sign-off with green CI. At entry its remaining work is pinned: merge conflicts (resolutions reviewed per
+`$AE_REPO_DIR/content/references/skeptic-protocol.md` §9 "Merge-update pass"), red required checks,
 whatever makes it mergeable against current base (a rebase, regenerated derived files), open findings not
 already recorded as deferred (Skeptic, bot, or human), and open review threads. A defect in untouched code
 that makes the diff's own behavior wrong (e.g. a caller the diff breaks) counts as a finding on the PR's own
@@ -128,9 +129,10 @@ instruction to add scope overrides this. Before sending any brief on a finish-mo
 instruction removes a pinned item and adds nothing else.
 
 **Time pressure cuts scope, not review.** When the operator asks to go faster, offer two levers: scope
-cuts (drop optional work; defer a pinned item to a ticket only on an operator yes) and parallelism
-(concurrent workers, split PRs). Never offer a narrowed Skeptic scope, a skipped review, or
-push-before-review. A base-branch merge is never waived as "just a merge": see
+cuts (drop optional work; defer a pinned item to a ticket only on an operator yes, never an open
+Critical finding or a red required check) and parallelism (concurrent workers, split PRs). Never
+offer a narrowed Skeptic scope, a skipped review, or push-before-review as a speed lever offered to
+the operator. A base-branch merge is never waived as "just a merge": see
 `$AE_REPO_DIR/content/references/skeptic-protocol.md` §9 "Merge-update pass".
 
 **Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step. On Claude Code this rule is enforced by a Stop hook (`$AE_REPO_DIR/hooks/enforce-no-abdication.py`, wired by `$AE_REPO_DIR/.claude/install.sh`) that detects three shapes in the final assistant message - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - and blocks the session stop, injecting a directive; requires `abdication_guard_enabled: true` in `$AE_PROJECT_DIR/.agentic/config.json`; set to `false` to opt out once enabled; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`; other adapters rely on the prose rule.
@@ -612,6 +614,7 @@ Claude Code locks each isolation worktree (a double-force `git worktree remove -
 | **Adversarial briefs** | writing the brief for a Skeptic | Run manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-skeptic` (brief selection table) or `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Section 8) - domain-specific templates |
 | **Parallel spawning and worktrees** | decomposing work into multiple agents | `$AE_CORE_SKILL_ROOT/references/subagent-protocol.md` (Sections 2, 5, 7) - parallel-by-default, worktree isolation rules, check-in behavior |
 | **Task decomposition and review scope** | breaking work into multiple Workers | `$AE_CORE_SKILL_ROOT/references/subagent-protocol.md` (Section 6) - decomposition rules; `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Section 9) - review scope guidance |
+| **Merge-update review** | a base-branch merge or rebase resolved conflicts | `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Section 9 "Merge-update pass") - conflict resolutions are always in Skeptic scope |
 | **Agent team composition** | which agent to use and how they compose | `$AE_CORE_SKILL_ROOT/references/agent-team.md` - flows (feature, bug, security), decision rules, spawn prompts |
 | **Regression test obligation** | a Worker fixes a Critical or Major Skeptic finding | `$AE_CORE_SKILL_ROOT/references/regression-test-obligation.md` - what counts as a valid regression test, the Worker obligation to add one, the Skeptic verification rule |
 | **QA regression-test obligation** | a Worker fixes a qa-engineer FAIL | `$AE_CORE_SKILL_ROOT/references/qa-regression-obligation.md` - engineer's regression-test obligation, documented-exception path via `$AE_PROJECT_DIR/.agentic/qa-regressions.md`, Skeptic verification rule. Symmetric to the Skeptic-side `regression-test-obligation.md` |

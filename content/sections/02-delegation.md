@@ -41,7 +41,8 @@ that work through the applicable protocol rather than silently expanding it.
 
 <!-- corpus:begin full medium | trigger: a PR is approved, QA-passed, or Skeptic-clean with green CI and work on it continues -->
 **Finish mode.** A PR enters finish mode once approved: an approving review, a QA pass, or a clean Skeptic
-sign-off with green CI. At entry its remaining work is pinned: merge conflicts, red required checks,
+sign-off with green CI. At entry its remaining work is pinned: merge conflicts (resolutions reviewed per
+`content/references/skeptic-protocol.md` §9 "Merge-update pass"), red required checks,
 whatever makes it mergeable against current base (a rebase, regenerated derived files), open findings not
 already recorded as deferred (Skeptic, bot, or human), and open review threads. A defect in untouched code
 that makes the diff's own behavior wrong (e.g. a caller the diff breaks) counts as a finding on the PR's own
@@ -58,9 +59,10 @@ instruction removes a pinned item and adds nothing else.
 
 <!-- corpus:begin full medium | trigger: the operator asks to go faster or cites time pressure -->
 **Time pressure cuts scope, not review.** When the operator asks to go faster, offer two levers: scope
-cuts (drop optional work; defer a pinned item to a ticket only on an operator yes) and parallelism
-(concurrent workers, split PRs). Never offer a narrowed Skeptic scope, a skipped review, or
-push-before-review. A base-branch merge is never waived as "just a merge": see
+cuts (drop optional work; defer a pinned item to a ticket only on an operator yes, never an open
+Critical finding or a red required check) and parallelism (concurrent workers, split PRs). Never
+offer a narrowed Skeptic scope, a skipped review, or push-before-review as a speed lever offered to
+the operator. A base-branch merge is never waived as "just a merge": see
 `content/references/skeptic-protocol.md` §9 "Merge-update pass".
 <!-- corpus:end -->
 
