@@ -127,6 +127,12 @@ operator as a proposed new ticket in one `## Operator decisions` item, created o
 instruction to add scope overrides this. Before sending any brief on a finish-mode PR, check that each
 instruction removes a pinned item and adds nothing else.
 
+**Time pressure cuts scope, not review.** When the operator asks to go faster, offer two levers: scope
+cuts (drop optional work; defer a pinned item to a ticket only on an operator yes) and parallelism
+(concurrent workers, split PRs). Never offer a narrowed Skeptic scope, a skipped review, or
+push-before-review. A base-branch merge is never waived as "just a merge": see
+`content/references/skeptic-protocol.md` §9 "Merge-update pass".
+
 **Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step. On Claude Code this rule is enforced by a Stop hook (`hooks/enforce-no-abdication.py`, wired by `.claude/install.sh`) that detects three shapes in the final assistant message - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - and blocks the session stop, injecting a directive; requires `abdication_guard_enabled: true` in `.agentic/config.json`; set to `false` to opt out once enabled; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`; other adapters rely on the prose rule.
 
 **Auto-invoking `/ds-brief` on planning-intent signals is a valid surface-and-proceed conductor behavior - not a stop-and-ask.** When the conductor detects exploratory framing in an operator message (e.g. "I want to build...", "We should add...", "thinking about..."), it announces the `/ds-brief` session and proceeds unless STOP arrives in the very next operator turn. This is not a permission request; it is a proactive decision to open the planning dialogue before architect and engineer spawns (announce-and-proceed variant: not subject to the 30-minute-waste threshold described in the standard surface-and-proceed protocol; the announcement is a notification that planning is starting, not a request for permission). The trigger-detection signals and suppression list (debugging questions, bug reports, explicit ticket references, direct implementation requests) are defined in `content/commands/ds-brief.md` Section 1.
@@ -7822,6 +7828,7 @@ Workers are decomposed into focused atomic units ("one agent, one task, one prom
 - **Independent elevated units:** one Skeptic per unit. The diff is small, review is fast, findings are high-signal.
 - **Interdependent elevated units** (cross-file or cross-component consistency required): one Skeptic reviewing the combined diff from all related Workers. This integration Skeptic replaces per-unit Skeptics for these units. The most dangerous bugs emerge from interactions between components - a per-unit Skeptic cannot see them.
 - **Low-risk units:** no Skeptic. Direct action with self-check.
+- **Merge-update pass:** when a base-branch merge or rebase resolved conflicts in files the PR rewrote, those resolutions are always in Skeptic scope, never waived as "just a merge". The Skeptic brief includes the conflict-resolved hunks (for a merge commit, `git show --remerge-diff <merge-sha>`; for a rebase, the diff of each conflicted file between the pre-rebase tip and the rebased tip) and the base branch's version of those files, and the Skeptic reviews each resolution against the base branch's behavior there.
 
 The integration Skeptic receives the same adversarial brief (Section 7) and follows the same sign-off format (Section 11). The only difference is scope: it reviews the combined output of multiple focused Workers rather than a single Worker's output.
 

@@ -2212,6 +2212,16 @@
       "source_token": "AskUserQuestion"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "ff3e3490f931e5e263e0f2607af6e23d9b35228ca55e0a1d4f54967fd7172ba8",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "bin/ds-migrate",
       "generated_token": "$AE_REPO_DIR/bin/ds-migrate",
       "kind": "operational",

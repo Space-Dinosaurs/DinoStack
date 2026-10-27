@@ -684,6 +684,7 @@ Workers are decomposed into focused atomic units ("one agent, one task, one prom
 - **Independent elevated units:** one Skeptic per unit. The diff is small, review is fast, findings are high-signal.
 - **Interdependent elevated units** (cross-file or cross-component consistency required): one Skeptic reviewing the combined diff from all related Workers. This integration Skeptic replaces per-unit Skeptics for these units. The most dangerous bugs emerge from interactions between components - a per-unit Skeptic cannot see them.
 - **Low-risk units:** no Skeptic. Direct action with self-check.
+- **Merge-update pass:** when a base-branch merge or rebase resolved conflicts in files the PR rewrote, those resolutions are always in Skeptic scope, never waived as "just a merge". The Skeptic brief includes the conflict-resolved hunks (for a merge commit, `git show --remerge-diff <merge-sha>`; for a rebase, the diff of each conflicted file between the pre-rebase tip and the rebased tip) and the base branch's version of those files, and the Skeptic reviews each resolution against the base branch's behavior there.
 
 The integration Skeptic receives the same adversarial brief (Section 7) and follows the same sign-off format (Section 11). The only difference is scope: it reviews the combined output of multiple focused Workers rather than a single Worker's output.
 

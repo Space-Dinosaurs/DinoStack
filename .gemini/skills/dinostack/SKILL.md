@@ -101,6 +101,7 @@ completion requires an architecture decision or significant scope expansion, rec
 that work through the applicable protocol rather than silently expanding it.
 
 
+
 **Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step. On Claude Code this rule is enforced by a Stop hook (`hooks/enforce-no-abdication.py`, wired by `.claude/install.sh`) that detects three shapes in the final assistant message - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - and blocks the session stop, injecting a directive; requires `abdication_guard_enabled: true` in `.agentic/config.json`; set to `false` to opt out once enabled; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`; other adapters rely on the prose rule.
 
 
@@ -250,6 +251,7 @@ Preamble:
 search for the section covering "02-delegation.md".
 - a tracker is connected and the conductor is about to spawn its first subagent of the session on net-new work
 - a PR is approved, QA-passed, or Skeptic-clean with green CI and work on it continues
+- the operator asks to go faster or cites time pressure
 - the operator's message carries exploratory planning-intent framing such as "I want to build..." or "we should add..."
 - the ticket-offer gate has fired and its mode, resolution, or exemptions must be applied
 - authoring or reviewing a Brief, Plan, or ADR whose Open Questions or Deferred Defaults sections need resolving
