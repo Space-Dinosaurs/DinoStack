@@ -7056,7 +7056,7 @@ Store each operator ruling verbatim in `rulings[]` with its date and target sess
 
 ## Usage-limit resume
 
-On the harness reset prompt ("Your claude.ai usage limit has reset"), send `state` to every conducted session whose ticket is not done or merged. There is no hit-time check, and no message claims that a limit was hit.
+On the harness reset prompt ("Your claude.ai usage limit has reset"), send `state` to every conducted session whose ticket is not done or merged. `ds-lane list` and `ds-lane wait` report a `ds-lane` lane stopped by a usage or session limit as `blocked`, with `usage-limit` and the reset time in its last-assistant column. Resume it with `ds-lane resume <name> <file>` carrying a continue or `state` message, on another account or after the reset time. A session not run through `ds-lane` still has no hit-time check, and no message claims that a limit was hit.
 
 ## Holds
 

@@ -372,3 +372,48 @@ def test_grouped_results_still_end_at_a_turn_boundary(tmp_path, capsys):
     later = [INIT, assistant("ack"), NOTIFIED, RESULT]
     assert guarded(tmp_path, capsys, earlier + later, results_needed=2) == ""
     assert guarded(tmp_path, capsys, earlier[1:] + later[1:], results_needed=2) == ""
+
+
+LIMIT = "You've hit your session limit \u00b7 resets 3:40pm"
+
+
+def test_usage_limit_result_reports_blocked_with_its_reset_time(tmp_path, capsys):
+    log = [assistant("ack"), RESULT, dict(FATAL, result=LIMIT)]
+    assert guarded(tmp_path, capsys, log) == "blocked"
+    assert guarded(tmp_path, capsys, log, mode="limit") == "usage-limit resets 3:40pm"
+    assert guarded(tmp_path, capsys, [assistant(LIMIT), dict(FATAL, result=LIMIT)]) == "blocked"
+    curly = "You\u2019ve reached your weekly limit. Resets at 3:40pm (America/Denver)."
+    assert guarded(tmp_path, capsys, [assistant(curly)], mode="limit") == "usage-limit resets 3:40pm (America/Denver)"
+    legacy = guarded(tmp_path, capsys, [dict(FATAL, result="Claude AI usage limit reached|1700000000")], mode="limit")
+    assert legacy.startswith("usage-limit resets 2023-11-1")
+
+
+@pytest.mark.parametrize("later", [[INIT], [assistant("working again")], [INIT, assistant("LANE-DONE ok"), RESULT]])
+def test_activity_after_a_usage_limit_clears_it(tmp_path, capsys, later):
+    log = [dict(FATAL, result=LIMIT)] + later
+    assert guarded(tmp_path, capsys, log, mode="limit") == ""
+    assert guarded(tmp_path, capsys, log) == ""
+
+
+def test_text_that_only_discusses_limits_is_not_a_usage_limit(tmp_path, capsys):
+    quoted = assistant('The harness prints "' + LIMIT + '" when an account runs out.')
+    assert guarded(tmp_path, capsys, [quoted, RESULT]) == ""
+    long = assistant(LIMIT + " " + "x" * 300)
+    assert guarded(tmp_path, capsys, [long, dict(RESULT, result=long["message"]["content"][0]["text"])]) == ""
+    assert guarded(tmp_path, capsys, [assistant("LANE-DONE ok"), RESULT]) == "done"
+
+
+def test_codex_usage_limit_error_reports_blocked(tmp_path, capsys):
+    path = tmp_path / "lane.meta"
+    write_meta(path, harness="codex", codex_context="{}")
+    message = "You've hit your usage limit. Try again at 3:40 PM."
+    log = [
+        dict(type="thread.started", thread_id="t"),
+        dict(type="error", message=message),
+        dict(type="turn.failed", error=dict(message=message)),
+    ]
+    path.with_suffix(".jsonl").write_text("".join(json.dumps(e) + "\n" for e in log))
+    capsys.readouterr()
+    runtime.events(str(path), "marker")
+    runtime.events(str(path), "limit")
+    assert capsys.readouterr().out.split("\n")[:2] == ["blocked", "usage-limit resets 3:40 PM"]

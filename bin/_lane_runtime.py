@@ -7,7 +7,9 @@ Public API: Internal resolve, saved, events, and owns commands used by ds-lane.
     no turn has started since the last result for DS_LANE_MIDTURN_GRACE_S (default
     300), counted from that turn's last timestamped event. Only results without
     `origin` answer stdin input. `events <meta> pending` prints "<inputs not yet
-    answered since marker_offset> <complete log lines>" from one read.
+    answered since marker_offset> <complete log lines>" from one read. A harness
+    usage/session-limit message ending the current run makes `marker` print blocked
+    even after a fatal event; `limit` prints "usage-limit[ resets <time>]" for it.
 Upstream deps: Python stdlib, ps; native Claude transcripts and Codex rollouts.
 Downstream consumers: bin/ds-lane, bin/tests/test_ds_lane.sh.
 Failure modes: Refuses unknown identity, policy, resources and process ownership.
@@ -25,6 +27,31 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+# Harness wording for a stopped run, matched only at the start of a short message so a lane
+# that merely discusses limits is not reported blocked.
+USAGE_LIMIT = re.compile(
+    r"(?:you(?:'|\u2019)ve|you\s+have)\s+(?:hit|reached)\s+your\b[^.\n]{0,40}?\blimit"
+    r"|(?:claude\s+ai\s+)?usage\s+limit\s+reached|session\s+limit\s+reached",
+    re.IGNORECASE,
+)
+LIMIT_RESET = re.compile(
+    r"\bresets?\s+(?:at\s+)?(?P<at>[^\n]+)|\btry\s+again\s+(?:at\s+)?(?P<again>[^\n]+)", re.IGNORECASE
+)
+LIMIT_EPOCH = re.compile(r"(?:claude\s+ai\s+)?usage\s+limit\s+reached\|(?P<epoch>[0-9]{9,11})\b", re.IGNORECASE)
+
+
+def usage_limit(message):
+    message = message.strip()
+    if len(message) > 300 or not USAGE_LIMIT.match(message):
+        return ""
+    epoch = LIMIT_EPOCH.match(message)
+    if epoch:
+        when = datetime.fromtimestamp(int(epoch.group("epoch"))).astimezone().strftime("%Y-%m-%d %H:%M %Z")
+        return "usage-limit resets " + when.strip()
+    reset = LIMIT_RESET.search(message)
+    when = (reset.group("at") or reset.group("again")).strip().rstrip(".,;:!").strip() if reset else ""
+    return "usage-limit resets " + when if when else "usage-limit"
 
 
 def refuse(message):
@@ -409,6 +436,32 @@ def events(path, mode):
         grace = float(os.environ.get("DS_LANE_MIDTURN_GRACE_S") or "300")
         return time.time() - ended_at >= grace
 
+    def limit_text(e):
+        if harness == "codex":
+            if e.get("type") == "error":
+                return e.get("message") if isinstance(e.get("message"), str) else ""
+            error = e.get("error")
+            if e.get("type") == "turn.failed" and isinstance(error, dict) and isinstance(error.get("message"), str):
+                return error["message"]
+            return text(e)
+        if top_result(e):
+            return e.get("result") if isinstance(e.get("result"), str) else ""
+        return text(e)
+
+    def resumed(e):
+        if harness == "codex":
+            return e.get("type") in ("thread.started", "turn.started") or str(e.get("type", "")).startswith("item.")
+        return activity(e)
+
+    def limited():
+        # The run's last message decides; any later turn activity means the lane is running again.
+        for i in range(len(current) - 1, -1, -1):
+            message = limit_text(current[i])
+            if message:
+                found = usage_limit(message)
+                return found if found and not any(resumed(e) for e in current[i + 1 :]) else ""
+        return ""
+
     if mode == "fatal":
         print("1" if any(fatal(e) for e in current) else "0")
     elif mode == "pending":
@@ -426,7 +479,14 @@ def events(path, mode):
         answered = sum(1 for e in events_since if stdin_result(e))
         pending = 0 if answered >= needed() or quiet_after_result(events_since) else needed() - answered
         print(pending, len(complete))
+    elif mode == "limit":
+        found = limited()
+        if found:
+            print(found)
     elif mode == "marker":
+        if limited():
+            print("blocked")
+            return
         if any(fatal(e) for e in current):
             return
         marker, marker_at = "", -1
