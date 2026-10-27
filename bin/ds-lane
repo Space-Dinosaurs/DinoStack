@@ -27,7 +27,9 @@
 #   `wait [--ceiling <s>] <name>...` re-checks every DS_LANE_WAIT_POLL_S (default
 #   5 s), reaping each pass,
 #   and returns when a named lane alive on entry is done, blocked or dead (at
-#   once if none was): prints `list <names>`, exit 0. At the ceiling it prints
+#   once if none was): prints `list <names>`, exit 0. A lane stopped by a
+#   harness usage/session-limit message reports blocked, its LAST_ASSISTANT
+#   prefixed `[usage-limit resets <time>]`. At the ceiling it prints
 #   the same list then `wait: ceiling <N>s reached; still alive: <names>; run
 #   'ds-lane wait' again`, exit 2. Exit 1: usage, unknown lane, reap error.
 #   `doctor [--json]` needs no git repo and writes nothing. It runs no
@@ -165,7 +167,12 @@
 #   Process ownership requires PID birth time and exact executable/CLI shape.
 #   Codex live send refuses without writes; close is nonterminating because
 #   finite stdin is already closed. Fatal current-run events suppress done and
-#   blocked: alive/up until exit, dead/down after. Native Windows detachment
+#   blocked: alive/up until exit, dead/down after, unless the run's last
+#   message is a harness usage/session-limit message whose turn has ended
+#   (blocked): Claude needs a result at or after it; Codex needs an error,
+#   turn.failed, or an agent_message followed by a turn end. Only a known
+#   limit wording counts ("your session limit", "weekly limit reached"), not
+#   "your limit of 3 retries" or "your rate limit". Native Windows detachment
 #   is unsupported. Tabs are optional and never fail a successful launch.
 #   The marker guard: a marker without its turn's result, or from a turn
 #   before the one that answered the last input sent, closes and reports
@@ -747,7 +754,7 @@ cmd_list() { # cmd_list [name...]
   local n
   for n in "$@"; do valid_name "$n"; done
   converge > /dev/null
-  local f name pid proc state marker start end elapsed sid last harness any=0 want
+  local f name pid proc state marker start end elapsed sid last limit harness any=0 want
   printf '%-16s %-7s %-8s %-5s %-8s %-11s %-38s %s\n' NAME PID STATE PROC HARNESS ELAPSED SESSION_ID LAST_ASSISTANT
   for f in "$RUN_DIR"/*.meta; do
     [[ -e "$f" ]] || continue
@@ -777,6 +784,10 @@ cmd_list() { # cmd_list [name...]
     elapsed="$(fmt_elapsed $(( end - ${start:-$end} )))"
     sid="$(meta_get "$name" session_id)"
     last="$(python3 "$RUNTIME_HELPER" events "$RUN_DIR/$name.meta" texts | jq -r 'gsub("[\r\n]+"; " ")' | tail -n1 | cut -c1-150 || true)"
+    if [[ "$state" == blocked ]]; then
+      limit="$(python3 "$RUNTIME_HELPER" events "$RUN_DIR/$name.meta" limit || true)"
+      if [[ -n "$limit" ]]; then last="[$limit] $last"; fi
+    fi
     printf '%-16s %-7s %-8s %-5s %-8s %-11s %-38s %s\n' "$name" "$pid" "$state" "$proc" "$harness" "$elapsed" "${sid:--}" "${last:--}"
   done
   (( any )) || echo "(no lanes)"
@@ -873,7 +884,7 @@ cmd_watch() {
         if [[ -n "$was_alive" ]]; then echo "--- lane $name running again ---"; fi
       else
         state="$(lane_marker "$name")"
-        if lane_fatal "$name"; then state=dead; elif [[ -z "$state" ]]; then state="$(meta_get "$name" status)"; fi
+        if [[ "$state" != blocked ]] && lane_fatal "$name"; then state=dead; elif [[ -z "$state" ]]; then state="$(meta_get "$name" status)"; fi
         if [[ -z "$state" || "$state" == running ]]; then state=exited; fi
         echo "--- lane $name ended ($state) ---"
         end_at=$(( $(date +%s) + 15 ))
@@ -1754,7 +1765,8 @@ usage: ds-lane <command>
   reap                           close marked Claude input; record naturally exited outcomes
   resume <name> [text-or-file]   relaunch an exited lane on its recorded session_id
   list [name...]                 name, pid, state (done/blocked/alive/dead), elapsed, session_id, last line
-  wait [--ceiling <s>] <name>... block until a named live lane is done, blocked or dead, then list them (exit 2 at the ceiling)
+  wait [--ceiling <s>] <name>... block until a named live lane is done, blocked or dead, then list them (exit 2 at the ceiling);
+                                 a lane stopped by a harness usage/session limit reports blocked with usage-limit and its reset time
   tail <name> [n]                last n assistant messages + latest result event
   watch <name>                   follow a lane's log live (text, tool calls, errors, result); read-only; exits 15s after the lane ends
   open <name>                    open a watch view of <name> without taking focus (a detached tmux window inside tmux, else a Terminal.app tab)

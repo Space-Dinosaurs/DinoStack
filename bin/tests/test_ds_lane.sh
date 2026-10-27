@@ -1400,6 +1400,11 @@ elif "DONE-ERROR" in prompt:
 elif "BLOCK-ERROR" in prompt:
     say("LANE-BLOCKED before fatal")
     emit(dict(type="error", message="fatal blocked"))
+elif "USAGE-LIMIT" in prompt:
+    emit(dict(type="error", message="You've hit your usage limit. Try again at 3:40 PM."))
+    emit(dict(type="turn.failed", error=dict(message="You've hit your usage limit. Try again at 3:40 PM.")))
+elif "AGENT-LIMIT" in prompt:
+    say("You've hit your weekly limit. Resets Oct 30, 8pm")
 elif "LATEST-BLOCK" in prompt:
     say("LANE-DONE old")
     say("LANE-BLOCKED latest")
@@ -1482,6 +1487,20 @@ for pattern in DONE-FAILED DONE-ERROR FATAL-FIRST BLOCK-ERROR NO-MARKER LATEST-B
   check "$pattern honors fatal precedence/latest marker" wait_until 10 state_is "cx-$pattern" "$expected"
   check "$pattern persists truthful outcome" eq "$(meta_value "cx-$pattern" status)" "$expected"
 done
+printf 'USAGE-LIMIT\n' > "$TMP/cxprompt"
+codex_lane start cx-limit "$TMP/cxprompt" > /dev/null 2>&1
+check "Codex usage-limit error reports blocked despite fatal events" wait_until 10 state_is cx-limit blocked
+check "Codex usage-limit row names the reset time" contains "$(codex_lane list cx-limit)" '[usage-limit resets 3:40 PM]'
+printf 'AGENT-LIMIT\n' > "$TMP/cxprompt"
+codex_lane start cx-agent-limit "$TMP/cxprompt" > /dev/null 2>&1
+check "a Codex limit agent_message followed by a turn end reports blocked" wait_until 10 state_is cx-agent-limit blocked
+check "the Codex agent_message limit names its reset time" contains "$(codex_lane list cx-agent-limit)" '[usage-limit resets Oct 30, 8pm]'
+printf 'AGENT-LIMIT STUB-LIVE\n' > "$TMP/cxprompt"
+codex_lane start cx-agent-live "$TMP/cxprompt" > /dev/null 2>&1
+wait_until 10 log_has cx-agent-live 'weekly limit'
+check "a Codex limit agent_message before its turn ends is not blocked" state_is cx-agent-live alive
+codex_lane stop cx-agent-live > /dev/null
+wait_until 10 lane_down cx-agent-live
 before="$(wc -l < "$RUN/cx-DONE-FAILED.jsonl")"
 codex_lane resume cx-DONE-FAILED 'success after failed run' > /dev/null 2>&1
 check "validated resume resets failed-run offset" wait_until 10 state_is cx-DONE-FAILED done
@@ -1637,6 +1656,53 @@ check "legacy explicit config/init recovery succeeds" wait_until 10 state_is leg
 check "a record without the caller's config choice resumes with it set" eq "$(claude_config_env)" "$CLAUDE_CONFIG_DIR"
 lane reap > /dev/null
 wait_until 10 lane_down legacy
+
+# A harness usage/session-limit message ends the run blocked, with its reset time.
+LIMIT_MSG="You've hit your session limit · resets 3:40pm"
+start_idle ul
+(DS_LANE_WAIT_POLL_S=1 lane wait --ceiling 30 ul > "$TMP/ul.wait" 2>&1; echo $? > "$TMP/ul.rc") &
+waiter=$!
+sleep 1.5
+jq -cn --arg t "$LIMIT_MSG" '{type: "result", subtype: "success", is_error: true, result: $t}' >> "$RUN/ul.jsonl"
+wait "$waiter"
+check "wait returns 0 when a lane hits a usage limit" eq "$(cat "$TMP/ul.rc")" 0
+check "wait lists the usage-limited lane blocked" eq "$(awk '$1 == "ul" { print $3 }' "$TMP/ul.wait")" blocked
+check "list names usage-limit and the reset time" contains "$(lane list ul)" '[usage-limit resets 3:40pm]'
+wait_until 10 proc_gone ul
+check "a usage-limited lane stays blocked after exit" state_is ul blocked
+start_idle ua
+jq -cn --arg t "$LIMIT_MSG" '{type: "assistant", parent_tool_use_id: null, message: {content: [{type: "text", text: $t}]}}' >> "$RUN/ua.jsonl"
+jq -cn --arg t "$LIMIT_MSG" '{type: "result", subtype: "success", is_error: true, result: $t}' >> "$RUN/ua.jsonl"
+check "an assistant usage-limit message reports blocked" wait_until 10 state_is ua blocked
+wait_until 10 proc_gone ua
+start_idle ur
+jq -cn --arg t "$LIMIT_MSG" '{type: "result", subtype: "success", is_error: true, result: $t}' >> "$RUN/ur.jsonl"
+check "a usage-limit result alone marks the lane blocked" eq "$(python3 "$REPO_DIR/bin/_lane_runtime.py" events "$RUN/ur.meta" marker)" blocked
+jq -cn '{type: "assistant", parent_tool_use_id: null, message: {content: [{type: "text", text: "working again"}]}}' >> "$RUN/ur.jsonl"
+sleep 1.5
+check "activity after a usage-limit message leaves the lane alive" state_is ur alive
+check "activity after a usage-limit message clears its marker" eq "$(python3 "$REPO_DIR/bin/_lane_runtime.py" events "$RUN/ur.meta" marker)" ""
+lane close ur > /dev/null
+wait_until 10 proc_gone ur
+start_idle uq
+QUOTED="Notes: the harness prints \"$LIMIT_MSG\" when an account runs out, and ds-lane should report that lane blocked."
+jq -cn --arg t "$QUOTED" '{type: "assistant", parent_tool_use_id: null, message: {content: [{type: "text", text: $t}]}}' >> "$RUN/uq.jsonl"
+jq -cn --arg t "$QUOTED" '{type: "result", subtype: "success", is_error: false, result: $t}' >> "$RUN/uq.jsonl"
+sleep 1.5
+check "a message quoting the limit phrase mid-text is not blocked" state_is uq alive
+lane close uq > /dev/null
+wait_until 10 proc_gone uq
+start_idle up
+jq -cn --arg t "$LIMIT_MSG" '{type: "assistant", parent_tool_use_id: null, message: {content: [{type: "text", text: $t}]}}' >> "$RUN/up.jsonl"
+jq -cn --arg t "$LIMIT_MSG" '{type: "result", subtype: "success", is_error: false, result: $t}' >> "$RUN/up.jsonl"
+check "the same shape with the limit message itself reports blocked" wait_until 10 state_is up blocked
+wait_until 10 proc_gone up
+start_idle um
+jq -cn --arg t "$LIMIT_MSG" '{type: "assistant", parent_tool_use_id: null, message: {content: [{type: "text", text: $t}]}}' >> "$RUN/um.jsonl"
+sleep 1.5
+check "a limit message before its turn's result is not blocked" state_is um alive
+lane close um > /dev/null
+wait_until 10 proc_gone um
 
 printf '%s\n' 'harness=codex' 'claude_bin=/contradictory' > "$RUN/unknown.meta"
 before="$(run_snapshot)"
