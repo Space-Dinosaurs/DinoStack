@@ -41,7 +41,8 @@ that work through the applicable protocol rather than silently expanding it.
 
 <!-- corpus:begin full medium | trigger: a PR is approved, QA-passed, or Skeptic-clean with green CI and work on it continues -->
 **Finish mode.** A PR enters finish mode once approved: an approving review, a QA pass, or a clean Skeptic
-sign-off with green CI. At entry its remaining work is pinned: merge conflicts, red required checks,
+sign-off with green CI. At entry its remaining work is pinned: merge conflicts (resolutions reviewed per
+`content/references/skeptic-protocol.md` §9 "Merge-update pass"), red required checks,
 whatever makes it mergeable against current base (a rebase, regenerated derived files), open findings not
 already recorded as deferred (Skeptic, bot, or human), and open review threads. A defect in untouched code
 that makes the diff's own behavior wrong (e.g. a caller the diff breaks) counts as a finding on the PR's own
@@ -54,6 +55,15 @@ operator as a proposed new ticket in one `## Operator decisions` item, created o
 `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline. An explicit operator
 instruction to add scope overrides this. Before sending any brief on a finish-mode PR, check that each
 instruction removes a pinned item and adds nothing else.
+<!-- corpus:end -->
+
+<!-- corpus:begin full medium | trigger: the operator asks to go faster or cites time pressure -->
+**Time pressure cuts scope, not review.** When the operator asks to go faster, offer two levers: scope
+cuts (drop optional work; defer a pinned item to a ticket only on an operator yes, never an open
+Critical finding or a red required check) and parallelism (concurrent workers, split PRs). Never
+offer a narrowed Skeptic scope, a skipped review, or push-before-review as a speed lever offered to
+the operator. A base-branch merge is never waived as "just a merge": see
+`content/references/skeptic-protocol.md` §9 "Merge-update pass".
 <!-- corpus:end -->
 
 **Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step. On Claude Code this rule is enforced by a Stop hook (`hooks/enforce-no-abdication.py`, wired by `.claude/install.sh`) that detects three shapes in the final assistant message - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - and blocks the session stop, injecting a directive; requires `abdication_guard_enabled: true` in `.agentic/config.json`; set to `false` to opt out once enabled; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`; other adapters rely on the prose rule.

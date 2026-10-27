@@ -402,6 +402,16 @@
       "source_token": "Bash"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "2d8cf02cec1ade59481bdc4602313df89639c3a97685276c5bc9dabbb528642e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "one bounded direct question after default derivation",
       "generated_token": "AskUserQuestion",
       "kind": "semantic-reference",
@@ -1432,6 +1442,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "dinostack-codex",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "b1c022bc2960f70458e6b626c9b7439c58d1955de2148e612c9cc010302473e9",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "~/DinoStack/.claude/skills/dinostack"
+    },
+    {
       "expected_target": "Task",
       "generated_token": "Task",
       "kind": "semantic-reference",
@@ -2210,6 +2230,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "AskUserQuestion"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "ff3e3490f931e5e263e0f2607af6e23d9b35228ca55e0a1d4f54967fd7172ba8",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "bin/ds-migrate",

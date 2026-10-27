@@ -1,6 +1,6 @@
 # methodology baseline: one <basename> <sha256> line per content/sections/[0-9][0-9]-*.md
 01-activation-preflight.md b594c8596e542f53fd0a4fc7be1fe3dc8672f1a13d45a6cbc629046560091e39
-02-delegation.md 595e260f7502f5f774c52f5ca690267f4cf8a7baa495c46e2cb641b64d265c5b
+02-delegation.md a59b10d18e6a9e6464dd76da5df7602637bd04682eb3675e6848725210bbbedf
 03-planning-artifacts.md 172af9106ff02d8a73b4a7472ea51e779e9a6e73857fc4bf69db9920bc1a4ed9
 04-risk-classification.md 247bd46718647afc70be23360e58bbe90a732ad12dc775fdca5862f01e0a45a5
 05-qa-gate.md 37dba5f92513b7af344462b5f31d522d97c98089081f50a8e00a2ddbbabe4f5b
@@ -10,4 +10,4 @@
 09-events-log.md 51fbdc84918c87d25acb2e4bee12eeb1cfd845bf1e886e0c6bc35acd7f95e1d3
 10-task-decomposition.md 0fdfedb5c572be64e740c90dab9aba7319078e27333430949cf9aa3b6b8ec240
 11-worktree-lifecycle.md 2f895a7463f99d940fb87d247756ed420a5e140d14a88db67402f667a09ef0ae
-12-protocol-details.md 62aba15ff3e5316aeb79074a4b6cfe1f57cb2b1d698f6d111bd392d624b279ed
+12-protocol-details.md dd28fdb069d88a6f9d496ffc66bdd6a523b149107bab2ce0f2faeef6d951e92f
