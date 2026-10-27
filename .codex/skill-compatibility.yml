@@ -6852,16 +6852,6 @@
       "source_token": "rm"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "3e5b3962609e1354287e586f933a2c77b6d7dd8372ed9fefd6823538c565419f",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": "bin/ds-learning-shard",
       "generated_token": "$AE_REPO_DIR/bin/ds-learning-shard",
       "kind": "operational",
@@ -10930,16 +10920,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "Task"
-    },
-    {
-      "expected_target": ".agentic/learnings.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
-      "kind": "operational",
-      "occurrence_hash": "7cf846c300c9ed6aa26b0cc010029a33261c36e9f385dd99f476ab1d88abcb1c",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/learnings.md"
     },
     {
       "expected_target": "bin/ds-migrate",
@@ -15752,6 +15732,16 @@
       "source_token": "PR_BODY_APPEND_FILE"
     },
     {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "c17583061c98c884ddb13cfade537a4c8e80eef899532e3408c22168cf5faf30",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/learnings.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "--base",
       "kind": "display-only",
@@ -18380,6 +18370,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "git"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "e67e7d3bb588bd66b5e8fd198743321f7603cdc51bcedc061878a867346b51cd",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": ".agentic/tracker.yml",
