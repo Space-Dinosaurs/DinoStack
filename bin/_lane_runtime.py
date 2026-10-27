@@ -30,14 +30,19 @@ from pathlib import Path
 
 # Harness wording for a stopped run, matched only at the start of a short message so a lane
 # that merely discusses limits is not reported blocked.
+LIMIT_KIND = r"(?:(?:session|usage|weekly|daily|monthly|5-hour|five-hour|opus|sonnet|plan)\s+)+"
 USAGE_LIMIT = re.compile(
-    r"(?:you(?:'|\u2019)ve|you\s+have)\s+(?:hit|reached)\s+your\b[^.\n]{0,40}?\blimit"
-    r"|(?:claude\s+ai\s+)?usage\s+limit\s+reached|session\s+limit\s+reached",
+    r"(?:you(?:'|\u2019)ve|you\s+have)\s+(?:hit|reached)\s+your\s+"
+    r"(?:" + LIMIT_KIND + r"limit\b|limit(?=\s*(?:$|[\u00b7\u2219|.,-]|resets?\b|will\s+reset\b|try\s+again\b)))"
+    r"|claude(?:\s+ai)?\s+usage\s+limit\s+reached|" + LIMIT_KIND + r"limit\s+reached",
     re.IGNORECASE,
 )
 LIMIT_RESET = re.compile(
-    r"\bresets?\s+(?:at\s+)?(?P<at>[^\n]+)|\btry\s+again\s+(?:at\s+)?(?P<again>[^\n]+)", re.IGNORECASE
+    r"\bresets\s+(?:at\s+)?(?P<at>[^\n]+)|\bwill\s+reset\s+(?:at\s+)?(?P<will>[^\n]+)"
+    r"|\btry\s+again\s+(?:at\s+)?(?P<again>[^\n]+)",
+    re.IGNORECASE,
 )
+LIMIT_RESET_LOOSE = re.compile(r"\breset\s+(?:at\s+)?(?P<at>[^\n]+)", re.IGNORECASE)
 LIMIT_EPOCH = re.compile(r"(?:claude\s+ai\s+)?usage\s+limit\s+reached\|(?P<epoch>[0-9]{9,11})\b", re.IGNORECASE)
 
 
@@ -49,8 +54,8 @@ def usage_limit(message):
     if epoch:
         when = datetime.fromtimestamp(int(epoch.group("epoch"))).astimezone().strftime("%Y-%m-%d %H:%M %Z")
         return "usage-limit resets " + when.strip()
-    reset = LIMIT_RESET.search(message)
-    when = (reset.group("at") or reset.group("again")).strip().rstrip(".,;:!").strip() if reset else ""
+    reset = LIMIT_RESET.search(message) or LIMIT_RESET_LOOSE.search(message)
+    when = next(g for g in reset.groups() if g).strip().rstrip(".,;:!").strip() if reset else ""
     return "usage-limit resets " + when if when else "usage-limit"
 
 
@@ -453,13 +458,22 @@ def events(path, mode):
             return e.get("type") in ("thread.started", "turn.started") or str(e.get("type", "")).startswith("item.")
         return activity(e)
 
+    def turn_ended(i):
+        # A limit counts only once its turn is over, so mid-turn text that reads like one does not.
+        if harness == "codex":
+            return current[i].get("type") in ("error", "turn.failed") or any(
+                e.get("type") in ("turn.completed", "turn.failed") for e in current[i + 1 :]
+            )
+        return any(top_result(e) for e in current[i:])
+
     def limited():
         # The run's last message decides; any later turn activity means the lane is running again.
         for i in range(len(current) - 1, -1, -1):
             message = limit_text(current[i])
             if message:
                 found = usage_limit(message)
-                return found if found and not any(resumed(e) for e in current[i + 1 :]) else ""
+                ok = found and turn_ended(i) and not any(resumed(e) for e in current[i + 1 :])
+                return found if ok else ""
         return ""
 
     if mode == "fatal":

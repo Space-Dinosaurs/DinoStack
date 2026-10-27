@@ -167,8 +167,12 @@
 #   Process ownership requires PID birth time and exact executable/CLI shape.
 #   Codex live send refuses without writes; close is nonterminating because
 #   finite stdin is already closed. Fatal current-run events suppress done and
-#   blocked: alive/up until exit, dead/down after, unless the run ends in a
-#   usage/session-limit message (blocked). Native Windows detachment
+#   blocked: alive/up until exit, dead/down after, unless the run's last
+#   message is a harness usage/session-limit message whose turn has ended
+#   (blocked): Claude needs a result at or after it; Codex needs an error,
+#   turn.failed, or an agent_message followed by a turn end. Only a known
+#   limit wording counts ("your session limit", "weekly limit reached"), not
+#   "your limit of 3 retries" or "your rate limit". Native Windows detachment
 #   is unsupported. Tabs are optional and never fail a successful launch.
 #   The marker guard: a marker without its turn's result, or from a turn
 #   before the one that answered the last input sent, closes and reports
@@ -781,7 +785,7 @@ cmd_list() { # cmd_list [name...]
     sid="$(meta_get "$name" session_id)"
     last="$(python3 "$RUNTIME_HELPER" events "$RUN_DIR/$name.meta" texts | jq -r 'gsub("[\r\n]+"; " ")' | tail -n1 | cut -c1-150 || true)"
     if [[ "$state" == blocked ]]; then
-      limit="$(python3 "$RUNTIME_HELPER" events "$RUN_DIR/$name.meta" limit)"
+      limit="$(python3 "$RUNTIME_HELPER" events "$RUN_DIR/$name.meta" limit || true)"
       if [[ -n "$limit" ]]; then last="[$limit] $last"; fi
     fi
     printf '%-16s %-7s %-8s %-5s %-8s %-11s %-38s %s\n' "$name" "$pid" "$state" "$proc" "$harness" "$elapsed" "${sid:--}" "${last:--}"

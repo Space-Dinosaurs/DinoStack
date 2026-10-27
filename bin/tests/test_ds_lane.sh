@@ -1403,6 +1403,8 @@ elif "BLOCK-ERROR" in prompt:
 elif "USAGE-LIMIT" in prompt:
     emit(dict(type="error", message="You've hit your usage limit. Try again at 3:40 PM."))
     emit(dict(type="turn.failed", error=dict(message="You've hit your usage limit. Try again at 3:40 PM.")))
+elif "AGENT-LIMIT" in prompt:
+    say("You've hit your weekly limit. Resets Oct 30, 8pm")
 elif "LATEST-BLOCK" in prompt:
     say("LANE-DONE old")
     say("LANE-BLOCKED latest")
@@ -1489,6 +1491,16 @@ printf 'USAGE-LIMIT\n' > "$TMP/cxprompt"
 codex_lane start cx-limit "$TMP/cxprompt" > /dev/null 2>&1
 check "Codex usage-limit error reports blocked despite fatal events" wait_until 10 state_is cx-limit blocked
 check "Codex usage-limit row names the reset time" contains "$(codex_lane list cx-limit)" '[usage-limit resets 3:40 PM]'
+printf 'AGENT-LIMIT\n' > "$TMP/cxprompt"
+codex_lane start cx-agent-limit "$TMP/cxprompt" > /dev/null 2>&1
+check "a Codex limit agent_message followed by a turn end reports blocked" wait_until 10 state_is cx-agent-limit blocked
+check "the Codex agent_message limit names its reset time" contains "$(codex_lane list cx-agent-limit)" '[usage-limit resets Oct 30, 8pm]'
+printf 'AGENT-LIMIT STUB-LIVE\n' > "$TMP/cxprompt"
+codex_lane start cx-agent-live "$TMP/cxprompt" > /dev/null 2>&1
+wait_until 10 log_has cx-agent-live 'weekly limit'
+check "a Codex limit agent_message before its turn ends is not blocked" state_is cx-agent-live alive
+codex_lane stop cx-agent-live > /dev/null
+wait_until 10 lane_down cx-agent-live
 before="$(wc -l < "$RUN/cx-DONE-FAILED.jsonl")"
 codex_lane resume cx-DONE-FAILED 'success after failed run' > /dev/null 2>&1
 check "validated resume resets failed-run offset" wait_until 10 state_is cx-DONE-FAILED done
@@ -1665,18 +1677,32 @@ check "an assistant usage-limit message reports blocked" wait_until 10 state_is 
 wait_until 10 proc_gone ua
 start_idle ur
 jq -cn --arg t "$LIMIT_MSG" '{type: "result", subtype: "success", is_error: true, result: $t}' >> "$RUN/ur.jsonl"
+check "a usage-limit result alone marks the lane blocked" eq "$(python3 "$REPO_DIR/bin/_lane_runtime.py" events "$RUN/ur.meta" marker)" blocked
 jq -cn '{type: "assistant", parent_tool_use_id: null, message: {content: [{type: "text", text: "working again"}]}}' >> "$RUN/ur.jsonl"
 sleep 1.5
 check "activity after a usage-limit message leaves the lane alive" state_is ur alive
+check "activity after a usage-limit message clears its marker" eq "$(python3 "$REPO_DIR/bin/_lane_runtime.py" events "$RUN/ur.meta" marker)" ""
 lane close ur > /dev/null
 wait_until 10 proc_gone ur
 start_idle uq
-jq -cn --arg t "Notes: the harness prints \"$LIMIT_MSG\" when an account runs out, and ds-lane should report that lane blocked." '{type: "assistant", parent_tool_use_id: null, message: {content: [{type: "text", text: $t}]}}' >> "$RUN/uq.jsonl"
-jq -cn '{type: "result", subtype: "success", is_error: false, result: "noted"}' >> "$RUN/uq.jsonl"
+QUOTED="Notes: the harness prints \"$LIMIT_MSG\" when an account runs out, and ds-lane should report that lane blocked."
+jq -cn --arg t "$QUOTED" '{type: "assistant", parent_tool_use_id: null, message: {content: [{type: "text", text: $t}]}}' >> "$RUN/uq.jsonl"
+jq -cn --arg t "$QUOTED" '{type: "result", subtype: "success", is_error: false, result: $t}' >> "$RUN/uq.jsonl"
 sleep 1.5
 check "a message quoting the limit phrase mid-text is not blocked" state_is uq alive
 lane close uq > /dev/null
 wait_until 10 proc_gone uq
+start_idle up
+jq -cn --arg t "$LIMIT_MSG" '{type: "assistant", parent_tool_use_id: null, message: {content: [{type: "text", text: $t}]}}' >> "$RUN/up.jsonl"
+jq -cn --arg t "$LIMIT_MSG" '{type: "result", subtype: "success", is_error: false, result: $t}' >> "$RUN/up.jsonl"
+check "the same shape with the limit message itself reports blocked" wait_until 10 state_is up blocked
+wait_until 10 proc_gone up
+start_idle um
+jq -cn --arg t "$LIMIT_MSG" '{type: "assistant", parent_tool_use_id: null, message: {content: [{type: "text", text: $t}]}}' >> "$RUN/um.jsonl"
+sleep 1.5
+check "a limit message before its turn's result is not blocked" state_is um alive
+lane close um > /dev/null
+wait_until 10 proc_gone um
 
 printf '%s\n' 'harness=codex' 'claude_bin=/contradictory' > "$RUN/unknown.meta"
 before="$(run_snapshot)"

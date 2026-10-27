@@ -383,13 +383,14 @@ def test_usage_limit_result_reports_blocked_with_its_reset_time(tmp_path, capsys
     assert guarded(tmp_path, capsys, log, mode="limit") == "usage-limit resets 3:40pm"
     assert guarded(tmp_path, capsys, [assistant(LIMIT), dict(FATAL, result=LIMIT)]) == "blocked"
     curly = "You\u2019ve reached your weekly limit. Resets at 3:40pm (America/Denver)."
-    assert guarded(tmp_path, capsys, [assistant(curly)], mode="limit") == "usage-limit resets 3:40pm (America/Denver)"
+    assert guarded(tmp_path, capsys, [assistant(curly), RESULT], mode="limit") == "usage-limit resets 3:40pm (America/Denver)"
     legacy = guarded(tmp_path, capsys, [dict(FATAL, result="Claude AI usage limit reached|1700000000")], mode="limit")
     assert legacy.startswith("usage-limit resets 2023-11-1")
 
 
 @pytest.mark.parametrize("later", [[INIT], [assistant("working again")], [INIT, assistant("LANE-DONE ok"), RESULT]])
 def test_activity_after_a_usage_limit_clears_it(tmp_path, capsys, later):
+    assert guarded(tmp_path, capsys, [dict(FATAL, result=LIMIT)]) == "blocked"
     log = [dict(FATAL, result=LIMIT)] + later
     assert guarded(tmp_path, capsys, log, mode="limit") == ""
     assert guarded(tmp_path, capsys, log) == ""
@@ -398,8 +399,10 @@ def test_activity_after_a_usage_limit_clears_it(tmp_path, capsys, later):
 def test_text_that_only_discusses_limits_is_not_a_usage_limit(tmp_path, capsys):
     quoted = assistant('The harness prints "' + LIMIT + '" when an account runs out.')
     assert guarded(tmp_path, capsys, [quoted, RESULT]) == ""
+    assert guarded(tmp_path, capsys, [assistant(LIMIT), RESULT]) == "blocked"
     long = assistant(LIMIT + " " + "x" * 300)
     assert guarded(tmp_path, capsys, [long, dict(RESULT, result=long["message"]["content"][0]["text"])]) == ""
+    assert guarded(tmp_path, capsys, [assistant(LIMIT), dict(RESULT, result=LIMIT)]) == "blocked"
     assert guarded(tmp_path, capsys, [assistant("LANE-DONE ok"), RESULT]) == "done"
 
 
@@ -417,3 +420,52 @@ def test_codex_usage_limit_error_reports_blocked(tmp_path, capsys):
     runtime.events(str(path), "marker")
     runtime.events(str(path), "limit")
     assert capsys.readouterr().out.split("\n")[:2] == ["blocked", "usage-limit resets 3:40 PM"]
+
+
+@pytest.mark.parametrize(
+    "message, reset",
+    [
+        ("5-hour limit reached \u2219 resets 3am", "3am"),
+        ("Claude usage limit reached. Your limit will reset at 3pm (America/Denver).", "3pm (America/Denver)"),
+        ("Weekly limit reached \u2219 resets Oct 30, 8pm", "Oct 30, 8pm"),
+        ("Opus weekly limit reached \u2219 resets Oct 30 at 8pm", "Oct 30 at 8pm"),
+        ("You've hit your session limit\n\nPreviously the reset was 4pm; resets nothing", "nothing"),
+        ("You've hit your session limit. Your limit reset at 5pm", "5pm"),
+    ],
+)
+def test_harness_limit_wordings_report_blocked_with_their_reset(tmp_path, capsys, message, reset):
+    log = [INIT, assistant(message), dict(RESULT, result=message)]
+    assert guarded(tmp_path, capsys, log) == "blocked"
+    assert guarded(tmp_path, capsys, log, mode="limit") == "usage-limit resets " + reset
+
+
+RETRIES = "You have reached your limit of 3 retries on the flaky test; switching approach."
+
+
+def test_a_limit_counts_only_once_its_turn_has_a_result(tmp_path, capsys):
+    assert guarded(tmp_path, capsys, [INIT, assistant(RETRIES)]) == ""
+    assert guarded(tmp_path, capsys, [INIT, assistant(LIMIT)]) == ""
+    assert guarded(tmp_path, capsys, [INIT, assistant(LIMIT)], mode="limit") == ""
+    assert guarded(tmp_path, capsys, [INIT, assistant(LIMIT), RESULT]) == "blocked"
+    assert guarded(tmp_path, capsys, [INIT, assistant(RETRIES), RESULT]) == ""
+    rate = "You've hit your rate limit on the GitHub API, retrying later."
+    assert guarded(tmp_path, capsys, [INIT, assistant(rate), RESULT]) == ""
+
+
+def codex_marker_and_limit(tmp_path, capsys, log):
+    path = tmp_path / "lane.meta"
+    write_meta(path, harness="codex", codex_context="{}")
+    path.with_suffix(".jsonl").write_text("".join(json.dumps(e) + "\n" for e in log))
+    capsys.readouterr()
+    runtime.events(str(path), "marker")
+    marker = capsys.readouterr().out.strip()
+    runtime.events(str(path), "limit")
+    return marker, capsys.readouterr().out.strip()
+
+
+def test_codex_agent_message_limit_needs_a_turn_end(tmp_path, capsys):
+    said = [dict(type="thread.started", thread_id="t"), dict(type="turn.started")]
+    said.append(dict(type="item.completed", item=dict(type="agent_message", text=LIMIT)))
+    assert codex_marker_and_limit(tmp_path, capsys, said) == ("", "")
+    ended = said + [dict(type="turn.completed", usage={})]
+    assert codex_marker_and_limit(tmp_path, capsys, ended) == ("blocked", "usage-limit resets 3:40pm")
