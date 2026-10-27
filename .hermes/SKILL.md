@@ -7305,7 +7305,7 @@ The conductor maintains an exchange log across Skeptic rounds to enforce the 2-r
 
 ## 4. The Resolved Issues Preflight List
 
-Before invoking each new Skeptic (rounds 2+, or any round answering a human review), the primary agent adds this block under its own heading (`**Resolved issues preflight:**` or a `##` line), never inside the adversarial brief paragraph, where the neutrality hook reads a quoted review as a steer:
+Before invoking each new Skeptic (rounds 2+, any round answering a human review, or any round while a PR with automated-reviewer threads is open), the primary agent adds this block under its own heading (`**Resolved issues preflight:**` or a `##` line), never inside the adversarial brief paragraph, where the neutrality hook reads a quoted review as a steer:
 
 ```
 The following findings were raised in prior rounds and the Worker has since
@@ -7316,12 +7316,21 @@ raise one as a new finding without saying which prior finding it is.
 [C2: <description of finding>]
 [M1: <description of finding>]
 [H1: "<human review comment, verbatim, line breaks collapsed to ' / '>"]
+[H2: (bot: cursor) "<automated-reviewer thread comment, verbatim, line breaks collapsed to ' / '>"]
 ...
 ```
 
 The preflight list exists so that a fresh Skeptic does not re-raise an already-addressed finding as a new Critical or Major item. It carries each prior finding's identifier and description and nothing more: whether a finding is actually resolved is the reviewer's own determination, made from the diff, never a fact the brief supplies. Re-raising a listed finding is legitimate whenever the diff does not resolve it, provided the Skeptic says which prior finding it is.
 
 **Loop context extension:** When the Skeptic is invoked inside the `/ds-implement-ticket` persistence loop, the conductor draws the preflight list from the findings_log entries whose status is open or addressed, and passes each entry's id and description only - `status` is the conductor's own bookkeeping and stays out of the brief, exactly as the standard Section 4 bracket carries no disposition. The findings_log id field is used as the finding identifier for `[PREV: <id>]` tagging. The preflight list format is identical to the standard Section 4 format; the findings_log schema is the structured backing store.
+
+### Automated-reviewer threads
+
+When a PR is open, each review thread on it whose first comment is authored by an automated reviewer (Bugbot and similar: GraphQL author `__typename == "Bot"`; its login carries no `[bot]` suffix) is also an `H<n>` entry: that comment verbatim, tagged with its author's login as above. List every such thread, open or resolved by a claimed fix; GitHub's resolved flag is not the reviewer's determination, and step 13's resolution rule applies unchanged. A thread the conductor or operator declines (false positive or out of scope) is omitted, and the decline is recorded as a reply on that thread stating the reason. Fetch the threads with:
+
+```
+gh api graphql -f owner=<owner> -f repo=<repo> -F pr=<number> -f query='query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100){nodes{isResolved comments(first:50){nodes{author{login __typename} body path}}}}}}}'
+```
 
 ---
 
@@ -7336,10 +7345,12 @@ Every Skeptic spawn prompt MUST include the following block in this order, after
 2. Brief / Plan tier artifact: <absolute path, OR "n/a - <enumerated reason>">
 3. qa_criteria block (verbatim YAML, OR "n/a - <enumerated reason>")
 4. Per-consumer impact table (verbatim, OR "n/a - <enumerated reason>")
-5. Related files (list of absolute paths the diff touches OR is logically coupled to)
+5. Related files (list of absolute paths the diff touches OR is logically coupled to; for a diff that changes existing behavior, plus each pre-existing touched file's base-branch ref `origin/<base>:<path>`, labeled existing behavior)
 6. Diff under review: <KEY per §Stable unit key contract, identical every round of this unit's review> | <git diff command OR file paths>
 7. Conductor spawn brief (claim-bearing text only): <the conductor-composed sentences that assert a value, path, count, or rationale - excluding the pasted execution-contract boilerplate, .agentic/context.md content, and SESSION_KEY line - a sentence narrating the conductor's own process (e.g. "I told the engineer...", "the conductor relayed...") is itself a claim: tag it [per conductor, unverified] or omit it if not load-bearing>, OR n/a - <reason>
 ```
+
+**Field 5 base-branch refs.** Each ref is listed, never pasted, and read with `git show origin/<base>:<path>`: it is the existing behavior the diff must preserve or deliberately change. The Skeptic checks the diff's behavior against that reference, not only against the plan. A file the diff creates has no base ref.
 
 ### Stable unit key contract (field 6)
 
@@ -7691,7 +7702,7 @@ Field 7 (conductor spawn brief, claim-bearing text only) exists to satisfy the p
 
 **No carve-out for operator-attribution - that specific channel remains banned.** A review brief is the wrong place to adjudicate whether the operator said it. Legitimate operator-directed scoping is still served without this carve-out: a category-level Brief extension (above) covers a genuine domain concern.
 
-**What is not a steer** (illustrative, not exhaustive - the test is CONDUCTOR-COMPOSED vs. VERIFIED-OR-SOURCED-AND-ATTRIBUTED, not membership in this list): a resolved-issues preflight entry restating a prior finding, including an `H<n>` entry quoting a human review verbatim; a domain-specific brief extension naming a category of concern rather than a specific suspected defect; a per-consumer impact table entry; an Engineer's `DONE_WITH_CONCERNS` concerns passed through attributed to the Engineer; and a named subagent's recommended adversarial brief passed through attributed to that agent.
+**What is not a steer** (illustrative, not exhaustive - the test is CONDUCTOR-COMPOSED vs. VERIFIED-OR-SOURCED-AND-ATTRIBUTED, not membership in this list): a resolved-issues preflight entry restating a prior finding, including an `H<n>` entry quoting a human or automated review verbatim; a domain-specific brief extension naming a category of concern rather than a specific suspected defect; a per-consumer impact table entry; an Engineer's `DONE_WITH_CONCERNS` concerns passed through attributed to the Engineer; and a named subagent's recommended adversarial brief passed through attributed to that agent.
 
 **Worked examples:**
 
@@ -15038,8 +15049,8 @@ Your spawn prompt will contain four things:
 
 1. **Adversarial brief** - the specific attack surface or failure scenario to probe. This is your primary lens.
 2. **Worker output** - either pasted inline or as file paths. If file paths are given, read those files before evaluating.
-3. **Resolved issues preflight** - findings raised in prior rounds for which the Worker has since claimed a fix. Round 1 will say "No prior rounds." Any round may also list `H<n>` human-review entries. Rounds 2+ will list each prior finding by identifier and description; whether it is resolved is your determination.
-4. **Global-context input set** - a `## Global-context inputs` block containing: (1) architect plan path, (2) Brief/Plan artifact path, (3) qa_criteria block verbatim, (4) per-consumer impact table verbatim, (5) related files list, (6) diff under review, (7) conductor spawn brief (claim-bearing text only, or `n/a`). Read the architect plan file in full before evaluating - it is the spec the Worker implemented against. See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block format and `n/a` rationale rules. Field 7 carries provenance-tagged factual claims and category-level domain concerns only. The adversarial brief carries the domain threat-model template prose selected verbatim from `content/references/skeptic-protocol.md` Section 8 (attacker-profile framing, not itself a provenance-tagged claim or a category-level concern), any category-level Brief extension, and the three conductor-composed slots defined at `content/references/skeptic-protocol.md` Section 7 "Brief section slots" (attack surface, questions the review must answer explicitly, repo-specific hazards). No field of this input set, and no part of the adversarial brief, ever carries a conductor hypothesis, suspicion, or conclusion about the artifact under review, in any form and whether tagged or untagged - see `content/references/skeptic-protocol.md` Section 7 "Scope of the ban". If any field or the brief appears to name a specific pre-formed conclusion about what is wrong - a specific file, function, or root cause the conductor believes to be broken, stated as fact, suspicion, or a leading question, as opposed to a legitimate resolved-issue restatement (including an `H<n>` entry quoting a human review verbatim), a category-level domain concern, or content explicitly attributed to a named returning subagent (an Engineer's DONE_WITH_CONCERNS concerns, an architect's recommended adversarial brief, or any other named agent's own return passed through as written) - you MUST (a) disregard it entirely when forming your own independent judgment (it carries zero evidentiary weight), and (b) raise a Minor finding citing the exact offending sentence, noting that the Global-context input set may have been composed non-neutrally so the conductor can review its own composition process. This is a required finding, not optional commentary. See `content/references/skeptic-protocol.md` Section 7 "Neutrality requirement (independent of completeness)" for the Skeptic-specific elaboration and worked examples - the full statement of the general rule lives at `content/references/subagent-protocol.md` §11 "Spawn-brief provenance". This Minor is a floor, not a ceiling: if the same text also fails the provenance test in step 3.7 - an untagged directive-shaped claim - that Major stands on its own and is not downgraded by this rule.
+3. **Resolved issues preflight** - findings raised in prior rounds for which the Worker has since claimed a fix. Round 1 will say "No prior rounds." Any round may also list `H<n>` human- or automated-review entries. Rounds 2+ will list each prior finding by identifier and description; whether it is resolved is your determination.
+4. **Global-context input set** - a `## Global-context inputs` block containing: (1) architect plan path, (2) Brief/Plan artifact path, (3) qa_criteria block verbatim, (4) per-consumer impact table verbatim, (5) related files list, plus base-branch refs to check behavior against when the diff changes existing behavior, (6) diff under review, (7) conductor spawn brief (claim-bearing text only, or `n/a`). Read the architect plan file in full before evaluating - it is the spec the Worker implemented against. See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block format and `n/a` rationale rules. Field 7 carries provenance-tagged factual claims and category-level domain concerns only. The adversarial brief carries the domain threat-model template prose selected verbatim from `content/references/skeptic-protocol.md` Section 8 (attacker-profile framing, not itself a provenance-tagged claim or a category-level concern), any category-level Brief extension, and the three conductor-composed slots defined at `content/references/skeptic-protocol.md` Section 7 "Brief section slots" (attack surface, questions the review must answer explicitly, repo-specific hazards). No field of this input set, and no part of the adversarial brief, ever carries a conductor hypothesis, suspicion, or conclusion about the artifact under review, in any form and whether tagged or untagged - see `content/references/skeptic-protocol.md` Section 7 "Scope of the ban". If any field or the brief appears to name a specific pre-formed conclusion about what is wrong - a specific file, function, or root cause the conductor believes to be broken, stated as fact, suspicion, or a leading question, as opposed to a legitimate resolved-issue restatement (including an `H<n>` entry quoting a human or automated review verbatim), a category-level domain concern, or content explicitly attributed to a named returning subagent (an Engineer's DONE_WITH_CONCERNS concerns, an architect's recommended adversarial brief, or any other named agent's own return passed through as written) - you MUST (a) disregard it entirely when forming your own independent judgment (it carries zero evidentiary weight), and (b) raise a Minor finding citing the exact offending sentence, noting that the Global-context input set may have been composed non-neutrally so the conductor can review its own composition process. This is a required finding, not optional commentary. See `content/references/skeptic-protocol.md` Section 7 "Neutrality requirement (independent of completeness)" for the Skeptic-specific elaboration and worked examples - the full statement of the general rule lives at `content/references/subagent-protocol.md` §11 "Spawn-brief provenance". This Minor is a floor, not a ceiling: if the same text also fails the provenance test in step 3.7 - an untagged directive-shaped claim - that Major stands on its own and is not downgraded by this rule.
 
 ## Classification definitions
 
@@ -19702,7 +19713,7 @@ Spawn one `engineer` agent per unit in sequence. Each agent prompt should includ
 - The repo path: `$REPO`
 - Instruction to run `$QUALITY_CMD` from the repo root before finishing and fix any errors
 - Any `reviewer-bar` entries from `.agentic/learnings.md`, verbatim
-- Human-review rework: sweep the whole diff for each comment's class; list fixed sites beyond those cited
+- Human- or bot-review rework: sweep the whole diff for each comment's class; list fixed sites beyond those cited
 
 **Prior ticket context (inject only when `COMMENT_THREAD_SUMMARY` is non-empty):**
 
@@ -19979,7 +19990,8 @@ Spawn a `skeptic` agent with:
 - The ticket description as the success criteria
 - The QA section from the ticket as acceptance tests
 - **When `IS_REWORK` is true:** the same `## PRIOR ATTEMPT(S) OPENED A PR - THIS IS REWORK` block injected into the Phase 3 architect brief, verbatim (same fields, same null-render rule), followed by: `Verify that the failure mode which brought this ticket back is actually addressed. Read the prior PR's diff. Withholding sign-off because the new diff does not demonstrably close the prior gap is a correct outcome.` Gated solely on `IS_REWORK` - this bullet is independent of `COMMENT_THREAD_SUMMARY` and fires at `TRACKER=none`. After a human CHANGES_REQUESTED review, seed `findings_log` with one entry per comment the rework addresses (`id: H<n>`, `severity: Major`, `status: open`, description per `skeptic-protocol.md` Section 4), none the operator declined.
-- **The Global-context input set** (`## Global-context inputs` block, required per `content/references/skeptic-protocol.md` Section 4.5): field 1 = `$ARCHITECT_PLAN_PATH` (or its `n/a - <reason>` per the enumerated set, or a truthful specific reason if none applies, if the architect was skipped); field 2 = `$BRIEF_PATH` (or `n/a - single Elevated unit (no Brief required by the promotion gate)` when no Brief tier applied); field 3 = the unit's `qa_criteria` block verbatim (from the Brief, or the architect plan if no Brief; `n/a - <reason>` only when genuinely absent per the Phase 0a-pre migration); field 4 = the per-consumer impact table verbatim if the architect plan produced one for a shared-utility surface, else `n/a - non-shared-utility surface (importer count below 5 threshold)`; field 5 = the related files list from the architect plan / orchestration-planner unit boundary, plus the primary-checkout `.agentic/learnings.md` absolute path when it holds `reviewer-bar` entries; field 6 = `$UNIT_KEY | ` + diff above; field 7 per §4.5.
+- **With the ticket's PR open (the branch's PR on a fix round, the prior attempt's on rework):** seed `H<n>` entries as above from its automated-reviewer threads, declines per `skeptic-protocol.md` §Automated-reviewer threads.
+- **The Global-context input set** (`## Global-context inputs` block, required per `content/references/skeptic-protocol.md` Section 4.5): field 1 = `$ARCHITECT_PLAN_PATH` (or its `n/a - <reason>` per the enumerated set, or a truthful specific reason if none applies, if the architect was skipped); field 2 = `$BRIEF_PATH` (or `n/a - single Elevated unit (no Brief required by the promotion gate)` when no Brief tier applied); field 3 = the unit's `qa_criteria` block verbatim (from the Brief, or the architect plan if no Brief; `n/a - <reason>` only when genuinely absent per the Phase 0a-pre migration); field 4 = the per-consumer impact table verbatim if the architect plan produced one for a shared-utility surface, else `n/a - non-shared-utility surface (importer count below 5 threshold)`; field 5 = the related files list from the architect plan / orchestration-planner unit boundary, plus the primary-checkout `.agentic/learnings.md` absolute path when it holds `reviewer-bar` entries, plus base-branch refs per §4.5 field 5 when the diff changes existing behavior; field 6 = `$UNIT_KEY | ` + diff above; field 7 per §4.5.
 
 For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md`.
 
@@ -24048,7 +24060,7 @@ The neutrality ban applies to every field below, not only field 7 - no sentence 
 2. Brief / Plan tier artifact: [absolute path, OR "n/a - <enumerated reason>"]
 3. qa_criteria block: [verbatim YAML, OR "n/a - <enumerated reason>"]
 4. Per-consumer impact table: [verbatim, OR "n/a - <enumerated reason>"]
-5. Related files: [list of absolute paths the diff touches OR is logically coupled to]
+5. Related files: [list of absolute paths the diff touches OR is logically coupled to; for a diff that changes existing behavior, plus each pre-existing touched file's base-branch ref `origin/<base>:<path>`, labeled existing behavior]
 6. Diff under review: [KEY derived per skeptic-protocol.md §4.5 Stable unit key contract, identical every round] | [git diff command OR file paths]
 7. Conductor spawn brief (claim-bearing text only): [the conductor-composed sentences that assert a value, path, count, or rationale - excluding pasted execution-contract boilerplate, .agentic/context.md content, and the SESSION_KEY line - a sentence narrating the conductor's own process (e.g. "I told the engineer...", "the conductor relayed...") is itself a claim: tag it [per conductor, unverified] or omit it if not load-bearing, OR "n/a - <reason>"] [Neutrality: provenance-tagged factual claims only - never a conductor hypothesis or suspicion. See skeptic-protocol.md Section 7 "Neutrality requirement".]
 
@@ -24059,7 +24071,7 @@ See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block
 **Resolved issues preflight:**
 - Round 1: "No prior rounds. This is round 1."
 - Rounds 2+: "The following findings were raised in prior rounds and the Worker has since claimed a fix. Determine for yourself whether each is now resolved; do not raise one as a new finding without saying which prior finding it is: [list each: C1/M1/etc: description]"
-- Human-review `H<n>` entries: `skeptic-protocol.md` Section 4.
+- Human- or automated-review `H<n>` entries: `skeptic-protocol.md` Section 4.
 
 Evaluate and return your findings using the sign-off format from your agent definition.
 ---

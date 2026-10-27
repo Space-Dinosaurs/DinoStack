@@ -193,7 +193,7 @@ The conductor maintains an exchange log across Skeptic rounds to enforce the 2-r
 
 ## 4. The Resolved Issues Preflight List
 
-Before invoking each new Skeptic (rounds 2+, or any round answering a human review), the primary agent adds this block under its own heading (`**Resolved issues preflight:**` or a `##` line), never inside the adversarial brief paragraph, where the neutrality hook reads a quoted review as a steer:
+Before invoking each new Skeptic (rounds 2+, any round answering a human review, or any round while a PR with automated-reviewer threads is open), the primary agent adds this block under its own heading (`**Resolved issues preflight:**` or a `##` line), never inside the adversarial brief paragraph, where the neutrality hook reads a quoted review as a steer:
 
 ```
 The following findings were raised in prior rounds and the Worker has since
@@ -204,12 +204,21 @@ raise one as a new finding without saying which prior finding it is.
 [C2: <description of finding>]
 [M1: <description of finding>]
 [H1: "<human review comment, verbatim, line breaks collapsed to ' / '>"]
+[H2: (bot: cursor) "<automated-reviewer thread comment, verbatim, line breaks collapsed to ' / '>"]
 ...
 ```
 
 The preflight list exists so that a fresh Skeptic does not re-raise an already-addressed finding as a new Critical or Major item. It carries each prior finding's identifier and description and nothing more: whether a finding is actually resolved is the reviewer's own determination, made from the diff, never a fact the brief supplies. Re-raising a listed finding is legitimate whenever the diff does not resolve it, provided the Skeptic says which prior finding it is.
 
 **Loop context extension:** When the Skeptic is invoked inside the `/ds-implement-ticket` persistence loop, the conductor draws the preflight list from the findings_log entries whose status is open or addressed, and passes each entry's id and description only - `status` is the conductor's own bookkeeping and stays out of the brief, exactly as the standard Section 4 bracket carries no disposition. The findings_log id field is used as the finding identifier for `[PREV: <id>]` tagging. The preflight list format is identical to the standard Section 4 format; the findings_log schema is the structured backing store.
+
+### Automated-reviewer threads
+
+When a PR is open, each review thread on it whose first comment is authored by an automated reviewer (Bugbot and similar: GraphQL author `__typename == "Bot"`; its login carries no `[bot]` suffix) is also an `H<n>` entry: that comment verbatim, tagged with its author's login as above. List every such thread, open or resolved by a claimed fix; GitHub's resolved flag is not the reviewer's determination, and step 13's resolution rule applies unchanged. A thread the conductor or operator declines (false positive or out of scope) is omitted, and the decline is recorded as a reply on that thread stating the reason. Fetch the threads with:
+
+```
+gh api graphql -f owner=<owner> -f repo=<repo> -F pr=<number> -f query='query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100){nodes{isResolved comments(first:50){nodes{author{login __typename} body path}}}}}}}'
+```
 
 ---
 
@@ -224,10 +233,12 @@ Every Skeptic spawn prompt MUST include the following block in this order, after
 2. Brief / Plan tier artifact: <absolute path, OR "n/a - <enumerated reason>">
 3. qa_criteria block (verbatim YAML, OR "n/a - <enumerated reason>")
 4. Per-consumer impact table (verbatim, OR "n/a - <enumerated reason>")
-5. Related files (list of absolute paths the diff touches OR is logically coupled to)
+5. Related files (list of absolute paths the diff touches OR is logically coupled to; for a diff that changes existing behavior, plus each pre-existing touched file's base-branch ref `origin/<base>:<path>`, labeled existing behavior)
 6. Diff under review: <KEY per §Stable unit key contract, identical every round of this unit's review> | <git diff command OR file paths>
 7. Conductor spawn brief (claim-bearing text only): <the conductor-composed sentences that assert a value, path, count, or rationale - excluding the pasted execution-contract boilerplate, .agentic/context.md content, and SESSION_KEY line - a sentence narrating the conductor's own process (e.g. "I told the engineer...", "the conductor relayed...") is itself a claim: tag it [per conductor, unverified] or omit it if not load-bearing>, OR n/a - <reason>
 ```
+
+**Field 5 base-branch refs.** Each ref is listed, never pasted, and read with `git show origin/<base>:<path>`: it is the existing behavior the diff must preserve or deliberately change. The Skeptic checks the diff's behavior against that reference, not only against the plan. A file the diff creates has no base ref.
 
 ### Stable unit key contract (field 6)
 
@@ -579,7 +590,7 @@ Field 7 (conductor spawn brief, claim-bearing text only) exists to satisfy the p
 
 **No carve-out for operator-attribution - that specific channel remains banned.** A review brief is the wrong place to adjudicate whether the operator said it. Legitimate operator-directed scoping is still served without this carve-out: a category-level Brief extension (above) covers a genuine domain concern.
 
-**What is not a steer** (illustrative, not exhaustive - the test is CONDUCTOR-COMPOSED vs. VERIFIED-OR-SOURCED-AND-ATTRIBUTED, not membership in this list): a resolved-issues preflight entry restating a prior finding, including an `H<n>` entry quoting a human review verbatim; a domain-specific brief extension naming a category of concern rather than a specific suspected defect; a per-consumer impact table entry; an Engineer's `DONE_WITH_CONCERNS` concerns passed through attributed to the Engineer; and a named subagent's recommended adversarial brief passed through attributed to that agent.
+**What is not a steer** (illustrative, not exhaustive - the test is CONDUCTOR-COMPOSED vs. VERIFIED-OR-SOURCED-AND-ATTRIBUTED, not membership in this list): a resolved-issues preflight entry restating a prior finding, including an `H<n>` entry quoting a human or automated review verbatim; a domain-specific brief extension naming a category of concern rather than a specific suspected defect; a per-consumer impact table entry; an Engineer's `DONE_WITH_CONCERNS` concerns passed through attributed to the Engineer; and a named subagent's recommended adversarial brief passed through attributed to that agent.
 
 **Worked examples:**
 

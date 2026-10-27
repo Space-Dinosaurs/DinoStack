@@ -54,7 +54,7 @@ The neutrality ban applies to every field below, not only field 7 - no sentence 
 2. Brief / Plan tier artifact: [absolute path, OR "n/a - <enumerated reason>"]
 3. qa_criteria block: [verbatim YAML, OR "n/a - <enumerated reason>"]
 4. Per-consumer impact table: [verbatim, OR "n/a - <enumerated reason>"]
-5. Related files: [list of absolute paths the diff touches OR is logically coupled to]
+5. Related files: [list of absolute paths the diff touches OR is logically coupled to; for a diff that changes existing behavior, plus each pre-existing touched file's base-branch ref `origin/<base>:<path>`, labeled existing behavior]
 6. Diff under review: [KEY derived per skeptic-protocol.md §4.5 Stable unit key contract, identical every round] | [git diff command OR file paths]
 7. Conductor spawn brief (claim-bearing text only): [the conductor-composed sentences that assert a value, path, count, or rationale - excluding pasted execution-contract boilerplate, .agentic/context.md content, and the SESSION_KEY line - a sentence narrating the conductor's own process (e.g. "I told the engineer...", "the conductor relayed...") is itself a claim: tag it [per conductor, unverified] or omit it if not load-bearing, OR "n/a - <reason>"] [Neutrality: provenance-tagged factual claims only - never a conductor hypothesis or suspicion. See skeptic-protocol.md Section 7 "Neutrality requirement".]
 
@@ -65,7 +65,7 @@ See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block
 **Resolved issues preflight:**
 - Round 1: "No prior rounds. This is round 1."
 - Rounds 2+: "The following findings were raised in prior rounds and the Worker has since claimed a fix. Determine for yourself whether each is now resolved; do not raise one as a new finding without saying which prior finding it is: [list each: C1/M1/etc: description]"
-- Human-review `H<n>` entries: `skeptic-protocol.md` Section 4.
+- Human- or automated-review `H<n>` entries: `skeptic-protocol.md` Section 4.
 
 Evaluate and return your findings using the sign-off format from your agent definition.
 ---
