@@ -7316,7 +7316,7 @@ raise one as a new finding without saying which prior finding it is.
 [C2: <description of finding>]
 [M1: <description of finding>]
 [H1: "<human review comment, verbatim, line breaks collapsed to ' / '>"]
-[H2: (bot: cursor[bot]) "<automated-reviewer thread comment, verbatim, line breaks collapsed to ' / '>"]
+[H2: (bot: cursor) "<automated-reviewer thread comment, verbatim, line breaks collapsed to ' / '>"]
 ...
 ```
 
@@ -7326,7 +7326,7 @@ The preflight list exists so that a fresh Skeptic does not re-raise an already-a
 
 ### Automated-reviewer threads
 
-When a PR is open, each review thread on it whose first comment is authored by an automated reviewer (Bugbot and similar: GitHub author `__typename == "Bot"` or a `[bot]` login), open or resolved, is also an `H<n>` entry: that comment verbatim, tagged with its author as above. A resolved thread is listed too; GitHub's resolved flag is not the reviewer's determination, and step 13's resolution rule applies unchanged. Fetch the threads with:
+When a PR is open, each review thread on it whose first comment is authored by an automated reviewer (Bugbot and similar: GraphQL author `__typename == "Bot"`; its login carries no `[bot]` suffix) is also an `H<n>` entry: that comment verbatim, tagged with its author's login as above. List every such thread, open or resolved by a claimed fix; GitHub's resolved flag is not the reviewer's determination, and step 13's resolution rule applies unchanged. A thread the conductor or operator declines (false positive or out of scope) is omitted, and the decline is recorded as a reply on that thread stating the reason. Fetch the threads with:
 
 ```
 gh api graphql -f owner=<owner> -f repo=<repo> -F pr=<number> -f query='query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100){nodes{isResolved comments(first:50){nodes{author{login __typename} body path}}}}}}}'
@@ -7345,12 +7345,12 @@ Every Skeptic spawn prompt MUST include the following block in this order, after
 2. Brief / Plan tier artifact: <absolute path, OR "n/a - <enumerated reason>">
 3. qa_criteria block (verbatim YAML, OR "n/a - <enumerated reason>")
 4. Per-consumer impact table (verbatim, OR "n/a - <enumerated reason>")
-5. Related files (list of absolute paths the diff touches OR is logically coupled to; for a diff that changes existing behavior, plus each touched file's base-branch ref `origin/<base>:<path>`, labeled existing behavior)
+5. Related files (list of absolute paths the diff touches OR is logically coupled to; for a diff that changes existing behavior, plus each pre-existing touched file's base-branch ref `origin/<base>:<path>`, labeled existing behavior)
 6. Diff under review: <KEY per §Stable unit key contract, identical every round of this unit's review> | <git diff command OR file paths>
 7. Conductor spawn brief (claim-bearing text only): <the conductor-composed sentences that assert a value, path, count, or rationale - excluding the pasted execution-contract boilerplate, .agentic/context.md content, and SESSION_KEY line - a sentence narrating the conductor's own process (e.g. "I told the engineer...", "the conductor relayed...") is itself a claim: tag it [per conductor, unverified] or omit it if not load-bearing>, OR n/a - <reason>
 ```
 
-**Field 5 base-branch refs.** Each ref is listed, never pasted, and read with `git show origin/<base>:<path>`: it is the existing behavior the diff must preserve or deliberately change. The Skeptic checks the diff's behavior against that reference, not only against the plan.
+**Field 5 base-branch refs.** Each ref is listed, never pasted, and read with `git show origin/<base>:<path>`: it is the existing behavior the diff must preserve or deliberately change. The Skeptic checks the diff's behavior against that reference, not only against the plan. A file the diff creates has no base ref.
 
 ### Stable unit key contract (field 6)
 
@@ -19713,7 +19713,7 @@ Spawn one `engineer` agent per unit in sequence. Each agent prompt should includ
 - The repo path: `$REPO`
 - Instruction to run `$QUALITY_CMD` from the repo root before finishing and fix any errors
 - Any `reviewer-bar` entries from `.agentic/learnings.md`, verbatim
-- Human-review rework: sweep the whole diff for each comment's class; list fixed sites beyond those cited
+- Human- or bot-review rework: sweep the whole diff for each comment's class; list fixed sites beyond those cited
 
 **Prior ticket context (inject only when `COMMENT_THREAD_SUMMARY` is non-empty):**
 
@@ -19990,7 +19990,7 @@ Spawn a `skeptic` agent with:
 - The ticket description as the success criteria
 - The QA section from the ticket as acceptance tests
 - **When `IS_REWORK` is true:** the same `## PRIOR ATTEMPT(S) OPENED A PR - THIS IS REWORK` block injected into the Phase 3 architect brief, verbatim (same fields, same null-render rule), followed by: `Verify that the failure mode which brought this ticket back is actually addressed. Read the prior PR's diff. Withholding sign-off because the new diff does not demonstrably close the prior gap is a correct outcome.` Gated solely on `IS_REWORK` - this bullet is independent of `COMMENT_THREAD_SUMMARY` and fires at `TRACKER=none`. After a human CHANGES_REQUESTED review, seed `findings_log` with one entry per comment the rework addresses (`id: H<n>`, `severity: Major`, `status: open`, description per `skeptic-protocol.md` Section 4), none the operator declined.
-- **Whenever a PR is open, rework or not:** seed `findings_log` the same way from its automated-reviewer threads (`skeptic-protocol.md` §Automated-reviewer threads).
+- **With the ticket's PR open (the branch's PR on a fix round, the prior attempt's on rework):** seed `H<n>` entries as above from its automated-reviewer threads, declines per `skeptic-protocol.md` §Automated-reviewer threads.
 - **The Global-context input set** (`## Global-context inputs` block, required per `content/references/skeptic-protocol.md` Section 4.5): field 1 = `$ARCHITECT_PLAN_PATH` (or its `n/a - <reason>` per the enumerated set, or a truthful specific reason if none applies, if the architect was skipped); field 2 = `$BRIEF_PATH` (or `n/a - single Elevated unit (no Brief required by the promotion gate)` when no Brief tier applied); field 3 = the unit's `qa_criteria` block verbatim (from the Brief, or the architect plan if no Brief; `n/a - <reason>` only when genuinely absent per the Phase 0a-pre migration); field 4 = the per-consumer impact table verbatim if the architect plan produced one for a shared-utility surface, else `n/a - non-shared-utility surface (importer count below 5 threshold)`; field 5 = the related files list from the architect plan / orchestration-planner unit boundary, plus the primary-checkout `.agentic/learnings.md` absolute path when it holds `reviewer-bar` entries, plus base-branch refs per §4.5 field 5 when the diff changes existing behavior; field 6 = `$UNIT_KEY | ` + diff above; field 7 per §4.5.
 
 For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md`.
@@ -24060,7 +24060,7 @@ The neutrality ban applies to every field below, not only field 7 - no sentence 
 2. Brief / Plan tier artifact: [absolute path, OR "n/a - <enumerated reason>"]
 3. qa_criteria block: [verbatim YAML, OR "n/a - <enumerated reason>"]
 4. Per-consumer impact table: [verbatim, OR "n/a - <enumerated reason>"]
-5. Related files: [list of absolute paths the diff touches OR is logically coupled to]
+5. Related files: [list of absolute paths the diff touches OR is logically coupled to; for a diff that changes existing behavior, plus each pre-existing touched file's base-branch ref `origin/<base>:<path>`, labeled existing behavior]
 6. Diff under review: [KEY derived per skeptic-protocol.md §4.5 Stable unit key contract, identical every round] | [git diff command OR file paths]
 7. Conductor spawn brief (claim-bearing text only): [the conductor-composed sentences that assert a value, path, count, or rationale - excluding pasted execution-contract boilerplate, .agentic/context.md content, and the SESSION_KEY line - a sentence narrating the conductor's own process (e.g. "I told the engineer...", "the conductor relayed...") is itself a claim: tag it [per conductor, unverified] or omit it if not load-bearing, OR "n/a - <reason>"] [Neutrality: provenance-tagged factual claims only - never a conductor hypothesis or suspicion. See skeptic-protocol.md Section 7 "Neutrality requirement".]
 
@@ -24071,7 +24071,7 @@ See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block
 **Resolved issues preflight:**
 - Round 1: "No prior rounds. This is round 1."
 - Rounds 2+: "The following findings were raised in prior rounds and the Worker has since claimed a fix. Determine for yourself whether each is now resolved; do not raise one as a new finding without saying which prior finding it is: [list each: C1/M1/etc: description]"
-- Human-review `H<n>` entries: `skeptic-protocol.md` Section 4.
+- Human- or automated-review `H<n>` entries: `skeptic-protocol.md` Section 4.
 
 Evaluate and return your findings using the sign-off format from your agent definition.
 ---

@@ -204,7 +204,7 @@ raise one as a new finding without saying which prior finding it is.
 [C2: <description of finding>]
 [M1: <description of finding>]
 [H1: "<human review comment, verbatim, line breaks collapsed to ' / '>"]
-[H2: (bot: cursor[bot]) "<automated-reviewer thread comment, verbatim, line breaks collapsed to ' / '>"]
+[H2: (bot: cursor) "<automated-reviewer thread comment, verbatim, line breaks collapsed to ' / '>"]
 ...
 ```
 
@@ -214,7 +214,7 @@ The preflight list exists so that a fresh Skeptic does not re-raise an already-a
 
 ### Automated-reviewer threads
 
-When a PR is open, each review thread on it whose first comment is authored by an automated reviewer (Bugbot and similar: GitHub author `__typename == "Bot"` or a `[bot]` login), open or resolved, is also an `H<n>` entry: that comment verbatim, tagged with its author as above. A resolved thread is listed too; GitHub's resolved flag is not the reviewer's determination, and step 13's resolution rule applies unchanged. Fetch the threads with:
+When a PR is open, each review thread on it whose first comment is authored by an automated reviewer (Bugbot and similar: GraphQL author `__typename == "Bot"`; its login carries no `[bot]` suffix) is also an `H<n>` entry: that comment verbatim, tagged with its author's login as above. List every such thread, open or resolved by a claimed fix; GitHub's resolved flag is not the reviewer's determination, and step 13's resolution rule applies unchanged. A thread the conductor or operator declines (false positive or out of scope) is omitted, and the decline is recorded as a reply on that thread stating the reason. Fetch the threads with:
 
 ```
 gh api graphql -f owner=<owner> -f repo=<repo> -F pr=<number> -f query='query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100){nodes{isResolved comments(first:50){nodes{author{login __typename} body path}}}}}}}'
@@ -233,12 +233,12 @@ Every Skeptic spawn prompt MUST include the following block in this order, after
 2. Brief / Plan tier artifact: <absolute path, OR "n/a - <enumerated reason>">
 3. qa_criteria block (verbatim YAML, OR "n/a - <enumerated reason>")
 4. Per-consumer impact table (verbatim, OR "n/a - <enumerated reason>")
-5. Related files (list of absolute paths the diff touches OR is logically coupled to; for a diff that changes existing behavior, plus each touched file's base-branch ref `origin/<base>:<path>`, labeled existing behavior)
+5. Related files (list of absolute paths the diff touches OR is logically coupled to; for a diff that changes existing behavior, plus each pre-existing touched file's base-branch ref `origin/<base>:<path>`, labeled existing behavior)
 6. Diff under review: <KEY per §Stable unit key contract, identical every round of this unit's review> | <git diff command OR file paths>
 7. Conductor spawn brief (claim-bearing text only): <the conductor-composed sentences that assert a value, path, count, or rationale - excluding the pasted execution-contract boilerplate, .agentic/context.md content, and SESSION_KEY line - a sentence narrating the conductor's own process (e.g. "I told the engineer...", "the conductor relayed...") is itself a claim: tag it [per conductor, unverified] or omit it if not load-bearing>, OR n/a - <reason>
 ```
 
-**Field 5 base-branch refs.** Each ref is listed, never pasted, and read with `git show origin/<base>:<path>`: it is the existing behavior the diff must preserve or deliberately change. The Skeptic checks the diff's behavior against that reference, not only against the plan.
+**Field 5 base-branch refs.** Each ref is listed, never pasted, and read with `git show origin/<base>:<path>`: it is the existing behavior the diff must preserve or deliberately change. The Skeptic checks the diff's behavior against that reference, not only against the plan. A file the diff creates has no base ref.
 
 ### Stable unit key contract (field 6)
 
