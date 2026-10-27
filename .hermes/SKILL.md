@@ -3048,6 +3048,16 @@ The conductor assembles the final PR body. The **Summary** section is ≤ 5 sing
 
 This rule layers conciseness expectations on top of the structural templates in `content/commands/ds-implement-ticket.md` (PR body, tracker comment, ticket description). The templates still apply; this rule governs the substance that fills them.
 
+## Unanswered review threads before re-request
+
+Before re-requesting review on a PR (a re-request, `gh pr edit --add-reviewer`, or `gh pr ready` after rework) or moving its ticket to the in-review state, fetch its review threads with the query in `content/references/skeptic-protocol.md` §Automated-reviewer threads and list every thread with `isResolved == false` whose first comment's author is human (`__typename != "Bot"`). On a PR with no review threads this is a no-op.
+
+- Each listed thread first needs a fix pushed or a reply on the thread that agrees or declines with a reason.
+- A thread intentionally left open is named in the re-request comment instead.
+- Do not re-request while any listed thread has none of these.
+
+Reply with `gh api graphql -f id=<thread id> -f body=<text> -f query='mutation($id:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$id,body:$body}){comment{url}}}'`.
+
 ---
 
 ### cross-harness-teams
@@ -7345,7 +7355,7 @@ The preflight list exists so that a fresh Skeptic does not re-raise an already-a
 When a PR is open, each review thread on it whose first comment is authored by an automated reviewer (Bugbot and similar: GraphQL author `__typename == "Bot"`; its login carries no `[bot]` suffix) is also an `H<n>` entry: that comment verbatim, tagged with its author's login as above. List every such thread, open or resolved by a claimed fix; GitHub's resolved flag is not the reviewer's determination, and step 13's resolution rule applies unchanged. A thread the conductor or operator declines (false positive or out of scope) is omitted, and the decline is recorded as a reply on that thread stating the reason. Fetch the threads with:
 
 ```
-gh api graphql -f owner=<owner> -f repo=<repo> -F pr=<number> -f query='query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100){nodes{isResolved comments(first:50){nodes{author{login __typename} body path}}}}}}}'
+gh api graphql -f owner=<owner> -f repo=<repo> -F pr=<number> -f query='query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100){nodes{id isResolved comments(first:50){nodes{author{login __typename} body path}}}}}}}'
 ```
 
 ---
@@ -19996,7 +20006,7 @@ For full worktree cleanup rules (isolation worktrees, feature worktrees, stale b
 
 **Phase 6 guard (fan-out integration Skeptic).** When fan-out was active in Phase 5 and `SKEPTIC_STRATEGY: integration`, the integration Skeptic from Phase 5 IS the Phase 6 gate - do not spawn a second Skeptic. When `per-unit` or `multi-dimensional`, Phase 6 fires as normal - a standard single Skeptic reviews the combined diff from `BASE_BRANCH` after all merges (`git -C $INTEGRATION_WORKTREE diff origin/$BASE_BRANCH..HEAD`), catching cross-unit interactions per-unit Skeptics (or the per-unit multi-dimensional fan-out) could not see. Phase 6 is NOT skipped for `per-unit` or `multi-dimensional`. For a ticket containing multi-dimensional units this Phase 6 pass is correctness-only, so cross-unit security/perf interactions get no dedicated pass.
 
-**Tracker writeback (W2)** — fires on iteration 1 only: if `TRACKER != none` AND this is the first Skeptic spawn in Phase 6 (not a re-route from a prior engineer fix pass), invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_REVIEW`, `forward_only_guard: true`. Fire-and-forget.
+**Tracker writeback (W2)** - fires on iteration 1 only: if `TRACKER != none` AND this is the first Skeptic spawn in Phase 6 (not a re-route from a prior engineer fix pass), invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_REVIEW`, `forward_only_guard: true`. Fire-and-forget. If the PR has review threads, apply Phase 10b's thread rule first.
 
 [phase: tracker-writeback | site: W2 | target: $TRACKER_STATE_IN_REVIEW | iter: 1]
 
@@ -21205,6 +21215,8 @@ Emit breadcrumb: `[phase: ci-fix-loop | iteration N/3 | failing: <check-names>]`
 ---
 
 ## Phase 10b: Mark ready + assign reviewers (conditional on Phase 10 result: passed)
+
+**Thread rule:** if the PR has review threads (a fix round), first apply `content/references/conventions-detail.md` §Unanswered review threads before re-request.
 
 **Mark ready-for-review:**
 

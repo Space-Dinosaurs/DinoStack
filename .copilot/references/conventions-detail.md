@@ -335,3 +335,13 @@ The body below the blank line is uncapped; put detail there. Trailer lines (Clos
 The conductor assembles the final PR body. The **Summary** section is ≤ 5 single-line bullets. QA Evidence, the North Star alignment section, the tracker reference block, and the Test plan checkboxes are separate fixed-form sections, excluded from the Summary budget. The whole body is uncapped - the answer-relevance rule applies over any line arithmetic. The conductor seeds the Summary from the engineer's `pr_description_body` (2000-character cap at `content/agents/engineer.md:169`, unchanged). The general principle these per-surface rules instantiate is `content/rules/conventions.md` §Writing Style (length discipline).
 
 This rule layers conciseness expectations on top of the structural templates in `content/commands/ds-implement-ticket.md` (PR body, tracker comment, ticket description). The templates still apply; this rule governs the substance that fills them.
+
+## Unanswered review threads before re-request
+
+Before re-requesting review on a PR (a re-request, `gh pr edit --add-reviewer`, or `gh pr ready` after rework) or moving its ticket to the in-review state, fetch its review threads with the query in `content/references/skeptic-protocol.md` §Automated-reviewer threads and list every thread with `isResolved == false` whose first comment's author is human (`__typename != "Bot"`). On a PR with no review threads this is a no-op.
+
+- Each listed thread first needs a fix pushed or a reply on the thread that agrees or declines with a reason.
+- A thread intentionally left open is named in the re-request comment instead.
+- Do not re-request while any listed thread has none of these.
+
+Reply with `gh api graphql -f id=<thread id> -f body=<text> -f query='mutation($id:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$id,body:$body}){comment{url}}}'`.

@@ -15702,6 +15702,16 @@
       "source_token": "-C"
     },
     {
+      "expected_target": "content/references/conventions-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "c14b73a1a5ac32c0f064b75cad992f1d2aacb099b880aeba8cfd580c1b7ccc64",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/conventions-detail.md"
+    },
+    {
       "expected_target": "git worktree add + spawn_agent",
       "generated_token": "**Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`$AE_PROJECT_DIR/.agentic/qa.md` preferred, legacy `$AE_PROJECT_DIR/.claude/qa.md` fallback). Before calling `spawn_agent`, execute the Codex spawn contract above (mandatory per METHODOLOGY.md \u00a7Delegation > Worker preamble). On iteration 2+, prepend the \"Prior QA failures\" section to the brief:",
       "kind": "operational",
