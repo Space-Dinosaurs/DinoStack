@@ -3,6 +3,17 @@
 
 # Changelog
 
+## 2026-10-27
+
+### Uncategorized
+
+- **#1042** [DS-267: Under time pressure cut scope, not review; merge resolutions are review scope](https://github.com/Space-Dinosaurs/DinoStack/pull/1042) - tyson-solara6
+- **#1041** [DS-270: Answer human review threads before re-requesting review](https://github.com/Space-Dinosaurs/DinoStack/pull/1041) - tyson-solara6
+- **#1040** [DS-271: ds-lane reports usage-limit stalled lanes as blocked](https://github.com/Space-Dinosaurs/DinoStack/pull/1040) - tyson-solara6
+- **#1039** [DS-269: Skeptic gets base-branch refs and bot review threads in preflight](https://github.com/Space-Dinosaurs/DinoStack/pull/1039) - tyson-solara6
+- **#1038** [DS-266: Finish mode - pin remaining work once a PR is approved](https://github.com/Space-Dinosaurs/DinoStack/pull/1038) - tyson-solara6
+- **#1037** [DS-268: flag untraced rewrites of existing behavior at plan time](https://github.com/Space-Dinosaurs/DinoStack/pull/1037) - tyson-solara6
+
 ## 2026-10-21
 
 ### Features
