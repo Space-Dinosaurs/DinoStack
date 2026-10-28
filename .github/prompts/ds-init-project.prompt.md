@@ -24,7 +24,7 @@ Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" 
 
   > "dinostack is installed in opt-in mode. Activate it for this project? [Y/n]"
 
-  Accept `y` / `yes` / `1` / empty (Enter) as **yes**. Accept `n` / `no` / `2` as **no**.
+  Ask it per "Answering prompts in this command" below: through the structured-question tool, options "Yes, activate (Recommended)" / "No"; otherwise ask the user to reply `y` or `n`. Accept `y` / `yes` / `1` / the "Yes, activate" option / a literal empty reply as **yes**. Accept `n` / `no` / `2` / the "No" option as **no**.
 
   - On **yes**: the scaffolded `AGENTS.md` `## Activation` section (always emitted by Step 3) carries the active `agentic-engineering: opt-in` line at the top of the section - this is the "opt-in activation case" of the section's conditional assembly (see the Step 3 template). Do not add a second bare `agentic-engineering: opt-in` line elsewhere; the `## Activation` section is the single source of placement truth.
 
@@ -38,13 +38,26 @@ Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" 
 
 This step runs before Step 0 discovery below because an opt-in decline should short-circuit the entire command.
 
-**Up-front configuration (additive; Enter keeps today's defaults at every step).**
+**Answering prompts in this command.** Never tell the operator to press Enter: in most
+harnesses an empty Enter submits nothing, so there is no way to accept. Instead:
+
+- Where the harness provides a structured-question tool (Claude Code `AskUserQuestion`),
+  present each choice through it, with the default/accept option listed first and its
+  label ending in "(Recommended)". Group independent questions into one call where the
+  tool allows (up to 4 questions per call). A free-text "Other" answer is parsed with the
+  same rules as a typed reply.
+- Otherwise, ask the user to reply with an explicit word (e.g. `accept`, `skip`, `n`),
+  never "press Enter".
+- The default option, its explicit word, and a literal empty reply (if the harness ever
+  delivers one) all map to exactly the same default answer.
+
+**Up-front configuration (additive; the default answer keeps today's defaults at every step).**
 
 Before scaffolding, walk through a short set of questions that explain how this
 project will be configured and let you change the few settings that most affect how
-work gets done. Each question has a plain-English explanation, the options, and an
-"Enter to keep the current default" line. Pressing Enter through all of them lands
-you on exactly the standard defaults - nothing is written that you do not choose.
+work gets done. Each question has a plain-English explanation, the options, and a
+default option that keeps the current default. Choosing the default for all of them
+lands you on exactly the standard defaults - nothing is written that you do not choose.
 
 **0a-mode. How this project activates (explanation; reconciles with the 0a prompt above).**
 
@@ -76,7 +89,7 @@ config file from here.
 
   Then proceed to the existing 0a `[Y/n]` prompt unchanged.
 
-**0a-profile. Risk profile (additive; Enter keeps current defaults).**
+**0a-profile. Risk profile (additive; the default answer keeps current defaults).**
 
 Explain and offer the risk profile. This controls how much independent review each
 change gets. Present:
@@ -90,19 +103,29 @@ change gets. Present:
   >   strict  - The broadest review coverage: even UI-copy tweaks, renames, and wording fixes
   >             get Worker + Skeptic. Use when correctness matters most.
   >
-  > Press Enter to keep the current default (no project override - the global setting applies).
-  > Or type relaxed / default / strict.
+  > Reply `keep` to keep the current default (no project override - the global setting
+  > applies). Or reply relaxed / default / strict.
 
-Capture the answer as INIT_PROFILE. Empty (Enter) = "keep current default": INIT_PROFILE
-= null, write NOTHING. Typing 'default' is also a no-op write (do not pin default
-explicitly). Only 'relaxed' or 'strict' set INIT_PROFILE to that value.
+With the structured-question tool, ask it as one question with options "Keep current
+default (Recommended)" / "relaxed" / "default" / "strict" (the explanation above goes in
+the question text).
 
-**0a-config. Four project settings that change how work gets done (additive; Enter keeps each default).**
+Capture the answer as INIT_PROFILE. "Keep current default" / `keep` / an empty reply =
+"keep current default": INIT_PROFILE = null, write NOTHING. Choosing 'default' is also a
+no-op write (do not pin default explicitly). Only 'relaxed' or 'strict' set INIT_PROFILE
+to that value.
+
+**0a-config. Four project settings that change how work gets done (additive; the default answer keeps each default).**
 
 Q1-Q3 map to keys in `.agentic/config.json` (written once in Step 6f). Each answer is
 captured into a variable substituted into that single seed write - there is no separate
-config write. Empty input keeps the documented default exactly. Q4 does not write to
-`config.json`; it gates Step 6g only.
+config write. The default answer keeps the documented default exactly. Q4 does not write
+to `config.json`; it gates Step 6g only.
+
+With the structured-question tool, ask Q1-Q4 together in one call, each with its default
+option first: Q1 "No (Recommended)" / "Yes"; Q2 "default (Recommended)" / "budget"; Q3
+"No (Recommended)" / "Yes"; Q4 "Skip (Recommended)" / "Yes, seed it". Without the tool,
+ask them in order with the explicit-reply lines below.
 
 Q1 - Auto-merge on green CI?
 
@@ -111,9 +134,9 @@ Q1 - Auto-merge on green CI?
   > human merges (draft -> CI -> ready -> review -> you merge). "Yes" merges for you the
   > moment CI is green and the PR is ready.
   >
-  > Press Enter to keep the default (No). Or type y to enable auto-merge.
+  > Reply `n` to keep the default (No). Or reply y to enable auto-merge.
 
-  Capture as INIT_AUTOMERGE. Enter / n / no -> false (default). y / yes -> true.
+  Capture as INIT_AUTOMERGE. "No" / n / no / empty -> false (default). "Yes" / y / yes -> true.
 
 Q2 - Model profile for spawned agents: default or budget?
 
@@ -122,9 +145,9 @@ Q2 - Model profile for spawned agents: default or budget?
   > cheaper, faster tier to cut cost - at some capability cost on harder tasks. Security
   > reviews always use the strongest model regardless of this setting.
   >
-  > Press Enter to keep the default ("default"). Or type budget.
+  > Reply `default` to keep the default ("default"). Or reply budget.
 
-  Capture as INIT_MODELPROFILE. Enter / default -> "default". budget -> "budget". Any
+  Capture as INIT_MODELPROFILE. "default" / empty -> "default". budget -> "budget". Any
   other input: re-prompt once, then fall back to "default".
 
 Q3 - Diagnose failures with a debugger pass?
@@ -134,9 +157,9 @@ Q3 - Diagnose failures with a debugger pass?
   > "Yes" tends to produce better-targeted fixes at the cost of an extra step per failure.
   > "No" goes straight to the fix attempt (today's behavior).
   >
-  > Press Enter to keep the default (No). Or type y to enable debugger-on-failure.
+  > Reply `n` to keep the default (No). Or reply y to enable debugger-on-failure.
 
-  Capture as INIT_DEBUGGER. Enter / n / no -> false (default). y / yes -> true.
+  Capture as INIT_DEBUGGER. "No" / n / no / empty -> false (default). "Yes" / y / yes -> true.
 
 Q4 - Per-role / antagonist-reviewer model routing? (Pi / oh-my-pi only)
 
@@ -146,9 +169,9 @@ Q4 - Per-role / antagonist-reviewer model routing? (Pi / oh-my-pi only)
   > Enabling this seeds an editable `~/.agentic/role-models.yml` you fill in with the
   > models you have in Pi. Ignored on Claude/Codex/Gemini.
   >
-  > Press Enter to skip (no routing file; Pi uses session defaults). Or type y to seed it.
+  > Reply `skip` to skip (no routing file; Pi uses session defaults). Or reply y to seed it.
 
-  Capture as INIT_ROLEMODELS. Enter / n / no -> skip. y / yes -> seed in Step 6g.
+  Capture as INIT_ROLEMODELS. "Skip" / skip / n / no / empty -> skip. "Yes, seed it" / y / yes -> seed in Step 6g.
 
 Note: the other config keys (capability preflight, the QA-method toggles, Storybook,
 theme) are left at their safe defaults and detected automatically where relevant. They
@@ -200,10 +223,12 @@ Discovery complete. Here's what I found:
 
 Fields not shown were not detected and are optional — you can add them now or later.
 
-Press Enter to accept all, or tell me what to change (e.g. "project name is widgetco", "no web UI", "no gh", "use Jira").
+Reply `accept` (or `ok` / `yes`) to accept all, or tell me what to change (e.g. "project name is widgetco", "no web UI", "no gh", "use Jira").
 ```
 
 Show only fields where a value was found. Omit fields with no detection. Annotate low-confidence values with "(inferred — verify)".
+
+With the structured-question tool, print the block without its final `Reply accept ...` line, then ask one question with options "Accept all (Recommended)" / "Change something". "Change something" asks in free text what to change (offer the examples above); a free-text "Other" answer is itself the correction. Both route into the override grammar below.
 
 **Override grammar** — the user may correct any field in free-form. Recognized patterns:
 - "project name is X" → override project name
@@ -221,24 +246,26 @@ Show only fields where a value was found. Omit fields with no detection. Annotat
 
 ### Principle: Negative answers are sticky
 
-**Negative answers are sticky.** Whenever the user declines a feature in Step 1 - any "no X" / "skip X" override above, or any `n` / `no` / `neither` / `none` / `skip` answer (or empty Enter) to a y/N prompt below - record this as an explicit decline for that feature in the in-memory state. A declined feature must suppress ALL downstream prompts and actions about that feature in Steps 2a, 6, 6a, 7, 10, 11, and the final summary reminders in Step 12. Never re-prompt for something the user already declined. The only permissible follow-up after a decline is a single contradiction-resolution prompt when existing on-disk state conflicts with the decline (see Step 2a, Legacy `## Linear` migration).
+**Negative answers are sticky.** Whenever the user declines a feature in Step 1 - any "no X" / "skip X" override above, or any `n` / `no` / `neither` / `none` / `skip` answer (or the default option, or an empty reply) to a y/N prompt below - record this as an explicit decline for that feature in the in-memory state. A declined feature must suppress ALL downstream prompts and actions about that feature in Steps 2a, 6, 6a, 7, 10, 11, and the final summary reminders in Step 12. Never re-prompt for something the user already declined. The only permissible follow-up after a decline is a single contradiction-resolution prompt when existing on-disk state conflicts with the decline (see Step 2a, Legacy `## Linear` migration).
 
 Declinable features enumerated (each must be honored in every downstream step): project name (not declinable — required), description, tracks, database CLI, web UI, `gh`, tracker (Linear / Jira / neither), release, benchmarks, dep audit, **auto-memory pin** (new — declined via "no auto-memory" / "skip auto-memory pin"; suppresses Step 2a item 9, Step 7's `autoMemoryDirectory` write, and Step 12 reminder 12).
 
 When adding a new declinable feature to Step 1, extend the override grammar above AND wire the decline signal through every downstream step that prompts about or acts on that feature.
 
-Corrections patch in-memory state; they do not re-run discovery. After corrections, echo only the changed lines: "Updated: [field] → [value]. Anything else, or press Enter to continue."
+Corrections patch in-memory state; they do not re-run discovery. After corrections, echo only the changed lines: "Updated: [field] -> [value]. Anything else? Reply `done` (or `accept`) to continue, or tell me another change." With the structured-question tool, print the "Updated:" line and re-ask with options "Done (Recommended)" / "Change something else".
 
-**Exit conditions:** empty input (Enter), "done", or "accept" → proceed with current state.
+**Exit conditions:** "done", "accept", "ok", "yes", the "Accept all" / "Done" option, or a literal empty reply -> proceed with current state.
 
 **If tracker signals were found** but tracker is not already configured, prompt before the confirmation block ends. Accept numeric shortcuts in addition to named answers so the user can answer any tracker prompt with a digit.
 
-- **Linear only** → "Set up Linear tracker? [y/N]"
-  - Accept as **yes**: `y`, `yes`, `1`
-  - Accept as **no**: `n`, `no`, `2`, empty (Enter)
-- **Jira only** → "Set up Jira tracker? [y/N]"
-  - Accept as **yes**: `y`, `yes`, `1`
-  - Accept as **no**: `n`, `no`, `2`, empty (Enter)
+With the structured-question tool, ask each prompt below with its default first: single-tracker prompts "No (Recommended)" / "Yes"; the both-detected prompt "Neither (Recommended)" / "Linear" / "Jira". Without it, ask the user to reply with one of the listed answers.
+
+- **Linear only** → "Set up Linear tracker? Reply y or n."
+  - Accept as **yes**: `y`, `yes`, `1`, the "Yes" option
+  - Accept as **no**: `n`, `no`, `2`, the "No" option, an empty reply
+- **Jira only** → "Set up Jira tracker? Reply y or n."
+  - Accept as **yes**: `y`, `yes`, `1`, the "Yes" option
+  - Accept as **no**: `n`, `no`, `2`, the "No" option, an empty reply
 - **Both detected** → present a numbered list:
 
   ```
@@ -253,7 +280,7 @@ Corrections patch in-memory state; they do not re-run discovery. After correctio
   Accept:
   - **Linear**: `1`, `linear`
   - **Jira**: `2`, `jira`
-  - **Neither / skip**: `3`, `neither`, `none`, `skip`, `n`, `no`, empty (Enter)
+  - **Neither / skip**: `3`, `neither`, `none`, `skip`, `n`, `no`, the "Neither" option, an empty reply
 
 Wait for tracker confirmation before proceeding. A "no" / "neither" / "skip" / empty answer to any of the above prompts records tracker = **declined** in the in-memory state (per the "Negative answers are sticky" principle). Declined tracker suppresses Step 2a Linear migration prompts, Step 11 tracker setup, and the Step 12 Linear QA assignee reminder.
 
@@ -367,14 +394,14 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    ```
 
    Accept:
-   - `y` / `yes` / `1`: apply the split. Write the proposed `AGENTS.md`. Write the residual `CLAUDE.md`; if the residual is empty, replace `CLAUDE.md` with the `@AGENTS.md` import plus the memory marker and pointer lines of item 12 instead (root `MEMORY.md` is already ensured by Step 8 seeding within this same run). Append the MEMORY.md entries per Step 3's semantic-dedup merge rule. **Enter alone does NOT apply** - this is a destructive three-way write; require an explicit `y`.
-   - `n` / `no` / `2` / empty (Enter): abort the pre-AGENTS.md migration for this run. Do NOT proceed to items 1+ of Step 2a (which assume AGENTS.md exists) — instead, print: "Pre-AGENTS.md migration declined. Existing CLAUDE.md left untouched. /ds-init-project cannot continue in update mode without a canonical AGENTS.md. Re-run /ds-init-project later, or run the greenfield creation flow manually." and exit the command.
+   - `y` / `yes` / `1`: apply the split. Write the proposed `AGENTS.md`. Write the residual `CLAUDE.md`; if the residual is empty, replace `CLAUDE.md` with the `@AGENTS.md` import plus the memory marker and pointer lines of item 12 instead (root `MEMORY.md` is already ensured by Step 8 seeding within this same run). Append the MEMORY.md entries per Step 3's semantic-dedup merge rule. **An empty reply does NOT apply** - this is a destructive three-way write; require an explicit `y`.
+   - `n` / `no` / `2` / an empty reply: abort the pre-AGENTS.md migration for this run. Do NOT proceed to items 1+ of Step 2a (which assume AGENTS.md exists) - instead, print: "Pre-AGENTS.md migration declined. Existing CLAUDE.md left untouched. /ds-init-project cannot continue in update mode without a canonical AGENTS.md. Re-run /ds-init-project later, or run the greenfield creation flow manually." and exit the command.
    - `edit` / `e`: prompt for a free-form correction nudge ("What should change? One or two sentences."), then re-spawn the Worker with the original CLAUDE.md plus the user's nudge, re-spawn a fresh Skeptic (same run id, N incremented in its field 6 key), and present the revised three-way split. **Iteration cap: 3.** After 3 `edit` iterations, fall back to: "Three edit iterations reached. The split still needs manual review. Aborting /ds-init-project; edit CLAUDE.md and AGENTS.md manually, then re-run /ds-init-project." and exit.
 
    After a `y`-accepted split completes, proceed to item 1 below. The downstream items now operate against the newly-written `AGENTS.md`.
 
 1. **Legacy `## Linear` migration** — if `## Linear` exists but is missing `Workspace:` or `QA assignee ID:` fields:
-   - **First, check Step 1 tracker state.** If the user declined tracker in Step 1 (`no tracker` / "neither" / "skip" / Enter on the tracker prompt), do NOT prompt for Linear workspace slug, QA assignee UUID, or any other Linear field. Instead, ask ONCE - framed as contradiction resolution, not as a follow-up about whether to set up Linear:
+   - **First, check Step 1 tracker state.** If the user declined tracker in Step 1 (`no tracker` / "neither" / "skip" / the default option or an empty reply on the tracker prompt), do NOT prompt for Linear workspace slug, QA assignee UUID, or any other Linear field. Instead, ask ONCE - framed as contradiction resolution, not as a follow-up about whether to set up Linear:
 
      > "I see a `## Linear` section in AGENTS.md but you declined tracker setup in Step 1. Remove the `## Linear` section? [y/N]"
 
@@ -382,7 +409,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    - **Otherwise** (user accepted or confirmed Linear, or tracker is unspecified and there was no Step 1 decline):
      - Attempt to derive `Workspace`: scan git remote origin URL and last 50 commit messages for `linear.app/<slug>/` URL patterns. Use the slug if found.
      - Attempt to derive `QA assignee ID`: check for any UUID-shaped value already in the section.
-     - Prompt only for values that could not be derived: "What is your Linear workspace slug?" and/or "What is the Linear QA assignee UUID? (optional — press Enter to skip)".
+     - Prompt only for values that could not be derived: "What is your Linear workspace slug?" and/or "What is the Linear QA assignee UUID? (optional - reply `skip` to leave it unset)". `skip` or an empty reply leaves it unset.
      - Rewrite `## Linear` in place using the new canonical shape (see Step 11a for shape). Preserve `Projects:` if present. Preserve the old `Default assignee:` name as a comment line if it existed and differs from any new UUID.
 
 2. **Tracker mutual exclusion** — Linear and Jira are mutually exclusive:
@@ -470,7 +497,7 @@ No changes needed for: .gitignore, .claude/settings.json, [track] AGENTS.md file
 Proceed? [y/N]
 ```
 
-On "y": apply all planned changes. On "n" or Enter: abort with "Update cancelled. No files were modified."
+On "y": apply all planned changes. On "n" or an empty reply: abort with "Update cancelled. No files were modified."
 
 **Never destroy existing content.** All changes are additive or migrate-in-place. The `## Decisions` and `## Conventions` content in `AGENTS.md` is never overwritten — sections are only added if absent.
 
@@ -480,7 +507,7 @@ After applying changes, skip to Step 12 (Summary) — do not re-run Steps 3 thro
 
 **If `AGENTS.md` does not exist:** create from scratch using the template below. There is no existing content to preserve - proceed directly. Also create a `CLAUDE.md` at the project root containing `@AGENTS.md` followed by the memory marker and pointer lines of Step 2a item 12, so Claude Code loads the project instructions while `MEMORY.md` reaches only the main session via DinoStack's SessionStart hook. (Step 8 seeds the root `MEMORY.md` stub.)
 
-**Risk-profile marker (from the 0a-profile dialogue).** Placement is governed entirely by the `## Activation` section's conditional-assembly rules (see the template below, profile sub-block). When INIT_PROFILE is `relaxed` or `strict`, the active `agentic-engineering-profile: <value>` line is emitted *inside* the `## Activation` section in place of the commented `<!-- agentic-engineering-profile: default -->` helper (never both - that would contradict). When INIT_PROFILE is null (operator pressed Enter) or `default`, the section emits the commented profile helper instead and no active profile line is pinned - identical to today's resolution behavior (the global profile applies). Do not write a bare profile line elsewhere in `AGENTS.md`; the `## Activation` section is the single source of placement truth.
+**Risk-profile marker (from the 0a-profile dialogue).** Placement is governed entirely by the `## Activation` section's conditional-assembly rules (see the template below, profile sub-block). When INIT_PROFILE is `relaxed` or `strict`, the active `agentic-engineering-profile: <value>` line is emitted *inside* the `## Activation` section in place of the commented `<!-- agentic-engineering-profile: default -->` helper (never both - that would contradict). When INIT_PROFILE is null (operator kept the current default) or `default`, the section emits the commented profile helper instead and no active profile line is pinned - identical to today's resolution behavior (the global profile applies). Do not write a bare profile line elsewhere in `AGENTS.md`; the `## Activation` section is the single source of placement truth.
 
 **If `AGENTS.md` exists:** use the additive managed-block approach. No Worker is spawned; no existing content is removed, reordered, or compressed. The only change to the file is the addition or refresh of a delimited managed block. All user-authored content outside that block is left untouched. This command does NOT write any entries to `MEMORY.md` on the custom-file path.
 
@@ -577,7 +604,7 @@ When 3d-pre DID fire, the block omits the `## Activation` heading and the activa
      Follow it with the same profile sub-block described in rule 2.
 
   2. **Profile sub-block** (governs the profile lines in BOTH the base and opt-in cases):
-     - If `INIT_PROFILE` is null (operator pressed Enter, or typed `default`): emit the commented profile helper from the base block verbatim (the `<!-- agentic-engineering-profile: default -->` line and its explanatory comment). The global profile applies; nothing is pinned.
+     - If `INIT_PROFILE` is null (operator kept the current default, or chose `default`): emit the commented profile helper from the base block verbatim (the `<!-- agentic-engineering-profile: default -->` line and its explanatory comment). The global profile applies; nothing is pinned.
      - If `INIT_PROFILE` is `relaxed` or `strict`: emit an *active* (uncommented) `agentic-engineering-profile: <value>` line in place of the commented helper, and DO NOT also emit the commented `<!-- agentic-engineering-profile: default -->` helper (that would contradict the active line). Keep the short explanatory comment that introduces the profile line, but reword it so it does not reference a `default` value that is no longer chosen, e.g.:
        ```markdown
        <!--
@@ -642,7 +669,7 @@ When 3d-pre DID fire, the block omits the `## Activation` heading and the activa
   - Filesystem existence only - no LLM reasoning pass. Per-track scaffolds (`[track]/AGENTS.md`, `[track]/.agentic/qa.md`, `[track]/.agentic/deploy.md`) are out of scope for this session-start check - do not flag them.
   - Do NOT include `.agentic/preferences.json` or `.claude/settings.local.json` in the "missing" list. Both are gitignored per-developer files; their absence on a fresh checkout is expected and handled elsewhere (Step 6c creates `.agentic/preferences.json`; Step 7 creates `.claude/settings.local.json`).
   - If `.agentic/preferences.json` exists and contains `"skipScaffoldingCheck": true`, skip the check entirely.
-  - If anything is missing, prompt the user ONCE per session on one line: `Scaffolding check: missing [list]. Re-run the init-project scaffolding command (/ds-init-project in Claude Code, equivalent command in your tool) to fix? [y/N/never]`. `y` runs it; `N` or Enter defers to the next session; `never` performs a read-modify-write on `.agentic/preferences.json`: read the existing JSON (or `{}` if absent), set `skipScaffoldingCheck: true`, write the merged object back. Do not overwrite other keys.
+  - If anything is missing, prompt the user ONCE per session on one line: `Scaffolding check: missing [list]. Re-run the init-project scaffolding command (/ds-init-project in Claude Code, equivalent command in your tool) to fix? [y/N/never]`. `y` runs it; `N` or an empty reply defers to the next session; `never` performs a read-modify-write on `.agentic/preferences.json`: read the existing JSON (or `{}` if absent), set `skipScaffoldingCheck: true`, write the merged object back. Do not overwrite other keys.
   ```
 
 Keep it under 45 lines.
@@ -908,7 +935,7 @@ Seed with these documented defaults exactly:
 }
 ```
 
-**Substitute values into this seed before writing** (same single write - no second `config.json` write, no post-hoc edit; mirrors the Storybook `storybook_version`/`storybook_url` substitution below): `auto_merge_on_ci_green` <- INIT_AUTOMERGE (from dialogue), `model_profile` <- INIT_MODELPROFILE (from dialogue), `debugger_on_failure` <- INIT_DEBUGGER (from dialogue), `ticket_driven` <- derived from Step 1 tracker detection: `"offer"` when a tracker was confirmed in Step 1; `"off"` otherwise (not a dialogue answer - the user is not asked directly; it follows from whether a tracker was confirmed). When a dialogue variable is unset (operator pressed Enter), use the documented default already in the block above. The never-overwrite guard is unchanged: if `.agentic/config.json` already exists, the dialogue answers are discarded along with the rest of the seed (the operator's existing file wins).
+**Substitute values into this seed before writing** (same single write - no second `config.json` write, no post-hoc edit; mirrors the Storybook `storybook_version`/`storybook_url` substitution below): `auto_merge_on_ci_green` <- INIT_AUTOMERGE (from dialogue), `model_profile` <- INIT_MODELPROFILE (from dialogue), `debugger_on_failure` <- INIT_DEBUGGER (from dialogue), `ticket_driven` <- derived from Step 1 tracker detection: `"offer"` when a tracker was confirmed in Step 1; `"off"` otherwise (not a dialogue answer - the user is not asked directly; it follows from whether a tracker was confirmed). When a dialogue variable is unset (operator kept the default), use the documented default already in the block above. The never-overwrite guard is unchanged: if `.agentic/config.json` already exists, the dialogue answers are discarded along with the rest of the seed (the operator's existing file wins).
 
 - `debugger_on_failure` - boolean, default `false` (opt-in). When `true`, the Elevated-path quality gate in `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. The default preserves existing behavior.
 - `qa_default_skip` - reserved key, default `null` (unset). Documented for schema completeness; does not currently alter QA-gate behavior. Canonical definition lives in `content/references/planning-artifacts.md`.
@@ -1101,7 +1128,7 @@ To draft this intent layer instead of writing it by hand, spawn the `product-dis
 
 ### 11. Set up tracker
 
-Only run if the user confirmed a specific tracker (Linear or Jira) in Step 1. If tracker was "none", "neither", declined (`no tracker` / empty-Enter or `n`/`no`/`2`/`3` on any tracker prompt), or not confirmed, skip this step entirely — do not prompt for API keys, workspace slug, team key, project key, base URL, or any other tracker field.
+Only run if the user confirmed a specific tracker (Linear or Jira) in Step 1. If tracker was "none", "neither", declined (`no tracker` / the default option, an empty reply, or `n`/`no`/`2`/`3` on any tracker prompt), or not confirmed, skip this step entirely - do not prompt for API keys, workspace slug, team key, project key, base URL, or any other tracker field.
 
 Prompt: *Write tracker config to `AGENTS.md` (shared, committed) or `.agentic/tracker.yml` (local, gitignored)? `[A/l]`* - default `A` = exactly today's behavior (write the `## Linear` / `## Tracker` section to `AGENTS.md` as below). On `l`, invoke `ds-tracker init --tracker {jira,linear} --prefix ... [--base-url ... | --workspace ...] [--qa-assignee ...]` with the same values gathered below, and skip the `## Linear` / `## Tracker` `AGENTS.md` write entirely - the two are mutually exclusive per invocation.
 
@@ -1155,7 +1182,7 @@ If `lc` was already installed, run `lc doctor` to verify the connection. If it f
 # Pipeline order: IN_PROGRESS, IN_REVIEW, QA
 ```
 
-Place after `## Tools`. Prompt for: team key (required), workspace slug (required), QA assignee UUID (optional — "press Enter to skip"). If the user did not provide project names, omit the `Projects:` line.
+Place after `## Tools`. Prompt for: team key (required), workspace slug (required), QA assignee UUID (optional - "reply `skip` to leave it unset"; `skip` or an empty reply leaves it unset). If the user did not provide project names, omit the `Projects:` line.
 
 Run `lc doctor` to confirm the connection. If it fails, add a reminder to the summary with the manual steps.
 
