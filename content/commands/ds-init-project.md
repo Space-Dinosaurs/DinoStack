@@ -35,12 +35,16 @@ Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" 
 
 This step runs before Step 0 discovery below because an opt-in decline should short-circuit the entire command.
 
-**Answering prompts in this command.** Never tell the operator to press Enter: in most
-harnesses an empty Enter submits nothing, so there is no way to accept. Instead:
+**Answering prompts in this command.** Never tell the operator to press Enter: in Claude
+Code (and any harness that does not deliver an empty submission) an empty Enter sends
+nothing, so there is no way to accept. Instead:
 
 - Where the harness provides a structured-question tool (Claude Code `AskUserQuestion`),
-  present each choice through it, with the default/accept option listed first and its
-  label ending in "(Recommended)". Group independent questions into one call where the
+  present each choice through it. List first, with its label ending in "(Recommended)",
+  the option an empty reply selected before: the capitalized letter in `[y/N]`, `[Y/n]`,
+  `[y/N/edit]`, `[y/N/never]` or `[A/l]`, or the stated default. On a `[y/N]`-style prompt
+  that option is the No/abort choice, never the destructive or accepting one. Group
+  independent questions into one call where the
   tool allows (up to 4 questions per call). A free-text "Other" answer is parsed with the
   same rules as a typed reply.
 - Otherwise, ask the user to reply with an explicit word (e.g. `accept`, `skip`, `n`),
@@ -104,11 +108,12 @@ change gets. Present:
   > applies). Or reply relaxed / default / strict.
 
 With the structured-question tool, ask it as one question with options "Keep current
-default (Recommended)" / "relaxed" / "default" / "strict" (the explanation above goes in
-the question text).
+default (Recommended)" / "relaxed" / "strict" (the explanation above goes in the question
+text; choosing `default` is the same no-op as keeping the current default, so it is not a
+separate option).
 
 Capture the answer as INIT_PROFILE. "Keep current default" / `keep` / an empty reply =
-"keep current default": INIT_PROFILE = null, write NOTHING. Choosing 'default' is also a
+"keep current default": INIT_PROFILE = null, write NOTHING. Typing 'default' is also a
 no-op write (do not pin default explicitly). Only 'relaxed' or 'strict' set INIT_PROFILE
 to that value.
 
@@ -121,8 +126,10 @@ to `config.json`; it gates Step 6g only.
 
 With the structured-question tool, ask Q1-Q4 together in one call, each with its default
 option first: Q1 "No (Recommended)" / "Yes"; Q2 "default (Recommended)" / "budget"; Q3
-"No (Recommended)" / "Yes"; Q4 "Skip (Recommended)" / "Yes, seed it". Without the tool,
-ask them in order with the explicit-reply lines below.
+"No (Recommended)" / "Yes"; Q4 "Skip (Recommended)" / "Yes, seed it". Put each
+question's plain-English explanation below in that question's text (option descriptions
+may carry what each choice does), so no explanation is dropped. Without the tool, ask them
+in order with the explicit-reply lines below.
 
 Q1 - Auto-merge on green CI?
 
@@ -220,7 +227,7 @@ Discovery complete. Here's what I found:
 
 Fields not shown were not detected and are optional — you can add them now or later.
 
-Reply `accept` (or `ok` / `yes`) to accept all, or tell me what to change (e.g. "project name is widgetco", "no web UI", "no gh", "use Jira").
+Reply `accept` to accept all, or tell me what to change (e.g. "project name is widgetco", "no web UI", "no gh", "use Jira").
 ```
 
 Show only fields where a value was found. Omit fields with no detection. Annotate low-confidence values with "(inferred — verify)".
@@ -251,7 +258,7 @@ When adding a new declinable feature to Step 1, extend the override grammar abov
 
 Corrections patch in-memory state; they do not re-run discovery. After corrections, echo only the changed lines: "Updated: [field] -> [value]. Anything else? Reply `done` (or `accept`) to continue, or tell me another change." With the structured-question tool, print the "Updated:" line and re-ask with options "Done (Recommended)" / "Change something else".
 
-**Exit conditions:** "done", "accept", "ok", "yes", the "Accept all" / "Done" option, or a literal empty reply -> proceed with current state.
+**Exit conditions:** "done", "accept", the "Accept all" / "Done" option, or a literal empty reply -> proceed with current state. A `y` / `yes` / `n` / `no` / digit reply is never an accept-all; it answers the pending tracker prompt, if any.
 
 **If tracker signals were found** but tracker is not already configured, prompt before the confirmation block ends. Accept numeric shortcuts in addition to named answers so the user can answer any tracker prompt with a digit.
 
