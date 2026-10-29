@@ -21372,7 +21372,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 
 **Skip conditions:**
 - Phase 9 was skipped (no PR was opened): skip Phase 11b entirely. Lock acquisition below is never attempted - there is nothing to release.
-- The current ticket was Trivial: skip with `skipped_reason: "trivial-no-brief"`. Do NOT spawn `wrap-ticket`. Lock acquisition below is never attempted - there is nothing to release.
+- The current ticket was Trivial, or Low under the small single-concern override: skip with `skipped_reason: "trivial-no-brief"`. Do NOT spawn `wrap-ticket`. Lock acquisition below is never attempted - there is nothing to release.
 
 **Spawn:** `wrap-ticket` (Tier 1, foreground, blocking, 60-second timeout).
 
