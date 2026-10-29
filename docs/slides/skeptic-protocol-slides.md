@@ -312,8 +312,8 @@ The 3-pass Skeptic cap and the per-finding 2-re-route rule are separate ceilings
 On round 2+, or any round answering a human or bot review, the primary agent adds a preflight list under its own heading, outside the brief paragraph, so the fresh Skeptic doesn't re-raise a prior finding as a new one:
 
 ```
-The following findings were raised in prior rounds and the Worker has
-since claimed a fix. Determine for yourself whether each is now resolved:
+The following findings were raised in prior rounds (fix since claimed) or
+in a human or automated review (H<n>). Determine whether each is resolved:
 
 [C1: Missing auth check on /admin endpoint]
 [M1: No error handling on payment callback]
@@ -321,7 +321,7 @@ since claimed a fix. Determine for yourself whether each is now resolved:
 
 **Inside the persistence loop:** the preflight list is backed by `findings_log` - a structured in-context accumulator tracking every finding across all iterations (`id`, `description`, `severity`, `first_raised`, `status`, `re_raised`); the brief carries id and description only. When the Skeptic re-raises an addressed finding it uses `[PREV: <id>]` so the conductor can mechanically detect it and update `re_raised: true`.
 
-**Auto-close rule:** when the Skeptic grants sign-off (zero new findings), ALL `findings_log` entries with `status: open` or `status: addressed` are automatically closed. The absence of re-raise is an implicit confirmation that all fixes were accepted.
+**Auto-close rule:** an entry the Skeptic marks CLOSED closes that round; on sign-off (zero new findings), ALL remaining `status: open` or `status: addressed` entries close. The absence of re-raise is an implicit confirmation that all fixes were accepted.
 
 <div class="callout">
 Fresh context for independence. Preflight list for efficiency. findings_log for accountability across iterations.

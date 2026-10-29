@@ -196,8 +196,8 @@ The conductor maintains an exchange log across Skeptic rounds to enforce the 2-r
 Before invoking each new Skeptic (rounds 2+, any round answering a human review, or any round while a PR with automated-reviewer threads is open), the primary agent adds this block under its own heading (`**Resolved issues preflight:**` or a `##` line), never inside the adversarial brief paragraph, where the neutrality hook reads a quoted review as a steer:
 
 ```
-The following findings were raised in prior rounds and the Worker has since
-claimed a fix. Determine for yourself whether each is now resolved; do not
+The following findings were raised in prior rounds, with a fix since claimed,
+or in a human or automated review (H<n>). Determine for yourself whether each is now resolved; do not
 raise one as a new finding without saying which prior finding it is.
 
 [C1: <description of finding>]
