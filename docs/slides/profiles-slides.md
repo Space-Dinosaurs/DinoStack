@@ -184,7 +184,7 @@ Tune how aggressively the system reviews your work
 The system has a single tunable: how much Skeptic overhead to apply.
 
 - **relaxed** - move fast, less review. Low-risk overrides are broadened so routine UI work skips Skeptic entirely.
-- **default** - balanced. Single-file locally-scoped behavioral edits are Low. Everything else stays at standard Elevated thresholds.
+- **default** - balanced. Single-file locally-scoped behavioral edits and small single-concern changes (under 100 lines) are Low. Everything else stays at standard Elevated thresholds.
 - **strict** - maximum correctness gates. Changes that would normally be Low become Elevated and trigger a full Skeptic round.
 
 <div class="callout">
@@ -206,9 +206,9 @@ Profiles are not a security dial - they tune review cadence. The underlying risk
 **For rapid iteration on well-understood UI or local bug fixes**
 
 - Ephemeral chat advice: **Low** only as a no-investigation answer from context already held
-- Single-file locally-scoped behavioral edits: **Low** (no Skeptic)
+- Single-file local edits and small single-concern changes (under 100 lines): **Low** (no Skeptic)
 - Multi-file pure-UI-only changes: **Low** (no Skeptic)
-- Any other Elevated signal wins; default and strict are unchanged
+- Any other Elevated signal wins
 
 </div>
 
@@ -231,6 +231,7 @@ After activation, answer only from held context. Explicit unfamiliar or multi-re
 **The starting point for all projects**
 
 - Single-file locally-scoped behavioral edits: **Low** (no Skeptic)
+- Small single-concern changes (one source file plus tests/docs, under 100 changed lines): **Low** (no Skeptic)
 - All other legacy Elevated signals remain **Elevated**
 - Multi-file UI-only changes: **Elevated** (Skeptic runs)
 - The right choice for most day-to-day work
@@ -238,7 +239,7 @@ After activation, answer only from held context. Explicit unfamiliar or multi-re
 </div>
 
 <div class="callout">
-If you're not sure which profile to use, stay on default. It gives you one meaningful Low override (single-file local edits) without opening the floodgates on review.
+If you're not sure which profile to use, stay on default. It gives you two Low overrides (single-file local edits; small single-concern changes) without opening the floodgates on review.
 </div>
 
 ---
@@ -258,8 +259,8 @@ If you're not sure which profile to use, stay on default. It gives you one meani
 - UI-only copy changes: **Elevated** (Skeptic runs)
 - File renaming: **Elevated** (Skeptic runs)
 - Targeted wording fixes to already-reviewed content: **Elevated** (Skeptic runs)
-- Diagnostic-only logging changes: **Low with self-check** (not unconditionally direct)
-- Documentation-only file creation (new .md files that are pure lists/notes): **Low with self-check** (not unconditionally direct)
+- Diagnostic-only logging and documentation-only file creation (pure lists/notes): **Low with self-check** (not unconditionally direct)
+- Small single-concern changes: **Elevated** (Skeptic runs)
 
 </div>
 

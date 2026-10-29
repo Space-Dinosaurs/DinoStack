@@ -2350,6 +2350,7 @@
           <li>Ephemeral chat advice: Low only when chat-only, write-free, non-binding, and not downstream criteria</li>
           <li>Single-file locally-scoped behavioral edits: Low (no Skeptic)</li>
           <li>Multi-file pure-UI-only changes: Low (no Skeptic)</li>
+          <li>Small single-concern changes (one source file plus tests/docs, under 100 changed lines): Low (no Skeptic)</li>
           <li>Any other Elevated signal wins; default and strict are unchanged</li>
         </ul>
       </div>
@@ -2360,6 +2361,7 @@
         <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">The starting point for all projects. Right for most day-to-day work.</p>
         <ul>
           <li>Single-file locally-scoped behavioral edits: Low (no Skeptic)</li>
+          <li>Small single-concern changes (one source file plus tests/docs, under 100 changed lines): Low (no Skeptic)</li>
           <li>All other legacy Elevated signals remain Elevated</li>
           <li>Multi-file UI-only changes: Elevated (Skeptic runs)</li>
         </ul>
@@ -2376,6 +2378,7 @@
         <li>Targeted wording fixes to already-reviewed content: Elevated (Skeptic runs)</li>
         <li>Diagnostic-only logging changes: Low with self-check (not unconditionally direct)</li>
         <li>Documentation-only file creation (new .md files that are pure lists/notes): Low with self-check (not unconditionally direct)</li>
+        <li>Small single-concern changes: Elevated (Skeptic runs)</li>
       </ul>
     </div>
   </div>

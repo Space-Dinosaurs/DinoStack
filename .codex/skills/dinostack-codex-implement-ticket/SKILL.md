@@ -1266,7 +1266,7 @@ Focus on understanding enough to make a solid plan - don't over-read.
 
 **Investigator conditional:** If the task risk is **Low or above AND** the code area touched by this ticket is unfamiliar to the current session (files not yet read, subsystems not yet traced), spawn an `investigator` agent first. Pass its brief to the Architect in Phase 3. Skip this step if Phase 2 reads already covered the relevant area.
 
-Trivial-classified tickets skip the investigator (not required); the shippable change is still performed by a worktree-isolated `engineer` (no Skeptic, no brief) per $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Risk Classification - the conductor does not edit the shippable tree directly.
+Trivial-classified tickets skip the investigator (not required); the shippable change is still performed by a worktree-isolated `engineer` (no Skeptic, no brief) per $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Risk Classification - the conductor does not edit the shippable tree directly. A `Low` ticket that qualifies under the small single-concern override (`$AE_REPO_DIR/content/sections/04-risk-classification.md` §Profile deltas) follows this command's Trivial-path branches - no investigator, architect, planner, Skeptic, or QA gate - and sets `QA_STATUS="skipped:Low path"`. Its brief states the override's bounds; if the diff breaks one, the engineer stops and reports, the ticket is reclassified Elevated, and Phase 6 reviews the diff.
 
 ### Ticket-rework escalation: Elevated risk floor
 

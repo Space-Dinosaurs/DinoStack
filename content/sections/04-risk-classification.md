@@ -88,7 +88,7 @@ Decision corpus:
 - Decide or adopt architecture is Elevated in every profile.
 - Write an ADR, plan, or spec is Elevated in every profile.
 - Advisory work where the user explicitly requests unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated in every profile.
-- An implementation request is Elevated in every profile.
+- An implementation request never qualifies for this override; it is Elevated unless a named Low or Trivial override fully qualifies.
 
 The `default` and `strict` profiles are unchanged by this override. Chat becomes binding only when
 promoted to a ticket, Brief, Plan, ADR, requirements or decision artifact, acceptance criteria, or
@@ -101,15 +101,19 @@ implementation request.
   - Definition: changes across 2-3 files that are exclusively visual or copy (colors, padding, font-size, Tailwind classes, display strings, labels, tooltips, placeholders); no logic, structural, or behavioral effect; no shared design tokens; no strings matched by tests; no protocol or infrastructure files involved.
 - **Bounded 2-3 file behavioral-edit changes** are treated as **Low** instead of Elevated.
   - Definition: touches exactly 2-3 files. **Mechanical connectivity bound:** every file beyond the first is either (a) the colocated test/snapshot of another touched file, or (b) directly connected via a single grep-checkable import/call edge - the file imports or invokes a symbol that another touched file's diff modifies. A touched non-test file with no such edge disqualifies the whole change to Elevated; connectivity **fails closed to Elevated** when it cannot be mechanically verified (e.g., an operator config flip with no renamed symbol to trace). Total changed lines (added + removed) across all files <= 30. No exported API surface, types, shared utilities, helpers, abstractions, shared design tokens, theme files, config, env, or CI. **Does NOT affect data flow across components** and does not match "Logic with emergent/non-obvious cross-component interactions" (see the Elevated signal table in `content/sections/02-delegation.md`) - ported from the single-file override's guardrail. Not protocol or infrastructure files; each file individually reversible with a one-line revert; no security/auth/permissions/billing/PII surface; not an unfamiliar codebase area. **Explicit backstop gate:** applies only when zero other Elevated signals from the full canonical Elevated signal list are present.
+- **Small single-concern code changes** are treated as **Low** instead of Elevated (same definition as `default` below).
 
 **`default` (compared to legacy):**
 - **Single-file, locally-scoped code edits with behavioral effect** are treated as **Low** instead of Elevated (same definition as `relaxed` above). All other signals remain at their legacy levels.
+- **Small single-concern code changes** are treated as **Low** instead of Elevated (also in `relaxed`; removed in `strict`).
+  - Definition: exactly one production source file changed, plus optionally test, fixture, snapshot, and documentation files; total changed lines under 100 (insertions + deletions, test files included; binaries, lockfiles, and generated files excluded); every non-file-count exclusion of the single-file override holds; overrides "Multi-file change", "New file creation" (non-production files only), "Any code edit with behavioral effect", and "Unfamiliar codebase area" for this case only - every other Elevated signal still wins. One worktree-isolated `engineer` executes it with no architect, planner, or Skeptic; before pushing, it checks its actual diff against this definition, and on any failed clause stops and reports, and the task is reclassified Elevated (§Mid-task reclassification).
 
 **`strict` (removed Low overrides):**
 - **UI-only copy changes** are treated as **Elevated**; the Low override is removed.
 - **File renaming** is treated as **Elevated**; the Low override is removed.
 - **Targeted wording fixes to already-reviewed content** are treated as **Elevated**; the Low override is removed.
 - **Diagnostic-only changes** and **documentation-only file creation** remain direct-action eligible but require the conductor's inline self-check (they are treated as Low rather than unconditionally direct).
+- **Small single-concern code changes** are treated as **Elevated**; the Low override is removed.
 
 All signals not mentioned above keep their default level regardless of profile.
 

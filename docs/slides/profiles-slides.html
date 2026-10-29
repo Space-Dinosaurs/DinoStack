@@ -338,7 +338,7 @@ hr {
 <p>The system has a single tunable: how much Skeptic overhead to apply.</p>
 <ul>
 <li><strong>relaxed</strong> - move fast, less review. Low-risk overrides are broadened so routine UI work skips Skeptic entirely.</li>
-<li><strong>default</strong> - balanced. Single-file locally-scoped behavioral edits are Low. Everything else stays at standard Elevated thresholds.</li>
+<li><strong>default</strong> - balanced. Single-file locally-scoped behavioral edits and small single-concern changes (under 100 lines) are Low. Everything else stays at standard Elevated thresholds.</li>
 <li><strong>strict</strong> - maximum correctness gates. Changes that would normally be Low become Elevated and trigger a full Skeptic round.</li>
 </ul>
 <div class="callout">
@@ -511,9 +511,9 @@ hr {
 <p><strong>For rapid iteration on well-understood UI or local bug fixes</strong></p>
 <ul>
 <li>Ephemeral chat advice: <strong>Low</strong> only as a no-investigation answer from context already held</li>
-<li>Single-file locally-scoped behavioral edits: <strong>Low</strong> (no Skeptic)</li>
+<li>Single-file local edits and small single-concern changes (under 100 lines): <strong>Low</strong> (no Skeptic)</li>
 <li>Multi-file pure-UI-only changes: <strong>Low</strong> (no Skeptic)</li>
-<li>Any other Elevated signal wins; default and strict are unchanged</li>
+<li>Any other Elevated signal wins</li>
 </ul>
 </div>
 <div class="callout">
@@ -686,13 +686,14 @@ hr {
 <p><strong>The starting point for all projects</strong></p>
 <ul>
 <li>Single-file locally-scoped behavioral edits: <strong>Low</strong> (no Skeptic)</li>
+<li>Small single-concern changes (one source file plus tests/docs, under 100 changed lines): <strong>Low</strong> (no Skeptic)</li>
 <li>All other legacy Elevated signals remain <strong>Elevated</strong></li>
 <li>Multi-file UI-only changes: <strong>Elevated</strong> (Skeptic runs)</li>
 <li>The right choice for most day-to-day work</li>
 </ul>
 </div>
 <div class="callout">
-If you're not sure which profile to use, stay on default. It gives you one meaningful Low override (single-file local edits) without opening the floodgates on review.
+If you're not sure which profile to use, stay on default. It gives you two Low overrides (single-file local edits; small single-concern changes) without opening the floodgates on review.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="5" data-marpit-scope-s004="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -863,8 +864,8 @@ hr {
 <li>UI-only copy changes: <strong>Elevated</strong> (Skeptic runs)</li>
 <li>File renaming: <strong>Elevated</strong> (Skeptic runs)</li>
 <li>Targeted wording fixes to already-reviewed content: <strong>Elevated</strong> (Skeptic runs)</li>
-<li>Diagnostic-only logging changes: <strong>Low with self-check</strong> (not unconditionally direct)</li>
-<li>Documentation-only file creation (new .md files that are pure lists/notes): <strong>Low with self-check</strong> (not unconditionally direct)</li>
+<li>Diagnostic-only logging and documentation-only file creation (pure lists/notes): <strong>Low with self-check</strong> (not unconditionally direct)</li>
+<li>Small single-concern changes: <strong>Elevated</strong> (Skeptic runs)</li>
 </ul>
 </div>
 <div class="callout">
