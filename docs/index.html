@@ -1559,7 +1559,7 @@
           <ul>
             <li><strong>Rule 1 - Always background.</strong> Most critical rule. Foreground blocks the conductor entirely. All delegated work runs in background.</li>
             <li><strong>Rule 2 - Parallel by default.</strong> Independent tasks spawn simultaneously. "Can I start B before A finishes?"</li>
-            <li><strong>Rule 3 - Spawn threshold.</strong> Elevated risk &rarr; spawn. Low risk &rarr; direct action. When in doubt, Elevated.</li>
+            <li><strong>Rule 3 - Spawn threshold.</strong> Elevated risk &rarr; spawn. Low risk &rarr; direct action, except a small single-concern code change, which gets one engineer. When in doubt, Elevated.</li>
             <li><strong>Rule 4 - Agent type discipline:</strong> spawn an agent type that exists. No subagent can spawn subagents (a platform property of every subagent). Low-risk shell/git is conductor-direct - there is no shell-only agent type.</li>
             <li><strong>Rule 5 - Skeptic Protocol orchestrated by main agent.</strong> Architect plans must receive Skeptic review before acting on them.</li>
             <li><strong>Rule 6 - Check in, don't disappear.</strong> Status updates immediately after spawning. Proactive reporting when tasks complete.</li>
@@ -2350,7 +2350,8 @@
           <li>Ephemeral chat advice: Low only when chat-only, write-free, non-binding, and not downstream criteria</li>
           <li>Single-file locally-scoped behavioral edits: Low (no Skeptic)</li>
           <li>Multi-file pure-UI-only changes: Low (no Skeptic)</li>
-          <li>Any other Elevated signal wins; default and strict are unchanged</li>
+          <li>Small single-concern changes (one source file plus tests/docs, under 100 changed lines): Low (no Skeptic)</li>
+          <li>Any other Elevated signal wins</li>
         </ul>
       </div>
     </div>
@@ -2360,6 +2361,7 @@
         <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">The starting point for all projects. Right for most day-to-day work.</p>
         <ul>
           <li>Single-file locally-scoped behavioral edits: Low (no Skeptic)</li>
+          <li>Small single-concern changes (one source file plus tests/docs, under 100 changed lines): Low (no Skeptic)</li>
           <li>All other legacy Elevated signals remain Elevated</li>
           <li>Multi-file UI-only changes: Elevated (Skeptic runs)</li>
         </ul>
@@ -2376,12 +2378,13 @@
         <li>Targeted wording fixes to already-reviewed content: Elevated (Skeptic runs)</li>
         <li>Diagnostic-only logging changes: Low with self-check (not unconditionally direct)</li>
         <li>Documentation-only file creation (new .md files that are pure lists/notes): Low with self-check (not unconditionally direct)</li>
+        <li>Small single-concern changes: Elevated (Skeptic runs)</li>
       </ul>
     </div>
   </div>
 
   <div class="note" style="border-left-color: var(--cyan); margin-top: 16px;">
-    <strong>Token spend:</strong> The Elevated classification is the dominant cost driver. Each Elevated task fans out to a Worker + Skeptic - and often an architect, orchestration-planner, and QA engineer - each re-reading full context. Moving from <code>strict</code> or <code>default</code> toward <code>relaxed</code> reclassifies more small work as Low (conductor direct action, no spawns), removing that pipeline overhead entirely. Accept the tradeoff: <code>relaxed</code> trades independent review for speed; keep <code>default</code> or <code>strict</code> wherever a mistake is hard to reverse.
+    <strong>Token spend:</strong> The Elevated classification is the dominant cost driver. Each Elevated task fans out to a Worker + Skeptic - and often an architect, orchestration-planner, and QA engineer - each re-reading full context. Moving from <code>strict</code> or <code>default</code> toward <code>relaxed</code> reclassifies more small work as Low, removing most of that pipeline overhead: Low work is conductor direct action, except small single-concern code changes, which get one worktree-isolated engineer and no architect or Skeptic. Accept the tradeoff: <code>relaxed</code> trades independent review for speed; keep <code>default</code> or <code>strict</code> wherever a mistake is hard to reverse.
   </div>
 
   <div class="note" style="border-left-color: var(--green); margin-top: 12px;">

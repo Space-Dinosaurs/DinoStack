@@ -247,10 +247,14 @@ def test_relaxed_implementation_routes_before_existing_branch_inspection() -> No
         f"found copies in {binding_sites}"
     )
 
+    IMPLEMENTATION_POINTER = (
+        "Implementation requests are state-changing Elevated "
+        "(or Low under the small single-concern override), not relaxed advice"
+    )
     pointer_requirements = {
-        DELEGATION: ("Implementation requests are state-changing Elevated", "exclusively governs"),
-        SUBAGENT: ("Implementation requests are state-changing Elevated", "canonical pre-read"),
-        DETAIL: ("Implementation requests are state-changing Elevated", "defined only in"),
+        DELEGATION: (IMPLEMENTATION_POINTER, "exclusively governs"),
+        SUBAGENT: (IMPLEMENTATION_POINTER, "canonical pre-read"),
+        DETAIL: (IMPLEMENTATION_POINTER, "defined only in"),
     }
     for path, fragments in pointer_requirements.items():
         compact = " ".join(_read(path).split())

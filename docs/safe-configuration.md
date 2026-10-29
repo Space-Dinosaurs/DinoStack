@@ -228,15 +228,17 @@ adapters rely on the prose rule alone.
 ## Risk profiles
 
 The methodology supports three risk profiles that move the line between Low
-(direct action) and Elevated (Worker plus Skeptic). Set the profile in
+(direct action, or one engineer for a small single-concern change) and Elevated
+(Worker plus Skeptic). Set the profile in
 `~/.claude/agentic-engineering.json` or per-project via an
 `agentic-engineering-profile:` marker in `AGENTS.md`
 ([content/sections/04-risk-classification.md](../content/sections/04-risk-classification.md)):
 
 - **`relaxed`** - more work treated as Low; minimal Skeptic overhead. For rapid
   iteration on well-understood code you trust.
-- **`default`** - single-file locally-scoped behavioral edits are Low;
-  everything else Elevated.
+- **`default`** - single-file locally-scoped behavioral edits and small
+  single-concern code changes (one source file plus tests/docs, under 100
+  changed lines) are Low; everything else Elevated.
 - **`strict`** - more work treated as Elevated; broad Skeptic coverage. For when
   correctness matters more than speed.
 
@@ -264,9 +266,10 @@ architect, orchestration-planner, and QA engineer too), each re-reading context.
 Small tasks pay the full pipeline.
 
 The **risk profile** is the primary lever for cutting that cost. Moving from
-`strict` or `default` toward `relaxed` reclassifies more small work as Low
-(conductor direct action, no spawns), which removes the Worker + Skeptic
-overhead entirely. See the [Risk profiles](#risk-profiles) section above for
+`strict` or `default` toward `relaxed` reclassifies more small work as Low, which removes the Skeptic and most of
+the pipeline: Low work is conductor direct action, except small single-concern
+code changes, which get one worktree-isolated engineer and no architect or
+Skeptic. See the [Risk profiles](#risk-profiles) section above for
 the full list of which signals shift at each level.
 
 ### Tradeoff

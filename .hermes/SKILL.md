@@ -97,7 +97,7 @@ applied - check a judgment call against these before acting on it.
 
 **All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default, and `hooks/enforce-background-spawn.py` enforces background-by-default on both `Task` and `Agent`. The conductor norm on Claude Code: omit `run_in_background` entirely on `Agent` spawns and rely on the harness default; never pass `false`. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because the conductor holds `.agentic/wrap/lock` for its duration and Phase 12 cleanup must wait for it to return; treat that as a behavioral property of `wrap-ticket`, not a general exemption. For the payload-capture history and the asymmetric allow/deny hook mechanics: read `content/references/delegation-detail.md` §Background-Spawn Enforcement Detail.
 
-**Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
+**Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action, except a small single-concern code change, which goes to one worktree-isolated `engineer` (no Skeptic). Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
 **No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once - **Decision stability** below is the general form of this rule.
 
@@ -110,7 +110,7 @@ gate, or a runtime validation or rejection branch; error handling the requested 
 one, and a test file, including a prose-pin test, is not one either and is graded as a test by
 `content/agents/skeptic.md` step 3.8. When
 completion requires an architecture decision or significant scope expansion, reclassify and route
-that work through the applicable protocol rather than silently expanding it.
+that work through the applicable protocol rather than silently expanding it. The same bound covers spawn briefs and plans: neither a conductor brief nor an architect plan adds user-observable behavior - a control, mode, timer, threshold, or state - that no accepted source states or clearly implies. The accepted sources are the ticket's acceptance text, a recorded operator decision, and the operator's request when there is no ticket; any other such addition goes to the operator as a decision. Implementation choices the ticket leaves open stay with the architect or engineer, and a reviewed plan step or `serves` mapping justifies only such choices, never added user-observable behavior.
 
 **Finish mode.** A PR enters finish mode once approved: an approving review, a QA pass, or a clean Skeptic
 sign-off with green CI. At entry its remaining work is pinned: merge conflicts (resolutions reviewed per
@@ -233,7 +233,7 @@ Never start project exploration as Low and promise to promote later; an explicit
 multi-read investigation request is Elevated before any project-content read.
 If that required named-agent route cannot start, the canonical fail-closed rule applies: report
 the blocker or stay within bounded context-only advice, never substitute direct project exploration.
-Implementation requests are state-changing Elevated, not relaxed advice. Route them through the
+Implementation requests are state-changing Elevated (or Low under the small single-concern override), not relaxed advice. Route them through the
 named Engineer/Worker as specified by `content/sections/04-risk-classification.md` §Relaxed
 ephemeral chat-advice override, which exclusively governs pre-read timing, candidate branches, and
 fail-closed behavior.
@@ -250,6 +250,7 @@ fail-closed behavior.
 | UI-only copy changes (rewording display strings, labels, tooltips, or placeholder text with no logic, structural, or behavioral effect; does not apply to error messages that drive control flow, strings matched by tests, or protocol/infrastructure files; overrides "Any code edit with behavioral effect" for this case only) | Yes | No |
 | File renaming (rename/move files with no content changes to any file - neither the renamed file nor any other file; does not apply to protocol/infrastructure files; does not apply if any other files reference the renamed path - those reference updates are content changes making the operation Elevated; does not apply if the file's name or path has behavioral significance by convention - framework routing, auto-discovery, config naming - the rename changes behavior without changing file contents; overrides "New file creation", "Multi-file change", and "Bash with side effects" signals for this case only) | Yes | No |
 | Bounded 2-3 file behavioral-edit change (relaxed profile only; see `content/sections/04-risk-classification.md` §Risk profiles for the full definition: exactly 2-3 files, each file beyond the first colocated-test-connected or import/call-connected to a touched diff, connectivity fails closed to Elevated when unverifiable, <=30 changed lines total, no exported API/types/shared utilities/tokens/config/env/CI, no cross-component data flow, not protocol/infra, per-file one-line revert, no security/auth/PII surface, and zero other Elevated signals present) | Yes (relaxed only) | No |
+| Small single-concern code change (default and relaxed; full definition: `content/sections/04-risk-classification.md` §Profile deltas - one production file plus tests/fixtures/docs, under 100 changed lines) | No (one worktree-isolated `engineer`; no architect, planner, or Skeptic; a `qa-engineer` checks a user-visible UI change against the acceptance text) | No |
 | Trivial risk (see Risk Classification) - any subagent state | No (delegate to worktree-isolated `engineer`; no Skeptic; no brief file) | No |
 | Any code edit with behavioral effect (write/modify/delete, excluding diagnostic-only logging) | No | **Yes** |
 | Security / auth / crypto / payments / secrets | No | **Yes** |
@@ -342,7 +343,7 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
 | Trivial | Delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly | None (no Skeptic, no brief file) | Silent |
-| Low | Direct action | Brief inline self-check | Silent |
+| Low | Direct action; a small single-concern code change goes to one worktree-isolated `engineer` | Brief inline self-check; that engineer checks its diff against the override's bounds | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated + Cleanup | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
 
@@ -351,7 +352,7 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 The methodology supports three risk profiles that shift the boundary between Low and Elevated. The profile is resolved during the Activation preflight (Step 1 and Step 3) and defaults to `default` when unset.
 
 - **`relaxed`** - minimal Skeptic overhead. Use for rapid iteration on well-understood UI, local bug fixes, or qualifying non-binding advice.
-- **`default`** — slightly relaxed from legacy behavior. Single-file locally-scoped behavioral edits are Low rather than Elevated.
+- **`default`** - slightly relaxed from legacy behavior. Single-file locally-scoped behavioral edits and small single-concern code changes are Low rather than Elevated.
 - **`strict`** — broad Skeptic coverage. Use when correctness is paramount and review bandwidth is acceptable.
 
 #### Profile deltas
@@ -377,7 +378,7 @@ any project-content read.
 
 For the exact prompt `Implement the recommended DinoStack changes.`, and for any implement, change,
 fix, or build request, the task is outside the relaxed chat-advice exception and is state-changing
-Elevated. Apply the normal state-changing workflow by establishing a named Engineer/Worker route
+Elevated (or Low under the small single-concern override). Apply the normal state-changing workflow by establishing a named Engineer/Worker route
 before the first non-mandatory project-content read. Existing candidate commits or an
 already-populated feature branch do not authorize conductor-side inspection, verification, or
 implementation. If that route cannot start, fail closed and report the blocker; do not run git
@@ -417,7 +418,7 @@ Decision corpus:
 - Decide or adopt architecture is Elevated in every profile.
 - Write an ADR, plan, or spec is Elevated in every profile.
 - Advisory work where the user explicitly requests unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated in every profile.
-- An implementation request is Elevated in every profile.
+- An implementation request never qualifies for this override; it is Elevated unless a named Low or Trivial override fully qualifies.
 
 The `default` and `strict` profiles are unchanged by this override. Chat becomes binding only when
 promoted to a ticket, Brief, Plan, ADR, requirements or decision artifact, acceptance criteria, or
@@ -430,15 +431,19 @@ implementation request.
   - Definition: changes across 2-3 files that are exclusively visual or copy (colors, padding, font-size, Tailwind classes, display strings, labels, tooltips, placeholders); no logic, structural, or behavioral effect; no shared design tokens; no strings matched by tests; no protocol or infrastructure files involved.
 - **Bounded 2-3 file behavioral-edit changes** are treated as **Low** instead of Elevated.
   - Definition: touches exactly 2-3 files. **Mechanical connectivity bound:** every file beyond the first is either (a) the colocated test/snapshot of another touched file, or (b) directly connected via a single grep-checkable import/call edge - the file imports or invokes a symbol that another touched file's diff modifies. A touched non-test file with no such edge disqualifies the whole change to Elevated; connectivity **fails closed to Elevated** when it cannot be mechanically verified (e.g., an operator config flip with no renamed symbol to trace). Total changed lines (added + removed) across all files <= 30. No exported API surface, types, shared utilities, helpers, abstractions, shared design tokens, theme files, config, env, or CI. **Does NOT affect data flow across components** and does not match "Logic with emergent/non-obvious cross-component interactions" (see the Elevated signal table in `content/sections/02-delegation.md`) - ported from the single-file override's guardrail. Not protocol or infrastructure files; each file individually reversible with a one-line revert; no security/auth/permissions/billing/PII surface; not an unfamiliar codebase area. **Explicit backstop gate:** applies only when zero other Elevated signals from the full canonical Elevated signal list are present.
+- **Small single-concern code changes** are treated as **Low** instead of Elevated (same definition as `default` below).
 
 **`default` (compared to legacy):**
 - **Single-file, locally-scoped code edits with behavioral effect** are treated as **Low** instead of Elevated (same definition as `relaxed` above). All other signals remain at their legacy levels.
+- **Small single-concern code changes** are treated as **Low** instead of Elevated (also in `relaxed`; removed in `strict`).
+  - Definition: exactly one production source file changed, plus optionally test, fixture, snapshot, and documentation files; total changed lines under 100 (operator-ratified bound, 2026-10-29; insertions + deletions, test files included; binaries, lockfiles, and generated files excluded); every non-file-count exclusion of the single-file override holds; overrides "Multi-file change", "New file creation" (non-production files only), "Any code edit with behavioral effect", and "Unfamiliar codebase area" for this case only - every other Elevated signal still wins. One worktree-isolated `engineer` executes it with no architect, planner, or Skeptic, and a change with user-visible UI behavior still gets a `qa-engineer` pass with the ticket's acceptance text (or the operator's request when there is no ticket) as its criteria; it checks its actual diff against this definition, and on any failed clause pushes the branch, stops, and reports, and the task is reclassified Elevated (§Mid-task reclassification).
 
 **`strict` (removed Low overrides):**
 - **UI-only copy changes** are treated as **Elevated**; the Low override is removed.
 - **File renaming** is treated as **Elevated**; the Low override is removed.
 - **Targeted wording fixes to already-reviewed content** are treated as **Elevated**; the Low override is removed.
 - **Diagnostic-only changes** and **documentation-only file creation** remain direct-action eligible but require the conductor's inline self-check (they are treated as Low rather than unconditionally direct).
+- **Small single-concern code changes** are treated as **Elevated**; the Low override is removed.
 
 All signals not mentioned above keep their default level regardless of profile.
 
@@ -3772,7 +3777,7 @@ signal list; any remaining signal wins. `default` and `strict` are unchanged.
 When an explicit unfamiliar or multi-read advisory requires a named agent and that route cannot
 start, follow the canonical fail-closed rule: report the blocker or stay within bounded context-only
 advice, never substitute conductor project exploration.
-Implementation requests are state-changing Elevated, not relaxed advice. The named Engineer/Worker
+Implementation requests are state-changing Elevated (or Low under the small single-concern override), not relaxed advice. The named Engineer/Worker
 route and its pre-read, candidate-branch, and fail-closed requirements are defined only in
 `content/sections/04-risk-classification.md` §Relaxed ephemeral chat-advice override.
 
@@ -3922,7 +3927,7 @@ Execution contract template:
 - outputs: [what artifact(s) the Worker must produce - e.g. "modified files committed to branch", "diff only", "summary report only"]. Default for an implementation spawn: "modified files committed to branch", paired with the `git_finalization` field below. An `engineer`, `qa-engineer`, or `release-orchestrator` spawn runs in an isolation worktree, so an uncommitted worktree yields an empty, unreviewable review diff and costs a wasted Skeptic round - a non-committing form is a deliberate choice to state, not an omission to make by accident.
 - budget: [rough max tool-call count, or omit; advisory, not enforced]
 - tool_scope: [expected tool categories - e.g. "Read, Glob, Grep, Edit"; documentation only, does not override the harness-level Agent tool grants]
-- completion_conditions: [acceptance criteria verbatim from architect plan or ticket, plus any quality-gate pass requirements]
+- completion_conditions: [acceptance criteria verbatim from architect plan or ticket, plus any quality-gate pass requirements] (no added design - `content/sections/02-delegation.md` §Scope discipline)
 - verification: [how this unit will be verified after it lands - existing test path that exercises it, new test the Worker must add, manual QA trigger pattern, or "self-evident review" if no test path is feasible]
 - output_paths: [specific file paths the Worker is expected to write or modify, or "conductor-directed" if paths emerge during implementation]
 - git_finalization: [`{ commit_message_template, files_to_stage, push }` - include it when a brief built from THIS template is what authorizes the Worker to commit its own work, and its `commit_message_template` MUST carry a `Signed-off-by:` line. Canonical definition, including the DCO line's derivation, the `Developer:` trailer, the empty-`user.email` guard, and the non-fast-forward recovery sequence, is `content/commands/ds-implement-ticket.md` §Elevated-path engineer-contract extensions; for how a Worker reads this field's presence or absence in a brief built from THIS template, see `content/agents/engineer.md` section Rules, "Do not initiate commit or push yourself".]
@@ -4272,7 +4277,7 @@ The Skeptic pattern counters this by introducing a genuinely independent reviewe
 - The main agent must pass the brief verbatim. Softening or summarizing the brief degrades adversarial independence just as continuing a prior Skeptic does.
 - The resolved issues preflight list prevents a fresh Skeptic from re-raising already-addressed findings as new Critical items. It carries each prior finding's identifier and description only; whether a finding is actually resolved stays the Skeptic's own determination from the diff.
 - The sign-off format is required, not optional. It requires the Skeptic to explicitly state what it reviewed and attest to an active search for problems. A sign-off without these elements is not a valid sign-off.
-- The system uses three risk tiers: Trivial (delegated to a worktree-isolated engineer, no Skeptic), Low (direct action with a brief inline self-check), and Elevated (Worker + fresh independent Skeptic, orchestrated by the main agent). There is no self-review path for Elevated work - adversarial independence requires a clean context that self-review cannot provide.
+- The system uses three risk tiers: Trivial (delegated to a worktree-isolated engineer, no Skeptic), Low (direct action with a brief inline self-check, or one engineer for a small single-concern change), and Elevated (Worker + fresh independent Skeptic, orchestrated by the main agent). There is no self-review path for Elevated work - adversarial independence requires a clean context that self-review cannot provide.
 
 **An evaluator should ask:** Is the Skeptic actually fresh each round? Is the adversarial brief being passed verbatim? Is the brief specific enough to catch real problems? Are Critical and Major findings being genuinely resolved or just rationalized away?
 
@@ -7207,7 +7212,7 @@ Before starting any task, the main agent performs a brief risk assessment. The c
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
 | Trivial | Worktree-isolated `engineer` (no Skeptic, no brief file) | None | Silent |
-| Low | Direct action | Brief inline self-check | Silent |
+| Low | Direct action (small single-concern change: one `engineer`) | Brief inline self-check | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated + Cleanup | Worker | Skeptic → `/simplify` → Skeptic (narrow) | Stated before starting |
 
@@ -8332,7 +8337,7 @@ When the conductor spawns workers for a multi-unit plan with task-state tracking
 
 ### Rule 3 — Spawn threshold
 
-**Elevated risk → spawn Worker + fresh independent Skeptic. Low risk → direct action. Trivial risk → delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow).** The Skeptic Protocol defines two Elevated tiers (Elevated and Elevated + Cleanup); the main agent selects the appropriate path per The Skeptic Protocol Sections 0 and 12.
+**Elevated risk → spawn Worker + fresh independent Skeptic. Low risk → direct action (a small single-concern code change goes to one `engineer`; see `content/sections/04-risk-classification.md`). Trivial risk → delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow).** The Skeptic Protocol defines two Elevated tiers (Elevated and Elevated + Cleanup); the main agent selects the appropriate path per The Skeptic Protocol Sections 0 and 12.
 
 The delegation decision is driven by risk, not by counting tool calls. Assess risk first (see The Skeptic Protocol Section 0). If any Elevated signal is present, delegate to a Worker and apply adversarial review. If all signals are Low, direct action is appropriate. Trivial requires ALL qualifying signals to hold simultaneously - any single disqualifier pushes the task to Elevated.
 
@@ -8482,7 +8487,7 @@ promise to promote later; an explicit unfamiliar or multi-read investigation req
 before any project-content read.
 If that required named-agent route cannot start, the canonical fail-closed rule applies: report
 the blocker or stay within bounded context-only advice, never substitute direct project exploration.
-Implementation requests are state-changing Elevated, not relaxed advice. Follow the named
+Implementation requests are state-changing Elevated (or Low under the small single-concern override), not relaxed advice. Follow the named
 Engineer/Worker routing rule in `content/sections/04-risk-classification.md` §Relaxed ephemeral
 chat-advice override for the canonical pre-read, candidate-branch, and fail-closed requirements.
 
@@ -15097,7 +15102,7 @@ Your spawn prompt will contain four things:
 ## Classification definitions
 
 - **Critical** - data loss, security breach, incorrect production behavior, breaks a hard requirement. Blocks sign-off.
-- **Major** - subtle incorrect behavior, reliability degradation, violates stated design constraints, adds behavior or a guard neither the acceptance criteria nor a reviewed plan step asks for (step 3.8), would require significant rework later. Blocks sign-off.
+- **Major** - subtle incorrect behavior, reliability degradation, violates stated design constraints, adds user-observable behavior no accepted source states or clearly implies (`content/sections/02-delegation.md` §Scope discipline), even when a plan step asks for it, or a guard neither the acceptance criteria nor a reviewed plan step asks for (step 3.8), would require significant rework later. Blocks sign-off.
 - **Minor** - style, naming, documentation gaps, missed optimizations. Does not block sign-off.
 
 ## Evaluation process
@@ -15116,7 +15121,7 @@ Do NOT produce any "Reviewed:", "Findings:", or sign-off content after this line
 
 The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks - field-completeness and the `n/a`-rationale check - not a BLOCK gate of its own, and the bullet on falsity discovered after Step 0 is a disposition rule for *after* Step 0 has passed - it never blocks Step 0 itself.
 
-0.5. **Simplest-viable-alternative and mechanism check (plans; Step 2.5 applies its mechanism question to diffs).** Applies only when the Worker output under review is an architect plan itself (a pre-implementation review such as Skeptic-on-plan or Skeptic-on-Brief, before any diff exists) - skip silently when reviewing Worker code output against a plan. After completing the reads in Steps 1-2 (the adversarial brief and the plan itself), evaluate this before any other correctness probing: could the plan's own "Simplest viable alternative" satisfy the acceptance criteria? Then confirm each plan component that goes beyond that alternative, and each implementation step's `serves:` entry, is tied to a specific stated requirement (Brief/ticket acceptance criteria, an explicit constraint, or a named non-functional need) rather than to an inferred motivation. A plan component or step justified by no stated requirement is a finding - **Minor** by default, **Major** when it plans a guard, gate, hook, or check (`content/sections/02-delegation.md` §Scope discipline) the acceptance criteria did not ask for; step 3.8 treats a step that passed this review as in scope. An untraced rewrite (both terms as defined in `content/agents/architect.md` §Rules "Keep existing behavior unless an acceptance criterion requires changing it") is **Major** unless an earlier step adds characterization tests pinning the base branch's current behavior in that area, and **Minor** when one does. Then ask of each requirement-justified component whether its planned mechanism is the codebase's idiomatic one. Flag: components coordinating by passing DOM nodes, global queries for other components' elements, or writing body or layout state that another component reads or measures (e.g. a bar setting body padding that page layout depends on; a modal's scroll lock is not this); state not held in one place, or a step not run from the event that causes it (refs or order-dependent effects driving one flow; a ref written during render; state held in both a reducer and a ref; a latest-value ref hiding a dependency from the hooks linter; an effect, microtask or timeout sequencing what the triggering callback could run directly); a hook or module owning several unrelated concerns; recomputing a value an existing component already derives; a design prototype's code or timings treated as a requirement; an internal mechanism placed under binding contracts. **Minor** by default, **Major** for cross-component DOM coupling or a mechanism made binding. There is no finding when the acceptance criteria or an explicit technical constraint (e.g. a third-party SDK bound to a specific DOM control) requires that mechanism; a design prototype or attachment never qualifies unless the acceptance criteria state the values.
+0.5. **Simplest-viable-alternative and mechanism check (plans; Step 2.5 applies its mechanism question to diffs).** Applies only when the Worker output under review is an architect plan itself (a pre-implementation review such as Skeptic-on-plan or Skeptic-on-Brief, before any diff exists) - skip silently when reviewing Worker code output against a plan. After completing the reads in Steps 1-2 (the adversarial brief and the plan itself), evaluate this before any other correctness probing: could the plan's own "Simplest viable alternative" satisfy the acceptance criteria? Then confirm each plan component that goes beyond that alternative, and each implementation step's `serves:` entry, is tied to a specific stated requirement (Brief/ticket acceptance criteria, an explicit constraint, or a named non-functional need) rather than to an inferred motivation. A plan component or step justified by no stated requirement is a finding - **Minor** by default, **Major** when it plans a guard, gate, hook, or check (`content/sections/02-delegation.md` §Scope discipline) the acceptance criteria did not ask for, and **Major**, routed to the operator as a decision, when it adds user-observable behavior no accepted source states or clearly implies (`content/sections/02-delegation.md` §Scope discipline); step 3.8 treats a step that passed this review as in scope for implementation choices only. An untraced rewrite (both terms as defined in `content/agents/architect.md` §Rules "Keep existing behavior unless an acceptance criterion requires changing it") is **Major** unless an earlier step adds characterization tests pinning the base branch's current behavior in that area, and **Minor** when one does. Then ask of each requirement-justified component whether its planned mechanism is the codebase's idiomatic one. Flag: components coordinating by passing DOM nodes, global queries for other components' elements, or writing body or layout state that another component reads or measures (e.g. a bar setting body padding that page layout depends on; a modal's scroll lock is not this); state not held in one place, or a step not run from the event that causes it (refs or order-dependent effects driving one flow; a ref written during render; state held in both a reducer and a ref; a latest-value ref hiding a dependency from the hooks linter; an effect, microtask or timeout sequencing what the triggering callback could run directly); a hook or module owning several unrelated concerns; recomputing a value an existing component already derives; a design prototype's code or timings treated as a requirement; an internal mechanism placed under binding contracts. **Minor** by default, **Major** for cross-component DOM coupling or a mechanism made binding. There is no finding when the acceptance criteria or an explicit technical constraint (e.g. a third-party SDK bound to a specific DOM control) requires that mechanism; a design prototype or attachment never qualifies unless the acceptance criteria state the values.
 
 1. Read the adversarial brief. Internalize the specific attack surface or failure scenario it describes. Then read the architect plan from Global-context input field 1 in full - it is the spec the Worker implemented against. If field 1 carries a valid `n/a` value, skip this file read.
 2. Read the Worker output in full. If file paths are given, read those files now.
@@ -15148,7 +15153,7 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
    - If a trade-off is named and justified somewhere in the artifact, this is not a finding - an un-surfaced trade-off is the problem, not disagreement with a stated one. Note it in your sign-off for the human's visibility even when it is not a finding.
    - If `docs/overview/vision.md` does not exist, skip this step silently.
 3.7. **Spawn-brief provenance check.** Scan Global-context field 7 (conductor spawn brief, claim-bearing text only) for directive-shaped claims - a value, path, count, or root-cause/rationale assertion - that lack a valid provenance tag per the provenance test in `content/sections/04-risk-classification.md`. Any of the 4 tag classes (`[verified: file:line]`, `[per <agent>, unverified]`, `[verified-local: <path> - untracked-by-design|branch-new]`, `[verified-by-execution: <command> - result]`) satisfies the requirement for that claim. A malformed `[verified:]` tag (no evidence the conductor confirmed the cited path against origin/main this session) counts as untagged. A valid field-7 `n/a` (per the canonical reasons in `content/references/skeptic-protocol.md` Section 4.5) silently satisfies this step - no finding - mirroring the Trivial no-Skeptic carve-out. For each untagged directive-shaped claim found, raise a **Major** finding naming the specific claim and stating its provenance is absent.
-3.8. **Diff-scope check.** Runs on every diff this Skeptic reviews, Trivial-tier included. Compare the diff against the acceptance criteria and reviewed implementation steps in the architect plan (field 1), or the spawn brief's stated criteria (field 7) when field 1 is a valid `n/a`. Exempt: a mechanically necessary side effect (CI wiring for an exempt test, a generated adapter artifact); a doc edit only where the diff made that doc stale; a test only when it covers an acceptance criterion or a behavior-defect finding. Any other hunk not named or clearly implied by that scope is a finding: behavior-changing code, and any new guard, gate, hook, or check (`content/sections/02-delegation.md` §Scope discipline) that neither the acceptance criteria nor a reviewed plan step asks for, is **Major**, escalating to **Critical** on a security-sensitive or production-behavior path per the Critical definition; error handling the diff's own new code needs (such as a step 4.6 failure path) is in scope. Behaviorally inert code (formatting, comments, dead code, including an unreachable branch in an in-scope hunk) and a test covering no acceptance criterion or behavior-defect finding are **Minor**, the description starting `Scope drift:`, and are removed at `/ds-implement-ticket` Phase 6 Step 3; a new guard that is also unreachable is the Major. Do not flag a hunk the Worker's `serves` mapping or summary accurately justifies as in scope; a `serves` to a prior finding justifies a guard, fallback, retry, or ref only when that finding named the input or call sequence that reaches it, or is an `H<n>` entry asking for it.
+3.8. **Diff-scope check.** Runs on every diff this Skeptic reviews, Trivial-tier included. Compare the diff against the acceptance criteria and reviewed implementation steps in the architect plan (field 1), or the spawn brief's stated criteria (field 7) when field 1 is a valid `n/a`. Check design choices against the accepted sources, not only the plan: a hunk adding user-observable behavior no accepted source states or clearly implies (`content/sections/02-delegation.md` §Scope discipline) is **Major** even when a reviewed plan step, the spawn brief, or a `serves` mapping asks for it; the plan-step and `serves` exemptions below cover implementation choices only. Exempt: a mechanically necessary side effect (CI wiring for an exempt test, a generated adapter artifact); a doc edit only where the diff made that doc stale; a test only when it covers an acceptance criterion or a behavior-defect finding. Any other hunk not named or clearly implied by that scope is a finding: behavior-changing code, and any new guard, gate, hook, or check (`content/sections/02-delegation.md` §Scope discipline) that neither the acceptance criteria nor a reviewed plan step asks for, is **Major**, escalating to **Critical** on a security-sensitive or production-behavior path per the Critical definition; error handling the diff's own new code needs (such as a step 4.6 failure path) is in scope. Behaviorally inert code (formatting, comments, dead code, including an unreachable branch in an in-scope hunk) and a test covering no acceptance criterion or behavior-defect finding are **Minor**, the description starting `Scope drift:`, and are removed at `/ds-implement-ticket` Phase 6 Step 3; a new guard that is also unreachable is the Major. Do not flag a hunk the Worker's `serves` mapping or summary accurately justifies as in scope; a `serves` to a prior finding justifies a guard, fallback, retry, or ref only when that finding named the input or call sequence that reaches it, or is an `H<n>` entry asking for it.
 3.85. **Exclusion-claim verification check.** Every exclusion claim in the plan or PR manifest - an OUT-OF-SCOPE entry, "already shipped in X", "lives on screen/module Y", "handled by ticket Z" - must be verified against the tree or tracker exactly the way in-scope claims are: grep for the named artifact, and confirm the cited ticket/PR exists and says what is claimed. A false exclusion claim is a **Major** finding by default, escalating to **Critical** when it justifies deleting shipped behavior. Reviewers audit what a plan proposes to do; an unverified exclusion claim is the cheapest way for wrong scope to survive review.
 3.9. **Neutrality check.** Scan every field of the Global-context input set (1-7) and the adversarial brief for a conductor-composed hypothesis, suspicion, or conclusion about the artifact under review, in any form and whether tagged or untagged, per the test defined in "Reading your spawn prompt" item 4 above and `content/references/skeptic-protocol.md` Section 7 "Scope of the ban". For each instance found: disregard it entirely when forming your own independent judgment, and raise a **Minor** finding citing the exact offending sentence, noting that the Global-context input set may have been composed non-neutrally so the conductor can review its own composition process. Emit the result of this check via the fixed `Neutrality check:` sign-off line defined below - do not fold it into free-form prose. This step is also the Skeptic's implementation of the general recipient-side self-check required of every subagent by `content/references/subagent-protocol.md` §11 "Spawn-brief provenance" - the `Neutrality check:` line below already satisfies that obligation for Skeptic spawns, so no separate `Provenance check:` line is added to the fixed sign-off sequence.
 4. Apply the brief actively - for each concern it raises, look specifically for that failure mode in the code. Do not skim.
@@ -19361,7 +19366,7 @@ Read:
 
 Focus on understanding enough to make a solid plan - don't over-read.
 
-**Investigator conditional:** If the task risk is **Low or above AND** the code area touched by this ticket is unfamiliar to the current session (files not yet read, subsystems not yet traced), spawn an `investigator` agent first. Pass its brief to the Architect in Phase 3. Skip this step if Phase 2 reads already covered the relevant area.
+**Investigator conditional:** If the task risk is **Low or above** (except a small-change Low ticket, see the declaration below) **AND** the code area touched by this ticket is unfamiliar to the current session (files not yet read, subsystems not yet traced), spawn an `investigator` agent first. Pass its brief to the Architect in Phase 3. Skip this step if Phase 2 reads already covered the relevant area.
 
 Trivial-classified tickets skip the investigator (not required); the shippable change is still performed by a worktree-isolated `engineer` (no Skeptic, no brief) per METHODOLOGY.md §Risk Classification - the conductor does not edit the shippable tree directly.
 
@@ -19399,7 +19404,9 @@ QA_STATUS="skipped:Trivial path"
 
 **This is the only point in the command a Trivial ticket can record that rationale.** Phase 6b's skip branch carries the same string, but Phase 6b is unreachable on the Trivial path - "The Trivial path never enters Phase 6b" - so that branch only ever fires for an Elevated ticket with a non-null `qa_skip`. Setting it there alone would leave every Trivial ticket writing `qa_status: null`, and the notice rendering `QA n/a` for precisely the record `content/references/ticket-rework.md` uses as its canonical worked example.
 
-Both assignments are unconditional in the sense that matters: they do not depend on the rework feature being active. A ticket whose ledger write is later skipped simply never reads them.
+**Small-change `Low` route.** A post-floor `Low` ticket under the small single-concern override (`content/sections/04-risk-classification.md` §Profile deltas) follows the Trivial-path branches: no investigator, architect, planner, or Skeptic. If the change has user-visible UI behavior, Phase 6b still runs after the engineer (its Elevated, `qa_criteria`, and Phase 6 triggers waived) with the ticket's acceptance text, or the operator's request, as the qa-engineer's criteria; QA fix passes use the Trivial round-N form. Otherwise set `QA_STATUS="skipped:Low path"`. The brief states the bounds; if the diff breaks one, the engineer pushes it to `$BRANCH_NAME`, stops, and reports. Set `RISK_CLASS="Elevated"`, clear `QA_STATUS`, and resume at Phase 3 with that diff as architect input. The stale-branch preflight's own-work row applies, and Phase 5 takes the branch-exists-on-origin form, whose already-checked-out guard covers the Low worktree. This re-entry skips Phase 0b's snapshot and Phase 2b.
+
+These assignments are unconditional in the sense that matters: they do not depend on the rework feature being active. A ticket whose ledger write is later skipped simply never reads them.
 
 ---
 
@@ -19822,12 +19829,7 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
       esac
     done < <(git -C $REPO worktree list --porcelain)
     # `done < <(...)` is load-bearing here - a pipe form runs the loop in a
-    # subshell and loses EXISTING_WT after exit, reproducing the "guard
-    # matches nothing" failure this rewrite fixes.
-    # Behavioral difference vs. the retired awk one-liner (DS-192): on a
-    # worktree path containing whitespace, `${_wt_line#worktree }` yields
-    # the full path while the old awk field-2 form truncated at the first
-    # space - an improvement, not merely a side effect of the rewrite.
+    # subshell and loses EXISTING_WT after exit.
     ```
 
     If `$EXISTING_WT` is empty, no reuse conflict exists - run the `worktree add` above normally. If `$EXISTING_WT` is non-empty, do NOT reset it unconditionally: that worktree may hold a local-only commit from a round whose push failed (non-fast-forward, a pending DCO amend, an auth failure) - exactly the state the §Recovery procedure in `content/references/worktree-lifecycle.md` §Round-N rework mechanic exists to rescue, and a bare `reset --hard` would destroy it. Precheck in `$EXISTING_WT`, **fetch FIRST, then evaluate both predicates, fail-closed on either command's failure:**
@@ -19961,8 +19963,6 @@ while IFS= read -r _wt_line; do
   esac
 done < <(git -C $REPO worktree list --porcelain)
 # `done < <(...)` is load-bearing - a pipe form would lose EXISTING_WT.
-# Also whitespace-path-safe vs. the retired awk form, same improvement as
-# the Elevated-path definition above.
 if [ -n "$EXISTING_WT" ]; then
   INTEGRATION_WORKTREE="$EXISTING_WT"   # reuse - apply reset-vs-recovery above first
 elif git -C $REPO ls-remote --exit-code --heads origin "$FEATURE_BRANCH" >/dev/null 2>&1; then
@@ -21023,8 +21023,8 @@ Capture the PR number from the URL printed by `gh pr create`. Immediately collec
 
 Field derivation:
 - `risk_class` - `$RISK_CLASS`, **set at the Phase 2 "Risk classification declaration (unconditional)" subsection** to the conductor's declared classification, post-floor: `Trivial` | `Low` | `Elevated`. All three of `risk_class`, `skeptic_rounds`, and `qa_status` normalize an empty value to `null` in the record builder. For `risk_class` this is defence-in-depth rather than a reachable path - the Phase 2 declaration is unconditional, so an empty value would mean the declaration was skipped - but the three fields are read from the same per-ticket-reset in-context variables and are handled identically, so that a bug upstream produces an explicit `null` (which the null-render rule renders `n/a`) rather than an empty string, which that rule has nothing sensible to render.
-- `skeptic_rounds` - `$SKEPTIC_ROUNDS`, **captured at Phase 6 clean exit**, before Phase 6b overwrites the loop state. Do **not** read `loop_state.iteration` at this point unguarded: Phase 6b reinitializes that file with `phase: qa, iteration: 1`, so a post-QA read returns the QA iteration count, not the Skeptic round count. **Null on the Trivial path**, which never reaches Phase 6 and therefore never sets the variable. The disk fallback below exists only for a resumed session that lost the in-context variable, and it is doubly guarded - on `ticket_id` *and* on `loop_state.phase == "skeptic"`.
-- `qa_status` - the QA result (`PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`) when QA reached a terminal verdict; otherwise the skip rationale as `"skipped:<rationale>"`, where `<rationale>` is the `qa_criteria.qa_skip` enum value (set on Phase 6b's skip branch) or the literal `Trivial path` (set at the **Phase 2 declaration**, because Phase 6b is unreachable on the Trivial path). **Both non-QA paths - Trivial, and Elevated with a non-null `qa_skip` - write the rationale, not null.** That is the whole point of the field: a bare null renders `n/a` in the notice, which tells an operator doing manual verification that QA is *unavailable* when the truth is that QA was *deliberately skipped, for a stated reason*. Null is reserved for the degenerate case where neither a result nor a rationale can be resolved at all.
+- `skeptic_rounds` - `$SKEPTIC_ROUNDS`, **captured at Phase 6 clean exit**, before Phase 6b overwrites the loop state. Do **not** read `loop_state.iteration` at this point unguarded: Phase 6b reinitializes that file with `phase: qa, iteration: 1`, so a post-QA read returns the QA iteration count, not the Skeptic round count. **Null on the Trivial and small-change Low paths**, which never reach Phase 6 and therefore never set the variable. The disk fallback below exists only for a resumed session that lost the in-context variable, and it is doubly guarded - on `ticket_id` *and* on `loop_state.phase == "skeptic"`.
+- `qa_status` - the QA result (`PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`) when QA reached a terminal verdict; otherwise the skip rationale as `"skipped:<rationale>"`, where `<rationale>` is the `qa_criteria.qa_skip` enum value (set on Phase 6b's skip branch) or the literal `Trivial path` or `Low path` (set at the **Phase 2 declaration**, because Phase 6b does not run on those paths). **All non-QA paths - Trivial, non-UI small-change Low, and Elevated with a non-null `qa_skip` - write the rationale, not null.** That is the whole point of the field: a bare null renders `n/a` in the notice, which tells an operator doing manual verification that QA is *unavailable* when the truth is that QA was *deliberately skipped, for a stated reason*. Null is reserved for the degenerate case where neither a result nor a rationale can be resolved at all.
 - `unit_count` - **derived, not read**; there is no `unit_count` variable in this command. Count of **distinct** `task_id`s among `.agentic/tasks.jsonl` records whose `ticket_id` matches this ticket (the Phase 5 fan-out path) - apply the **task-state fold** and dedupe, not a raw line count. `1` on a single-engineer path, and `1` when `tasks.jsonl` is absent or unreadable.
 
 **Variable definition sites.** `RISK_CLASS` and `QA_STATUS` carry the record's semantic content, so unlike `$BRANCH_NAME` / `$GH_REPO` they are stated explicitly rather than assumed:
@@ -21032,8 +21032,8 @@ Field derivation:
 | Variable | Reset | Set where | Value |
 |---|---|---|---|
 | `RISK_CLASS` | Phase 1, per-ticket reset | Phase 2 "Risk classification declaration (unconditional)" | `Trivial` \| `Low` \| `Elevated`, post-floor |
-| `SKEPTIC_ROUNDS` | Phase 1, per-ticket reset | Phase 6, Step 3 clean exit | final `loop_state.iteration`; stays empty on the Trivial path, which never reaches Phase 6 |
-| `QA_STATUS` | Phase 1, per-ticket reset | **Three** sites: Phase 2 declaration (`skipped:Trivial path`, the only Trivial-reachable one); Phase 6b skip branch (`skipped:<qa_skip enum>`); Phase 6b terminal outcome (the QA verdict) | see the bullet above |
+| `SKEPTIC_ROUNDS` | Phase 1, per-ticket reset | Phase 6, Step 3 clean exit | final `loop_state.iteration`; stays empty on the Trivial and small-change Low paths, which never reach Phase 6 |
+| `QA_STATUS` | Phase 1, per-ticket reset | **Three** sites: Phase 2 declaration (`skipped:Trivial path` or `skipped:Low path`, the only site those paths reach); Phase 6b skip branch (`skipped:<qa_skip enum>`); Phase 6b terminal outcome (the QA verdict) | see the bullet above |
 
 Every row is cleared at the Phase 1 per-ticket reset and re-set on this ticket's own path. Without that reset each variable's single definition site would leak the previous batch ticket's value into any ticket that does not take that path - see "Per-ticket variable reset" in Phase 1.
 
@@ -21043,8 +21043,8 @@ Every row is cleared at the Phase 1 per-ticket reset and re-set on this ticket's
 # REWORK_DETECTION / TICKET_ID / RISK_CLASS / SKEPTIC_ROUNDS / QA_STATUS are the shell-variable
 # form of the conductor's in-context state (definition sites in the table above).
 # QA_STATUS holds the QA result when QA ran, and "skipped:<qa_skip enum>" or
-# "skipped:Trivial path" when it did not. It is empty ONLY in the degenerate case where neither
-# a result nor a rationale exists - the two ordinary non-QA paths both carry a rationale.
+# "skipped:Trivial path" / "skipped:Low path" when it did not. It is empty ONLY in the degenerate
+# case where neither a result nor a rationale exists - every ordinary non-QA path carries one.
 if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
   # pr_number derived live from the ticket currently in flight's own branch - never $PR_NUMBER.
   TRL_PR_NUMBER=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number 2>/dev/null || true)
@@ -21367,7 +21367,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 
 **Skip conditions:**
 - Phase 9 was skipped (no PR was opened): skip Phase 11b entirely. Lock acquisition below is never attempted - there is nothing to release.
-- The current ticket was Trivial: skip with `skipped_reason: "trivial-no-brief"`. Do NOT spawn `wrap-ticket`. Lock acquisition below is never attempted - there is nothing to release.
+- The current ticket was Trivial, or Low under the small single-concern override: skip with `skipped_reason: "trivial-no-brief"`. Do NOT spawn `wrap-ticket`. Lock acquisition below is never attempted - there is nothing to release.
 
 **Spawn:** `wrap-ticket` (Tier 1, foreground, blocking, 60-second timeout).
 

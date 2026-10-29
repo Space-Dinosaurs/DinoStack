@@ -456,8 +456,8 @@ _absent "no 'Null on two paths' claim for qa_status" \
         '\*\*Null on two paths\*\*'
 
 # The contract that replaced it must still be stated.
-_present "both non-QA paths documented as writing the rationale" \
-         'Both non-QA paths .* write the rationale, not null'
+_present "every non-QA path documented as writing the rationale" \
+         'All non-QA paths .* write the rationale, not null'
 _present "Phase 6b skip branch sets QA_STATUS" \
          'QA_STATUS="skipped:<rationale>"'
 _present "Phase 6b PASS exit sets QA_STATUS" \

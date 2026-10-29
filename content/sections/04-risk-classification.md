@@ -13,7 +13,7 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
 | Trivial | Delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly | None (no Skeptic, no brief file) | Silent |
-| Low | Direct action | Brief inline self-check | Silent |
+| Low | Direct action; a small single-concern code change goes to one worktree-isolated `engineer` | Brief inline self-check; that engineer checks its diff against the override's bounds | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated + Cleanup | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
 
@@ -22,7 +22,7 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 The methodology supports three risk profiles that shift the boundary between Low and Elevated. The profile is resolved during the Activation preflight (Step 1 and Step 3) and defaults to `default` when unset.
 
 - **`relaxed`** - minimal Skeptic overhead. Use for rapid iteration on well-understood UI, local bug fixes, or qualifying non-binding advice.
-- **`default`** — slightly relaxed from legacy behavior. Single-file locally-scoped behavioral edits are Low rather than Elevated.
+- **`default`** - slightly relaxed from legacy behavior. Single-file locally-scoped behavioral edits and small single-concern code changes are Low rather than Elevated.
 - **`strict`** — broad Skeptic coverage. Use when correctness is paramount and review bandwidth is acceptable.
 
 #### Profile deltas
@@ -48,7 +48,7 @@ any project-content read.
 
 For the exact prompt `Implement the recommended DinoStack changes.`, and for any implement, change,
 fix, or build request, the task is outside the relaxed chat-advice exception and is state-changing
-Elevated. Apply the normal state-changing workflow by establishing a named Engineer/Worker route
+Elevated (or Low under the small single-concern override). Apply the normal state-changing workflow by establishing a named Engineer/Worker route
 before the first non-mandatory project-content read. Existing candidate commits or an
 already-populated feature branch do not authorize conductor-side inspection, verification, or
 implementation. If that route cannot start, fail closed and report the blocker; do not run git
@@ -88,7 +88,7 @@ Decision corpus:
 - Decide or adopt architecture is Elevated in every profile.
 - Write an ADR, plan, or spec is Elevated in every profile.
 - Advisory work where the user explicitly requests unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated in every profile.
-- An implementation request is Elevated in every profile.
+- An implementation request never qualifies for this override; it is Elevated unless a named Low or Trivial override fully qualifies.
 
 The `default` and `strict` profiles are unchanged by this override. Chat becomes binding only when
 promoted to a ticket, Brief, Plan, ADR, requirements or decision artifact, acceptance criteria, or
@@ -101,15 +101,19 @@ implementation request.
   - Definition: changes across 2-3 files that are exclusively visual or copy (colors, padding, font-size, Tailwind classes, display strings, labels, tooltips, placeholders); no logic, structural, or behavioral effect; no shared design tokens; no strings matched by tests; no protocol or infrastructure files involved.
 - **Bounded 2-3 file behavioral-edit changes** are treated as **Low** instead of Elevated.
   - Definition: touches exactly 2-3 files. **Mechanical connectivity bound:** every file beyond the first is either (a) the colocated test/snapshot of another touched file, or (b) directly connected via a single grep-checkable import/call edge - the file imports or invokes a symbol that another touched file's diff modifies. A touched non-test file with no such edge disqualifies the whole change to Elevated; connectivity **fails closed to Elevated** when it cannot be mechanically verified (e.g., an operator config flip with no renamed symbol to trace). Total changed lines (added + removed) across all files <= 30. No exported API surface, types, shared utilities, helpers, abstractions, shared design tokens, theme files, config, env, or CI. **Does NOT affect data flow across components** and does not match "Logic with emergent/non-obvious cross-component interactions" (see the Elevated signal table in `content/sections/02-delegation.md`) - ported from the single-file override's guardrail. Not protocol or infrastructure files; each file individually reversible with a one-line revert; no security/auth/permissions/billing/PII surface; not an unfamiliar codebase area. **Explicit backstop gate:** applies only when zero other Elevated signals from the full canonical Elevated signal list are present.
+- **Small single-concern code changes** are treated as **Low** instead of Elevated (same definition as `default` below).
 
 **`default` (compared to legacy):**
 - **Single-file, locally-scoped code edits with behavioral effect** are treated as **Low** instead of Elevated (same definition as `relaxed` above). All other signals remain at their legacy levels.
+- **Small single-concern code changes** are treated as **Low** instead of Elevated (also in `relaxed`; removed in `strict`).
+  - Definition: exactly one production source file changed, plus optionally test, fixture, snapshot, and documentation files; total changed lines under 100 (operator-ratified bound, 2026-10-29; insertions + deletions, test files included; binaries, lockfiles, and generated files excluded); every non-file-count exclusion of the single-file override holds; overrides "Multi-file change", "New file creation" (non-production files only), "Any code edit with behavioral effect", and "Unfamiliar codebase area" for this case only - every other Elevated signal still wins. One worktree-isolated `engineer` executes it with no architect, planner, or Skeptic, and a change with user-visible UI behavior still gets a `qa-engineer` pass with the ticket's acceptance text (or the operator's request when there is no ticket) as its criteria; it checks its actual diff against this definition, and on any failed clause pushes the branch, stops, and reports, and the task is reclassified Elevated (§Mid-task reclassification).
 
 **`strict` (removed Low overrides):**
 - **UI-only copy changes** are treated as **Elevated**; the Low override is removed.
 - **File renaming** is treated as **Elevated**; the Low override is removed.
 - **Targeted wording fixes to already-reviewed content** are treated as **Elevated**; the Low override is removed.
 - **Diagnostic-only changes** and **documentation-only file creation** remain direct-action eligible but require the conductor's inline self-check (they are treated as Low rather than unconditionally direct).
+- **Small single-concern code changes** are treated as **Elevated**; the Low override is removed.
 
 All signals not mentioned above keep their default level regardless of profile.
 
