@@ -1,7 +1,7 @@
 # DinoStack Product Vision (North Star)
 
-**Status:** Ratified 2026-06-28. Condensed 2026-08-25.
-Same eight pillars, same boundaries, fewer bytes.
+**Status:** Ratified 2026-06-28. Condensed 2026-08-25. Amended 2026-10-29.
+Same eight pillars; the 2026-10-29 amendment re-scoped the shared boundary.
 
 ## The problem
 
@@ -82,14 +82,14 @@ named agents.
    mechanism would have caught and the condition under which it retires? If either cannot be named,
    it does not ship.)
 
-**The boundary shared by Pillars 5, 6, 7, and 8.** An enforcement floor is never removed to satisfy
-a pillar, measured or not: it is not waste, it is never a pruning candidate however expensive it is
-to run, and cutting a gate, review round, or verification step to save tokens, to finish sooner, or
-to simplify is a regression against Pillar 2, never a win. This is the existing floor-vs-dial
-precedent: capability and efficiency changes move the risk-profile dial, they never remove a floor.
-Non-floor machinery is the separate case Pillar 8 governs: it becomes a deletion candidate only on
-a measured zero yield, never on assumption alone. Left-shifting a mechanical check under Pillar 7
-likewise never licenses weakening the reviewer's copy of it.
+**The boundary shared by Pillars 5, 6, 7, and 8.** Safeguards attach to risk surfaces (security,
+migrations, irreversible or public-API changes). These enforcement floors are never removed to save
+tokens, to finish sooner, or to simplify: that is a regression against Pillar 2, never a win. How
+much process a tier gets (gates, review rounds, verification steps) is a dial, set by measurement
+and ratified by the operator; measurement can move it up or down, but never removes a risk-surface
+safeguard. Non-floor machinery is the separate case Pillar 8 governs: it becomes a deletion
+candidate only on a measured zero yield, never on assumption alone. Left-shifting a mechanical
+check under Pillar 7 likewise never licenses weakening the reviewer's copy of it.
 
 ## What it does
 
@@ -111,6 +111,6 @@ trust, escalating to the human only for genuine decisions.
 
 A pull request is **aligned** if it advances at least one pillar without regressing another
 (especially the attention test). Run each pillar's parenthesized test against the diff; failing any
-of them is misalignment, as is cutting a gate, review round, verification step, or enforcement
-floor to save tokens, to finish sooner, or to simplify. Misalignment is a *direction* signal for
+of them is misalignment, as is removing a risk-surface safeguard, or cutting a tier's process
+without measurement and operator ratification. Misalignment is a *direction* signal for
 the operator, not necessarily a request-changes verdict on correctness.
