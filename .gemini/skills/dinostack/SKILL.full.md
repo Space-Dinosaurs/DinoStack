@@ -646,6 +646,10 @@ Do not suppress or disable checks to pass gates. Suppression comments (`@ts-igno
 
 When implementing or modifying code, read `content/references/code-standards-detail.md` §Per-Language Strict Defaults, §Browser Verification, and §Discovery-Based Check Discipline for language defaults, browser checks, and hard-failing empty discovery.
 
+## Resource Use
+
+An agent launching a heavy process (full test suite, build, browser or E2E run) owns its machine footprint. Before launching, check free memory and swap (`memory_pressure`/`vm_stat` on macOS, `free` on Linux) and set the runner's worker count from available memory divided by the project's per-worker cost, never from its per-core default. The machine is shared: run one heavy suite or build at a time and prefer affected test files to a full suite. Afterwards, kill processes and browsers you started and delete large scratch trees; swap is disk-backed. Record measured per-worker cost in the project's `.agentic/qa.md` quirks. Unattended test scripts need a code-level guard; prose reaches only agents issuing commands.
+
 ## Package Management
 
 When adding or upgrading dependencies, or diagnosing an outdated dependency bug, read `content/references/code-standards-detail.md` §Package Management for version resolution, existing constraints, and the upgrade-before-workaround policy.
