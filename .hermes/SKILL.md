@@ -663,7 +663,7 @@ When implementing or modifying code, read `content/references/code-standards-det
 
 ## Resource Use
 
-An agent launching a heavy process (full test suite, build, browser or E2E run) owns its machine footprint. Before launching, check free memory and swap (`memory_pressure`/`vm_stat` on macOS, `free` on Linux) and set the runner's worker count from available memory divided by the project's per-worker cost, never from its per-core default. The machine is shared: run one heavy suite or build at a time and prefer affected test files to a full suite. Afterwards, kill processes and browsers you started and delete large scratch trees; swap is disk-backed. Record measured per-worker cost in the project's `.agentic/qa.md` quirks. Unattended test scripts need a code-level guard; prose reaches only agents issuing commands.
+An agent launching a heavy process (full test suite, build, browser or E2E run) owns its machine footprint. Before launching, check free memory and swap (`vm_stat` and `sysctl vm.swapusage` on macOS, `free` on Linux). Start at low concurrency, well below the runner's per-core default, observe peak memory per worker, and scale up only while headroom remains. Do not start another heavy run while one of yours is still running. While iterating, run the affected test files; the full gate before completion still applies. Afterwards, kill processes and browsers you started and delete large scratch trees.
 
 ## Package Management
 

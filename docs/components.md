@@ -1,7 +1,7 @@
 # What's included
 
 **Rules** (2 files) - the core methodology:
-- Code standards - documentation evidence, tool selection, code comments, reuse, quality gates, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
+- Code standards - documentation evidence, tool selection, code comments, reuse, quality gates, resource use, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
 - Conventions - writing style, project structure, session context, git workflow
 
 **Reference docs** (43 .md docs plus 3 example .yml files; `content/references/` is the authoritative list) - detailed protocol specs loaded on trigger:
