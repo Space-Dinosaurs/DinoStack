@@ -209,7 +209,7 @@ signal list; any remaining signal wins. `default` and `strict` are unchanged.
 When an explicit unfamiliar or multi-read advisory requires a named agent and that route cannot
 start, follow the canonical fail-closed rule: report the blocker or stay within bounded context-only
 advice, never substitute conductor project exploration.
-Implementation requests are state-changing Elevated, not relaxed advice. The named Engineer/Worker
+Implementation requests are state-changing Elevated (or Low under the small single-concern override), not relaxed advice. The named Engineer/Worker
 route and its pre-read, candidate-branch, and fail-closed requirements are defined only in
 `content/sections/04-risk-classification.md` §Relaxed ephemeral chat-advice override.
 

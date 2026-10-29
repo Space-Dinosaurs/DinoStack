@@ -13,7 +13,7 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
 | Trivial | Delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly | None (no Skeptic, no brief file) | Silent |
-| Low | Direct action | Brief inline self-check | Silent |
+| Low | Direct action; a small single-concern code change goes to one worktree-isolated `engineer` | Brief inline self-check; that engineer checks its diff against the override's bounds | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated + Cleanup | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
 
@@ -22,7 +22,7 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 The methodology supports three risk profiles that shift the boundary between Low and Elevated. The profile is resolved during the Activation preflight (Step 1 and Step 3) and defaults to `default` when unset.
 
 - **`relaxed`** - minimal Skeptic overhead. Use for rapid iteration on well-understood UI, local bug fixes, or qualifying non-binding advice.
-- **`default`** — slightly relaxed from legacy behavior. Single-file locally-scoped behavioral edits are Low rather than Elevated.
+- **`default`** - slightly relaxed from legacy behavior. Single-file locally-scoped behavioral edits and small single-concern code changes are Low rather than Elevated.
 - **`strict`** — broad Skeptic coverage. Use when correctness is paramount and review bandwidth is acceptable.
 
 #### Profile deltas
@@ -48,7 +48,7 @@ any project-content read.
 
 For the exact prompt `Implement the recommended DinoStack changes.`, and for any implement, change,
 fix, or build request, the task is outside the relaxed chat-advice exception and is state-changing
-Elevated. Apply the normal state-changing workflow by establishing a named Engineer/Worker route
+Elevated (or Low under the small single-concern override). Apply the normal state-changing workflow by establishing a named Engineer/Worker route
 before the first non-mandatory project-content read. Existing candidate commits or an
 already-populated feature branch do not authorize conductor-side inspection, verification, or
 implementation. If that route cannot start, fail closed and report the blocker; do not run git

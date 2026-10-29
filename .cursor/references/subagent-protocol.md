@@ -241,7 +241,7 @@ promise to promote later; an explicit unfamiliar or multi-read investigation req
 before any project-content read.
 If that required named-agent route cannot start, the canonical fail-closed rule applies: report
 the blocker or stay within bounded context-only advice, never substitute direct project exploration.
-Implementation requests are state-changing Elevated, not relaxed advice. Follow the named
+Implementation requests are state-changing Elevated (or Low under the small single-concern override), not relaxed advice. Follow the named
 Engineer/Worker routing rule in `content/sections/04-risk-classification.md` §Relaxed ephemeral
 chat-advice override for the canonical pre-read, candidate-branch, and fail-closed requirements.
 

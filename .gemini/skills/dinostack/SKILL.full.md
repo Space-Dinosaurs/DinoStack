@@ -86,7 +86,7 @@ applied - check a judgment call against these before acting on it.
 
 **All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default, and `hooks/enforce-background-spawn.py` enforces background-by-default on both `Task` and `Agent`. The conductor norm on Claude Code: omit `run_in_background` entirely on `Agent` spawns and rely on the harness default; never pass `false`. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because the conductor holds `.agentic/wrap/lock` for its duration and Phase 12 cleanup must wait for it to return; treat that as a behavioral property of `wrap-ticket`, not a general exemption. For the payload-capture history and the asymmetric allow/deny hook mechanics: read `content/references/delegation-detail.md` §Background-Spawn Enforcement Detail.
 
-**Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
+**Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action, except a small single-concern code change, which goes to one worktree-isolated `engineer` (no Skeptic). Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
 **No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once - **Decision stability** below is the general form of this rule.
 
@@ -99,7 +99,7 @@ gate, or a runtime validation or rejection branch; error handling the requested 
 one, and a test file, including a prose-pin test, is not one either and is graded as a test by
 `content/agents/skeptic.md` step 3.8. When
 completion requires an architecture decision or significant scope expansion, reclassify and route
-that work through the applicable protocol rather than silently expanding it. The same bound covers the conductor's spawn briefs: an engineer brief adds no design - a control, mode, timer, threshold, or behavior - that the ticket's acceptance text does not state; relaying a reviewed architect plan is not adding design, and a choice the ticket leaves open stays with the engineer or goes to the architect.
+that work through the applicable protocol rather than silently expanding it. The same bound covers spawn briefs and plans: neither a conductor brief nor an architect plan adds user-observable behavior - a control, mode, timer, threshold, or state - that the ticket's acceptance text (or the operator's request when there is no ticket) neither states nor clearly implies; such an addition goes to the operator as a decision instead. Implementation choices the ticket leaves open stay with the architect or engineer, and a reviewed plan step or `serves` mapping justifies only such choices, never added user-observable behavior.
 
 **Finish mode.** A PR enters finish mode once approved: an approving review, a QA pass, or a clean Skeptic
 sign-off with green CI. At entry its remaining work is pinned: merge conflicts (resolutions reviewed per
@@ -222,7 +222,7 @@ Never start project exploration as Low and promise to promote later; an explicit
 multi-read investigation request is Elevated before any project-content read.
 If that required named-agent route cannot start, the canonical fail-closed rule applies: report
 the blocker or stay within bounded context-only advice, never substitute direct project exploration.
-Implementation requests are state-changing Elevated, not relaxed advice. Route them through the
+Implementation requests are state-changing Elevated (or Low under the small single-concern override), not relaxed advice. Route them through the
 named Engineer/Worker as specified by `content/sections/04-risk-classification.md` §Relaxed
 ephemeral chat-advice override, which exclusively governs pre-read timing, candidate branches, and
 fail-closed behavior.
@@ -332,7 +332,7 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
 | Trivial | Delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly | None (no Skeptic, no brief file) | Silent |
-| Low | Direct action | Brief inline self-check | Silent |
+| Low | Direct action; a small single-concern code change goes to one worktree-isolated `engineer` | Brief inline self-check; that engineer checks its diff against the override's bounds | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated + Cleanup | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
 
@@ -341,7 +341,7 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 The methodology supports three risk profiles that shift the boundary between Low and Elevated. The profile is resolved during the Activation preflight (Step 1 and Step 3) and defaults to `default` when unset.
 
 - **`relaxed`** - minimal Skeptic overhead. Use for rapid iteration on well-understood UI, local bug fixes, or qualifying non-binding advice.
-- **`default`** — slightly relaxed from legacy behavior. Single-file locally-scoped behavioral edits are Low rather than Elevated.
+- **`default`** - slightly relaxed from legacy behavior. Single-file locally-scoped behavioral edits and small single-concern code changes are Low rather than Elevated.
 - **`strict`** — broad Skeptic coverage. Use when correctness is paramount and review bandwidth is acceptable.
 
 #### Profile deltas
@@ -367,7 +367,7 @@ any project-content read.
 
 For the exact prompt `Implement the recommended DinoStack changes.`, and for any implement, change,
 fix, or build request, the task is outside the relaxed chat-advice exception and is state-changing
-Elevated. Apply the normal state-changing workflow by establishing a named Engineer/Worker route
+Elevated (or Low under the small single-concern override). Apply the normal state-changing workflow by establishing a named Engineer/Worker route
 before the first non-mandatory project-content read. Existing candidate commits or an
 already-populated feature branch do not authorize conductor-side inspection, verification, or
 implementation. If that route cannot start, fail closed and report the blocker; do not run git
