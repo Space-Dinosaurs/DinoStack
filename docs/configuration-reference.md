@@ -28,12 +28,14 @@ Per-project markers (Section 2) override global values.
 
 **Profile effects:**
 
-- **`relaxed`** - single-file locally-scoped behavioral edits and multi-file
-  pure-UI-only changes are Low (no Skeptic).
-- **`default`** - single-file locally-scoped behavioral edits are Low;
-  everything else follows standard Elevated signals.
-- **`strict`** - UI-only copy changes, file renaming, and targeted wording fixes
-  are Elevated; diagnostic-only and docs-only changes require a self-check.
+- **`relaxed`** - single-file locally-scoped behavioral edits, multi-file
+  pure-UI-only changes, and small single-concern code changes are Low (no
+  Skeptic).
+- **`default`** - single-file locally-scoped behavioral edits and small
+  single-concern code changes (one source file plus tests/docs, under 100
+  changed lines) are Low; everything else follows standard Elevated signals.
+- **`strict`** - UI-only copy changes, file renaming, targeted wording fixes,
+  and small single-concern code changes are Elevated; diagnostic-only and docs-only changes require a self-check.
 
 ---
 

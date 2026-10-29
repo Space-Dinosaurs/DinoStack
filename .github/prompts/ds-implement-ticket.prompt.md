@@ -1195,9 +1195,9 @@ Read:
 
 Focus on understanding enough to make a solid plan - don't over-read.
 
-**Investigator conditional:** If the task risk is **Low or above** (except a small single-concern Low ticket, below) **AND** the code area touched by this ticket is unfamiliar to the current session (files not yet read, subsystems not yet traced), spawn an `investigator` agent first. Pass its brief to the Architect in Phase 3. Skip this step if Phase 2 reads already covered the relevant area.
+**Investigator conditional:** If the task risk is **Low or above** (except a small-change Low ticket, see the declaration below) **AND** the code area touched by this ticket is unfamiliar to the current session (files not yet read, subsystems not yet traced), spawn an `investigator` agent first. Pass its brief to the Architect in Phase 3. Skip this step if Phase 2 reads already covered the relevant area.
 
-Trivial-classified tickets skip the investigator (not required); the shippable change is still performed by a worktree-isolated `engineer` (no Skeptic, no brief) per METHODOLOGY.md §Risk Classification - the conductor does not edit the shippable tree directly. A `Low` ticket that qualifies under the small single-concern override (`content/sections/04-risk-classification.md` §Profile deltas) follows this command's Trivial-path branches - no investigator, architect, planner, Skeptic, or QA gate - and sets `QA_STATUS="skipped:Low path"`. Its brief states the override's bounds. If the diff breaks one, the engineer stops and returns its diff; set `RISK_CLASS="Elevated"`, clear `QA_STATUS`, and resume at Phase 3 with that diff as architect input, so `qa_criteria` and the Elevated engineer contract exist for Phases 5-6b.
+Trivial-classified tickets skip the investigator (not required); the shippable change is still performed by a worktree-isolated `engineer` (no Skeptic, no brief) per METHODOLOGY.md §Risk Classification - the conductor does not edit the shippable tree directly.
 
 ### Ticket-rework escalation: Elevated risk floor
 
@@ -1232,6 +1232,8 @@ QA_STATUS="skipped:Trivial path"
 ```
 
 **This is the only point in the command a Trivial ticket can record that rationale.** Phase 6b's skip branch carries the same string, but Phase 6b is unreachable on the Trivial path - "The Trivial path never enters Phase 6b" - so that branch only ever fires for an Elevated ticket with a non-null `qa_skip`. Setting it there alone would leave every Trivial ticket writing `qa_status: null`, and the notice rendering `QA n/a` for precisely the record `content/references/ticket-rework.md` uses as its canonical worked example.
+
+**Small-change `Low` route.** A post-floor `Low` ticket under the small single-concern override (`content/sections/04-risk-classification.md` §Profile deltas) follows the Trivial-path branches: no investigator, architect, planner, or Skeptic. If the change has user-visible UI behavior, Phase 6b still runs after the engineer (its Elevated, `qa_criteria`, and Phase 6 triggers waived) with the ticket's acceptance text, or the operator's request, as the qa-engineer's criteria; QA fix passes use the Trivial round-N form. Otherwise set `QA_STATUS="skipped:Low path"`. The brief states the bounds; if the diff breaks one, the engineer pushes it to `$BRANCH_NAME`, stops, and reports. Set `RISK_CLASS="Elevated"`, clear `QA_STATUS`, and resume at Phase 3 with that diff as architect input. The stale-branch preflight's own-work row applies, and Phase 5 takes the branch-exists-on-origin form, whose already-checked-out guard covers the Low worktree. Like the floor, this re-entry skips Phase 0b's snapshot and Phase 2b.
 
 Both assignments are unconditional in the sense that matters: they do not depend on the rework feature being active. A ticket whose ledger write is later skipped simply never reads them.
 
@@ -1656,12 +1658,7 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
       esac
     done < <(git -C $REPO worktree list --porcelain)
     # `done < <(...)` is load-bearing here - a pipe form runs the loop in a
-    # subshell and loses EXISTING_WT after exit, reproducing the "guard
-    # matches nothing" failure this rewrite fixes.
-    # Behavioral difference vs. the retired awk one-liner (DS-192): on a
-    # worktree path containing whitespace, `${_wt_line#worktree }` yields
-    # the full path while the old awk field-2 form truncated at the first
-    # space - an improvement, not merely a side effect of the rewrite.
+    # subshell and loses EXISTING_WT after exit.
     ```
 
     If `$EXISTING_WT` is empty, no reuse conflict exists - run the `worktree add` above normally. If `$EXISTING_WT` is non-empty, do NOT reset it unconditionally: that worktree may hold a local-only commit from a round whose push failed (non-fast-forward, a pending DCO amend, an auth failure) - exactly the state the §Recovery procedure in `content/references/worktree-lifecycle.md` §Round-N rework mechanic exists to rescue, and a bare `reset --hard` would destroy it. Precheck in `$EXISTING_WT`, **fetch FIRST, then evaluate both predicates, fail-closed on either command's failure:**
@@ -1795,8 +1792,6 @@ while IFS= read -r _wt_line; do
   esac
 done < <(git -C $REPO worktree list --porcelain)
 # `done < <(...)` is load-bearing - a pipe form would lose EXISTING_WT.
-# Also whitespace-path-safe vs. the retired awk form, same improvement as
-# the Elevated-path definition above.
 if [ -n "$EXISTING_WT" ]; then
   INTEGRATION_WORKTREE="$EXISTING_WT"   # reuse - apply reset-vs-recovery above first
 elif git -C $REPO ls-remote --exit-code --heads origin "$FEATURE_BRANCH" >/dev/null 2>&1; then
@@ -2858,7 +2853,7 @@ Capture the PR number from the URL printed by `gh pr create`. Immediately collec
 Field derivation:
 - `risk_class` - `$RISK_CLASS`, **set at the Phase 2 "Risk classification declaration (unconditional)" subsection** to the conductor's declared classification, post-floor: `Trivial` | `Low` | `Elevated`. All three of `risk_class`, `skeptic_rounds`, and `qa_status` normalize an empty value to `null` in the record builder. For `risk_class` this is defence-in-depth rather than a reachable path - the Phase 2 declaration is unconditional, so an empty value would mean the declaration was skipped - but the three fields are read from the same per-ticket-reset in-context variables and are handled identically, so that a bug upstream produces an explicit `null` (which the null-render rule renders `n/a`) rather than an empty string, which that rule has nothing sensible to render.
 - `skeptic_rounds` - `$SKEPTIC_ROUNDS`, **captured at Phase 6 clean exit**, before Phase 6b overwrites the loop state. Do **not** read `loop_state.iteration` at this point unguarded: Phase 6b reinitializes that file with `phase: qa, iteration: 1`, so a post-QA read returns the QA iteration count, not the Skeptic round count. **Null on the Trivial path**, which never reaches Phase 6 and therefore never sets the variable. The disk fallback below exists only for a resumed session that lost the in-context variable, and it is doubly guarded - on `ticket_id` *and* on `loop_state.phase == "skeptic"`.
-- `qa_status` - the QA result (`PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`) when QA reached a terminal verdict; otherwise the skip rationale as `"skipped:<rationale>"`, where `<rationale>` is the `qa_criteria.qa_skip` enum value (set on Phase 6b's skip branch) or the literal `Trivial path` (set at the **Phase 2 declaration**, because Phase 6b is unreachable on the Trivial path). **Both non-QA paths - Trivial, and Elevated with a non-null `qa_skip` - write the rationale, not null.** That is the whole point of the field: a bare null renders `n/a` in the notice, which tells an operator doing manual verification that QA is *unavailable* when the truth is that QA was *deliberately skipped, for a stated reason*. Null is reserved for the degenerate case where neither a result nor a rationale can be resolved at all.
+- `qa_status` - the QA result (`PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`) when QA reached a terminal verdict; otherwise the skip rationale as `"skipped:<rationale>"`, where `<rationale>` is the `qa_criteria.qa_skip` enum value (set on Phase 6b's skip branch) or the literal `Trivial path` or `Low path` (set at the **Phase 2 declaration**, because Phase 6b does not run on those paths). **All non-QA paths - Trivial, non-UI small-change Low, and Elevated with a non-null `qa_skip` - write the rationale, not null.** That is the whole point of the field: a bare null renders `n/a` in the notice, which tells an operator doing manual verification that QA is *unavailable* when the truth is that QA was *deliberately skipped, for a stated reason*. Null is reserved for the degenerate case where neither a result nor a rationale can be resolved at all.
 - `unit_count` - **derived, not read**; there is no `unit_count` variable in this command. Count of **distinct** `task_id`s among `.agentic/tasks.jsonl` records whose `ticket_id` matches this ticket (the Phase 5 fan-out path) - apply the **task-state fold** and dedupe, not a raw line count. `1` on a single-engineer path, and `1` when `tasks.jsonl` is absent or unreadable.
 
 **Variable definition sites.** `RISK_CLASS` and `QA_STATUS` carry the record's semantic content, so unlike `$BRANCH_NAME` / `$GH_REPO` they are stated explicitly rather than assumed:
@@ -2867,7 +2862,7 @@ Field derivation:
 |---|---|---|---|
 | `RISK_CLASS` | Phase 1, per-ticket reset | Phase 2 "Risk classification declaration (unconditional)" | `Trivial` \| `Low` \| `Elevated`, post-floor |
 | `SKEPTIC_ROUNDS` | Phase 1, per-ticket reset | Phase 6, Step 3 clean exit | final `loop_state.iteration`; stays empty on the Trivial path, which never reaches Phase 6 |
-| `QA_STATUS` | Phase 1, per-ticket reset | **Three** sites: Phase 2 declaration (`skipped:Trivial path`, the only Trivial-reachable one); Phase 6b skip branch (`skipped:<qa_skip enum>`); Phase 6b terminal outcome (the QA verdict) | see the bullet above |
+| `QA_STATUS` | Phase 1, per-ticket reset | **Three** sites: Phase 2 declaration (`skipped:Trivial path` or `skipped:Low path`, the only site those paths reach); Phase 6b skip branch (`skipped:<qa_skip enum>`); Phase 6b terminal outcome (the QA verdict) | see the bullet above |
 
 Every row is cleared at the Phase 1 per-ticket reset and re-set on this ticket's own path. Without that reset each variable's single definition site would leak the previous batch ticket's value into any ticket that does not take that path - see "Per-ticket variable reset" in Phase 1.
 
@@ -2877,8 +2872,8 @@ Every row is cleared at the Phase 1 per-ticket reset and re-set on this ticket's
 # REWORK_DETECTION / TICKET_ID / RISK_CLASS / SKEPTIC_ROUNDS / QA_STATUS are the shell-variable
 # form of the conductor's in-context state (definition sites in the table above).
 # QA_STATUS holds the QA result when QA ran, and "skipped:<qa_skip enum>" or
-# "skipped:Trivial path" when it did not. It is empty ONLY in the degenerate case where neither
-# a result nor a rationale exists - the two ordinary non-QA paths both carry a rationale.
+# "skipped:Trivial path" / "skipped:Low path" when it did not. It is empty ONLY in the degenerate
+# case where neither a result nor a rationale exists - every ordinary non-QA path carries one.
 if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
   # pr_number derived live from the ticket currently in flight's own branch - never $PR_NUMBER.
   TRL_PR_NUMBER=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number 2>/dev/null || true)

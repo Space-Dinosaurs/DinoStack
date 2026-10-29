@@ -175,7 +175,7 @@ Delegate to a worktree-isolated engineer. No Skeptic. No brief file. The conduct
 </div>
 <div class="card" style="border-left-color: #18E0FF;">
 <strong>Low</strong>
-Direct action. Brief inline self-check only. No Worker spawn. No Skeptic.
+Direct action. Brief inline self-check only. No Skeptic. A small single-concern change gets one engineer.
 </div>
 <div class="card" style="border-left-color: #ff5d73;">
 <strong>Elevated</strong>
