@@ -24,7 +24,7 @@ When implementing or modifying code, read `content/references/code-standards-det
 
 ## Resource Use
 
-An agent launching a heavy process (full test suite, build, browser or E2E run) owns its machine footprint. Before launching, check free memory and swap (`vm_stat` and `sysctl vm.swapusage` on macOS, `free` on Linux). Start at low concurrency, well below the runner's per-core default, observe peak memory per worker, and scale up only while headroom remains. Do not start another heavy run while one of yours is still running. While iterating, run the affected test files; the full gate before completion still applies. Afterwards, kill processes and browsers you started and delete large scratch trees.
+An agent launching a heavy process (test suite, build, or browser run) owns its machine footprint. Before launching, check available memory and swap: on macOS, free plus inactive `vm_stat` pages (counts, not bytes) and `sysctl vm.swapusage`; on Linux, the available column of `free`. Start well below the runner's per-core default, observe peak per-worker memory (`ps -o rss`), and scale up only while headroom remains. Never start a heavy run while another of yours is running. While iterating, run affected test files; the full gate before completion still applies. Afterwards, kill processes and browsers you started.
 
 ## Package Management
 
