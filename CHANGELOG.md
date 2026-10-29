@@ -3,6 +3,18 @@
 
 # Changelog
 
+## 2026-10-29
+
+### Features
+
+- **#1044** [add resource-use principle for heavy test and build runs](https://github.com/Space-Dinosaurs/DinoStack/pull/1044) - tyson-solara6
+
+## 2026-10-28
+
+### Fixes
+
+- **#1043** [replace press-Enter prompts with structured choices](https://github.com/Space-Dinosaurs/DinoStack/pull/1043) - tyson-solara6
+
 ## 2026-10-27
 
 ### Uncategorized
