@@ -56,7 +56,7 @@ Before starting any task, the main agent performs a brief risk assessment. The c
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
 | Trivial | Worktree-isolated `engineer` (no Skeptic, no brief file) | None | Silent |
-| Low | Direct action | Brief inline self-check | Silent |
+| Low | Direct action (small single-concern change: one `engineer`) | Brief inline self-check | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated + Cleanup | Worker | Skeptic → `/simplify` → Skeptic (narrow) | Stated before starting |
 

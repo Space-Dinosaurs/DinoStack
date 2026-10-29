@@ -91,7 +91,7 @@ When the conductor spawns workers for a multi-unit plan with task-state tracking
 
 ### Rule 3 — Spawn threshold
 
-**Elevated risk → spawn Worker + fresh independent Skeptic. Low risk → direct action. Trivial risk → delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow).** The Skeptic Protocol defines two Elevated tiers (Elevated and Elevated + Cleanup); the main agent selects the appropriate path per The Skeptic Protocol Sections 0 and 12.
+**Elevated risk → spawn Worker + fresh independent Skeptic. Low risk → direct action (a small single-concern code change goes to one `engineer`; see `content/sections/04-risk-classification.md`). Trivial risk → delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow).** The Skeptic Protocol defines two Elevated tiers (Elevated and Elevated + Cleanup); the main agent selects the appropriate path per The Skeptic Protocol Sections 0 and 12.
 
 The delegation decision is driven by risk, not by counting tool calls. Assess risk first (see The Skeptic Protocol Section 0). If any Elevated signal is present, delegate to a Worker and apply adversarial review. If all signals are Low, direct action is appropriate. Trivial requires ALL qualifying signals to hold simultaneously - any single disqualifier pushes the task to Elevated.
 

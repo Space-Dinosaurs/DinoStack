@@ -5582,6 +5582,16 @@
       "source_token": "awk"
     },
     {
+      "expected_target": "content/sections/04-risk-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
+      "kind": "operational",
+      "occurrence_hash": "2ab8e666078553de467a4b5f1445b4292eb987b4e415d6f8ac259a477b8a044f",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/sections/04-risk-classification.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/proceed",
       "kind": "display-only",
@@ -17610,16 +17620,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/conventions-detail.md"
-    },
-    {
-      "expected_target": "content/sections/04-risk-classification.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
-      "kind": "operational",
-      "occurrence_hash": "db076735b8adfff521ecf9e992a64fc6dbf619215b3d63478f1048f48ee6fae0",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/sections/04-risk-classification.md"
     },
     {
       "expected_target": "git",

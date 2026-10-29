@@ -228,7 +228,8 @@ adapters rely on the prose rule alone.
 ## Risk profiles
 
 The methodology supports three risk profiles that move the line between Low
-(direct action) and Elevated (Worker plus Skeptic). Set the profile in
+(direct action, or one engineer for a small single-concern change) and Elevated
+(Worker plus Skeptic). Set the profile in
 `~/.claude/agentic-engineering.json` or per-project via an
 `agentic-engineering-profile:` marker in `AGENTS.md`
 ([content/sections/04-risk-classification.md](../content/sections/04-risk-classification.md)):
