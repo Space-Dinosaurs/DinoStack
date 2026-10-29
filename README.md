@@ -269,7 +269,7 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
 **Rules** (2 files) - the core methodology:
 
-- Code standards - documentation evidence, tool selection, code comments, reuse, quality gates, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
+- Code standards - documentation evidence, tool selection, code comments, reuse, quality gates, resource use, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
 - Conventions - writing style and length discipline, project structure, session context, git workflow
 
 **Reference docs** (43 files) - detailed protocol specs loaded on trigger:

@@ -47,7 +47,7 @@ in a blocker. Canonical candidate-branch and fail-closed details:
   task decomposition, and worktree lifecycle; the core rules for when to act directly vs. spawn Workers and Skeptics.
 
 - **rules/code-standards.md** - the engineering contract for documentation evidence, tool
-  selection, code comments, reuse, quality gates, and dependencies; detailed procedures load on trigger.
+  selection, code comments, reuse, quality gates, resource use, and dependencies; detailed procedures load on trigger.
 
 - **rules/conventions.md** - writing style including length discipline (write for the permanent
   audience), project structure, session context and memory handling, and git workflow including
@@ -755,6 +755,10 @@ After modifying code, run applicable project lint, typecheck, and test commands;
 Do not suppress or disable checks to pass gates. Suppression comments (`@ts-ignore`, `noqa`, etc.) require explicit user approval. For new projects via `/ds-init-project`, set up pre-commit hooks (husky + lint-staged for JS/TS, pre-commit for Python). If an existing project lacks tooling, run available checks and recommend setup.
 
 When implementing or modifying code, read `content/references/code-standards-detail.md` §Per-Language Strict Defaults, §Browser Verification, and §Discovery-Based Check Discipline for language defaults, browser checks, and hard-failing empty discovery.
+
+## Resource Use
+
+An agent launching a heavy process (test suite, build, or browser run) owns its machine footprint. Before launching, check available memory and swap: on macOS, free plus inactive `vm_stat` pages (counts, not bytes) and `sysctl vm.swapusage`; on Linux, the available column of `free`. Start well below the runner's per-core default, observe peak per-worker memory (`ps -o rss`), and scale up only while headroom remains. Never start a heavy run while another of yours is running. While iterating, run affected test files; the full gate before completion still applies. Afterwards, kill processes and browsers you started.
 
 ## Package Management
 

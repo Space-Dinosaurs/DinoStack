@@ -661,6 +661,10 @@ Do not suppress or disable checks to pass gates. Suppression comments (`@ts-igno
 
 When implementing or modifying code, read `content/references/code-standards-detail.md` §Per-Language Strict Defaults, §Browser Verification, and §Discovery-Based Check Discipline for language defaults, browser checks, and hard-failing empty discovery.
 
+## Resource Use
+
+An agent launching a heavy process (test suite, build, or browser run) owns its machine footprint. Before launching, check available memory and swap: on macOS, free plus inactive `vm_stat` pages (counts, not bytes) and `sysctl vm.swapusage`; on Linux, the available column of `free`. Start well below the runner's per-core default, observe peak per-worker memory (`ps -o rss`), and scale up only while headroom remains. Never start a heavy run while another of yours is running. While iterating, run affected test files; the full gate before completion still applies. Afterwards, kill processes and browsers you started.
+
 ## Package Management
 
 When adding or upgrading dependencies, or diagnosing an outdated dependency bug, read `content/references/code-standards-detail.md` §Package Management for version resolution, existing constraints, and the upgrade-before-workaround policy.
