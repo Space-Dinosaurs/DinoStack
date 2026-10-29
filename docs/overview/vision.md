@@ -1,7 +1,7 @@
 # DinoStack Product Vision (North Star)
 
 **Status:** Ratified 2026-06-28. Condensed 2026-08-25. Amended 2026-10-29.
-Same eight pillars, same boundaries, fewer bytes.
+Same eight pillars; the 2026-10-29 amendment re-scoped the shared boundary.
 
 ## The problem
 
