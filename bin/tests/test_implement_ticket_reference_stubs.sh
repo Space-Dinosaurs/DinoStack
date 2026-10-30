@@ -64,6 +64,7 @@ done <<'STUBSPEC'
 open-goal-loop.md:2
 batch-mode.md:3
 orchestration-units.md:2
+knowledge-commit.md:1
 STUBSPEC
 
 echo ""

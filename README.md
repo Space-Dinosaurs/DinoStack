@@ -272,7 +272,7 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Code standards - documentation evidence, tool selection, code comments, reuse, quality gates, resource use, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
 - Conventions - writing style and length discipline, project structure, session context, git workflow
 
-**Reference docs** (46 files) - detailed protocol specs loaded on trigger:
+**Reference docs** (47 files) - detailed protocol specs loaded on trigger:
 
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition

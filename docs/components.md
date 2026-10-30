@@ -4,7 +4,7 @@
 - Code standards - documentation evidence, tool selection, code comments, reuse, quality gates, resource use, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
 - Conventions - writing style, project structure, session context, git workflow
 
-**Reference docs** (46 .md docs plus 3 example .yml files; `content/references/` is the authoritative list) - detailed protocol specs loaded on trigger:
+**Reference docs** (47 .md docs plus 3 example .yml files; `content/references/` is the authoritative list) - detailed protocol specs loaded on trigger:
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
 - Agent team - roles, composed flows, decision rules, spawn requirements
@@ -40,6 +40,7 @@
 - Batch mode - `/ds-implement-ticket` multi-ticket batch resume, triage, and blocked-and-continue routing, read only when a batch is active
 - Open-goal loop - `/ds-implement-ticket` open-goal init/resume and per-iteration goal-condition check, read only when `goal_mode=open_goal`
 - Orchestration units - `/ds-implement-ticket` Phase 3b orchestration plan and Phase 5 parallel fan-out, read only for multi-unit plans
+- Knowledge commit - `/ds-implement-ticket` Phase 11e checkout-free commit of session knowledge files onto the PR branch, read only when Phase 9 opened a PR
 - Tracker writeback - the reusable Tracker Writeback Helper invocation pattern shared by every tracker state-transition call site
 - Learnings capture instruction - what counts as a learning and the canonical learnings_candidate digest-field definition
 - Subagent return contract - the attention test that classifies every subagent return field as MECHANICAL or ADVISORY
