@@ -22,7 +22,7 @@ Performance: one API fetch, one analyst spawn, and one review loop per invocatio
 
 **When to use:** before upgrading any AI coding harness that runs DinoStack - "is it safe to upgrade", "what does the new release break", "prep for the harness update".
 
-**Do not use to:** perform the upgrade, or prune rules (`/ds-prune-harness`). Nothing in this command installs or runs the new version.
+**Do not use to:** perform the upgrade, or prune rules. Nothing in this command installs or runs the new version.
 
 **Invocation:** `/ds-harness-upgrade-prep [harness] [--notes <local path>] [--installed <version>]`. `--notes` is a local file that is the pending notes, used whole, with no version locate. `--installed` replaces the version probe.
 

@@ -67,8 +67,6 @@ Skeptic at all - none of these construct a fill-in prompt of their own):
   - content/commands/ds-configure-team.md   (routing/suppression prose only)
   - content/commands/ds-status.md           (risk-table summary prose only)
   - content/commands/ds-wrap-deferred.md     (explicitly spawns nothing)
-  - content/commands/ds-prune-harness.md     (delegates to
-    /ds-update-agentic-engineering's own review, no template)
   - content/commands/ds-representation-audit.md (delegates to
     /ds-update-agentic-engineering's own review, no template)
   - content/commands/ds-memory-update.md     (queries past spawns, does not

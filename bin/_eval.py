@@ -159,8 +159,8 @@ Public API:
     order_decisions(decisions) -> list
         Sorted by (rank_usd is None, -(rank_usd or 0), -evidence.count, rule,
         subject).
-    ROUTES: rule -> route (D1a/D1b/D1c update-agentic-engineering,
-        D2 prune-harness, D3 tracker-ticket). Gaps have no route.
+    ROUTES: rule -> route (D1a/D1b/D1c/D2 update-agentic-engineering,
+        D3 tracker-ticket). Gaps have no route.
     Moved from bin/ds-change-delta (which imports them): _parse_ts,
         _as_int, _v2_coverage, _price_runs, _run_model, _ticket_index,
         _title_matches, _branch_matches, _attribute_prs, _ticket_row,
@@ -252,7 +252,7 @@ ROUTES = {
     "D1a": "update-agentic-engineering",
     "D1b": "update-agentic-engineering",
     "D1c": "update-agentic-engineering",
-    "D2": "prune-harness",
+    "D2": "update-agentic-engineering",
     "D3": "tracker-ticket",
 }
 SECTIONS = ("agents", "skeptic_rounds", "work_items", "hooks", "cost", "mix", "keepalive", "decisions", "gaps")

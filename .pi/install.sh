@@ -263,15 +263,16 @@ for _ae_old_name in "${_ae_stale_pre_ds26_prompts[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
-# Remove stale post-DS-26 prompt symlinks (renamed commands)
+# Remove stale post-DS-26 prompt symlinks (renamed or deleted commands)
 #
 # A command can also be renamed after DS-26 (its own ds- prefix stays, only
-# the basename changes). Same allowlist discipline as above: literal old
+# the basename changes) or deleted outright. Same allowlist discipline as above: literal old
 # names only, never a glob or set-difference against $PROMPT_DST.
 # ---------------------------------------------------------------------------
 
 _ae_stale_renamed_prompts=(
   ds-pull-and-install.md
+  ds-prune-harness.md
 )
 for _ae_old_name in "${_ae_stale_renamed_prompts[@]}"; do
   _ae_old_dst="$PROMPT_DST/$_ae_old_name"

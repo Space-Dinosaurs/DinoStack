@@ -3841,7 +3841,7 @@ class CodexPromptWrapperTests(unittest.TestCase):
         mirror.symlink_to("../../content/commands/ds-new-workflow.md")
         self.prompt("build")
         self.assertTrue((self.repo / ".codex/prompts/ds-new-workflow.md").is_file())
-        self.assertEqual(29, len(json.loads(self.prompt("inventory").stdout)))
+        self.assertEqual(28, len(json.loads(self.prompt("inventory").stdout)))
         mirror.unlink()
         source.unlink()
         self.prompt("build")

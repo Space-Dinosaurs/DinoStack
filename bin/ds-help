@@ -64,7 +64,6 @@ Audit & improve the methodology
   /ds-evaluate                    Evaluate methodology effectiveness over a time window (default 30d); ends with ranked refinement proposals.
   /ds-failure-audit              Mine session telemetry and categorize failure modes per model/harness with quantified frequency.
   /ds-harness-upgrade-prep        Run before upgrading your AI coding harness - checks its pending release notes against DinoStack and patches what they affect.
-  /ds-prune-harness               Propose deletions of rules that are not earning their keep.
   /ds-representation-audit        Propose prose rewrites where the methodology is unclear or bloated.
   /ds-test-suite-comprehension    Produce a test-gap map for a codebase. (parked)
   /ds-update-agentic-engineering  Edit, sync, build, and commit changes to the methodology itself.
