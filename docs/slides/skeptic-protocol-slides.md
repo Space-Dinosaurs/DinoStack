@@ -287,6 +287,7 @@ Every finding must be classified. Unclassified findings default to Major. The Sk
 - **2 re-route limit (per finding)**: same finding contested across 2+ rounds without resolution - escalate with both positions
 - **Simple changes**: capped at **1 round** - Critical/Major findings escalate directly
 - **Standard Elevated changes**: the 2-re-route rule applies
+- **Single-review route**: findings fixed once; re-reviewed only after a Critical
 - The primary agent tracks each finding by its text across all rounds
 
 **Loop-context override (inside `/ds-implement-ticket` Phase 6):** the 2-re-route rule is replaced by a stricter contract - **1 re-raise of a Critical finding after a claimed fix** triggers convergence failure escalation immediately. Outside a named loop, the 2-re-route rule is unchanged.

@@ -26,7 +26,8 @@ ticket flows use that ticket's keyed loop state, final findings log and QA
 artifacts. Preserve the three `## Review rigor` labels: `Brief / Plan path`,
 `Skeptic rounds (tier)`, `Findings summary`. Refresh their actual values when
 collecting final evidence. Missing logs mean unknown/pending, never zero findings.
-Valid Trivial/Low review and QA exemptions remain valid with concrete reasons.
+Valid Trivial/Low review and QA exemptions, and the single-review route's non-UI
+QA exemption, remain valid with concrete reasons.
 Keep the populated Review rigor section separate from the managed block.
 The advisory `pr-review-rigor.yml` check validates text presence only; its success
 does not prove execution, SHA coverage or evidence quality.
