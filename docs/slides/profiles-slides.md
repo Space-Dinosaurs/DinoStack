@@ -208,7 +208,7 @@ Profiles are not a security dial - they tune review cadence. The underlying risk
 - Ephemeral chat advice: **Low** only as a no-investigation answer from context already held
 - Single-file local edits and small single-concern changes (under 100 lines): **Low** (no Skeptic)
 - Multi-file pure-UI-only changes: **Low** (no Skeptic)
-- Any other Elevated signal wins
+- Any other Elevated signal wins (no risk surface: one engineer, one Skeptic pass)
 
 </div>
 
@@ -234,7 +234,7 @@ After activation, answer only from held context. Explicit unfamiliar or multi-re
 - Small single-concern changes (one source file plus tests/docs, under 100 changed lines): **Low** (no Skeptic)
 - All other legacy Elevated signals remain **Elevated**
 - Multi-file UI-only changes: **Elevated** (Skeptic runs)
-- The right choice for most day-to-day work
+- Elevated work touching no risk surface: one engineer, one Skeptic pass
 
 </div>
 
@@ -260,7 +260,7 @@ If you're not sure which profile to use, stay on default. It gives you two Low o
 - File renaming: **Elevated** (Skeptic runs)
 - Targeted wording fixes to already-reviewed content: **Elevated** (Skeptic runs)
 - Diagnostic-only logging and documentation-only file creation (pure lists/notes): **Low with self-check** (not unconditionally direct)
-- Small single-concern changes: **Elevated** (Skeptic runs)
+- Small single-concern changes: **Elevated** (Skeptic runs); no single-review route
 
 </div>
 

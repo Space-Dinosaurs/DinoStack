@@ -352,7 +352,7 @@ Each entry was a surprise the first time. After the entry, the qa-engineer handl
   .callout { font-size: 0.76em; padding: 0.35em 0.9em; margin-top: 0.3em; }
 </style>
 
-QA fires by default for every Elevated unit. It is skipped only when the architect explicitly sets one of these five `qa_skip` values:
+QA fires by default for every full-route Elevated unit (single-review route: user-visible UI changes only). It is skipped only when the architect explicitly sets one of these five `qa_skip` values:
 
 | Value | When it applies |
 |---|---|

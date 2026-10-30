@@ -1,7 +1,7 @@
 <!-- corpora: minimal medium full -->
 ## QA Gate
 
-**QA fires for every Elevated unit unless `qa_skip` is one of the 5 valid enum values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`.** The rationale is logged in the Brief / architect plan. A project having no `qa.md` is NOT a reason to skip QA. The `qa_default_skip` key in `.agentic/config.json` is reserved and inert (canonical definition in `content/references/planning-artifacts.md`).
+**QA fires for every full-route Elevated unit unless `qa_skip` is one of the 5 valid enum values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`.** On the single-review route QA fires only for a user-visible UI change, with the acceptance text as criteria (§04 Elevated routes). The rationale is logged in the Brief / architect plan. A project having no `qa.md` is NOT a reason to skip QA. The `qa_default_skip` key in `.agentic/config.json` is reserved and inert (canonical definition in `content/references/planning-artifacts.md`).
 
 **Concurrent QA + Skeptic for UI-visible changes.** When a unit's `qa_criteria` indicates QA fires (`qa_skip == null`, scenarios non-empty), spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. For non-UI or deferred-QA paths, the post-Skeptic QA flow applies. See `content/references/qa-gate.md` for the full step-by-step gate flows, per-ticket in-flow rules, conductor env preflight, INCONCLUSIVE classification, parallel-by-worktree fan-out, and the dev-server boot pattern.
 

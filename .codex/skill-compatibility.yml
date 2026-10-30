@@ -22,16 +22,6 @@
       "source_token": "`/ds-skeptic`"
     },
     {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "080be05fbca1ee16dec95282d8f3f27ac4b40088c063f1e10041a7956ace4611",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/rules/conventions.md"
-    },
-    {
       "expected_target": "content/references/conductor-operating-rules.md",
       "generated_token": "$AE_REPO_DIR/content/references/conductor-operating-rules.md",
       "kind": "operational",
@@ -262,6 +252,16 @@
       "source_token": "content/references/capture-classification.md"
     },
     {
+      "expected_target": "content/references/planning-artifacts.md",
+      "generated_token": "$AE_REPO_DIR/content/references/planning-artifacts.md",
+      "kind": "operational",
+      "occurrence_hash": "1b75199e0d12e89562a134462134fb3a1f76cb2a0f0fff76dbeb341546401a7c",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/planning-artifacts.md"
+    },
+    {
       "expected_target": "content/sections/04-risk-classification.md",
       "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
@@ -302,6 +302,16 @@
       "source_token": "Agent"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "20617fb707d5bb8909dec863e7924170ee279cb8c174f410a67aaebe506f1688",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -320,16 +330,6 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".gitignore"
-    },
-    {
-      "expected_target": "Task",
-      "generated_token": "Task",
-      "kind": "semantic-reference",
-      "occurrence_hash": "246bae2265d2a6cca59a72c5b2e059a68f2002a4bde03ca3bb553d7a70991c48",
-      "resolution_mode": "canonical-prose",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Task"
     },
     {
       "expected_target": "content/references/conductor-operating-rules.md",
@@ -390,16 +390,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/conductor-operating-rules.md"
-    },
-    {
-      "expected_target": "shell",
-      "generated_token": "Bash",
-      "kind": "semantic-reference",
-      "occurrence_hash": "2d05a74d77f16b1cda8ddd265be901da379eb0465abd30d74ef4abc6529aa14c",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Bash"
     },
     {
       "expected_target": "content/references/skeptic-protocol.md",
@@ -492,6 +482,16 @@
       "source_token": "content/references/events-log.md"
     },
     {
+      "expected_target": "content/references/agent-team.md",
+      "generated_token": "$AE_REPO_DIR/content/references/agent-team.md",
+      "kind": "operational",
+      "occurrence_hash": "354bd66cd8aa2287dbadc3d0f16b32ac031a8411688aef45ac48807899b65835",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/agent-team.md"
+    },
+    {
       "expected_target": "Task",
       "generated_token": "Task",
       "kind": "semantic-reference",
@@ -565,7 +565,7 @@
       "expected_target": "content/sections/04-risk-classification.md",
       "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
-      "occurrence_hash": "3f0bf887c07c61ba0b512d188bb2fa8181d53523cffd55490f3b5a389c29e240",
+      "occurrence_hash": "40c7cc14b3b4b9e9e05846609ceec071eee7714a814a58b5e37125aa123b1205",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
@@ -632,16 +632,6 @@
       "source_token": "content/references/code-standards-detail.md"
     },
     {
-      "expected_target": "content/references/agent-team.md",
-      "generated_token": "$AE_REPO_DIR/content/references/agent-team.md",
-      "kind": "operational",
-      "occurrence_hash": "476b94915c1be9337559d28ff97b4e4203269df7ed88849d74c774ab8181b012",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/agent-team.md"
-    },
-    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -692,16 +682,6 @@
       "source_token": "Read"
     },
     {
-      "expected_target": ".agentic/config.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
-      "kind": "operational",
-      "occurrence_hash": "4e445ea89b13381eeb6a68c93006a0886070cb872961f057b0d2d4e41aabf2cb",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/config.json"
-    },
-    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -742,6 +722,16 @@
       "source_token": "scripts/codex-skills.py"
     },
     {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "533d3d24a56fc4bfcec21d4d4981e99faa58543d23d22389a7fdfac96646b814",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/rules/conventions.md"
+    },
+    {
       "expected_target": "hooks/enforce-no-abdication.py",
       "generated_token": "$AE_REPO_DIR/hooks/enforce-no-abdication.py",
       "kind": "operational",
@@ -770,6 +760,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "hooks/enforce-skeptic-round-cap.py"
+    },
+    {
+      "expected_target": "content/references/risk-config-and-tiers.md",
+      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
+      "kind": "operational",
+      "occurrence_hash": "58e3b599a7c98ba61b512fbeb06adc7c9a94791c846b3547119a4d7ee583bee5",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
       "expected_target": "one bounded direct question after default derivation",
@@ -830,16 +830,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack"
-    },
-    {
-      "expected_target": "content/sections/04-risk-classification.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
-      "kind": "operational",
-      "occurrence_hash": "60e72199ae0f9c6c714e37ea7c151a88bef2c23ddba3cf965d633c4fd5a1c339",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/04-risk-classification.md"
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -942,6 +932,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "content/sections/04-risk-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
+      "kind": "operational",
+      "occurrence_hash": "6ab55d19ca9b9ebf7b301d50c5a4e2a8dddf3998f6a7e54c658135a590bbc678",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/04-risk-classification.md"
+    },
+    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -960,6 +960,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/rules/conventions.md"
+    },
+    {
+      "expected_target": "references/skeptic-protocol.md#section-12",
+      "generated_token": "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)",
+      "kind": "operational",
+      "occurrence_hash": "6e186d66eae6371da455b2fee0e05e28bc67728d060b7b7c68a85f3bc71041c2",
+      "resolution_mode": "cleanup-resource-contract",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/simplify"
     },
     {
       "expected_target": "filesystem read",
@@ -1006,6 +1016,16 @@
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
       "occurrence_hash": "74ba3e932d44c962cf4c7d689551d2bce256a1995b13786883ed54afaa6c74f5",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
+    },
+    {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "7a59d201781d3692e36fc9e0a0f6a23ab635459cf47dc7d87c69745eff5a2c85",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
@@ -1100,6 +1120,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Bash"
+    },
+    {
+      "expected_target": "content/sections/04-risk-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
+      "kind": "operational",
+      "occurrence_hash": "821e275bd200bdfb3ae97c147a1212e5ddd4666460a09821b66a710254cbd3f2",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/04-risk-classification.md"
     },
     {
       "expected_target": "apply_patch",
@@ -1682,6 +1712,16 @@
       "source_token": "/simplify"
     },
     {
+      "expected_target": "shell",
+      "generated_token": "Bash",
+      "kind": "semantic-reference",
+      "occurrence_hash": "c98ba9b237ee18cdc0517cfa61a281f78ab3fccfc054fc4fc23a99866c8a824c",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Bash"
+    },
+    {
       "expected_target": "Agent",
       "generated_token": "Agent",
       "kind": "semantic-reference",
@@ -2022,6 +2062,16 @@
       "source_token": "content/rules/conventions.md"
     },
     {
+      "expected_target": ".agentic/config.json",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
+      "kind": "operational",
+      "occurrence_hash": "e4fdd6e0140bd722c8ca83739a51ad4479140dd97a74b9a4bf4313884f11c773",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/config.json"
+    },
+    {
       "expected_target": "content/commands/ds-cleanup-worktrees.md",
       "generated_token": "manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-cleanup-worktrees`",
       "kind": "operational",
@@ -2072,6 +2122,16 @@
       "source_token": "There is no in-place exception. The Trivial-path solo `engineer` spawn is also `isolation: \"worktree\"`: the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout."
     },
     {
+      "expected_target": "Task",
+      "generated_token": "Task",
+      "kind": "semantic-reference",
+      "occurrence_hash": "eb9f2a067ecc3bbd84bf4f72f93db40ba50bcf03c5c2890679ee3aa28d6e8a38",
+      "resolution_mode": "canonical-prose",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Task"
+    },
+    {
       "expected_target": "content/references/conventions-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
       "kind": "operational",
@@ -2080,16 +2140,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/conventions-detail.md"
-    },
-    {
-      "expected_target": "references/skeptic-protocol.md#section-12",
-      "generated_token": "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)",
-      "kind": "operational",
-      "occurrence_hash": "ee4ad8ae3b30e47cdd854af128f03964ed1fa8882503b1ee7fca736009cab185",
-      "resolution_mode": "cleanup-resource-contract",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "/simplify"
     },
     {
       "expected_target": ".agentic/loop-state.json",
@@ -2190,26 +2240,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/planning-artifacts.md"
-    },
-    {
-      "expected_target": "content/references/planning-artifacts.md",
-      "generated_token": "$AE_REPO_DIR/content/references/planning-artifacts.md",
-      "kind": "operational",
-      "occurrence_hash": "f89c7c005f301f051a99a83ae07e8a500956bed858c918133754d1f946c9c56b",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/planning-artifacts.md"
-    },
-    {
-      "expected_target": "content/references/delegation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "f8a3c1286c1647cbb3b3ef9d223d3d46305de1a904869b5415502581c9507b98",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "content/references/capture-classification.md",
@@ -3542,16 +3572,6 @@
       "source_token": "Write"
     },
     {
-      "expected_target": "content/references/ticket-rework.md",
-      "generated_token": "$AE_REPO_DIR/content/references/ticket-rework.md",
-      "kind": "operational",
-      "occurrence_hash": "091cb598b242fb3916a65d4e9d1c04231594e7b68bd38a7d0a2656a7bb6afaf6",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/ticket-rework.md"
-    },
-    {
       "expected_target": "printf",
       "generated_token": "printf",
       "kind": "operational",
@@ -3960,16 +3980,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "then"
-    },
-    {
-      "expected_target": "dinostack-codex-implement-ticket",
-      "generated_token": "$dinostack-codex-implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "1158b8e47dc96b4d54f29539dd584928a907bf0a694334021181679ef7f632ab",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": ".agentic/",
@@ -4442,16 +4452,6 @@
       "source_token": ".agentic/learnings.md"
     },
     {
-      "expected_target": "spawn_agent message",
-      "generated_token": "use role-default routing and state default Tier intent in the task brief",
-      "kind": "operational",
-      "occurrence_hash": "19c426b89d5fdd2533ce6e27a775deac4461afbfa2535fd89cfee1a4bc3c3c64",
-      "resolution_mode": "codex-role-routing",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "omit the model param"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "INTEGRATION_WORKTREE",
       "kind": "display-only",
@@ -4690,6 +4690,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "tail"
+    },
+    {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "1d15722acb5c40402990c1075d4077fe05fed4715816906f972ea06a761730be",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/learnings.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -6502,6 +6512,16 @@
       "source_token": "-C"
     },
     {
+      "expected_target": "spawn_agent message",
+      "generated_token": "state explicit Tier 3 intent in the task brief and resolve the reviewer through role routing before `spawn_agent`",
+      "kind": "operational",
+      "occurrence_hash": "3867571ef91462a6f50fb95c762549826d127760799c0172ebd1b58ea287c5d8",
+      "resolution_mode": "codex-role-routing",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "pass `model: fable` when the effective Claude Code settings `availableModels` key is absent or lists fable; otherwise pass `model: opus`"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "KC_STATUS",
       "kind": "display-only",
@@ -6670,6 +6690,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "then"
+    },
+    {
+      "expected_target": "content/sections/04-risk-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
+      "kind": "operational",
+      "occurrence_hash": "3ad7adba44eb83057ae66af34bb3c0935070faef8ed2a2858eea438f36477ad4",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/sections/04-risk-classification.md"
     },
     {
       "expected_target": ".agentic/findings.md",
@@ -7150,6 +7180,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "case"
+    },
+    {
+      "expected_target": "content/references/ticket-rework.md",
+      "generated_token": "$AE_REPO_DIR/content/references/ticket-rework.md",
+      "kind": "operational",
+      "occurrence_hash": "41db915240f716d1eded47d0e4446b18bb88dddfff67fa31634832fca53d1a15",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/ticket-rework.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -8512,16 +8552,6 @@
       "source_token": ".loop_state.iteration"
     },
     {
-      "expected_target": "spawn_agent message",
-      "generated_token": "Explicit Tier 3 task-brief intent plus pre-spawn role routing is the Codex enforcement.",
-      "kind": "operational",
-      "occurrence_hash": "5a77b5519d71286c983a9c8258a7feaad054ec7477381d01476a8af9b1aa9005",
-      "resolution_mode": "codex-role-routing",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "The conductor's explicit param is the only enforcement: pass `model: fable` when the effective Claude Code settings `availableModels` key is absent or lists fable; otherwise pass `model: opus`."
-    },
-    {
       "expected_target": "then",
       "generated_token": "then",
       "kind": "operational",
@@ -8962,16 +8992,6 @@
       "source_token": ".agentic/qa-regressions.md"
     },
     {
-      "expected_target": "content/references/risk-config-and-tiers.md",
-      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
-      "kind": "operational",
-      "occurrence_hash": "6083f4bbc379a368c6c13ce10981a53cde314adc806db281126fa755ef7b7b0c",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/risk-config-and-tiers.md"
-    },
-    {
       "expected_target": "shell",
       "generated_token": "Bash",
       "kind": "semantic-reference",
@@ -9380,16 +9400,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "import"
-    },
-    {
-      "expected_target": "content/sections/04-risk-classification.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
-      "kind": "operational",
-      "occurrence_hash": "66a5fdee1480be44494d80d1510ec25a7c18ac8cad2d9e715da68ba6d34cc424",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/sections/04-risk-classification.md"
     },
     {
       "expected_target": "content/references/tracker-writeback.md",
@@ -11362,6 +11372,16 @@
       "source_token": "/dev"
     },
     {
+      "expected_target": "content/references/ticket-rework.md",
+      "generated_token": "$AE_REPO_DIR/content/references/ticket-rework.md",
+      "kind": "operational",
+      "occurrence_hash": "83c6c94efc2b9e5eee68360d241f4b2567e0b7d7d7715c4ddd3422a71c981cee",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/ticket-rework.md"
+    },
+    {
       "expected_target": "echo",
       "generated_token": "echo",
       "kind": "operational",
@@ -11690,16 +11710,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "grep"
-    },
-    {
-      "expected_target": "spawn_agent message",
-      "generated_token": "state explicit Tier 3 intent in the task brief and resolve the reviewer through role routing before `spawn_agent`",
-      "kind": "operational",
-      "occurrence_hash": "88a3fed10ba3daac7ed25618abaa7230856b8a08fda0e5e0d9d857208e71681c",
-      "resolution_mode": "codex-role-routing",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "pass `model: fable` when the effective Claude Code settings `availableModels` key is absent or lists fable; otherwise pass `model: opus`"
     },
     {
       "expected_target": "if",
@@ -15802,16 +15812,6 @@
       "source_token": "PR_BODY_APPEND_FILE"
     },
     {
-      "expected_target": ".agentic/learnings.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
-      "kind": "operational",
-      "occurrence_hash": "c17583061c98c884ddb13cfade537a4c8e80eef899532e3408c22168cf5faf30",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/learnings.md"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "--base",
       "kind": "display-only",
@@ -16240,16 +16240,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/loop-state-"
-    },
-    {
-      "expected_target": "hooks/enforce-tier.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-tier.py",
-      "kind": "operational",
-      "occurrence_hash": "c6379e944fa33dfbcea6bb48cc1614c4c411230a6c52e499e0c4f6bcd7aa9226",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "hooks/enforce-tier.py"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -17582,6 +17572,16 @@
       "source_token": ".agentic/loop-state-"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "da36ac603798e9cfafc9e0dad3466544ede21f419a710672c71a1e5f9994a0de",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "esac",
       "kind": "display-only",
@@ -17710,6 +17710,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "do"
+    },
+    {
+      "expected_target": "spawn_agent message",
+      "generated_token": "use role-default routing and state default Tier intent in the task brief",
+      "kind": "operational",
+      "occurrence_hash": "dcab486ca47be02e461e79ce0ec87cd49446d54407c48d7b8ec0514023ef1665",
+      "resolution_mode": "codex-role-routing",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "omit the model param"
     },
     {
       "expected_target": "git",
@@ -18460,16 +18470,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "git"
-    },
-    {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "e67e7d3bb588bd66b5e8fd198743321f7603cdc51bcedc061878a867346b51cd",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": ".agentic/tracker.yml",

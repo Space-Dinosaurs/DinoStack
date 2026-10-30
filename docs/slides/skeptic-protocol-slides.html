@@ -987,6 +987,7 @@ hr {
 <li><strong>2 re-route limit (per finding)</strong>: same finding contested across 2+ rounds without resolution - escalate with both positions</li>
 <li><strong>Simple changes</strong>: capped at <strong>1 round</strong> - Critical/Major findings escalate directly</li>
 <li><strong>Standard Elevated changes</strong>: the 2-re-route rule applies</li>
+<li><strong>Single-review route</strong>: findings fixed once; re-reviewed only after a Critical</li>
 <li>The primary agent tracks each finding by its text across all rounds</li>
 </ul>
 <p><strong>Loop-context override (inside <code>/ds-implement-ticket</code> Phase 6):</strong> the 2-re-route rule is replaced by a stricter contract - <strong>1 re-raise of a Critical finding after a claimed fix</strong> triggers convergence failure escalation immediately. Outside a named loop, the 2-re-route rule is unchanged.</p>

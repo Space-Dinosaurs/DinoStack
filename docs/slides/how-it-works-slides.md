@@ -297,7 +297,7 @@ The main session agent classifies each task as <strong>Trivial</strong>, <strong
 - Writing or changing code
 - Multi-file changes, migrations
 - Spawns Worker + Skeptic in the background
-- Review loop runs automatically
+- Review loop runs automatically (one pass if no risk surface)
 
 </div>
 </div>

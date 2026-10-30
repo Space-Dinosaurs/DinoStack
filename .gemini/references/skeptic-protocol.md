@@ -58,7 +58,8 @@ Before starting any task, the main agent performs a brief risk assessment. The c
 | Trivial | Worktree-isolated `engineer` (no Skeptic, no brief file) | None | Silent |
 | Low | Direct action (small single-concern change: one `engineer`) | Brief inline self-check | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
-| Elevated + Cleanup | Worker | Skeptic → `/simplify` → Skeptic (narrow) | Stated before starting |
+| Elevated, single-review route | One worktree-isolated engineer; no architect or planner | One Skeptic pass; fixes re-reviewed only after a Critical | Stated before starting |
+| Elevated + Cleanup (full route only) | Worker | Skeptic → `/simplify` → Skeptic (narrow) | Stated before starting |
 
 ### Declaration format
 
@@ -297,6 +298,8 @@ A bare `n/a` is invalid - every `n/a` value MUST carry a specific reason in the 
 - `n/a - architect skipped (judgment-based: well-understood, self-contained change)` (architect plan field only; see `content/references/agent-team.md`)
 - `n/a - architect skipped (mechanical: simple/targeted-unit metric)` (architect plan field only; see `content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric))
 - `n/a - assembled Plan review (per-unit plans listed inline)` (architect plan field only, on Plan-tier second-pass)
+- `n/a - single-review route (no architect plan)` (architect plan field only)
+- `n/a - single-review route (acceptance text is the criteria)` (qa_criteria field only)
 - `n/a - Worker was self-directed with no conductor-composed brief text beyond a ticket ID reference` (field 7 only)
 - `n/a - internal scaffolding artifact (no conductor claim-bearing brief text distinct from the artifact itself)` (field 7 only)
 
@@ -446,6 +449,7 @@ The number of permitted Skeptic rounds scales with task complexity:
 
 - **Simple/targeted changes** - a unit that meets the simple/targeted-unit mechanical metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)): Skeptic loop is capped at **1 round**. This overrides the 2-re-route rule above for this category. The Skeptic still runs at least once - this lever caps loop depth, it does not skip review. If the Skeptic raises Critical or Major findings after round 1, escalate directly to the human rather than spawning another Worker. The human decides whether to fix and re-review or accept as-is.
 - **Standard Elevated changes**: the 2-re-route rule above applies - if the same finding appears in 2 or more Skeptic responses without resolution, escalate to the human.
+- **Single-review route** (`content/sections/04-risk-classification.md` §Elevated routes): at most 2 rounds. If a round has no open Critical, one engineer fix pass covers every open finding except deferred Minors, then the loop exits clean with no re-review. If round 1 has a Critical, one fix pass, then round 2. A Critical still open after round 2 escalates (`cap_reached`).
 
 **Uncertainty rule for categorization:** The simple/targeted-unit metric is computed mechanically from the actual diff, not estimated. If the unit fails any clause of the metric - touches more than 1 file (or more than 1 file plus its colocated test/snapshot), exceeds 40 changed lines, or matches any of the 5 Mandatory Tier-3 escalation signal categories - apply the standard Elevated round limit (the 2-re-route rule). "Looks simple" is not a sufficient basis for the simple/targeted category; the metric's clauses are the only basis.
 

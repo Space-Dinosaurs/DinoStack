@@ -203,7 +203,7 @@ A fourth path exists: <strong>Elevated + Cleanup</strong> - Worker, then Skeptic
 |---|---|---|---|
 | Trivial | Worktree-isolated engineer (no Skeptic, no brief) | None | Silent |
 | Low | Direct, or 1 engineer (small change) | Brief inline self-check | Silent |
-| Elevated | Worker | Fresh independent Skeptic | Stated before starting |
+| Elevated | Worker (no risk surface: 1 engineer) | Fresh independent Skeptic (no risk surface: one pass) | Stated before starting |
 | Elevated + Cleanup | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
 
 <div class="callout">

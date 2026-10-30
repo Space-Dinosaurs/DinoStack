@@ -242,6 +242,11 @@ The methodology supports three risk profiles that move the line between Low
 - **`strict`** - more work treated as Elevated; broad Skeptic coverage. For when
   correctness matters more than speed.
 
+Under `default` and `relaxed`, Elevated work that touches no risk surface (no
+Mandatory Tier-3 category, no public-API change) takes the single-review route:
+one engineer, then one Skeptic pass whose findings are fixed once. `strict`
+removes that route.
+
 A stricter profile means more independent review before changes are accepted. On
 sensitive or shared repos, prefer `strict`.
 
@@ -269,7 +274,8 @@ The **risk profile** is the primary lever for cutting that cost. Moving from
 `strict` or `default` toward `relaxed` reclassifies more small work as Low, which removes the Skeptic and most of
 the pipeline: Low work is conductor direct action, except small single-concern
 code changes, which get one worktree-isolated engineer and no architect or
-Skeptic. See the [Risk profiles](#risk-profiles) section above for
+Skeptic. Elevated work that touches no risk surface skips the architect and
+gets one Skeptic pass. See the [Risk profiles](#risk-profiles) section above for
 the full list of which signals shift at each level.
 
 ### Tradeoff

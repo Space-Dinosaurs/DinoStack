@@ -15,7 +15,8 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 | Trivial | Delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly | None (no Skeptic, no brief file) | Silent |
 | Low | Direct action; a small single-concern code change goes to one worktree-isolated `engineer` | Brief inline self-check; that engineer checks its diff against the override's bounds | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
-| Elevated + Cleanup | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
+| Elevated, single-review route | One worktree-isolated engineer; no architect or planner | One Skeptic pass; fixes re-reviewed only after a Critical | Stated before starting |
+| Elevated + Cleanup (full route only) | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
 
 ### Risk profiles
 
@@ -114,12 +115,17 @@ implementation request.
 - **Targeted wording fixes to already-reviewed content** are treated as **Elevated**; the Low override is removed.
 - **Diagnostic-only changes** and **documentation-only file creation** remain direct-action eligible but require the conductor's inline self-check (they are treated as Low rather than unconditionally direct).
 - **Small single-concern code changes** are treated as **Elevated**; the Low override is removed.
+- **Elevated single-review route** is removed; every Elevated task takes the full route.
 
 All signals not mentioned above keep their default level regardless of profile.
 
 ### Elevated signals
 
 See §Delegation signal table above for the full Elevated signals list.
+
+### Elevated routes
+
+An Elevated task takes the `single-review` route only when all hold: (a) the profile is `default` or `relaxed`; (b) the ticket is not rework-floored; (c) it touches no risk surface. Otherwise it takes the `full` route. A risk surface is any Mandatory Tier-3 category (`content/references/risk-config-and-tiers.md` §Mandatory Tier-3 review escalation: security, auth, crypto, payments, or secrets; an irreversible operation; novel architecture; high blast radius, a shared utility, an LLM prompt, or a gate or its threshold; release, deploy, or production state) or a public-API change: an exported symbol or type, a route, a CLI flag, or a config key a downstream consumer reads. Judge it when the task is classified, from the ticket text and the codebase reads; when unclear, take the full route. `strict` always takes the full route, and Elevated + Cleanup exists only on it. The single-review route is one worktree-isolated `engineer`, then one `skeptic` pass whose findings are fixed once (loop rule: `content/references/skeptic-protocol.md` §Complexity-based round limit); QA fires only for a user-visible UI change, with the acceptance text as its criteria.
 
 ### Trivial signals
 
@@ -143,7 +149,7 @@ Clearly reversible reads (reads with no writes); exploration / research / draft 
 
 ### Mid-task reclassification
 
-If a task initially classified as Low reveals Elevated signals during execution, stop, reclassify as Elevated, and apply adversarial review from that point.
+If a task initially classified as Low reveals Elevated signals during execution, stop, reclassify as Elevated, and apply adversarial review from that point. A single-review task whose diff touches a risk surface continues on the full route.
 
 ### Low risk self-check
 
@@ -171,6 +177,8 @@ Risk: Elevated + Cleanup - [specific signal]
 Tier: 3 (role default)
 Applying adversarial review with /simplify cleanup pass.
 ```
+
+On the single-review route write `Risk: Elevated (single-review) - [signal]`.
 
 When a Brief or Plan governs the task (see METHODOLOGY.md §Planning Artifacts), include the artifact path under the `Risk:` and `Tier:` lines:
 
