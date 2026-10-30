@@ -1333,7 +1333,7 @@ _DENY_KEYLESS_TEMPLATE = (
     "the unit's own feature branch name, never the base branch it merges "
     "into), plus the review kind's suffix: none for a whole-change diff, "
     "-u-<unit_slug> for one unit of a multi-unit ticket, -plan, -brief, "
-    "-assembled-plan, or -meta. KEY may contain only letters, digits and "
+    "-assembled-plan, -single, or -meta. KEY may contain only letters, digits and "
     ". _ / # -, with no spaces and no `..`; if it ends in `.` plus 1-5 "
     "letters or digits, append -review. Use the same KEY every fix round of "
     "this unit. This deny wrote no round state, so the retry is not charged "

@@ -144,7 +144,7 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # stated arithmetic stop reproducing. Run `bash scripts/check-command-file-budget.sh`
 # for the live size and headroom.
 # Lowered for the Elevated single-review route.
-THRESHOLD_BYTES=402503
+THRESHOLD_BYTES=402501
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

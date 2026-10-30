@@ -255,7 +255,7 @@ Every Skeptic spawn prompt MUST include the following block in this order, after
 | Whole-change diff (single-unit, integration, Phase 6, QA-fix) | BASE |
 | One unit of a multi-unit ticket | BASE`-u-<unit_slug>` |
 | Architect-plan review | BASE`-plan` |
-| Full-route Phase 6 after a single-review re-entry (once per ticket; the route only moves single-review to full) | BASE`-full` |
+| Single-review route's Phase 6 review | BASE`-single` |
 | Brief review | BASE`-brief` |
 | Assembled-Plan pass | BASE`-assembled-plan` (per-unit overflow pass: BASE`-assembled-plan-u-<unit_slug>`) |
 | Meta-Skeptic | the reviewed spawn's KEY plus `-meta` |
@@ -264,7 +264,7 @@ Every Skeptic spawn prompt MUST include the following block in this order, after
 | `/ds-wrap` (only when spawned as `skeptic`; the command specifies a general-purpose spawn, which the hook does not gate) | `wrap-<run id>` (4 hex characters minted once per run), plus `-memory` for the memory-curation review |
 
 - If the composed KEY ends in `.` plus 1-5 letters or digits, append `-review`: the hook reads such an ending as a file extension.
-- Inside `/ds-implement-ticket`, `$UNIT_KEY` is this KEY for the review at hand: BASE for a whole-change review, BASE`-u-${unit_slug}` for a per-unit review.
+- Inside `/ds-implement-ticket`, `$UNIT_KEY` is this KEY for the review at hand: BASE for a whole-change review, BASE`-u-${unit_slug}` for a per-unit review, BASE`-single` for the single-review route's Phase 6.
 
 Use the identical KEY on every round of one unit's review - never append a round number, a "rework" suffix, or a commit SHA, and never substitute a rolling `base..head` range for it. A KEY may contain only letters, digits, `.`, `_`, `-`, `/`, or `#`, with no whitespace and no `..`; the hook rejects anything else, so a shell-piped diff command (`git diff a1b2c3d..e4f5a6b | head -200`) or two pipe-separated file paths are never read as a KEY.
 
