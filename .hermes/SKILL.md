@@ -18259,6 +18259,7 @@ The conductor delegates implementation work aggressively to specialist subagents
 - **`gh pr create` in Phase 9.** PR opener stays in the conductor; the synthesis output is consumed inline by the next phase and does not benefit from isolation in a separate spawn.
 - **CI Test URL polling in Phase 10.**
 - **Branch/worktree creation on the Phase 5 parallel fan-out path.** The Elevated single-engineer path AND the Trivial single-engineer path both delegate branch/worktree creation to the (worktree-isolated) engineer (see Phase 4). Only fan-out worktree creation remains conductor-orchestrated.
+- **Spawn call shape.** Agent spawns keep the background default of `run_in_background` (never pass `false`); wait for the completion notification. Only `wrap-ticket` (Phase 11b) is synchronous. `engineer`/`qa-engineer` spawns are worktree-isolated. Canonical: `content/sections/02-delegation.md`.
 
 This list is not exhaustive — any operation listed elsewhere as conductor-direct is also irreducible.
 
@@ -19867,11 +19868,7 @@ Extend `completion_conditions` to include: "quality_gates.command exits 0", "com
 
 The engineer return shape on the Elevated path now requires `quality_gate_results: { lint, typecheck, test, smoke_test, raw_output }` (with `raw_output` capped at 4000 chars). This mirrors the binding contract documented in `content/agents/engineer.md`.
 
-**Phase 7 fail path note.** When `DEBUGGER_ON_FAILURE` is `true` (see Setup) and the path is Elevated, Phase 7's gate-failure path interposes a Debugger diagnosis step before the next engineer fix pass. See Phase 7 "If the gate fails" for the full flow.
-
-**Trivial-path solo engineer carve-out.** Trivial solo engineer spawns keep the lightweight contract: no heavy `worktree_setup`/`quality_gates`/`git_finalization` contract block, no `quality_gate_results` return field, no Skeptic, no brief file. But the actor is a worktree-isolated `engineer`, not the conductor: branch creation, the (lightweight) quality check, the commit, and the push are all performed by the Trivial engineer inside its own worktree (`isolation: "worktree"`). The conductor never edits the shippable tree directly. Only the heavy Elevated ceremony is dropped - the actor and execution location are the worktree engineer.
-
-**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default: role default (omit the model param).
+**Trivial-path solo engineer carve-out.** Trivial solo engineer spawns keep the lightweight contract: no heavy `worktree_setup`/`quality_gates`/`git_finalization` contract block, no `quality_gate_results` return field, no Skeptic, no brief file. But the actor is a worktree-isolated `engineer`, not the conductor: branch creation, the (lightweight) quality check, the commit, and the push are all performed by the Trivial engineer inside its own worktree (`isolation: "worktree"`). The conductor never edits the shippable tree directly. Only the heavy Elevated ceremony is dropped - the actor and execution location are the worktree engineer. The brief adds: "Docs currency: follow this repo's own doc-sync rule (its AGENTS.md/CONTRIBUTING.md) and, in the same commit, update any doc your diff makes stale."
 
 **Task-state reads (multi-unit only, when `.agentic/tasks.jsonl` is in use):**
 
@@ -20179,7 +20176,6 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 
 **Failure semantics:**
 - `learning-extractor` failure NEVER blocks the calibration emit, meta-Skeptic sampling, or Phase 6b. Soft-fail silently.
-- The conductor does NOT wait for `learning-extractor` to return. It is fire-and-forget.
 - On return (asynchronous): if `learning-extractor` returns with a valid JSON shape, the conductor stores the `learning_ids[]` for Phase 11b and prints `operator_summary` to the user at the next turn boundary. If `skipped_reason` is populated (zero-substance, etc.), the conductor notes it silently.
 - If `learning-extractor` does not return before Phase 11b, `wrap-ticket` reads whatever entries exist in `.agentic/learnings.md` (may be partial or empty). No warning needed.
 
