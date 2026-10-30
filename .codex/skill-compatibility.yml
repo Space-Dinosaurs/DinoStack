@@ -2882,6 +2882,16 @@
       "source_token": "git"
     },
     {
+      "expected_target": "content/sections/02-delegation.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
+      "kind": "operational",
+      "occurrence_hash": "adc977a45e9f7ed494660df3298f0607c52c545bf4741e1c8cb3eaf0d9b0767c",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-brief.md",
+      "source_token": "content/sections/02-delegation.md"
+    },
+    {
       "expected_target": "content/commands/ds-implement-ticket.md",
       "generated_token": "$AE_REPO_DIR/content/commands/ds-implement-ticket.md",
       "kind": "operational",
@@ -2950,16 +2960,6 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-brief.md",
       "source_token": "/ds-brief"
-    },
-    {
-      "expected_target": "content/sections/02-delegation.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
-      "kind": "operational",
-      "occurrence_hash": "d2407b97e9a65f002996f20e4fc0a79df0cbb8d409877df20428c23239998d97",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-brief.md",
-      "source_token": "content/sections/02-delegation.md"
     },
     {
       "expected_target": "dinostack-codex-brief",
@@ -5662,16 +5662,6 @@
       "source_token": ".agentic/batch-state.json"
     },
     {
-      "expected_target": "content/sections/02-delegation.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
-      "kind": "operational",
-      "occurrence_hash": "2b3b2852d063a7dc0d0f5ad38f7644ca4024c9ead27f2e1b63b5cc6df1512ddf",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/sections/02-delegation.md"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
@@ -6680,6 +6670,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/"
+    },
+    {
+      "expected_target": "content/sections/02-delegation.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
+      "kind": "operational",
+      "occurrence_hash": "3a62bdb907eaacbdcba2f643840bcd832a094eec5f01dce9a2d1f294abffcff8",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/sections/02-delegation.md"
     },
     {
       "expected_target": ".agentic/events.jsonl",
@@ -13070,16 +13070,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/batch-state.json"
-    },
-    {
-      "expected_target": "one bounded direct question after default derivation",
-      "generated_token": "AskUserQuestion",
-      "kind": "semantic-reference",
-      "occurrence_hash": "9d02911825e4ccf746d38b666f367c07fbb7e65c6e2dee895fd71b819cb9ad25",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "AskUserQuestion"
     },
     {
       "expected_target": "then",
@@ -22172,6 +22162,16 @@
       "source_token": ".agentic/_wrap.md"
     },
     {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "64488a3c2992872c0e930f0f789b2274a0e4ef16e8a480da6aae2fb0144837e8",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/rules/conventions.md"
+    },
+    {
       "expected_target": "dinostack-codex-wrap",
       "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
@@ -24390,16 +24390,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".claude/"
-    },
-    {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "df770d94abb713a837fa494be92ba14f2ca09b7619232e2eed9c02e17ca762ed",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": ".agentic/wrap/last-wrap",

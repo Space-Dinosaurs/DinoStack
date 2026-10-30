@@ -340,7 +340,7 @@ Before reading AGENTS.md or doing any setup, check for `.agentic/loop-state-$LOO
 N other resumable loops exist: <up to 3 keys, most-recent last_updated first>[, +M more]. Re-invoke with that ticket id to resume one.
 ```
 
-One line, recommendation-plus-confirmation, never a co-equal ballot (required by the AskUserQuestion precondition in `content/sections/02-delegation.md`). If those other candidates exist but none is resumable, proceed silently.
+One line, informational, never a co-equal ballot (`content/sections/02-delegation.md` Act-and-report branch). If those other candidates exist but none is resumable, proceed silently.
 
 **If `.agentic/loop-state-$LOOP_KEY.json` does not exist and the legacy `.agentic/loop-state.json` does - legacy adoption.** A legacy file is never silently ignored. When it is resumable (`status == "interrupted"`, or `status == "active"` and stale > 10 min via the implicit-interrupt path above):
 1. Derive the **adoption key** from the legacy file's own `ticket_id`; else `session-<its own session_id>`; else the literal `legacy`.
@@ -422,7 +422,7 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 - `REPO` — absolute path to the repo root
 - `REPO_DIR` — absolute path to the **dinostack / DinoStack install** (NOT the same as `REPO` - `REPO` is the ticket's own project checkout, `REPO_DIR` is where the `bin/`-tools live). Resolve via the canonical resolver `scripts/lib/repo-dir.sh` (`resolve_repo_dir`): read `repo_dir` from `~/.agentic/agentic-engineering-config.json` if present and a valid git repo; else fall back to `~/DinoStack`. Used by `bin/ds-resolve-worktree` (Phase 8 cleanup) and `bin/ds-base-sync` (Phase 12, repo-relative invocation).
 - `GH_REPO` — GitHub repo slug (e.g. `org/repo-name`)
-- `BASE_BRANCH` - the branch all work is based from. Resolve in this order: (1) if declared via a `BASE_BRANCH:` line in `AGENTS.md`, use that; (2) else `develop` if it exists locally or as `refs/remotes/origin/develop`; (3) else `development` if it exists locally or as `refs/remotes/origin/development`; (4) else the remote's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`, stripping `origin/`), else `main` (fall back to `master`). Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
+- `BASE_BRANCH` - the branch all work is based from. Resolve in this order: (1) if declared via a `BASE_BRANCH:` line in `AGENTS.md`, use that; (2) else the remote's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`, stripping `origin/`); (3) else a local `develop` branch; (4) else a local `development` branch; (5) else `main` (fall back to `master`). Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
 - `QUALITY_CMD` — the full quality gate command to run from repo root
 - `DEBUGGER_ON_FAILURE` — read from `.agentic/config.json` key `debugger_on_failure` (boolean, default `false`). When `true` and the path is Elevated, a Debugger diagnosis step is interposed between a failed quality gate and the next engineer fix pass in Phase 7 - see Phase 7 for the full flow.
 - `AUTO_MERGE_ON_CI_GREEN` — read from `.agentic/config.json` key `auto_merge_on_ci_green` (boolean, default `false`). When `true`, Phase 12 squash-merges the PR after CI passes, the PR is ready, and no reviewer has requested changes. Default `false` leaves the PR open for human review.

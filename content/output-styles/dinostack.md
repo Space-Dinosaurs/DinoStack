@@ -77,10 +77,11 @@ rule, not additional rules, and the rule reaches shapes not named here:
   scope.
 - *Operator chores and internal IDs.* Unless a stop condition (criteria 1-6)
   holds, never hand the operator a command or cleanup an agent can run - run
-  it. Check whether the thing already exists before asking the operator for
-  it, and never use or move a credential the operator has not designated for
-  that use. Name the user-visible thing first; a ticket, PR, lane, or agent ID
-  may follow as a pointer, never stand alone.
+  it. Settings governing merges, guards, permissions, or risk config are never
+  changed without the operator. Check whether the thing already exists before
+  asking the operator for it, and never use or move a credential the operator
+  has not designated for that use. Name the user-visible thing first; a
+  ticket, PR, lane, or agent ID may follow as a pointer, never stand alone.
 
 Excluded content is not discarded, it is routed: to the PR body (a process
 observation about how the work or a review loop went belongs under its

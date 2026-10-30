@@ -87,7 +87,7 @@ Public API: $dinostack-codex-brief [topic] | $dinostack-codex-brief --from <path
 
 Upstream deps: $AE_REPO_DIR/content/references/planning-artifacts.md (Brief template and field guidance,
                including Outcome rubric field schema);
-               $AE_REPO_DIR/content/sections/02-delegation.md (surface-and-proceed protocol);
+               $AE_REPO_DIR/content/sections/02-delegation.md (Act-and-report branch);
                $AE_REPO_DIR/content/rules/conventions.md (git worktree conventions, base-branch resolution);
                $AE_PROJECT_DIR/.agentic/brief-session.json (resume state, includes rubric array);
                MEMORY.md (prior-decisions scan, delivered to the main session at start; else grep on demand);
@@ -303,7 +303,7 @@ Write `status: iterating` during revision rounds.
 5. When no ticket was created (ad-hoc path only): act-and-report:
    > "Brief written to docs/planning/<slug>.md and committed. Spawned architect with
    > brief_path - reply STOP to halt it or refine the Brief."
-6. Spawn the architect with `brief_path` in the execution contract in the same turn as step 5. If the operator's next turn is STOP, halt the architect and do not proceed to step 7.
+6. Spawn the architect with `brief_path` in the execution contract in the same turn as step 5. If the operator's next turn is STOP, halt the architect; a STOP arriving after the architect returns halts every later step not yet started (no Skeptic, engineer, or PR).
 7. After architect returns: spawn Skeptic using the operator-confirmed variant (Section 6), plus the Global-context input set (`## Global-context inputs` block per `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 4.5): field 2 (Brief/Plan artifact) is `n/a - Skeptic-on-Brief (Brief is the artifact under review)`; field 4 (per-consumer impact table) is `n/a - Brief tier (per-consumer lives in architect plan path above)`; field 6 (diff under review) leads with the unit's stable key with the `-brief` suffix (§4.5) followed by " | " and the paths the Brief proposes to touch, since this is a pre-implementation review and no diff exists yet; field 7 (conductor spawn brief) is `n/a - internal scaffolding artifact (no conductor claim-bearing brief text distinct from the artifact itself)`.
 8. PR opens at the end of the full engineer flow (after Skeptic sign-off on engineer
    output), NOT after Brief commit.

@@ -145,7 +145,7 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # for the live size and headroom.
 # Lowered for the Elevated single-review route.
 # Lowered for act-on-recommendation (Phase 2b, BASE_BRANCH).
-THRESHOLD_BYTES=402299
+THRESHOLD_BYTES=402170
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

@@ -793,7 +793,7 @@ Write-ordering among the five files is not a `/ds-wrap`-internal question, becau
 4. `<cwd>/AGENTS.md`
 5. `<cwd>/.agentic/tracking.md`
 
-**Resolve `BASE_BRANCH` and fetch, before gating.** Resolve `BASE_BRANCH` per `content/rules/conventions.md` §Base branch resolution (declared in `AGENTS.md` - this repo declares `BASE_BRANCH: main` - else `develop` if it exists locally or as `refs/remotes/origin/develop`, else `development` if it exists locally or as `refs/remotes/origin/development`, else the remote's default branch, else `main`, falling back to `master`). Resolution never prompts, and Part G never auto-creates a branch. Then run `git fetch origin`. Both must happen here, before the per-file gating below, because that gating compares against `origin/<BASE_BRANCH>` and must not compare against a stale local copy of the remote ref.
+**Resolve `BASE_BRANCH` and fetch, before gating.** Resolve `BASE_BRANCH` per `content/rules/conventions.md` §Base branch resolution (declared in `AGENTS.md` - this repo declares `BASE_BRANCH: main` - else the remote's default branch, else a local `develop` branch, else a local `development` branch, else `main`, falling back to `master`). Resolution never prompts, and Part G never auto-creates a branch. Then run `git fetch origin`. Both must happen here, before the per-file gating below, because that gating compares against `origin/<BASE_BRANCH>` and must not compare against a stale local copy of the remote ref.
 
 **Per-file gating** - each check is a hard skip for THAT FILE ONLY; it never aborts the sweep of the remaining candidates:
 - File does not exist -> skip silently (no log line; this is the common case).
