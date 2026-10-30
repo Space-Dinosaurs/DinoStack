@@ -7,7 +7,20 @@
 
 ### Features
 
+- **#1046** [small single-concern changes are Low; no added design beyond accepted sources](https://github.com/Space-Dinosaurs/DinoStack/pull/1046) - tyson-solara6
 - **#1044** [add resource-use principle for heavy test and build runs](https://github.com/Space-Dinosaurs/DinoStack/pull/1044) - tyson-solara6
+
+### Fixes
+
+- **#1048** [close Skeptic-confirmed findings, review sweep for fan-out, ESLint dot-path facts](https://github.com/Space-Dinosaurs/DinoStack/pull/1048) - tyson-solara6
+
+### Documentation
+
+- **#1045** [attach safeguards to risk surfaces; tier process is a measured dial](https://github.com/Space-Dinosaurs/DinoStack/pull/1045) - tyson-solara6
+
+### Maintenance
+
+- **#1047** [npm audit fix ip-address advisory in scripts lockfile](https://github.com/Space-Dinosaurs/DinoStack/pull/1047) - tyson-solara6
 
 ## 2026-10-28
 
