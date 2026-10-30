@@ -151,6 +151,17 @@ _HEADING_QA_GATE = "## Phase 6b: QA Gate (conditional)"
 _HEADING_QA_EVIDENCE = "## Phase 8.5: QA evidence (conditional)"
 _HEADING_HANDOFF_EVAL = "## Phase 12a: Handoff evaluation (batch, open-goal, and single-ticket-capped)"
 
+# The Phase 0a-open-goal, 0a-pre, 0a, 3b, and parallel-units bodies have since
+# moved to content/references/{open-goal-loop,batch-mode,orchestration-units}.md;
+# their headings stay in the target as one-line pointer stubs, so a range on
+# one of those headings now moves only the stub. Fixtures that need a move to
+# break a real assertion are rebased onto still-inline spans carrying the same
+# assertion kind: the single-engineer Phase 5 path (two of the target's
+# 'task-state fold' citations) and the batch state contracts (the ERE
+# `updated_at ... 10 minutes` patterns).
+_HEADING_SINGLE_UNIT = "### If work is a single logical unit (or units must be sequential):"
+_HEADING_BATCH_CONTRACTS = "## Batch state contracts (binding)"
+
 
 # ---------------------------------------------------------------------------
 # Fence-aware heading index sanity
@@ -224,16 +235,13 @@ def test_known_answer_tracker_dev_complete_heading_block_does_not_break_when_unt
 
 
 # ---------------------------------------------------------------------------
-# Known-answer 2: test_tasks_jsonl_fold.sh's FOLDSPEC per-file floor (>= 7)
-# drops to 4 when 1369-1458 and 1651-1763 move.
+# Known-answer 2: test_tasks_jsonl_fold.sh's FOLDSPEC per-file floor (>= 4)
+# for the target drops to 2 when the single-engineer Phase 5 path moves.
 # ---------------------------------------------------------------------------
 
 
 def test_known_answer_tasks_jsonl_fold_heredoc_floor_breaks():
-    ranges = [
-        _range_for_heading(_HEADING_ORCHESTRATION_PLAN, "content/references/orchestration-units.md"),
-        _range_for_heading(_HEADING_PARALLEL_UNITS, "content/references/orchestration-units.md"),
-    ]
+    ranges = [_range_for_heading(_HEADING_SINGLE_UNIT, "content/references/orchestration-units.md")]
     report = pmi.analyze(REPO_ROOT, TARGET, ranges)
     hits = [
         a
@@ -242,22 +250,38 @@ def test_known_answer_tasks_jsonl_fold_heredoc_floor_breaks():
     ]
     assert hits, "expected a grep_count_floor assertion for test_tasks_jsonl_fold.sh"
     breaking = [a for a in hits if a.breaks]
-    assert breaking, "FOLDSPEC per-file floor for the target file must break: before=14, after=4, floor>=7"
+    assert breaking, "FOLDSPEC per-file floor for the target file must break: before=4, after=2, floor>=4"
     foldspec_hits = [a for a in breaking if "FOLDSPEC" in a.detail]
     assert foldspec_hits, f"expected the FOLDSPEC heredoc floor among breaking hits, got: {[a.detail for a in breaking]}"
-    assert "after=4" in foldspec_hits[0].detail
-    assert "floor >= 7" in foldspec_hits[0].detail
-    # G6's own simple `VAR="$(git grep -cE ... -- "$DIT")"` floor (>= 1) is a
-    # SEPARATE grep_count_floor assertion from the FOLDSPEC heredoc table
-    # above - its only occurrence (line 1448) sits inside the 1369-1458
-    # move range, so before=1/after=0 must ALSO break. This was silently
-    # dropped pre-fix: `_VAR_ASSIGN_RE` required the `$(...)` to end the
-    # line, but this exact call site has a trailing `; [ -n "$G6" ] ||
-    # G6=0` statement after it.
-    g6_hits = [a for a in breaking if "G6" in a.detail and "is in_progress under another session" in a.detail]
-    assert g6_hits, f"expected G6's own floor among breaking hits, got: {[a.detail for a in breaking]}"
-    assert "before=1" in g6_hits[0].detail and "after=0" in g6_hits[0].detail
+    assert "after=2" in foldspec_hits[0].detail
+    assert "floor >= 4" in foldspec_hits[0].detail
     assert not report.ok
+
+
+def test_regression_var_assign_floor_with_trailing_statement_is_extracted():
+    """G6's simple `VAR="$(git grep -cE ... -- "$DIT")"` floor (>= 1) was
+    silently dropped pre-fix: `_VAR_ASSIGN_RE` required the `$(...)` to end
+    the line, but that call site has a trailing `; [ -n "$G6" ] || G6=0`
+    statement after it. The live G6 now scans orchestration-units.md rather
+    than the target, so this pins the same call-site shape against a
+    synthetic target: the floor must be extracted, and moving its only
+    occurrence must break it."""
+    consumer_text = (
+        "DIT=content/commands/ds-implement-ticket.md\n"
+        "G6=\"$(git grep -cE 'is in_progress under another session' -- \"$DIT\" 2>/dev/null | cut -d: -f2)\"; "
+        "[ -n \"$G6\" ] || G6=0\n"
+        "if [ \"$G6\" -ge 1 ]; then echo ok; fi\n"
+    )
+    target_text = "line one\nWARNING: task x is in_progress under another session.\nline three\n"
+    ranges = [pmi.MoveRange(start=2, end=2, dest="content/references/scratch.md")]
+    out = pmi.extract_shell_floor_assertions(
+        "bin/tests/scratch_consumer.sh", consumer_text, target_text,
+        target_text.split("\n"), ranges, TARGET,
+    )
+    g6_hits = [a for a in out if "G6" in a.detail and "is in_progress under another session" in a.detail]
+    assert g6_hits, f"expected G6's own floor to be extracted, got: {[a.detail for a in out]}"
+    assert g6_hits[0].breaks
+    assert "before=1" in g6_hits[0].detail and "after=0" in g6_hits[0].detail
 
 
 def test_known_answer_tasks_jsonl_fold_heredoc_floor_stays_green_when_untouched():
@@ -359,13 +383,16 @@ def test_loop_state_site_coverage_hardcodes_file_equals_target():
 # consumers must be present, in one combined run.
 # ---------------------------------------------------------------------------
 
+# The parallel-units entry is rebased onto the still-inline single-engineer
+# path (see _HEADING_SINGLE_UNIT above) so the run still carries a
+# test_tasks_jsonl_fold.sh break.
 NINE_RANGES = [
     _range_for_heading(_HEADING_TRACKER_WRITEBACK, "content/references/tracker-writeback.md"),
     _range_for_heading(_HEADING_OPEN_GOAL_LOOP, "content/references/open-goal-loop.md"),
     _range_for_heading(_HEADING_BATCH_RESUME_CHECK, "content/references/batch-mode.md"),
     _range_for_heading(_HEADING_BATCH_TRIAGE, "content/references/batch-mode.md"),
     _range_for_heading(_HEADING_ORCHESTRATION_PLAN, "content/references/orchestration-units.md"),
-    _range_for_heading(_HEADING_PARALLEL_UNITS, "content/references/orchestration-units.md"),
+    _range_for_heading(_HEADING_SINGLE_UNIT, "content/references/orchestration-units.md"),
     _range_for_heading(_HEADING_QA_GATE, "content/references/qa-loop-state.md"),
     _range_for_heading(_HEADING_QA_EVIDENCE, "content/references/qa-loop-state.md"),
     _range_for_heading(_HEADING_HANDOFF_EVAL, "content/references/handoff-evaluation.md"),
@@ -422,22 +449,24 @@ def test_doc_consumers_are_not_mechanically_gated_as_breaking():
 
 
 def test_regression_ere_metachar_pattern_resolves_via_regex_not_literal_find():
-    ranges = [
-        _range_for_heading(_HEADING_BATCH_RESUME_CHECK, "content/references/batch-mode.md"),
-        _range_for_heading(_HEADING_BATCH_TRIAGE, "content/references/batch-mode.md"),
-    ]
+    # The decision-table patterns this originally pinned moved to batch-mode.md
+    # with Phase 0a-pre; the Contract C and N=1 warning patterns
+    # ('different .session_id., and .updated_at. within the last 10 minutes:
+    # REFUSE' / 'different .session_id. \+ .updated_at. within the last 10
+    # minutes') carry the same ERE metacharacters and stay in the target.
+    ranges = [_range_for_heading(_HEADING_BATCH_CONTRACTS, "content/references/_hypothetical-batch-state-split.md")]
     report = pmi.analyze(REPO_ROOT, TARGET, ranges)
     hits = [
         a
         for a in report.assertions
         if a.consumer == "bin/tests/test_batch_state_timestamp_field.sh"
-        and "status=active" in a.detail
+        and "updated_at" in a.detail
         and "10 min" in a.detail
     ]
     assert hits, (
-        "expected the ERE-metachar patterns ('status=active. AND .updated_at "
-        "> 10 min. ago' / '...<=10 min...') to resolve as literal_presence "
-        "assertions, not vanish silently"
+        "expected the ERE-metachar patterns ('different .session_id., and "
+        ".updated_at. within the last 10 minutes...') to resolve as "
+        "literal_presence assertions, not vanish silently"
     )
     assert any(a.breaks for a in hits), "these patterns' only target lines fall inside the move range"
     assert any("resolved via ERE match" in a.detail for a in hits), (
@@ -792,8 +821,9 @@ SCRATCH_GATES = (
 def _write_split_target(repo_root: Path, scratch_root: Path, target_rel: str, ranges: list) -> None:
     """Delete each range (1-indexed, inclusive) from a scratch copy of the
     target file, and append its content verbatim to the corresponding
-    destination file (creating it - the destinations are all NEW files
-    that don't exist on main yet, this being a proposed future split)."""
+    destination file (creating it when absent; appending when a
+    destination already exists, as batch-mode.md, open-goal-loop.md and
+    orchestration-units.md now do)."""
     lines = (repo_root / target_rel).read_text(encoding="utf-8").split("\n")
     sorted_ranges = sorted(ranges, key=lambda r: r.start)
     dest_content: dict[str, list[str]] = {}
@@ -808,7 +838,8 @@ def _write_split_target(repo_root: Path, scratch_root: Path, target_rel: str, ra
     for dest, dest_lines in dest_content.items():
         dest_path = scratch_root / dest
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-        dest_path.write_text("\n".join(dest_lines) + "\n", encoding="utf-8")
+        existing = dest_path.read_text(encoding="utf-8") if dest_path.exists() else ""
+        dest_path.write_text(existing + "\n".join(dest_lines) + "\n", encoding="utf-8")
 
 
 def test_differential_against_ground_truth_post_move_gates(tmp_path):

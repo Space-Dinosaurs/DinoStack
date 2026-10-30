@@ -691,70 +691,7 @@ classifiers:
 
 **Trigger:** invocation carries `goal_mode=open_goal`. Mutually exclusive with Phase 0a-pre/Phase 0a - skip both when this fires; fall through unmodified when it does not.
 
-### Step 0 - resume-vs-fresh classification (before any write). Provably complete partition.
-
-Read `.agentic/batch-state.json` if present.
-
-- Absent, or `mode != "open_goal"`: → Fresh init.
-- `mode == "open_goal"`: classify via `termination_reason` first (authoritative when non-null, regardless of `status`); fall back to `status` sub-partition only when `termination_reason == null`.
-
-  **A. `termination_reason` non-null (6 of 7 buckets; resolved without consulting `status`):**
-  - `cap_reached_iterations` | `cap_reached_wallclock` → TERMINAL; print:
-    ```
-    A prior open-goal loop already terminated (reason: <termination_reason>, iteration <N>/<max_iterations>). Starting fresh clears this state. To continue this goal instead, re-invoke with max_iterations and/or max_wallclock_min set HIGHER than the current values (max_iterations=<X>, max_wallclock_min=<Y>). Confirm: fresh-start (delete + reinit) or raise-caps (continue from iteration <N+1>)? (fresh / raise-caps)
-    ```
-    Offer both `fresh` and `raise-caps`.
-  - `blocked` → TERMINAL, fresh ONLY (raise-caps can't unblock a stuck Skeptic loop); prompt adds: "To resume the specific blocked iteration's stuck work instead, use the ordinary per-ticket Resume check against that iteration's own branch - this phase does not do that."
-  - `goal_met` → TERMINAL, fresh ONLY (nothing to raise).
-  - `paused_stale_pace` | `paused_operator_request` → RESUMABLE.
-
-  **B. `termination_reason == null` (7th bucket; sub-partitioned on `status`, exhaustively):**
-  - `status` in `{paused, interrupted}` → RESUMABLE.
-  - `status == "active"` → apply Contract A's existing per-write `session_id`-mismatch determination to this READ (same 5-way logic Contract A uses to gate every `batch-state.json` WRITE - including the self-ownership carve-out - applied here as read-time classification):
-    - `session_id` non-empty and matches current session → RESUMABLE (same-session continuation; covers crash-mid-advance re-invoked same session).
-    - `session_id` non-empty, differs, AND `updated_at` older than 10 min → RESUMABLE, treated as implicitly interrupted (mirrors Phase 0a-pre "status=active AND updated_at>10min → implicit interrupt"). Covers crash-mid-advance surviving into a later session.
-    - `session_id` non-empty, differs, AND `updated_at` within last 10 min → REFUSE, verbatim Contract C message: `"Another batch session is active for this project root (session_id=<X>, updated_at=<Y>). Wait for it to finish, kill it and re-invoke, or remove .agentic/batch-state.json and re-invoke."` Exit. (live-foreign-session; closes the null+active Contract-C bypass.)
-    - `session_id` null/absent AND the CURRENT session's own id is ALSO null (self-ownership carve-out - see Contract A step 3) → RESUMABLE (self-owned, same as the matching-session row above; no force-takeover prompt - on a harness that cannot produce a matching session id, two nulls are indistinguishable by construction).
-    - `session_id` null/absent AND the CURRENT session HAS its own non-null id (i.e. the self-ownership carve-out row above does NOT apply) → force-takeover prompt verbatim (Phase 0a-pre): `"WARNING: another session (session_id=<X>, updated_at=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/batch-state.json updated_at."` `yes` → RESUMABLE; `no` → exit/wait. (This is a READ-time classification of the ON-DISK file's null/absent id, distinct from but complementary to Contract A's WRITE-time self-ownership carve-out.)
-  - `status == "complete"` → TERMINAL, fresh ONLY (safe default; unexpected/legacy combo).
-  - `status == "stalled"` → TERMINAL, fresh ONLY (same rationale).
-  - any other/unrecognized `status` → TERMINAL, fresh ONLY (safe default).
-
-**Completeness statement:** every `(termination_reason, status)` pair lands in exactly one of {Fresh init, RESUMABLE, raise-caps-or-fresh (terminal-cap bucket), refuse}. Bucket A resolves 6 of 7 `termination_reason` values without consulting `status`. Bucket B exhaustively covers the 7th value (`null`) across all 5 named `status` enum values + explicit catch-all; `status==active` within bucket B is itself exhaustively partitioned by Contract A's 5-way `session_id`/staleness logic (including the self-ownership carve-out). No pair unclassified.
-
-- On fresh (any TERMINAL branch): delete `batch-state.json` → Fresh init. (force-takeover "no" exits/waits, does NOT go fresh.)
-- On raise-caps: refuse unless declared `max_iterations`/`max_wallclock_min` strictly greater than on-disk: `"raise-caps requires re-invoking with max_iterations and/or max_wallclock_min set higher than the existing values (current: max_iterations=<X>, max_wallclock_min=<Y>). Re-invoke with a higher value, or choose fresh."` On success: Contract A write (update, NO Contract C - update not create) setting raised cap(s), `termination_reason:null`, `status:"active"` → Advance to next iteration (idempotency-checked).
-- On RESUMABLE (any sub-case incl. force-takeover yes): Contract A write `status:"active"`; do NOT reset `iteration` → Advance to next iteration (idempotency-checked).
-- `goal_condition` divergence (unchanged): read from disk on any resume, never re-parsed; differing invocation value prints one-line "on-disk value governs" warning (mirrors Phase 0a-pre GENUINE-divergence pattern), continues.
-
-### Advance to next iteration (idempotency-checked)
-
-Read the last entry in `tickets[]` (if any):
-- `tickets[]` empty OR last entry `status == "complete"`: no next-iteration entry yet → apply the IDENTICAL Contract A+B write Phase 12a "On no trigger, GOAL_MET false" performs (increment `open_goal.iteration`, append pending entry) - reused by reference.
-- last entry `status` is `"pending"` or `"in_progress"`: a next-iteration entry was ALREADY appended (most likely by Phase 12a's advance-write interrupted before Phase 1 - the crash-mid-advance scenario). Do NOT increment `iteration` or append again - use the existing entry as-is. Prevents double-advance (silent skip/dupe of an iteration).
-
-Either way, fall through to Phase 1 for the iteration corresponding to the last `tickets[]` entry.
-
-### Fresh init (only via the branches above - never unconditional)
-
-**Validation (refuse before Phase 1 on failure):**
-- `goal_condition` missing → refuse: `"goal_mode=open_goal requires goal_condition to be declared. Re-invoke with goal_condition set."` Exit.
-- `max_iterations` or `max_wallclock_min` missing/non-positive → refuse verbatim (trigger-catalog.md Hard-stop rule 5): `"goal_mode=open_goal requires max_iterations and max_wallclock_min to be declared - no unbounded default is permitted. Re-invoke with both fields set."` Exit.
-- `dry_run`, if present, must be literal `true`/`false`; absent defaults to `false`. No refusal on absence.
-
-**Contract C check (before any write):** apply the broadened Contract C check above (Fresh init is one of the three triggering create-paths) - refuse verbatim if `batch-state.json` is active/foreign-session/recent. Exit on refusal.
-
-**On successful validation (Contract A fresh write):**
-1. Initialize `.agentic/batch-state.json`: `mode:"open_goal"`, `batch_id:"open-goal-<ISO8601>-<4hex>"`, `wallclock_cap_min:<max_wallclock_min>`, `wallclock_started_at:now`, `tickets:[]`, `open_goal:{active:true, goal_condition:<string>, iteration:1, max_iterations:<int>, risk_declared:null, termination_reason:null, dry_run:<bool>}`.
-2. `loop-state-$LOOP_KEY.json` NOT touched here - initialized normally at Phase 6 loop init exactly as any ordinary iteration (no open-goal fields).
-3. Breadcrumb: `[phase: open-goal-init | goal_condition="<condition>" | max_iterations=<N> | max_wallclock_min=<M> | dry_run=<bool>]`.
-4. Fall through to Phase 1 for iteration 1.
-
-**Off-by-one note (Minor):** at init, `iteration=1` but `tickets=[]` (len 0) - SOLE momentary exception to `iteration==len(tickets[])`, closed the moment Phase 1 of iteration 1 appends the first synthetic entry. From Phase 1 of iteration 1 onward, the invariant holds continuously.
-
-**Per-iteration ticket lifecycle.** Each iteration's synthetic `tickets[]` entry (`ticket_id:"<goal-slug>-iter-N"`, `cluster_id:"open-goal"`) follows the SAME transition-write pattern ordinary batch tickets use: `pending → in_progress` at Phase 1 start, `in_progress → complete` at Phase 12, or `→ blocked` via "Batch-mode escalation routing" (Phase 6). Every transition applies Contract A + Contract B.
-
-**Interaction with top-level "Resume check (before setup)".** That check derives `LOOP_KEY` and reads `loop-state-$LOOP_KEY.json` before Phase 0, independent of this phase. A mid-iteration interrupted resume jumps to that iteration's resume entry point; Phase 0a-open-goal is never re-entered that session. Step 0 fires only on a normal Phase 0 pass reaching `goal_mode=open_goal`.
+**Procedure:** when the trigger above holds, Read `$REPO_DIR/content/references/open-goal-loop.md` §Phase 0a-open-goal: Open-goal loop init or resume (conditional) before any step here; its steps are only in that file.
 
 ---
 
@@ -766,135 +703,17 @@ Either way, fall through to Phase 1 for the iteration corresponding to the last 
 
 **Single-ticket wallclock carve-out.** Single-entry invocations bypass this phase entirely - no `.agentic/batch-state.json` is read or created - EXCEPT when `max_wallclock_min` is declared on a single-entry invocation with no `goal_mode`. In that case: apply the Contract C refusal check (broadened per the Contract C definition above) ONLY - do NOT also run the separate N=1 foreign-batch warning first; both checks share the identical trigger (active + different session + ≤10min), so the softer warning first would be dead code (Contract C refusal always overrides any yes/proceed). This differs from the ordinary N=1 path, which never creates batch-state and never needs Contract C. On success (Contract A fresh write): create `.agentic/batch-state.json{mode:"single_ticket_capped", tickets:[{ticket_id:<the one entry>, status:"pending", cluster_id:null, depends_on:[]}], wallclock_cap_min:<max_wallclock_min>, wallclock_started_at:now}`. **This is the ONLY N=1 path that creates `batch-state.json`.**
 
-**Read** `.agentic/batch-state.json` if present. Apply the decision table below.
-
-| `batch-state.json` state | Action |
-|---|---|
-| absent | Skip Phase 0a-pre. Fall through to the existing per-ticket Resume check, then Setup, then Phase 0a (which initializes `batch-state.json`). |
-| `status=complete` | Print: "Prior batch complete; clearing." Delete the file. Fall through to the existing per-ticket Resume check. |
-| `status=stalled` | Print stalled summary (tickets + reasons). Prompt: `resume / fresh / abandon`. On `abandon`: delete file and exit. On `fresh`: delete file and fall through. On `resume`: apply re-plan migration (below) and pick next pending ticket. |
-| `status=paused` | Print: `"Batch paused at operator request: [last_summary]."` Prompt: `resume / fresh`. On `fresh`: delete file and fall through. On `resume`: apply re-plan migration and pick next pending ticket. |
-| `status=interrupted` | Print: `"Batch interrupted (reason: [interrupt_reason]). N completed, M pending/blocked."` Prompt: `resume / fresh`. On `fresh`: delete file and fall through. On `resume`: apply re-plan migration and pick next pending ticket. |
-| `status=active` AND `updated_at > 10 min` ago | Treat as implicit interrupt. Same prompt as `interrupted` row. |
-| `status=active` AND `updated_at ≤ 10 min` AND `session_id` matches current | Silent re-entry resume (rare; e.g. `/ds-implement-ticket` re-invoked within the same session). Pick next pending ticket from `tickets[]`. |
-| `status=active` AND `updated_at ≤ 10 min` AND `session_id` is null/absent AND the CURRENT session's own id is ALSO null (self-ownership carve-out - see Contract A step 3) | Treat as self-owned: same as the row above (silent re-entry resume). Do NOT force-takeover-prompt or refuse - on a harness that cannot produce a matching session id, two nulls are indistinguishable by construction, so this is the only branch that lets such a harness resume its own batch at all. |
-| `status=active` AND `updated_at ≤ 10 min` AND (`session_id` differs OR (`session_id` is null/absent AND the CURRENT session HAS its own non-null id, i.e. the self-ownership carve-out row above does NOT apply)) | If Phase 0 produced ≥ 2 entries: refuse with the verbatim Contract C message. If Phase 0 produced exactly 1 entry: see "N=1 foreign-batch warning" below; this row does not apply (Phase 0a-pre runs only when Phase 0 produced ≥ 2 entries). For N≥2 force-takeover prompts: print `"WARNING: another session (session_id=<X>, updated_at=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/batch-state.json updated_at."` and require explicit operator confirmation. |
-| Parse failure | Print warning. Prompt: `delete-and-fresh / abort`. On `abort`: exit. On `delete-and-fresh`: delete file and fall through. |
-| Inconsistent pair (`batch-state.json` says `active`, the PICKED ticket's own `loop-state-$LOOP_KEY.json` says `interrupted`) | Trust the non-active file. If both are stale-active (>10 min), treat as implicit interrupt for both. Scope this row to the picked ticket's keyed file only - another ticket's keyed file is not part of this pair and must not be consulted. |
-
-**Move ordering hazard (resume case).** On resume, `batch-state.json.tickets[]` is the authoritative ticket cursor and supersedes any Phase 0 output produced in the resuming session. If the operator re-supplied input, compare Phase 0 entries[] against on-disk tickets[]:
-
-- **SUBSET match (all tickets[] IDs are present in entries[], but entries[] has extras):** this is NOT a hazard. The extras were deferred or excluded at original triage time. Note: extras beyond the original deferred set that were not part of the original input are not auto-added on resume - surface them to the operator or run them separately; they are never mis-run. Proceed silently with `batch-state.json.tickets[]` as the cursor.
-- **GENUINE divergence (tickets[] contains IDs NOT present in entries[]):** surface the warning below.
-
-```
-WARNING: resumed batch tickets[] = [<list>] contain ticket IDs not present in this invocation's Phase 0 entries[] = [<list>].
-The on-disk batch state takes precedence on resume. Continue resuming the prior batch, or abandon resume and use the new input?
-(continue-resume / abandon-resume-and-use-new-input)
-```
-
-On `continue-resume`: discard Phase 0 output, use `batch-state.json.tickets[]`. On `abandon-resume-and-use-new-input`: delete `batch-state.json` and re-run Phase 0a from the new entries.
-
-**Resume composition rule (binding).** If Phase 0a-pre confirms resume of an active batch, it sets the in-memory ticket cursor to the next pending ticket from `tickets[]` BEFORE falling through to the existing per-ticket Resume check. The per-ticket Resume check then runs UNMODIFIED but scoped to the picked ticket's branch and its own `loop-state-$LOOP_KEY.json`, with `LOOP_KEY` derived from the picked ticket id. The two state mechanisms compose: batch resume picks the ticket; per-ticket resume picks the phase within that ticket. They have non-overlapping scopes.
-
-**Re-plan migration on resume.** When the operator confirms resume of any non-active batch state (`stalled`, `paused`, `interrupted`, or stale-`active` treated as interrupted):
-
-1. `git fetch origin`.
-2. For each ticket in `tickets[]` with `status` `pending` or `blocked`: re-fetch the tracker record. If the ticket has been merged elsewhere (per tracker status, or per `gh pr list --state merged --head <branch>` returning a non-empty result), append a `replan_log` entry `{ts, action: "drop_merged", ticket_id, detail}` and set the ticket's `status` to `skipped_already_merged`.
-3. Run /ds-ticket-triage Phases 1-3 over the surviving pending/blocked tickets to re-sequence. Level 2 investigator (Phase 2b) is gated on `replan_count >= 2`: count `replan_log` entries with `action: "investigator_rerun"`; if the count is >= 2, spawn a real background investigator (including the functional-duplicate brief); otherwise run Level 1 only (conductor-direct). Append the `replan_log` entry `{ts, action: "investigator_rerun", ticket_id: null, detail: "replan #N"}` BEFORE spawning the investigator when it fires. Map the resulting lanes back to the surviving tickets' `cluster_id` and `depends_on` fields (array order); deferred or in-progress-excluded tickets discovered during re-plan are surfaced to the operator and excluded from tickets[].
-4. All writes apply Contract A (per-write `session_id` gate) and Contract B (`replan_log[]` read-merge-write preservation). See "Batch state contracts" below.
-5. Bump `status` back to `active`. Preserve `wallclock_started_at` from the prior batch (the wallclock cap is per-batch lifetime, not per-session - a batch resumed in a later session continues counting against the original `wallclock_started_at`).
-
-Emit breadcrumb: `[phase: batch-resume | tickets_remaining=K]`.
+**Procedure:** when the trigger above holds, Read `$REPO_DIR/content/references/batch-mode.md` §Phase 0a-pre: Batch resume check before any step here; its steps are only in that file.
 
 ---
 
 ## Phase 0a: Batch triage (Phase 0 produced ≥ 2 entries)
 
-<!--
-Phase 0a manifest:
-  Purpose: run /ds-ticket-triage Phases 1-3 (algorithm by reference) over the Phase 0
-           entries[], surface triage results to the operator, map lane-assigned tickets
-           to batch-state.json, then iterate per-ticket phases 1-12 in array order.
-  Public API: reads Phase 0 entries[]; writes .agentic/batch-state.json tickets[]
-              (lane-assigned only; deferred and in-progress-excluded are NOT written).
-  Upstream deps: /ds-ticket-triage Phases 1-3 (algorithm reference - no copy);
-                 investigator (Phase 2b Level 2, conditional on len(entries) <= 20);
-                 Phase 0 entries[] (already normalized, no re-normalization).
-  Downstream consumers: Phase 0a-pre (resume), Phase 12a (handoff), all per-ticket
-                        phases (1-12) which iterate tickets[] in array order.
-  Failure modes: soft-fail per ticket in Phase 1 metadata fetch; HEURISTIC_ONLY=true
-                 when len(entries)>20; functional-duplicate defer prompts are
-                 operator-gated (one prompt per pair after Phase 3).
--->
-
 **Trigger:** Phase 0 normalization produced ≥ 2 entries.
 
 **Skip:** Phase 0 produced exactly 1 entry. Mixed-form inputs that Phase 0 normalized down to a single entry count as single-entry and skip Phase 0a.
 
-**Flow:**
-
-1. **Run the /ds-ticket-triage planning algorithm (Phases 1-3) conductor-orchestrated.** Phase 0a feeds its OWN already-normalized `entries[]` directly into triage Phase 1 - triage Phase 0 is NOT re-run (entries are already normalized).
-
-   - **Phase 1 (metadata fetch, conductor-direct, soft-fail):** for each entry, fetch priority, status, story_points, labels, components, assignee, and issuelinks from the tracker (same per-ticket fetch as /ds-ticket-triage Phase 1). Soft-fail per ticket (mark `fetch_failed: true` and proceed). Detect `terminal: true` (Done/Cancelled) and `in_progress: true` (active workflow state) per the /ds-ticket-triage Phase 1 rules.
-
-   - **Phase 2a (DAG + cycle handling, conductor-direct):** build the dependency graph from `blocks`/`is-blocked-by` links, detect cycles (break at lowest-confidence link, defer both with `cycle_warning: true`). External deps noted but not used for lane assignment.
-
-   - **Phase 2b conflict-surface analysis:** Level 1 is always conductor-direct (shared component/label overlap check). Level 2 applies when `len(entries) <= 20`: spawn ONE real background investigator with the full /ds-ticket-triage Phase 2b brief, including the functional-duplicate detection task (bar: "a reasonable engineer would implement them with exactly the same change"). When `len(entries) > 20`: set `HEURISTIC_ONLY=true` and proceed WITHOUT prompting - rationale: the batch was already committed via Phase 0, and prompting mid-initialization wastes operator context.
-
-   - **Phase 3 (Rules 1-4, conductor-direct):** distribute surviving tickets across lanes using the /ds-ticket-triage Phase 3 consume-and-remainder pipeline. Lane cap is fixed at 3 on this path (`--lanes` override is not available for the /ds-implement-ticket integration path).
-
-   The result is an in-memory `triage_result` containing:
-   `{lanes[], deferred[], in_progress_excluded[], functional_duplicates[], conflict_warnings[], heuristic_only}`.
-
-2. **Surface triage findings to the operator BEFORE building tickets[].** Present a structured summary covering:
-
-   - **Functional duplicate warnings** (when `functional_duplicates[]` is non-empty): for each pair, print the ticket IDs and the one-sentence reason. Prompt the operator PER PAIR (after all lane assignments are known, since Phase 3 has already run):
-
-     ```
-     Functional duplicate detected: <A> + <B> - <summary>
-     Both tickets appear to describe the same functional work.
-     Action: (defer-first / defer-second / keep-both)
-     ```
-
-     On `defer-first`: add ticket A to `deferred[]`, remove it from its lane. On `defer-second`: add ticket B to `deferred[]`, remove it from its lane. On `keep-both`: no change. Do NOT recompute the lane distribution after a defer choice - surgically remove the deferred ticket from its lane only.
-
-   - **Deferred tickets** (from Phase 3 Rule 1 + any operator-deferred duplicates): list each with its reason.
-
-   - **In-progress tickets** (from Phase 1): list each. These are excluded from tickets[] and kickoff.
-
-   - **HEURISTIC_ONLY notice** (when `HEURISTIC_ONLY=true`): "Conflict analysis: Level 1 only (component/label overlap; >20 tickets, investigator pass skipped). Functional-duplicate detection was also skipped."
-
-   After surfacing, map ONLY the lane-assigned tickets to `tickets[]` (deferred and in-progress-excluded tickets are NOT written to tickets[]).
-
-   Map in ARRAY ORDER: lane 1 first, lane 2 next, lane 3 last. Within each lane, chains are topo-sorted (blockers first); parallel tickets within the same lane are sorted priority-descending then ticket_id-ascending. Each entry:
-   - `status: "pending"`
-   - `cluster_id: "lane-N"` (where N is the lane number)
-   - `depends_on: ["<prev-ticket-id>"]` (chain) or `[]` (parallel lane head or independent)
-
-   No `merge_order` field. Array position is the execution cursor.
-
-   Emit breadcrumb: `[phase: batch-triage | triage_algorithm=ticket-triage-phases-1-3 | N tickets | lanes=K | lane_cap=3 | deferred=P | excluded_in_progress=Q | heuristic_only=<bool>]`.
-
-3. **Initialize `.agentic/batch-state.json`** (persistent batch cursor). First apply the Contract C concurrent-batch refusal: if the file already exists with `status=active`, a different `session_id`, and `updated_at` within the last 10 minutes, REFUSE with the verbatim Contract C message and exit. Otherwise, write the initial skeleton:
-   - `schema_version: 1`
-   - `session_id: <current>`
-   - `batch_id: "<first ticket's TICKET_PREFIX>-batch-<ISO8601>-<4hex>"`
-   - `status: "active"`
-   - `tickets[]`: triage-derived executable cursor; contains only lane-assigned tickets (deferred and in-progress-excluded tickets are not included); in array order as described in step 2 above
-   - `wallclock_started_at: now`, `wallclock_cap_min: <env AGENTIC_BATCH_MAX_WALLCLOCK_MIN or 90>`
-   - `replan_log: []`
-   - `created_at: now`, `updated_at: now`
-
-   Atomic tmp+rename. Apply Contract A on the write (this is a fresh write so no prior `session_id`; the gate effectively passes).
-
-4. Conductor iterates through tickets[] in array order (tickets[] contains only lane-assigned executable tickets; deferred and in-progress-excluded tickets were surfaced in step 2 and are not present), running existing per-ticket phases (1 → 12) for each ticket. **Per-ticket transition writes to `batch-state.json`** (each via Contract A + Contract B):
-   - At ticket start: `status: "pending" → "in_progress"`, set `started_at`, update `updated_at`.
-   - At ticket complete: `status: "in_progress" → "complete"`, set `ended_at`, `last_summary`, `pr_number`, `branch`.
-   - At ticket block: `status → "blocked"` with detail in `last_summary`.
-   - At ticket merged-elsewhere skip: `status → "skipped_already_merged"` with `replan_log` append.
-
-**Persistent batch state lives in `.agentic/batch-state.json`. See Phase 0a-pre for the resume protocol.**
+**Procedure:** when the trigger above holds, Read `$REPO_DIR/content/references/batch-mode.md` §Phase 0a: Batch triage (Phase 0 produced ≥ 2 entries) before any step here; its steps are only in that file.
 
 ---
 
@@ -1405,84 +1224,7 @@ Apply the null-render rule when filling this block: a null `skeptic_rounds` rend
 
 **Skip** - proceed directly to Phase 4 if none of the trigger conditions above are true.
 
-**When spawning `orchestration-planner`, provide:**
-- The full ticket title and description
-- The architect's complete output
-- Instruction to produce: agent roster, execution phases (each with Give it / Returns / Proceed when fields), Skeptic checkpoints, and parallelization opportunities
-
-The orchestration-planner's output drives Phase 5 agent spawning. If Phase 3b was skipped, Phase 5 falls back to the architect's plan directly.
-
-### Task-state initialization (multi-unit only)
-
-**Single-unit threshold:** If the orchestration plan identifies only 1 task, skip this step entirely. Task-state initialization is only warranted for plans with 2 or more tasks. For single-unit plans, the conductor operates as today (in-context state only).
-
-After receiving the orchestration-planner's output and before Phase 4, initialize the task-state file:
-
-```bash
-mkdir -p .agentic && [ -f .agentic/tasks.jsonl ] || touch .agentic/tasks.jsonl
-```
-
-An empty file (0 bytes) is not corrupt - it means `touch` ran but the conductor was interrupted before the first append. Do NOT re-`touch` it and do not treat it as corrupt; the task-state fold over zero records is simply an empty index, identical to file-absent.
-
-Also add `.agentic/` to the project's `.gitignore` if not already present.
-
-**Generate identifiers (once per conductor session):**
-- `session_id`: `<ISO-date>-<4hex>`, e.g. `20260415-a3f2`
-- `task_id` per task: `<ticket_id>-<unit_slug>` (e.g. `ENG-42-auth-middleware`), or `<session_id>-<unit_slug>` for null-ticket projects
-
-**Read the orchestration-planner's structured JSONL block** (the `## Task entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `.agentic/tasks.jsonl`, **unless the task-state fold** (`content/references/task-state-file.md`) already reports records for that `task_id` - a concurrent conductor may have already initialized it, and appending a second `pending` for an already-live `task_id` degrades log hygiene even though it cannot regress a live claim (the fold's ownership rule already prevents that). Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Build each record in full and append it with **one complete `write()`** (`printf '%s\n' "$LINE" >> .agentic/tasks.jsonl`) - never composed from multiple writes, and never a rewrite; this is the append-only write contract every task-state write in this phase and Phase 5 follows. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, `author_model` (set to `null` at init; populated by the conductor at engineer spawn in Phase 5 with the model id the engineer runs under), and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
-
-Emit breadcrumb: `[phase: task-state-init | N tasks written]`
-
-### Cross-artifact alignment check (Brief present + planner returned units with non-empty criteria)
-
-**Applies only when ALL hold:**
-- `brief_path` is set (a Brief exists — operator-authored from Phase 0b, or conductor-authored at the promotion gate)
-- The orchestration-planner returned a JSONL block with at least one unit carrying a non-empty `acceptance_criteria` array
-
-When the guard does not apply (no Brief, or all units carry `acceptance_criteria: []`): emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed to the promotion gate.
-
-**This is a conductor-direct mechanical mapping, not a subagent and not adversarial review.** It complements the Skeptic-on-Brief; it does not replace it.
-
-**Procedure:**
-1. For each **Success criterion** in the Brief: scan every orchestration unit's `acceptance_criteria` array. Mark the criterion **COVERED** if at least one unit's entry explicitly addresses it; mark it **UNCOVERED** otherwise.
-2. Produce a mapping table: `success criterion → covering unit_slug(s)`, or `"UNCOVERED"`.
-
-**On any UNCOVERED criterion:** resolve before the Skeptic-on-Brief fires by one of:
-- (a) Re-spawn the orchestration-planner with the specific uncovered criteria called out, so it adds or amends a unit's `acceptance_criteria`.
-- (b) Surface the mismatch to the operator with a recommended resolution (descope the criterion from the Brief, or expand scope to cover it).
-
-The conductor does not proceed to the Skeptic-on-Brief with an unresolved UNCOVERED criterion.
-
-**On full coverage:** emit `[phase: cross-artifact-aligned | N/N criteria covered]` and proceed to the promotion gate.
-
-See `content/references/planning-artifacts.md` §Gate semantics for where this step sits relative to the Skeptic-on-Brief.
-
-**ALL writes to `.agentic/tasks.jsonl` are conductor-only.** Workers do not read or write the task file. Workers return their summaries to the conductor in the normal return path; the conductor extracts results and writes all updates. Every conductor write is a single-line append; every read applies the task-state fold. No lock is needed because no writer ever rewrites the file.
-
-**File-absent vs file-present behavior:**
-
-- **File absent:** Fresh start. Create the file and append `pending` entries as described above.
-- **File present, empty (0 bytes):** Identical to absent for the fold - `touch` ran but the conductor was interrupted before the first append. Do NOT re-`touch`; do NOT treat as corrupt.
-- **File present, non-empty:** Apply the **task-state fold** (`content/references/task-state-file.md` §Task-state fold) to build the in-memory per-`task_id` index before deciding anything - never read the latest raw line as the answer. Then classify each task by ownership × lifecycle per the fold's row grid (see `content/references/task-state-file.md` for the full 16-row matrix):
-  - **Own tasks** (this session is the folded owner): `pending` → spawn; `in_progress` with no intervening foreign claim → in-session continuation (e.g., a prior worker returned BLOCKED and the human provided direction) - do not re-spawn, await the return; `done` → do not spawn, dependency satisfied, **merge permitted** (the only case that permits a merge - re-fold immediately before merging per the fold-before-merge gate in Phase 5's Merge phase, condition `owner == self AND status == done`). **Invariant self-check:** folding to `own + done` while this session holds no build record for the task (no `branch_name`/`commit_sha` under this session's own `session_id`) violates I2 and means an implementation bug - **escalate, never merge**; `failed`/`blocked`/`abandoned` → partial-success retry may append a fresh `in_progress` claim (cap 1 automatic retry).
-  - **Foreign tasks, ticketed projects only** (a different session's `session_id` folds as owner; this ownership gate is structurally inert for null-ticket projects, where `task_id = <session_id>-<unit_slug>` and cross-session ids never collide - append-only still guarantees no state loss there, but there is no duplicate-fan-out protection): `pending` → spawn permitted, claim by appending `in_progress`; `in_progress` and fresh (< 10 min since the folded `updated_at`) → **do not spawn**, emit the row-7 warning below verbatim, do not merge, escalate; `in_progress` and stale (> 10 min) → orphan, spawn permitted, the fresh claim supersedes the prior one monotonically; `done` and this session holds no branch for the task → do not spawn, dependency satisfied; `done` and this session holds an outstanding branch for the task → do not spawn **and** do not merge that branch - the foreign owner's `done` is authoritative and this session's branch is a superseded generation whose commits may duplicate or conflict with the merged work; emit `WARNING: task <task_id> completed under session <X>; this session holds branch <B> for it. Not merging. Reconcile or discard manually.` and escalate; `failed`/`blocked`/`abandoned` → spawn permitted (retry), append `in_progress` with this session's own `session_id`.
-  - **Dispossessed** (this session's claim was superseded by a later foreign `in_progress` - reachable because the 10-minute staleness window is shorter than the 30-minute fan-out join deadline): **do not spawn** (including the Phase 5 partial-success retry spawn), **do not merge** this session's branch, and **do not append a terminal status** - `done` is absorbing under the fold and would hijack the new owner's task. Append outputs anyway (durable, and excluded from the folded record by the cross-generation whitelist, but recoverable from the raw log). Emit: `WARNING: task <task_id> was taken over by session <X> while this session's engineer was running. Not merging. Reconcile manually.` and escalate.
-  - **Legacy** (a record with no `session_id` - the schema has never mandated the field, so this includes both pre-fix records and any spec-compliant partial append that omits it): folds under a sentinel owner no session ever matches. Treated exactly as foreign-and-stale: `pending` → spawn permitted; `in_progress` → spawn permitted, **never** treated as fresh (an absent id cannot be shown live; blocking on it would deadlock every pre-fix project); `done` → do not spawn, and never mergeable by any viewer; `failed`/`blocked`/`abandoned` → spawn permitted.
-
-  **Monotonic ownership.** Ownership is claimed only by an `in_progress` append and is never regained once superseded - a session whose claim was superseded cannot silently take the task back by appending outputs or any other later record; it must append a fresh `in_progress` claim through this same gate, and only when the fold currently permits a spawn for that task.
-
-  On the foreign-and-fresh case, emit verbatim:
-
-  ```
-  WARNING: task <task_id> is in_progress under another session (session_id=<X>, updated_at=<Y>).
-  Not spawning. Resolve manually (wait for that session, kill it, or restart task state) and retry.
-  ```
-
-  `<Y>` is the folded `updated_at` - the owner's latest append - the same value the 10-minute staleness test consumes.
-
-  When the folded state, taken as a whole, shows orphaned tasks (`in_progress` or `blocked` entries stale under a different `session_id`, per the classification above): Log: "Found `.agentic/tasks.jsonl` with N orphaned tasks from a prior session." Surface the task list to the human with their last-known status and folded `updated_at` timestamp. Ask: "Do you want to resume from this state, or start fresh? (resume/restart)". On **restart**: rename the existing file to `.agentic/tasks.jsonl.YYYYMMDD-HHMMSS.bak`, create a new file, and proceed as fresh start - this is the one sanctioned truncation in the whole design, operator-confirmed, and never reachable from a malformed line. On **resume**: automatic resume is not yet implemented (P2). Display the last-known state of each task and say: "Automatic resume is not yet implemented. Here is the last-known state of each task: [table]. You can manually direct re-spawns for any in-progress tasks."
-- **File present, different `session_id`, all terminal (`done`, `failed`, `abandoned`):** Historical records from a prior implementation. Append new entries for the current session without disturbing existing ones.
+**Procedure:** when the trigger above holds, Read `$REPO_DIR/content/references/orchestration-units.md` §Phase 3b: Orchestration plan (conditional) before any step here; its steps are only in that file.
 
 ---
 
@@ -1712,34 +1454,7 @@ After the Skeptic/QA loop resolves: append a partial transition setting the task
 
 **N=1 degenerate case:** If the orchestration-planner returned exactly 1 unit, do NOT invoke the fan-out primitive. Fall through to the standard single-engineer path above.
 
-When this ticket has a Brief or Plan (Phase 4's "Commit and push the planning artifact" subsection ran and did not hit the gitignore no-op branch), `FEATURE_BRANCH` **is** the exact `BRANCH_NAME` value resolved there. Tickets with no Brief/Plan are unaffected; `FEATURE_BRANCH`'s origin for them remains as underspecified as before this ticket (Known limitations).
-
-Use git worktrees to give each engineer an isolated copy. The orchestration-planner's JSONL block provides `unit_slug`, `merge_order`, and `skeptic_strategy` for each unit - read these fields to drive worktree naming, merge ordering, and Skeptic strategy. Before creating worktrees, prune stale state from any prior fan-out:
-
-```bash
-git -C $REPO worktree prune
-# Leftover ${FEATURE_BRANCH}-${unit_slug} from a prior run: retire its checkout first
-# ("$REPO_DIR/bin/ds-retire-carrier" <path>; any nonzero exit stops that unit - escalate).
-# Then delete the branch (git branch -D) only if its tip is an ancestor of
-# $FEATURE_BRANCH or origin/$BASE_BRANCH (git merge-base --is-ancestor); else escalate.
-```
-
-Create one worktree per unit, each rooted from `BASE_BRANCH` (loop over all N units from the planner's JSONL block in `merge_order` sequence):
-
-```bash
-# For each unit (unit_slug from planner JSONL block):
-git -C $REPO worktree add ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} \
-  -b ${FEATURE_BRANCH}-${unit_slug} origin/$BASE_BRANCH
-```
-
-**Task-state reads (when `.agentic/tasks.jsonl` is in use):** Before spawning, apply the **task-state fold** and verify all `depends_on` task_ids are folded `done`, then append a partial transition per unit moving status from `pending` -> `in_progress` - one `in_progress` claim record per unit. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path of the unit's worktree), `branch_name` (the unit's sub-branch `${FEATURE_BRANCH}-${unit_slug}`), `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off), and `ticket_id` (the ticket this unit belongs to - the Phase 9 Model: attribution read scopes on it).
-
-Spawn one `engineer` agent per worktree in a single message (parallel, background). Each engineer works in its assigned worktree path and commits to its own sub-branch. Each agent's prompt should include:
-- The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, with fields filled in from the per-unit scope in the planner's JSONL block
-- The unit's `task_id`, acceptance criteria, `files_in_scope`, `quality_cmd`, and worktree path
-- The single-engineer list's `reviewer-bar` and review-rework bullets
-- The per-unit scope: extracted from the orchestration-planner's JSONL block for that unit
-- `brief_path_for_engineer`/`plan_path_for_engineer` (see "`brief_path`/`plan_path` normalization" below) are **ticket-level** values, identical across every unit in this fan-out - they are NOT part of the per-unit JSONL scope and must be included in every unit's contract explicitly, not derived from it. This is the fix for Plan tier's own visibility gap: fan-out unit sub-branches are cut from `origin/$BASE_BRANCH`, never `FEATURE_BRANCH` (see "Create one worktree per unit, each rooted from `BASE_BRANCH`" above), so absolute-path delivery here is not optional belt-and-suspenders the way it is on the single-engineer path - it is the *only* visibility mechanism available to a fan-out unit engineer, since no git-native path exists for it at all.
+**Procedure:** when the trigger above holds, Read `$REPO_DIR/content/references/orchestration-units.md` §If parallel independent units were identified: before any step here; its steps are only in that file.
 
 **`brief_path`/`plan_path` normalization.** Applied at TWO construction sites - Phase 5's single-engineer contract construction, and this fan-out per-unit spawn construction - both using the identical, ticket-level (not per-unit) values:
 
@@ -1747,102 +1462,6 @@ Spawn one `engineer` agent per worktree in a single message (parallel, backgroun
 brief_path_for_engineer = brief_path if brief_path.startswith("/") else f"{REPO}/{brief_path}"
 plan_path_for_engineer  = plan_path  if plan_path.startswith("/")  else f"{REPO}/{plan_path}"
 ```
-
-**Join condition.** The conductor spawns all N engineers in a single message and waits for all N to return. After all N engineers return, apply the **task-state fold** to each unit's `task_id` and evaluate the join against the folded status - never a raw last-line read:
-
-- **All-done join:** all N units fold to `status: done` (Skeptic signed off per P0 loop where applicable). Proceed to merge phase.
-- **Partial success:** one or more units fold to `status: failed` or `status: blocked`, and one or more fold to `status: done`. Do NOT merge any branch. Apply partial success path (see below).
-- **Total failure:** all units fold to failed or blocked. Clean up all worktrees, escalate to human with the orchestration-planner's original plan and all failure outputs. Recommend sequential implementation as fallback.
-- **Blocked:** any unit folding to `status: blocked` is treated as failed for join evaluation. A worker returns `Status: BLOCKED` when it encounters a scope conflict, design ambiguity, or permission issue requiring human input.
-- **Dispossessed (rows 14-16):** if a unit's fold shows this session was superseded by a foreign `in_progress` claim mid-flight, treat that unit as neither done nor eligible for merge regardless of what this session's own engineer returned - **do not merge this session's branch for it**, and if the foreign owner's fold shows `done` with this session still holding an outstanding branch (row 16), do not merge that branch either. Escalate per §3.3's row-14/15/16 disposition; do not fold this unit into the all-done or partial-success counts above as if this session owned it.
-
-**Join timeout.** The join phase has a 30-minute total deadline. If the deadline elapses before all engineers have returned, units with no completion entry are treated as timed out (failed) and handled via the partial success path. Units that completed `status: done` before the deadline are still eligible for merge.
-
-**Fallback: no task-state file.** If `.agentic/tasks.jsonl` is not in use, or is present but empty (0 bytes - the task-state fold over zero records is an empty index, identical to absent), derive status from each engineer's return value. Each engineer's return must include a structured status line as the first line: `Status: DONE`, `Status: DONE_WITH_CONCERNS`, or `Status: BLOCKED`. The engineer brief must explicitly require this structured first line.
-
-After all engineers return, append an output-only entry per unit: write `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed` to each task's entry, with **no `status` field** - same rule as the single-unit output append above (§3.1/§3.2 of the task-state fold): an output append is never a claim. "Status remains `in_progress`" describes the folded status until Skeptic sign-off or final determination; it is not an instruction to write the field.
-
-**Partial success path.** When one or more units fail and one or more succeed:
-1. Record which units are `done` vs `failed`/`blocked`.
-2. If done units are truly independent (no shared interface with failed units): merge them into `FEATURE_BRANCH` in `merge_order`, inside `$INTEGRATION_WORKTREE` (see Merge phase above). Leave failed units' worktrees in place.
-3. Spawn a retry engineer for each failed unit, pointing it at the preserved worktree and the failure detail. Apply the **task-state fold** first: `inputs` survives generation boundaries because it is on the fold's cross-generation whitelist, so the retry brief reads a coherent `inputs` even when the failed unit's fold spans more than one session. The retry brief must include: (a) the original task brief from the folded `inputs` field, (b) the failure detail from `outputs.worker_summary` and `outputs.quality_gate_passed`, (c) the preserved worktree path, (d) any partial commits in the worktree, and (e) explicit instruction that this is a re-run, not a fresh start.
-4. If the retry succeeds, merge and proceed to the Skeptic phase.
-5. If the retry fails a second time, escalate to human with the full failure history.
-6. Maximum retry depth: 1 automatic retry per unit.
-
-**Per-unit Skeptic spawning (when `SKEPTIC_STRATEGY: per-unit`).** After each unit's engineer returns `done`, spawn a Skeptic for that unit's diff (unit worktree diff against `BASE_BRANCH`), including the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5, field 6 = `$UNIT_KEY | ` + diff; field 7 per §4.5) alongside the adversarial brief. Per-unit Skeptics for independent units can be spawned in parallel (single message - they are reviewing non-overlapping diffs). Each unit's Skeptic integrates with the P0 persistence loop (Engineer -> Skeptic -> fix loop within the unit's worktree). A unit is `status: done` only after its Skeptic signs off, not after the engineer's first commit. After each unit's Skeptic/QA loop resolves, update the task entry to terminal status and populate `loop_state`, `outputs.skeptic_status`, and `outputs.skeptic_findings_count`.
-
-**Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. Run the Merge phase below NOW - the ONE time it runs here. It stays provisional by staying unpushed until Phase 8. Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to `$INTEGRATION_WORKTREE`'s `HEAD`, including the Global-context input set (`## Global-context inputs` block per Section 4.5, field 6 = `$UNIT_KEY | ` + diff; field 7 per §4.5). This Skeptic IS the Phase 6 gate here (see below): draft the Phase 6 Step 1 PR text now for its Worker output; Phase 6 Steps 1-3 govern its findings. Pass it the orchestration-planner's independence annotation as the brief hint.
-
-**Multi-dimensional Skeptic spawning (when `SKEPTIC_STRATEGY: multi-dimensional`).** Before spawning, declare per `content/references/skeptic-protocol.md` Section 13's Declaration format: `Risk: Elevated (multi-dimensional review) - [specific signal]` / `Tier: 3 (Opus)`. After each unit's engineer returns `done`, fan out `correctness-Skeptic + security-auditor + perf-analyst` in one message (parallel, background), reviewing that unit's diff (unit worktree diff against `BASE_BRANCH`), per `content/references/skeptic-protocol.md` Section 13's Workflow. The `correctness-Skeptic` spawn includes the Global-context input set (`## Global-context inputs` block per Section 4.5, field 6 = `$UNIT_KEY | ` + diff; field 7 per §4.5) - Step 0 BLOCKS without it. The `security-auditor` and `perf-analyst` spawns instead include the `## Supplemental context` block per §Supplemental-context block for multi-dimensional supplemental reviewers (informational only, not Step-0 enforced). A unit is `status: done` only after all three reviewers clear (Section 13 step 4) - a single open Critical or Major from any reviewer blocks completion. Section 13 defines only this per-unit gate, not cross-unit integration review, so merge-phase and Phase 6 timing follow the `per-unit` rules immediately below. Once all three reviewers clear, update the task entry to terminal status in a single append and populate `loop_state`, `outputs.skeptic_status` (the aggregate across the three reviewers - clear only when correctness-Skeptic, security-auditor, and perf-analyst have each cleared), and `outputs.skeptic_findings_count` (the summed count of findings across all three reviewers); per `content/references/task-state-file.md`'s field-level last-write-wins rule, `outputs.*` is session-scoped and overwritten on each write, so this composed value must land in one write, not three separate per-reviewer appends.
-
-**Merge phase (all-done join).** Runs exactly once per ticket, inside a **dedicated integration worktree** - never `$REPO`. For `integration` it already ran above; do NOT repeat it. For `per-unit` and `multi-dimensional` it runs here first, after per-unit (or multi-dimensional) sign-off, merging sub-branches sequentially in `merge_order`. **Apply the fold-before-merge gate before each unit** - see "Fold-before-merge and branch verification" below:
-
-```bash
-INTEGRATION_WORKTREE="${REPO}/.agentic/worktrees/${FEATURE_BRANCH}"
-# Same rule as the Elevated-path definition above (substitute
-# $INTEGRATION_WORKTREE/$FEATURE_BRANCH for $WORKTREE_PATH/$BRANCH_NAME).
-EXISTING_WT=""
-_wt_path=""
-while IFS= read -r _wt_line; do
-  case "$_wt_line" in
-    "worktree "*) _wt_path="${_wt_line#worktree }" ;;
-    "branch refs/heads/$FEATURE_BRANCH") EXISTING_WT="$_wt_path" ;;
-  esac
-done < <(git -C $REPO worktree list --porcelain)
-# `done < <(...)` is load-bearing - a pipe form would lose EXISTING_WT.
-if [ -n "$EXISTING_WT" ]; then
-  INTEGRATION_WORKTREE="$EXISTING_WT"   # reuse - apply reset-vs-recovery above first
-elif git -C $REPO ls-remote --exit-code --heads origin "$FEATURE_BRANCH" >/dev/null 2>&1; then
-  git -C $REPO fetch origin
-  git -C $REPO worktree add "$INTEGRATION_WORKTREE" -B $FEATURE_BRANCH origin/$FEATURE_BRANCH
-else
-  git -C $REPO worktree add "$INTEGRATION_WORKTREE" -b $FEATURE_BRANCH origin/$BASE_BRANCH
-fi
-
-# For each unit in merge_order sequence:
-git -C "$INTEGRATION_WORKTREE" merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
-
-# After each merge, check for conflicts before continuing:
-# git -C "$INTEGRATION_WORKTREE" diff --name-only --diff-filter=U
-# If that command outputs any file names, conflicts are present - apply N>2 conflict recovery below.
-```
-
-**N>2 conflict recovery.** On conflict at any step:
-1. `git -C "$INTEGRATION_WORKTREE" merge --abort`
-2. Stop; do not merge further.
-3. Collect conflict files, all units' diffs, and the planner output. Then retire every unit checkout per **Worktree cleanup** below.
-4. Spawn a single engineer with a conflict-resolution brief: all units' complete changes, the conflict markers, and explicit instruction to implement all units sequentially in a single worktree targeting `FEATURE_BRANCH`.
-5. The sequential re-implementation engineer inherits a single-Skeptic review obligation (one Skeptic over combined diff, since units are now interdependent by fact of their conflict).
-6. The conflict re-route counts as iteration 1 of the Phase 6 loop (do not double-count).
-
-**Fold-before-merge and branch verification (third gate point).** Immediately before merging each unit's branch, re-apply the **task-state fold** to that unit's `task_id` and merge only if the folded state shows `owner == self AND status == done`. This is the third and final read-time ownership gate point - fold-before-spawn (Phase 5's spawn steps above) and fold-before-terminal-append (Phase 6) are the other two - and it is what makes the freeze lemma load-bearing rather than decorative: without it, a session could pass fold-before-spawn, have its claim superseded mid-flight (rows 14-16), and still merge on a stale read from earlier in the join. Any other folded result means **do not merge that unit's branch**: dispossessed (rows 14/15) or a foreign `done` while this session still holds an outstanding branch (row 16) both route to that row's disposition - escalate, do not merge. Also verify the worktree is on the expected branch:
-
-```bash
-# Confirm branch matches expected sub-branch before merging:
-# git -C ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} rev-parse --abbrev-ref HEAD
-# If the branch name does not match ${FEATURE_BRANCH}-${unit_slug}, abort that unit's merge and escalate.
-```
-
-**Post-merge integration quality check.** After all N merges complete cleanly on `FEATURE_BRANCH`, run `$QUALITY_CMD` from `$INTEGRATION_WORKTREE` (never `$REPO`). If it fails, spawn one engineer pointed at `$INTEGRATION_WORKTREE` with the failure output. The fix goes through a single Skeptic on the incremental diff before Phase 5 is complete; does NOT replace Phase 6.
-
-**Worktree cleanup.** Retire each unit checkout at completion - after its merge, after escalation, or at a conflict re-route once step 3 has collected every unit's diff (§Carrier lifecycle by purpose in `content/references/worktree-lifecycle.md`). Delete a sub-branch only once `$FEATURE_BRANCH` contains its tip; an unmerged one stays and pins its commits:
-
-```bash
-# For each unit:
-UNIT_WT="${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug}"
-if "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$UNIT_WT" \
-   && git -C $REPO merge-base --is-ancestor "${FEATURE_BRANCH}-${unit_slug}" "$FEATURE_BRANCH"; then
-  git -C $REPO branch -D "${FEATURE_BRANCH}-${unit_slug}"
-fi
-git -C $REPO worktree prune
-```
-
-`$INTEGRATION_WORKTREE` is retired post-push by Phase 8's "Isolation worktree cleanup" block (resolved by `$BRANCH_NAME`).
-
-For full worktree cleanup rules (isolation worktrees, feature worktrees, stale branch pruning), see `METHODOLOGY.md §Worktree Lifecycle`.
-
-**Merge-conflict re-route and loop iteration:** If a merge conflict re-route occurred above and the re-routed Engineer's output then goes through Skeptic review in Phase 6, the conflict re-route counts as iteration 1 of the Phase 6 loop. Do not double-count: the conflict-resolution Engineer pass is the first fix pass; Phase 6 initializes its `iteration` counter at 1 to reflect this.
 
 ---
 
@@ -2088,12 +1707,7 @@ Note: the escalation format surfaces findings and history only. The conductor do
 
 **Trigger:** `.agentic/batch-state.json` exists with `status:"active"`. Skip (fall through to single-ticket "surface and wait for human") when absent/not active.
 
-**Action:**
-1. Print the Escalation format/stalled summary unchanged and visible.
-2. Contract A+B write: find this ticket's/iteration's `tickets[]` entry, set `status:"blocked"`, `last_summary`=one-line synopsis.
-3. Print `"Ticket <ticket_id> marked blocked; advancing to next pending ticket in the batch."`; skip Phases 7-12 for this ticket.
-4. **Batch mode (`mode=="batch"` or absent):** advance to next `pending` ticket, array order, enter at Phase 1.
-5. **Open-goal mode (`mode=="open_goal"`):** do NOT auto-advance - write `open_goal.termination_reason` to the triggering reason (`blocked`, `cap_reached_iterations`, or the equivalent) and STOP the outer loop (surface and wait for human); the `blocked` write in step 2 still happens for audit.
+**Procedure:** when the trigger above holds, Read `$REPO_DIR/content/references/batch-mode.md` §Batch-mode escalation routing (mark-blocked-and-continue) before any step here; its steps are only in that file.
 
 **Single-ticket mode (no active batch-state):** unchanged - surface and wait for human.
 
@@ -2119,9 +1733,8 @@ Fires exactly once per ticket per `/ds-implement-ticket` invocation.
 ### Open-goal condition check (clean exit only, `goal_mode=open_goal` invocations only)
 
 1. If `batch-state.json.open_goal.active` is not `true` (or `batch-state.json` absent / `mode != "open_goal"`), skip entirely. **Sole gate scoping the evaluator spawn to open-goal invocations.**
-2. Set `batch-state.json.open_goal.risk_declared` to this iteration's classification (`low | elevated | trivial`) - Contract A+B write. Satisfies invariant (c) on the DURABLE record (see `content/references/trigger-catalog.md` §Risk and review discipline (c)).
-3. **Scope gate (mirrors invariant (e)):** `risk_declared == "elevated"` → spawn `goal-condition-evaluator` (Tier 1/haiku, omit model param) with `goal_condition`, `iteration_evidence_hint` (finding IDs/files + ≤500-char excerpt of this iteration's `quality_gate_results.raw_output` when `goal_condition` plausibly references gate output), `skeptic_signoff_confirmed:true`; no worktree isolation. `low`/`trivial` → no spawn; conductor evaluates directly.
-4. **Return handling:** `GOAL_MET:true` → set `open_goal.termination_reason="goal_met"` (Contract A+B); unit still ships normally UNLESS `dry_run==true`; outer loop exits at Phase 12a. `GOAL_MET:false` → status update only; continue at Phase 12a. `BLOCKED`/unavailable/errored/timeout/malformed → conductor-direct evaluation immediately (invariant (e)); **never** the generic Worker-BLOCKED=`cap_reached` escalation from `content/references/subagent-protocol.md` §Loop transition rules.
+
+**Procedure:** when the trigger above holds, Read `$REPO_DIR/content/references/open-goal-loop.md` §Open-goal condition check (clean exit only, `goal_mode=open_goal` invocations only) before any step here; its steps are only in that file.
 
 ---
 

@@ -1,0 +1,1 @@
+../../content/references/batch-mode.md

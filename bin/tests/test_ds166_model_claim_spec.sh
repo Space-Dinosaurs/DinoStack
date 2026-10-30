@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Purpose: DS-166 round-2 regression gate. Pins the Phase 5 ownership-claim
-#          include lists at BOTH claim sites in content/commands/ds-implement-ticket.md
-#          to carry `author_model` AND `ticket_id`, pins the Phase 9 ENGINEER_MODEL jq's
+#          include lists at BOTH claim sites (sequential in
+#          content/commands/ds-implement-ticket.md, fan-out in
+#          content/references/orchestration-units.md) to carry `author_model` AND `ticket_id`, pins the Phase 9 ENGINEER_MODEL jq's
 #          ticket scoping and the Model: printf form, and empirically runs the exact jq
 #          against a sequential-style claim fixture.
 #
@@ -24,7 +25,8 @@
 #             .github/workflows/bin-tests.yml - no orphans entry needed.
 #
 # Upstream deps: bash, grep, jq. Reads content/commands/ds-implement-ticket.md
-#                from the checkout. Honors GATE_REPO to override the root.
+#                and content/references/orchestration-units.md from the
+#                checkout. Honors GATE_REPO to override the root.
 #
 # Downstream consumers: developer running locally before commit; CI
 #                       (.github/workflows/bin-tests.yml, bin-sh-tests job).
@@ -51,13 +53,14 @@ _pass() { echo "PASS: $1"; PASS=$((PASS + 1)); }
 _fail() { echo "FAIL: $1" >&2; FAIL=$((FAIL + 1)); }
 
 DIT="$REPO_DIR/content/commands/ds-implement-ticket.md"
+ORCH="$REPO_DIR/content/references/orchestration-units.md"
 
 # --- Prose-pin: both claim sites carry author_model AND ticket_id --------------
 # Sequential single-engineer claim (Phase 5 sequential multi-unit path): the
 # round-1 defect was this site recording author_model WITHOUT ticket_id.
 SEQ_CLAIM="$(grep -F "this append is the ownership claim." "$DIT" || true)"
 # Parallel fan-out per-unit claim (Phase 5 parallel path).
-FANOUT_CLAIM="$(grep -F "one \`in_progress\` claim record per unit" "$DIT" || true)"
+FANOUT_CLAIM="$(grep -F "one \`in_progress\` claim record per unit" "$ORCH" || true)"
 
 if [ -z "$SEQ_CLAIM" ]; then
   _fail "sequential claim anchor 'this append is the ownership claim.' not found in $DIT"
@@ -71,7 +74,7 @@ else
 fi
 
 if [ -z "$FANOUT_CLAIM" ]; then
-  _fail "fan-out claim anchor 'one \`in_progress\` claim record per unit' not found in $DIT"
+  _fail "fan-out claim anchor 'one \`in_progress\` claim record per unit' not found in $ORCH"
 else
   printf '%s' "$FANOUT_CLAIM" | grep -qF 'author_model' \
     && _pass "fan-out claim include list carries author_model" \

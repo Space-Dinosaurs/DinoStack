@@ -4,8 +4,10 @@ Module manifest
 Purpose: Regression guard for the "Class 1" primary-checkout HEAD-mutation
          defect closed alongside hooks/enforce-worktree-write.py's Class 2
          fix. The fan-out span of content/commands/ds-implement-ticket.md
-         (Phase 5's parallel-units merge phase through the start of Phase
-         8.5) must never checkout or merge branches directly in $REPO - the
+         (Phase 5's parallel-units heading through the start of Phase 8.5)
+         and the fan-out procedure moved out of it into
+         content/references/orchestration-units.md (that heading to end of
+         file) must never checkout or merge branches directly in $REPO - the
          primary shared checkout. All such operations must run inside a
          dedicated integration worktree ($INTEGRATION_WORKTREE), so a
          concurrent session's HEAD state (or a concurrent session's
@@ -19,8 +21,9 @@ Purpose: Regression guard for the "Class 1" primary-checkout HEAD-mutation
 Public API: none (standalone script; `pytest bin/tests/test_fan_out_no_repo_head_mutation.py`
             or `python3 bin/tests/test_fan_out_no_repo_head_mutation.py`).
 
-Upstream deps: content/commands/ds-implement-ticket.md (the file under test,
-               resolved relative to this script's own repo root - never the
+Upstream deps: content/commands/ds-implement-ticket.md and
+               content/references/orchestration-units.md (the files under
+               test, resolved relative to this script's own repo root - never the
                caller's cwd, so the test is stable when invoked from any
                directory or worktree).
 
@@ -52,6 +55,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 TARGET = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
+ORCH = REPO_ROOT / "content" / "references" / "orchestration-units.md"
 
 START_ANCHOR = "### If parallel independent units were identified:"
 END_ANCHOR = "## Phase 8.5: QA evidence (conditional)"
@@ -85,12 +89,21 @@ def _extract_span(text: str) -> str:
     return text[start_idx:end_idx]
 
 
+def _read_orch() -> str:
+    return ORCH.read_text(encoding="utf-8")
+
+
+def _extract_orch_span(text: str) -> str:
+    return text[text.index(START_ANCHOR):]
+
+
 class TestFanOutSpanHasNoRepoHeadMutation(unittest.TestCase):
     def test_target_file_exists(self) -> None:
-        self.assertTrue(
-            TARGET.is_file(),
-            f"expected file at {TARGET} - repo layout drifted?",
-        )
+        for path in (TARGET, ORCH):
+            self.assertTrue(
+                path.is_file(),
+                f"expected file at {path} - repo layout drifted?",
+            )
 
     def test_anchors_present_and_ordered(self) -> None:
         """Prove-not-vacuous precondition: both anchors must exist, in order.
@@ -111,15 +124,24 @@ class TestFanOutSpanHasNoRepoHeadMutation(unittest.TestCase):
         self.assertGreater(
             len(span), 5000, "fan-out span suspiciously short - anchors drifted?"
         )
+        orch = _read_orch()
+        self.assertIn(START_ANCHOR, orch, "start anchor heading not found in ORCH")
+        self.assertGreater(
+            len(_extract_orch_span(orch)), 5000,
+            "moved fan-out span suspiciously short - anchors drifted?",
+        )
 
     def test_no_repo_checkout_or_merge_in_fan_out_span(self) -> None:
-        text = _read_target()
-        span = _extract_span(text)
         offenders = []
-        for pattern in FORBIDDEN_PATTERNS:
-            for match in pattern.finditer(span):
-                line_no = span.count("\n", 0, match.start()) + 1
-                offenders.append(f"line ~{line_no}: {match.group(0)!r}")
+        spans = (
+            (TARGET.name, _extract_span(_read_target())),
+            (ORCH.name, _extract_orch_span(_read_orch())),
+        )
+        for name, span in spans:
+            for pattern in FORBIDDEN_PATTERNS:
+                for match in pattern.finditer(span):
+                    line_no = span.count("\n", 0, match.start()) + 1
+                    offenders.append(f"{name} line ~{line_no}: {match.group(0)!r}")
         self.assertEqual(
             offenders,
             [],
@@ -176,8 +198,7 @@ class TestFanOutSpanHasNoRepoHeadMutation(unittest.TestCase):
         """Positive control: the replacement mechanism must actually be there,
         not just absent-forbidden-pattern (which a wholesale deletion of the
         merge phase would also satisfy vacuously)."""
-        text = _read_target()
-        span = _extract_span(text)
+        span = _extract_orch_span(_read_orch())
         self.assertIn("INTEGRATION_WORKTREE", span)
         self.assertRegex(
             span,

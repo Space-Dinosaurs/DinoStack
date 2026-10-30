@@ -42,8 +42,9 @@
 #                content/agents/engineer.md and
 #                content/agents/qa-engineer.md (the four points of use, each
 #                asserted to still carry a §section pointer at the canonical
-#                rule); the nine CARRIER_WIRING_FILES plus three
-#                content/commands/ds-implement-ticket.md blocks (grepped by
+#                rule); the ten CARRIER_WIRING_FILES plus two
+#                content/commands/ds-implement-ticket.md blocks and one
+#                content/references/orchestration-units.md block (grepped by
 #                check_carrier_wiring for `ds-retire-carrier`), and
 #                scripts/codex-skills.py `CODEX_SPAWN_CONTRACT` (imported by
 #                check_completion_sentence_parity, which also reads the
@@ -990,18 +991,21 @@ echo "step2-argv exit=$r0g"
 
 # Carrier lifecycle wiring: every site that states the completion-time
 # disposition must name the tool that performs it, and the three
-# ds-implement-ticket blocks that execute it must call it. A site that loses
+# ds-implement-ticket blocks that execute it must call it (the fan-out
+# **Worktree cleanup.** block lives in orchestration-units.md). A site that loses
 # the name has gone back to describing a removal nothing performs.
 CARRIER_WIRING_FILES="content/sections/11-worktree-lifecycle.md
 content/references/worktree-lifecycle.md
 content/rules/conventions.md
 content/references/subagent-protocol.md
 content/commands/ds-implement-ticket.md
+content/references/orchestration-units.md
 content/references/qa-gate.md
 content/references/evidence-on-disk.md
 content/commands/ds-wrap.md
 scripts/codex-skills.py"
 IMPLEMENT_DOC="$REPO_ROOT/content/commands/ds-implement-ticket.md"
+ORCH_DOC="$REPO_ROOT/content/references/orchestration-units.md"
 
 check_carrier_wiring() {
   local ok=0 rel block
@@ -1017,7 +1021,7 @@ check_carrier_wiring() {
     echo "CARRIER-WIRING VIOLATION: the Phase 8 isolation worktree cleanup block does not call ds-retire-carrier" >&2
     ok=1
   fi
-  block=$(awk '/^\*\*Worktree cleanup\.\*\*/{c=1; next} c && /^```/{n++; if(n==2)exit; next} c && n==1{print}' "$IMPLEMENT_DOC")
+  block=$(awk '/^\*\*Worktree cleanup\.\*\*/{c=1; next} c && /^```/{n++; if(n==2)exit; next} c && n==1{print}' "$ORCH_DOC")
   if [ -z "$block" ] || ! printf '%s\n' "$block" | grep -qF 'ds-retire-carrier'; then
     echo "CARRIER-WIRING VIOLATION: the fence after **Worktree cleanup.** does not call ds-retire-carrier" >&2
     ok=1
@@ -1059,7 +1063,7 @@ PYEOF
   return "$ok"
 }
 
-echo "== Carrier wiring check: 9 files and 3 ds-implement-ticket blocks name ds-retire-carrier =="
+echo "== Carrier wiring check: 10 files and 3 ds-implement-ticket blocks name ds-retire-carrier =="
 check_carrier_wiring
 r0i=$?
 echo "carrier-wiring exit=$r0i"

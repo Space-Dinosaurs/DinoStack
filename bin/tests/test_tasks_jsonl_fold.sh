@@ -15,6 +15,7 @@
 # Upstream deps: content/commands/ds-implement-ticket.md,
 #                content/commands/ds-ticket-status-sync.md,
 #                content/commands/ds-wrap.md,
+#                content/references/orchestration-units.md,
 #                content/references/task-state-file.md,
 #                content/references/ticket-rework.md,
 #                content/sections/08-task-state-file.md; `git grep` (BRE/ERE
@@ -86,6 +87,7 @@ SW='sole.writer|sole writer|no lock protocol is needed'
 CANON1=content/references/task-state-file.md
 CANON2=content/sections/08-task-state-file.md
 DIT=content/commands/ds-implement-ticket.md
+ORCH=content/references/orchestration-units.md
 SS=content/commands/ds-ticket-status-sync.md
 TRW=content/references/ticket-rework.md
 WRAP=content/commands/ds-wrap.md
@@ -103,13 +105,14 @@ while IFS=: read -r ff nn; do
   FOLDSUM=$((FOLDSUM + c))
   if [ "$c" -lt "$nn" ]; then FOLDBAD="$FOLDBAD $ff($c/$nn)"; fi
 done <<'FOLDSPEC'
-content/commands/ds-implement-ticket.md:7
+content/commands/ds-implement-ticket.md:4
+content/references/orchestration-units.md:10
 content/references/task-state-file.md:3
 content/commands/ds-ticket-status-sync.md:2
 content/references/ticket-rework.md:1
 content/commands/ds-wrap.md:1
 FOLDSPEC
-if [ -z "$FOLDBAD" ]; then _pass "FOLD per-file floors: all 5 reader files at or above their R-site counts (sum=$FOLDSUM)"
+if [ -z "$FOLDBAD" ]; then _pass "FOLD per-file floors: all 6 reader files at or above their R-site counts (sum=$FOLDSUM)"
 else _fail "FLOOR FAIL: 'task-state fold' citations below the per-file R-site floor:$FOLDBAD - a global sum would have passed this. Do NOT lower, do NOT collapse into a sum."; fi
 
 # G1a: FILE-scoped - catches the :32-33 phrase split a line grep misses.
@@ -161,8 +164,9 @@ git grep -niE 'skipped_already_merged|\| complete \|' -- "$SS" > "$TMP/g5" 2>/de
 if [ -s "$TMP/g5" ]; then _fail "G5 FAIL - the batch-state tickets[] enum is still pasted onto the tasks.jsonl lookup (OQ1):"; cat "$TMP/g5" >&2
 else _pass "G5: status-sync reads the tasks.jsonl writer enum, not the batch-state one"; fi
 
-# G6: row 7's warning is specified verbatim in 3.3, so it IS gateable.
-G6="$(git grep -cE 'is in_progress under another session' -- "$DIT" 2>/dev/null | cut -d: -f2)"; [ -n "$G6" ] || G6=0
+# G6: row 7's warning is specified verbatim in 3.3, so it IS gateable. It
+# moved with Phase 3b's file-present handling into orchestration-units.md.
+G6="$(git grep -cE 'is in_progress under another session' -- "$ORCH" 2>/dev/null | cut -d: -f2)"; [ -n "$G6" ] || G6=0
 if [ "$G6" -ge 1 ]; then _pass "G6: row-7 foreign-ownership warning present ($G6)"
 else _fail "G6 FAIL: row-7 foreign-ownership warning absent - the ownership gate has no operator-visible output."; fi
 

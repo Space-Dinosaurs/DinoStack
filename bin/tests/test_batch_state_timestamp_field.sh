@@ -14,8 +14,9 @@
 #          `hooks/lib/state-mark.js`'s `tsField: 'updated_at'`); the loop-state
 #          file's equivalent field is `last_updated`
 #          and must NOT be touched. This suite pins that every batch-state
-#          staleness reader in content/commands/ds-implement-ticket.md keys on
-#          `updated_at`, that dual-file sentences (Contract A step 2) state
+#          staleness reader in content/commands/ds-implement-ticket.md (and
+#          the batch-mode.md / open-goal-loop.md references its batch and
+#          open-goal procedures moved to) keys on `updated_at`, that dual-file sentences (Contract A step 2) state
 #          the per-file mapping explicitly rather than naming one field for
 #          both files, that Contract A step 2's `status=active` precondition
 #          (which fixes the resume-abort Critical) is scoped to
@@ -51,8 +52,11 @@
 #             Auto-wired into CI by the bin/tests/test_*.sh glob in
 #             .github/workflows/bin-tests.yml - no orphans entry needed.
 #
-# Upstream deps: bash, grep, awk. Reads content/commands/ds-implement-ticket.md
-#                and content/references/cross-session-loop-resume.md from the
+# Upstream deps: bash, grep, awk. Reads content/commands/ds-implement-ticket.md,
+#                content/references/batch-mode.md (Phase 0a-pre decision
+#                table, Phase 0a init), content/references/open-goal-loop.md
+#                (Phase 0a-open-goal resume classification), and
+#                content/references/cross-session-loop-resume.md from the
 #                checkout. No jq, no python3, no network - pure text
 #                assertions.
 #
@@ -69,6 +73,8 @@ set -uo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 SPEC="$REPO_DIR/content/commands/ds-implement-ticket.md"
 SPEC2="$REPO_DIR/content/references/cross-session-loop-resume.md"
+SPEC_BATCH="$REPO_DIR/content/references/batch-mode.md"
+SPEC_OG="$REPO_DIR/content/references/open-goal-loop.md"
 
 PASS=0
 FAIL=0
@@ -79,10 +85,12 @@ if [[ ! -f "$SPEC" ]]; then
   echo "FAIL: $SPEC not found" >&2
   exit 1
 fi
-if [[ ! -f "$SPEC2" ]]; then
-  echo "FAIL: $SPEC2 not found" >&2
-  exit 1
-fi
+for _f in "$SPEC2" "$SPEC_BATCH" "$SPEC_OG"; do
+  if [[ ! -f "$_f" ]]; then
+    echo "FAIL: $_f not found" >&2
+    exit 1
+  fi
+done
 
 _present() { # _present <file> <label> <pattern>
   if grep -qiE "$3" "$1"; then
@@ -180,23 +188,23 @@ _present "$SPEC" "N=1 foreign-batch NOTE message keys on updated_at" \
 
 echo ""
 echo "--- Phase 0a-pre decision table keys on updated_at for batch-state rows ---"
-_present "$SPEC" "decision table active-row keys on updated_at (>10 min)" \
+_present "$SPEC_BATCH" "decision table active-row keys on updated_at (>10 min)" \
          'status=active. AND .updated_at > 10 min. ago'
-_present "$SPEC" "decision table active-row keys on updated_at (<=10 min, same session)" \
+_present "$SPEC_BATCH" "decision table active-row keys on updated_at (<=10 min, same session)" \
          'status=active. AND .updated_at ≤ 10 min. AND .session_id. matches current'
-_absent "$SPEC" "decision table no longer has a bare last_updated row for batch-state" \
+_absent "$SPEC_BATCH" "decision table no longer has a bare last_updated row for batch-state" \
         'status=active. AND .last_updated'
 
 echo ""
 echo "--- Phase 0a-open-goal resume classification keys on updated_at ---"
-_present "$SPEC" "open-goal resume classification checks updated_at older than 10 min" \
+_present "$SPEC_OG" "open-goal resume classification checks updated_at older than 10 min" \
          'differs, AND .updated_at. older than 10 min'
-_present "$SPEC" "open-goal resume classification checks updated_at within 10 min" \
+_present "$SPEC_OG" "open-goal resume classification checks updated_at within 10 min" \
          'differs, AND .updated_at. within last 10 min'
 
 echo ""
 echo "--- Phase 0a init Contract C application keys on updated_at ---"
-_present "$SPEC" "Phase 0a init's Contract C check reads updated_at" \
+_present "$SPEC_BATCH" "Phase 0a init's Contract C check reads updated_at" \
          'different .session_id., and .updated_at. within the last 10 minutes, REFUSE'
 
 echo ""

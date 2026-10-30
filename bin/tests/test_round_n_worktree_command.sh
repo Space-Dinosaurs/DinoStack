@@ -64,12 +64,15 @@
 #              assertions - same as before this ticket, exercised only
 #              indirectly via scenario 3's reproduction - but H1 (round 3
 #              Skeptic finding): the `done < <(...)` process-substitution
-#              redirect assertion below now pins BOTH sites via an
-#              occurrence-COUNT check (== 2), not mere presence, since the
-#              literal redirect text is byte-identical at 1628 and 1749 -
-#              a bare `grep -q` presence check is satisfied by a single
-#              surviving occurrence and would miss a pipe regression at
-#              either site alone.
+#              redirect assertion below now pins BOTH sites via a per-file
+#              occurrence-COUNT check (== 1 in the command for the
+#              Elevated-path site, == 1 in
+#              content/references/orchestration-units.md for the
+#              Merge-phase site, which moved there), not mere presence,
+#              since the literal redirect text is byte-identical at both
+#              sites - a bare `grep -q` presence check is satisfied by a
+#              single surviving occurrence and would miss a pipe regression
+#              at either site alone.
 #          Every scenario below runs against a disposable scratch git repo
 #          under a temp directory (never touches the real DinoStack
 #          checkout, worktree, or branch state), and where a prior round's
@@ -80,8 +83,9 @@
 # Public API: none (standalone script; `bash bin/tests/test_round_n_worktree_command.sh`).
 #
 # Upstream deps: none (self-contained scratch-repo fixtures). Prose-wiring
-#                check greps content/commands/ds-implement-ticket.md,
-#                resolved relative to this script's repo root.
+#                check greps content/commands/ds-implement-ticket.md and
+#                content/references/orchestration-units.md, resolved
+#                relative to this script's repo root.
 #
 # Downstream consumers: CI (bin-sh-tests); DS-157 Skeptic review rounds
 #                       (outcome_rubric row 1 and row 7).
@@ -100,6 +104,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 IMPL_DOC="$REPO_ROOT/content/commands/ds-implement-ticket.md"
+ORCH_DOC="$REPO_ROOT/content/references/orchestration-units.md"
 SCRATCH="$(mktemp -d)"
 
 cleanup() {
@@ -116,10 +121,15 @@ note_fail() {
 # --- Prose-wiring / reverted-defect regression guard -----------------------
 check_prose_wiring() {
   local doc="$1"
+  local orch="$2"
   local ok=0
 
   if [ ! -f "$doc" ]; then
     echo "PROSE-WIRING VIOLATION: $doc not found" >&2
+    return 1
+  fi
+  if [ ! -f "$orch" ]; then
+    echo "PROSE-WIRING VIOLATION: $orch not found" >&2
     return 1
   fi
 
@@ -174,12 +184,18 @@ check_prose_wiring() {
   # definition, 1749-ish Merge-phase copy) still passes. The literal text
   # is byte-identical at both sites (verified: both read
   # `done < <(git -C $REPO worktree list --porcelain)`), so an occurrence
-  # COUNT of exactly 2 catches a regression at either site without
+  # COUNT of exactly 1 per file (the Merge-phase copy now lives in
+  # orchestration-units.md) catches a regression at either site without
   # anchoring on any surrounding context that a legitimate future edit
   # could shift.
   _dwt_redirect_count="$(grep -c -- 'done < <(git -C \$REPO worktree list --porcelain)' "$doc")"
-  if [ "$_dwt_redirect_count" -ne 2 ]; then
-    echo "PROSE-WIRING VIOLATION: $doc does not use the load-bearing process-substitution redirect (done < <(...)) at both worktree-guard sites (expected 2 occurrences, found $_dwt_redirect_count)" >&2
+  if [ "$_dwt_redirect_count" -ne 1 ]; then
+    echo "PROSE-WIRING VIOLATION: $doc does not use the load-bearing process-substitution redirect (done < <(...)) at the Elevated-path worktree-guard site (expected 1 occurrence, found $_dwt_redirect_count)" >&2
+    ok=1
+  fi
+  _dwt_redirect_count="$(grep -c -- 'done < <(git -C \$REPO worktree list --porcelain)' "$orch")"
+  if [ "$_dwt_redirect_count" -ne 1 ]; then
+    echo "PROSE-WIRING VIOLATION: $orch does not use the load-bearing process-substitution redirect (done < <(...)) at the Merge-phase worktree-guard site (expected 1 occurrence, found $_dwt_redirect_count)" >&2
     ok=1
   fi
   if ! grep -q -- 'UNPUSHED_RC=\$?' "$doc"; then
@@ -292,8 +308,8 @@ sim_current_fixed_logic() {
   echo "RESET"
 }
 
-echo "== Prose-wiring check: $IMPL_DOC pins all three rounds' fixes =="
-check_prose_wiring "$IMPL_DOC"
+echo "== Prose-wiring check: $IMPL_DOC and $ORCH_DOC pin all three rounds' fixes =="
+check_prose_wiring "$IMPL_DOC" "$ORCH_DOC"
 r0=$?
 echo "prose-wiring exit=$r0"
 [ "$r0" = "0" ] || note_fail "prose-wiring check"
