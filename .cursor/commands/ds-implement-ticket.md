@@ -1614,7 +1614,7 @@ Ensure your implementation addresses each prior QA failure point explicitly.
 
 Omit this entire section when `COMMENT_THREAD_SUMMARY` is empty (TRACKER=none, empty thread, or comment fetch failed).
 
-**Worktree isolation is mandatory on the Elevated path.** The Agent tool call spawning the engineer MUST set `isolation: "worktree"` (see METHODOLOGY.md §Delegation > Worker preamble). This applies to every Elevated-path engineer spawn - single-unit, parallel fan-out, and Phase 7 fix engineers alike. Only the Trivial-path solo engineer carve-out (below) is exempt.
+**Worktree isolation is mandatory on the Elevated path.** The Agent tool call spawning the engineer MUST set `isolation: "worktree"` (see METHODOLOGY.md §Delegation > Worker preamble). This applies to every Elevated-path engineer spawn - single-unit, parallel fan-out, and Phase 7 fix engineers alike.
 
 **Stale remote branch preflight (mandatory before every engineer spawn).** Before passing `BRANCH_NAME` to the engineer (single-engineer path) or before creating per-unit sub-branches (fan-out path), the conductor MUST run:
 

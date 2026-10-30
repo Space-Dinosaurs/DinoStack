@@ -15522,6 +15522,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "git worktree add + spawn_agent",
+      "generated_token": "**Worktree isolation is mandatory on the Elevated path.** Before spawning the engineer, execute the Codex spawn contract above (see METHODOLOGY.md \u00a7Delegation > Worker preamble). This applies to every Elevated-path engineer spawn - single-unit, parallel fan-out, and Phase 7 fix engineers alike.",
+      "kind": "operational",
+      "occurrence_hash": "bda6d215574e258f5a3060679605510f1f3142b4c2bcff5e1b6f6c224b1a2a86",
+      "resolution_mode": "codex-spawn-contract",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "**Worktree isolation is mandatory on the Elevated path.** The Agent tool call spawning the engineer MUST set `isolation: \"worktree\"` (see METHODOLOGY.md \u00a7Delegation > Worker preamble). This applies to every Elevated-path engineer spawn - single-unit, parallel fan-out, and Phase 7 fix engineers alike."
+    },
+    {
       "expected_target": ".agentic/loop-state-",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
       "kind": "operational",
@@ -19100,16 +19110,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
-      "expected_target": "git worktree add + spawn_agent",
-      "generated_token": "**Worktree isolation is mandatory on the Elevated path.** Before spawning the engineer, execute the Codex spawn contract above (see METHODOLOGY.md \u00a7Delegation > Worker preamble). This applies to every Elevated-path engineer spawn - single-unit, parallel fan-out, and Phase 7 fix engineers alike. Only the Trivial-path solo engineer carve-out (below) is exempt.",
-      "kind": "operational",
-      "occurrence_hash": "eed5d8140f33b991278f1f0fee3b079f777248d0b21726597d47a057e31a8f35",
-      "resolution_mode": "codex-spawn-contract",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "**Worktree isolation is mandatory on the Elevated path.** The Agent tool call spawning the engineer MUST set `isolation: \"worktree\"` (see METHODOLOGY.md \u00a7Delegation > Worker preamble). This applies to every Elevated-path engineer spawn - single-unit, parallel fan-out, and Phase 7 fix engineers alike. Only the Trivial-path solo engineer carve-out (below) is exempt."
     },
     {
       "expected_target": "case",
