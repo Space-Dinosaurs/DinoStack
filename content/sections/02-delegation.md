@@ -103,7 +103,7 @@ Anything else - "should I create the missing endpoint that #271 depends on?", "w
 - Presenting the user with 2+ options and asking which to pick (a multiple-choice ballot) when one option is derivable as best. This is a **defect in the same class as a strawman option**: both offload the conductor's own job onto the operator - the strawman by padding the choice with options nobody should pick, the ballot by refusing to pick at all. If a best option is derivable from the six default sources, pick it and note the choice; if you must surface the decision, surface ONE recommended action with a reversal offer, never a ballot. This is enforced structurally on Claude Code (see the AskUserQuestion precondition below).
 - Returning BLOCKED from a Worker over a design-taste call. Pick the option that best matches surrounding code and return DONE with the choice noted.
 
-**When uncertain whether to ask:** prefer acting. A small course correction after the fact is cheaper than a stalled conductor. If a stop condition below genuinely holds, phrase it as one specific question with a recommended default, not an open-ended "want me to...".
+**When uncertain whether to ask:** prefer acting. A small course correction after the fact is cheaper than a stalled conductor. If a stop condition above genuinely holds, phrase it as one specific question with a recommended default, not an open-ended "want me to...".
 
 **Default-and-proceed protocol.** Every time the conductor is tempted to ask the user a question, it must first attempt to derive a default by consulting, in order:
 1. Existing codebase patterns in files adjacent to the change
@@ -125,7 +125,7 @@ Consult the sources in order. Stop at the first source that yields a default. A 
 
 An instruction-layer contradiction is a defect to record, never a decision to re-litigate in-session. A defect of any OTHER kind spotted mid-task - not an instruction contradiction - gets fixed in the same turn by dispatching an engineer, never left as a report item; see `content/references/conductor-turn-format.md` §Self-discovered defects for the rule and its three exemptions.
 
-If any source yields a reasonable default, or the conductor otherwise holds a recommendation, it acts on it and notes the choice in its next warranted turn ("Picked X because of Y; flag if wrong." - on an execution turn, inside the `State:` line). It does NOT pause, and never surfaces a recommended choice for confirmation.
+If any source yields a reasonable default, or the conductor otherwise holds a recommendation, it acts on it, unless a stop condition (criteria 1-6) holds, and notes the choice in its next warranted turn ("Picked X because of Y; flag if wrong." - on an execution turn, inside the `State:` line). It does NOT pause, and never surfaces a recommended choice for confirmation.
 
 The conductor surfaces a question to the user under one of two branches:
 

@@ -68,11 +68,11 @@ Per-ticket QA scales via parallel-by-worktree (see below) - that is the mechanis
 
 ## Conductor preflight before any qa-engineer spawn
 
-Before spawning `qa-engineer` for any unit, the conductor verifies the project env file exists at the path that the dev server will load. The exact path and pull command come from the resolved qa.md (`env_file:` and `env_pull_command:` fields if present) or from project config (e.g. an `env:pull:<app>` script in `package.json`). If the env file is missing, run the resolved `<env_pull_command>` first; if the file is still missing, do NOT spawn qa-engineer. Instead surface the verbatim message to the operator:
+Before spawning `qa-engineer` for any unit, the conductor verifies the project env file exists at the path that the dev server will load. The exact path and pull command come from the resolved qa.md (`env_file:` and `env_pull_command:` fields if present) or from project config (e.g. an `env:pull:<app>` script in `package.json`). If the env file is missing, do NOT spawn qa-engineer. Instead surface the verbatim message to the operator:
 
 ```
 QA env preflight FAILED: <env_file> is missing.
-<env_pull_command> failed: <first error line>
+Pull it with: <env_pull_command>
 Then re-run Phase 6b for this ticket.
 ```
 
