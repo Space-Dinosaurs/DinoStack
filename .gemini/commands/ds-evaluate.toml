@@ -125,8 +125,10 @@ Present the report's `Refinement proposals` verbatim and in its order - it is `b
 
 | Route | Where it goes |
 |---|---|
-| `update-agentic-engineering` | `/ds-update-agentic-engineering` (a methodology change: Skeptic round shape, D1a-D1c; a hook's deny rate, D2, where the floor-vs-dial test in `content/references/obsolescence-signal.md` excludes a floor hook) |
+| `update-agentic-engineering` | `/ds-update-agentic-engineering` (a methodology change: Skeptic round shape, D1a-D1c; a hook's deny rate, D2) |
 | `tracker-ticket` | a ticket in the project tracker, filed only on operator approval, as in `/ds-feedback-triage` (D3) |
+
+For each D2 proposal, apply the floor-vs-dial test in `content/references/obsolescence-signal.md` to the hook first. A floor hook stays in the list, marked `floor - not actionable`, with no route.
 
 No route is taken without the operator. `none` means no rule fired in the window.
 

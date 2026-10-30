@@ -279,11 +279,13 @@ for _ae_old_name in "${_ae_stale_pre_ds26_commands[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
-# Remove stale post-DS-26 command skill symlinks (renamed or deleted commands)
+# Remove stale post-DS-26 command skill symlinks
+# (renamed or deleted commands)
 #
-# A command can also be renamed after DS-26 (its own ds- prefix stays, only
-# the basename changes) or deleted outright. Same allowlist discipline as above: literal old
-# names only, never a glob or set-difference against ~/.openclaw/skills/.
+# A command can also be renamed after DS-26 (its own ds- prefix stays,
+# only the basename changes) or deleted outright. Same allowlist
+# discipline as above: literal old names only, never a glob or
+# set-difference against ~/.openclaw/skills/.
 # ---------------------------------------------------------------------------
 
 _ae_stale_renamed_commands=(
@@ -296,7 +298,7 @@ for _ae_old_name in "${_ae_stale_renamed_commands[@]}"; do
     _ae_current_target="$(readlink "$_ae_old_dst")"
     if [[ "$_ae_current_target" == "$REPO_DIR/.openclaw/skills/"* ]]; then
       rm "$_ae_old_dst"
-      echo "  - removed $_ae_old_name (stale renamed command skill symlink)"
+      echo "  - removed $_ae_old_name (stale renamed or deleted command skill symlink)"
     fi
   fi
 done

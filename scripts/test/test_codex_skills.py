@@ -3480,7 +3480,7 @@ class CodexPromptWrapperTests(unittest.TestCase):
 
     def test_inventory_wrapper_bytes_and_closed_manifest(self) -> None:
         inventory = json.loads(self.prompt("inventory").stdout)
-        self.assertEqual(28, len(inventory))
+        self.assertEqual(27, len(inventory))
         self.assertEqual(sorted(inventory), inventory)
         self.assertNotIn("ds-wrap-deferred", inventory)
         self.assertEqual(
