@@ -1511,12 +1511,22 @@ class CodexSkillGenerationTests(unittest.TestCase):
         methodology = (
             self.repo / ".codex/skills/dinostack-codex/METHODOLOGY.md"
         ).read_text(encoding="utf-8")
+        # Phase 3b's task-state text moved to orchestration-units.md; Codex
+        # reads it through the .codex/references link, behind the stub the
+        # generated ticket skill still carries.
+        orchestration = (
+            self.repo / ".codex/references/orchestration-units.md"
+        ).read_text(encoding="utf-8")
         self.assertIn('task -> "Task"; omit to accept project default', ticket)
-        self.assertIn("### Task-state initialization", ticket)
-        self.assertIn("## Task entries (machine-readable)", ticket)
+        self.assertIn(
+            "`$REPO_DIR/content/references/orchestration-units.md` §Phase 3b: Orchestration plan (conditional)",
+            ticket,
+        )
+        self.assertIn("### Task-state initialization", orchestration)
+        self.assertIn("## Task entries (machine-readable)", orchestration)
         self.assertIn("## Current Task / Next Steps", wrap)
         self.assertIn("## Task-state file", methodology)
-        self.assertNotIn("spawn_agent-state", ticket + methodology)
+        self.assertNotIn("spawn_agent-state", ticket + methodology + orchestration)
 
     def test_shell_occurrences_classifies_ds_prefixed_bin_tokens(self) -> None:
         """Regression for the DS-rename classifier gap (scripts/codex-skills.py
