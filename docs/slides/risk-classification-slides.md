@@ -204,7 +204,7 @@ A fourth path exists: <strong>Elevated + Cleanup</strong> - Worker, then Skeptic
 | Trivial | Worktree-isolated engineer (no Skeptic, no brief) | None | Silent |
 | Low | Direct, or 1 engineer (small change) | Brief inline self-check | Silent |
 | Elevated | Worker (no risk surface: 1 engineer) | Fresh independent Skeptic (no risk surface: one pass) | Stated before starting |
-| Elevated + Cleanup | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
+| Elevated + Cleanup (full route only) | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
 
 <div class="callout">
 <strong>When in doubt, classify as Elevated.</strong> Risk is assessed by signal, not by the conductor's subjective estimate of difficulty. A conductor that re-evaluates the spawn decision because an edit "feels straightforward" is violating the protocol - regardless of whether the output turns out to be correct.

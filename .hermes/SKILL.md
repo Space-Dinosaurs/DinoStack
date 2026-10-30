@@ -97,7 +97,7 @@ applied - check a judgment call against these before acting on it.
 
 **All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default, and `hooks/enforce-background-spawn.py` enforces background-by-default on both `Task` and `Agent`. The conductor norm on Claude Code: omit `run_in_background` entirely on `Agent` spawns and rely on the harness default; never pass `false`. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because the conductor holds `.agentic/wrap/lock` for its duration and Phase 12 cleanup must wait for it to return; treat that as a behavioral property of `wrap-ticket`, not a general exemption. For the payload-capture history and the asymmetric allow/deny hook mechanics: read `content/references/delegation-detail.md` §Background-Spawn Enforcement Detail.
 
-**Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action, except a small single-concern code change, which goes to one worktree-isolated `engineer` (no Skeptic). Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe. On the single-review route (`content/sections/04-risk-classification.md` §Elevated routes) the Worker is one `engineer` and the Skeptic runs one pass.
+**Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action, except a small single-concern code change, which goes to one worktree-isolated `engineer` (no Skeptic). Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe. On the single-review route (`content/sections/04-risk-classification.md` §Elevated routes) the Worker is one `engineer` and the Skeptic runs one pass; fixes are re-reviewed only after a Critical.
 
 **No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once - **Decision stability** below is the general form of this rule.
 
@@ -455,7 +455,7 @@ See §Delegation signal table above for the full Elevated signals list.
 
 ### Elevated routes
 
-An Elevated task takes the `single-review` route only when all hold: (a) the profile is `default` or `relaxed`; (b) the ticket is not rework-floored; (c) it touches no risk surface. Otherwise it takes the `full` route. A risk surface is any Mandatory Tier-3 category (`content/references/risk-config-and-tiers.md` §Mandatory Tier-3 review escalation: security, auth, crypto, payments, or secrets; an irreversible operation; novel architecture; high blast radius, a shared utility, an LLM prompt, or a gate or its threshold; release, deploy, or production state) or a public-API change: an exported symbol or type, a route, a CLI flag, or a config key a downstream consumer reads. Judge it when the task is classified, from the ticket text and the codebase reads; when unclear, take the full route. `strict` always takes the full route, and Elevated + Cleanup exists only on it. The single-review route is one worktree-isolated `engineer`, then one `skeptic` pass whose findings are fixed once (loop rule: `content/references/skeptic-protocol.md` §Complexity-based round limit); QA fires only for a user-visible UI change, with the acceptance text as its criteria.
+An Elevated task takes the `single-review` route only when all hold: (a) the profile is `default` or `relaxed`; (b) `IS_REWORK` is false (rework tickets take the full route); (c) it touches no risk surface. Otherwise it takes the `full` route. A risk surface is any Mandatory Tier-3 category (`content/references/risk-config-and-tiers.md` §Mandatory Tier-3 review escalation: security, auth, crypto, payments, or secrets; an irreversible operation; novel architecture; high blast radius, a shared utility, an LLM prompt, or a gate or its threshold; release, deploy, or production state) or a public-API change: an exported symbol or type, a route, a CLI flag, or a config key a downstream consumer reads. Judge it when the task is classified, from the ticket text and the codebase reads; when unclear, take the full route. `strict` always takes the full route, and Elevated + Cleanup exists only on it. The single-review route is one worktree-isolated `engineer`, then one `skeptic` pass whose findings are fixed once (loop rule: `content/references/skeptic-protocol.md` §Complexity-based round limit); QA fires only for a user-visible UI change, with the acceptance text as its criteria.
 
 ### Trivial signals
 
@@ -543,7 +543,7 @@ For Low or Trivial units, the Skeptic applies its inline self-check. QA is not s
 
 ### Re-route limits
 
-**Re-route limits.** Within any loop (Skeptic re-route or QA re-route), the conductor applies a max of 3 fix passes in a Skeptic loop and 3 in a QA loop before escalating to the human. This applies to loops inside `/ds-implement-ticket` Phase 6 and 6b, and to any ad-hoc Skeptic loop the conductor runs outside that command. The conductor tracks re-route count in-context.
+**Re-route limits.** Within any loop (Skeptic re-route or QA re-route), the conductor applies a max of 3 fix passes in a Skeptic loop (single-review route: `content/references/skeptic-protocol.md` §Complexity-based round limit) and 3 in a QA loop before escalating to the human. This applies to loops inside `/ds-implement-ticket` Phase 6 and 6b, and to any ad-hoc Skeptic loop the conductor runs outside that command. The conductor tracks re-route count in-context.
 
 **At the cap, the conductor takes exactly one of two actions - never silent continuation.** (a) Ship, recording every unresolved non-Critical finding in the PR body as explicit accepted debt; or (b) escalate to the human, stating cost-to-date (rounds consumed, wall-clock or token cost if available, and CI cycle time when the unit has an open PR - each additional round re-runs the full required-check suite) and what the next round is expected to buy. **An unresolved Critical always blocks - the cap never ships a Critical.** This ship-or-escalate choice governs ad-hoc Skeptic loops and `/ds-implement-ticket` Phase 6 alike. **The round-count cap is mechanically enforced by `hooks/enforce-skeptic-round-cap.py` regardless of caller; the Critical-never-ships rule is not.** Full policy - including the hook's fail-open condition, its known residuals, the value-per-round gate that governs whether a round is spawned at all, and the ordering rule for enforcement-only units - is in `content/references/skeptic-protocol.md` §Round budget and value-per-round gate.
 
@@ -7614,7 +7614,7 @@ The number of permitted Skeptic rounds scales with task complexity:
 
 - **Simple/targeted changes** - a unit that meets the simple/targeted-unit mechanical metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)): Skeptic loop is capped at **1 round**. This overrides the 2-re-route rule above for this category. The Skeptic still runs at least once - this lever caps loop depth, it does not skip review. If the Skeptic raises Critical or Major findings after round 1, escalate directly to the human rather than spawning another Worker. The human decides whether to fix and re-review or accept as-is.
 - **Standard Elevated changes**: the 2-re-route rule above applies - if the same finding appears in 2 or more Skeptic responses without resolution, escalate to the human.
-- **Single-review route** (`content/sections/04-risk-classification.md` §Elevated routes): at most 2 rounds. If a round has no open Critical, one engineer fix pass covers every open finding except deferred Minors, then the loop exits clean with no re-review. If round 1 has a Critical, one fix pass, then round 2. A Critical still open after round 2 escalates (`cap_reached`).
+- **Single-review route** (`content/sections/04-risk-classification.md` §Elevated routes): at most 2 rounds. If a round has no open Critical, one engineer fix pass covers every open finding except deferred Minors, then the loop exits clean with no re-review. If round 1 has a Critical, one fix pass, then round 2. A Critical still open after round 2 escalates (`cap_reached`). On this route this rule replaces the simple/targeted 1-round cap.
 
 **Uncertainty rule for categorization:** The simple/targeted-unit metric is computed mechanically from the actual diff, not estimated. If the unit fails any clause of the metric - touches more than 1 file (or more than 1 file plus its colocated test/snapshot), exceeds 40 changed lines, or matches any of the 5 Mandatory Tier-3 escalation signal categories - apply the standard Elevated round limit (the 2-re-route rule). "Looks simple" is not a sufficient basis for the simple/targeted category; the metric's clauses are the only basis.
 
@@ -18567,7 +18567,7 @@ else:
   print: "Loop interrupted. Resuming from last checkpoint."
 ```
 
-**Resume entry point table:**
+**Resume entry point table:** in a `skeptic` phase, `max_iterations` 2 means `ELEVATED_ROUTE=single-review`, else `full`.
 
 | last_phase | last_phase_action | Resume action |
 |---|---|---|
@@ -19173,6 +19173,7 @@ SKEPTIC_ROUNDS=""
 QA_STATUS=""
 W1_FETCH_FAILED=false
 W1_DISPATCH_OUTCOME=""
+ELEVATED_ROUTE=""
 ```
 
 **Why this is binding rather than housekeeping.** The conductor carries ONE variable scope across an entire batch; Phase 1 iterates per entry but nothing else in this command resets anything. Every one of these three variables has exactly one definition site on one path, so a ticket that does not take that path silently inherits the previous ticket's value. The failure is always an affirmative false statement, never an error:
@@ -19408,7 +19409,7 @@ Declare the risk classification and set:
 
 ```
 RISK_CLASS="<Trivial | Low | Elevated>"     # post-floor
-ELEVATED_ROUTE="<full | single-review>"     # Elevated only
+ELEVATED_ROUTE="<full | single-review>"
 ```
 
 **When the declared classification is `Trivial`, also set:**
@@ -19421,7 +19422,7 @@ QA_STATUS="skipped:Trivial path"
 
 **Small-change `Low` route.** A post-floor `Low` ticket under the small single-concern override (`content/sections/04-risk-classification.md` §Profile deltas) follows the Trivial-path branches: no investigator, architect, planner, or Skeptic. If the change has user-visible UI behavior, Phase 6b still runs after the engineer (its Elevated, `qa_criteria`, and Phase 6 triggers waived) with the ticket's acceptance text, or the operator's request, as the qa-engineer's criteria; QA fix passes use the Trivial round-N form. Otherwise set `QA_STATUS="skipped:Low path"`. The brief states the bounds; if the diff breaks one, the engineer pushes it to `$BRANCH_NAME`, stops, and reports. Set `RISK_CLASS="Elevated"`, clear `QA_STATUS`, and resume at Phase 3 with that diff as architect input. The stale-branch preflight's own-work row applies, and Phase 5 takes the branch-exists-on-origin form, whose already-checked-out guard covers the Low worktree. This re-entry skips Phase 0b's snapshot and Phase 2b.
 
-**Single-review `Elevated` route.** When `ELEVATED_ROUTE=single-review` (`content/sections/04-risk-classification.md` §Elevated routes), follow the small-change Low route above, except that Phase 6 runs as one review pass (skeptic-protocol §Complexity-based round limit), fix passes use the Elevated round-N form, and the non-UI rationale is `skipped:single-review path`. Every re-entry into Phase 3, from either route, sets `ELEVATED_ROUTE="full"`.
+**Single-review `Elevated` route.** When `ELEVATED_ROUTE=single-review` (04 §Elevated routes): one Elevated-contract `engineer`, no investigator/architect/planner, briefed to push, stop, and report on a risk-surface touch; one Phase 6 review pass, Elevated round-N fixes; Elevated Phases 7 and 11b; Phase 6b as on the Low route, else `QA_STATUS="skipped:single-review path"`. On a reported touch, re-enter Phase 3 as the Low route does; every re-entry sets `ELEVATED_ROUTE="full"`.
 
 These assignments are unconditional in the sense that matters: they do not depend on the rework feature being active. A ticket whose ledger write is later skipped simply never reads them.
 
@@ -19443,7 +19444,7 @@ Skip this phase entirely for Trivial, Low, multi-unit, or Brief-present tickets.
 - A load-bearing context value is unstated (target environment, performance budget, affected user type, data scale) where the implementation would materially branch on it
 
 **When one or more signals are present:** the conductor surfaces 1-3 targeted, specific questions in its user-facing turn, each with a recommended default. Format follows the surface-and-proceed protocol in `content/sections/02-delegation.md`. The conductor waits exactly one operator turn.
-- If the operator answers: fold answers verbatim into the Phase 3 architect brief (single-review route: the Phase 5 engineer brief) under `"Operator clarifications:"`.
+- If the operator answers: fold answers verbatim into the Phase 3 architect brief (single-review: the engineer brief) under `"Operator clarifications:"`.
 - If the operator does not answer within their next turn (says "proceed", asks something else, or is silent): proceed with the recommended defaults, noted in the architect brief under `"Conductor defaults applied:"`.
 
 The scan never blocks more than one turn. Proceed to Phase 3 after the response (or default).
@@ -19494,7 +19495,7 @@ Emit breadcrumb: `[phase: tracker-state-discovery | cached=<true|false> | misses
 
 ## Phase 3: Architecture plan
 
-**Full route only.** With `ELEVATED_ROUTE=single-review`, skip Phases 3 and 3b; Phase 5 takes the single-unit path.
+**Full route only** (`ELEVATED_ROUTE=single-review` skips Phases 3 and 3b).
 
 Spawn `architect`. Provide:
 - Ticket title/description, conductor-labeled `[per ticket-body, unverified]`: `content/references/delegation-detail.md` §Ticket-Body Content Is a Closed List To Re-Derive
@@ -19544,7 +19545,7 @@ Omit this entire section when `COMMENT_THREAD_SUMMARY` is empty (TRACKER=none, e
 
 **Ticket-rework callout (inject only when `IS_REWORK` is true) — independent top-level block:**
 
-Inject it whenever `IS_REWORK` is true, whether or not "Prior ticket context" was injected, and in either order. Rationale: `content/references/ticket-rework.md` §Escalation table.
+Inject it whenever `IS_REWORK` is true, whether or not "Prior ticket context" was injected, and in either order. Why: `ticket-rework.md`.
 
 Append the following block to the architect spawn brief when `IS_REWORK` is true:
 
@@ -19776,7 +19777,7 @@ Read the orchestration-planner's output to make the routing determination below 
 
 Spawn one `engineer` agent per unit in sequence. Each agent prompt should include:
 - The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, filling in fields from the architect's plan / orchestration-planner output for this unit. `brief_path`/`plan_path` in this block are normalized to absolute paths per the "`brief_path`/`plan_path` normalization" formula given under the parallel fan-out path below - this is the single-engineer construction site the formula's own text names as co-equal to the fan-out one.
-- The plan for this unit: if Phase 3b ran, use the orchestration-planner's output for this unit; if Phase 3b was skipped, use the architect's plan for this unit; on the single-review route, the ticket's acceptance text and no plan
+- The plan for this unit: if Phase 3b ran, use the orchestration-planner's output for this unit; if Phase 3b was skipped, use the architect's plan for this unit; single-review: the acceptance text
 - The branch name to work on
 - The repo path: `$REPO`
 - Instruction to run `$QUALITY_CMD` from the repo root before finishing and fix any errors
@@ -20043,19 +20044,19 @@ For full worktree cleanup rules (isolation worktrees, feature worktrees, stale b
 [phase: tracker-writeback | site: W2 | target: $TRACKER_STATE_IN_REVIEW | iter: 1]
 
 Spawn a `skeptic` agent with:
-- The adversarial brief type identified by the architect (single-review: §8 General code review)
+- The adversarial brief type identified by the architect (single-review: §8 General code review, flag risk-surface touches)
 - The full diff: `git -C $REPO diff origin/$BASE_BRANCH..HEAD`
 - The ticket description as the success criteria
 - The QA section from the ticket as acceptance tests
 - **When `IS_REWORK` is true:** the same `## PRIOR ATTEMPT(S) OPENED A PR - THIS IS REWORK` block injected into the Phase 3 architect brief, verbatim (same fields, same null-render rule), followed by: `Verify that the failure mode which brought this ticket back is actually addressed. Read the prior PR's diff. Withholding sign-off because the new diff does not demonstrably close the prior gap is a correct outcome.` Gated solely on `IS_REWORK` - this bullet is independent of `COMMENT_THREAD_SUMMARY` and fires at `TRACKER=none`. After a human CHANGES_REQUESTED review, seed `findings_log` with one entry per comment the rework addresses (`id: H<n>`, `severity: Major`, `status: open`, description per `skeptic-protocol.md` Section 4), none the operator declined.
 - **With the ticket's PR open (the branch's PR on a fix round, the prior attempt's on rework):** seed `H<n>` entries as above from its automated-reviewer threads, declines per `skeptic-protocol.md` §Automated-reviewer threads.
-- **The Global-context input set** (`## Global-context inputs` block, required per `content/references/skeptic-protocol.md` Section 4.5): field 1 = `$ARCHITECT_PLAN_PATH` (or its `n/a - <reason>` per the enumerated set, or a truthful specific reason if none applies, if the architect was skipped); field 2 = `$BRIEF_PATH` (or `n/a - single Elevated unit (no Brief required by the promotion gate)` when no Brief tier applied); field 3 = the unit's `qa_criteria` block verbatim (from the Brief, or the architect plan if no Brief; `n/a - <reason>` only when genuinely absent per the Phase 0a-pre migration or on the single-review route); field 4 = the per-consumer impact table verbatim if the architect plan produced one for a shared-utility surface, else `n/a - non-shared-utility surface (importer count below 5 threshold)`; field 5 = the related files list from the architect plan / orchestration-planner unit boundary, plus the primary-checkout `.agentic/learnings.md` absolute path when it holds `reviewer-bar` entries, plus base-branch refs per §4.5 field 5 when the diff changes existing behavior; field 6 = `$UNIT_KEY | ` + diff above; field 7 per §4.5.
+- **The Global-context input set** (`## Global-context inputs` block, required per `content/references/skeptic-protocol.md` Section 4.5): field 1 = `$ARCHITECT_PLAN_PATH` (or its `n/a - <reason>` per the enumerated set, or a truthful specific reason if none applies, if the architect was skipped); field 2 = `$BRIEF_PATH` (or `n/a - single Elevated unit (no Brief required by the promotion gate)` when no Brief tier applied); field 3 = the unit's `qa_criteria` block verbatim (from the Brief, or the architect plan if no Brief; `n/a - <reason>` only when genuinely absent per the Phase 0a-pre migration or on the single-review route); field 4 = the per-consumer impact table verbatim if the architect plan produced one for a shared-utility surface, else `n/a - non-shared-utility surface (importer count below 5 threshold)`; field 5 = the related files list from the architect plan / orchestration-planner unit boundary (single-review: changed files; field 7 gives the acceptance text), plus the primary-checkout `.agentic/learnings.md` absolute path when it holds `reviewer-bar` entries, plus base-branch refs per §4.5 field 5 when the diff changes existing behavior; field 6 = `$UNIT_KEY | ` + diff above; field 7 per §4.5.
 
 For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md`.
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default: role default (omit the model param).
 
-**Ticket-rework tier escalation.** When `PRIOR_ATTEMPTS >= 2` - two or more prior attempts, not one - declare `Tier: 3` for this Skeptic spawn and pass `model: fable` when the effective Claude Code settings `availableModels` key is absent or lists fable; otherwise pass `model: opus`. At `PRIOR_ATTEMPTS == 1` the tier is unchanged (role default, omit the model param): one prior attempt gets the callout and the Elevated floor, not a Fable Skeptic. A ticket that has come back twice has had a review-depth problem, not just an implementation problem. Advisory-only, with no hook backstop; known cost: `content/references/ticket-rework.md` §Known limitations.
+**Ticket-rework tier escalation.** When `PRIOR_ATTEMPTS >= 2` - two or more prior attempts, not one - declare `Tier: 3` for this Skeptic spawn and pass `model: fable` when the effective Claude Code settings `availableModels` key is absent or lists fable; otherwise pass `model: opus`. At `PRIOR_ATTEMPTS == 1` the tier is unchanged (role default, omit the model param): one prior attempt gets the callout and the Elevated floor, not a Fable Skeptic. A ticket that has come back twice has had a review-depth problem, not just an implementation problem. Advisory-only, no hook backstop; cost: `content/references/ticket-rework.md` §Known limitations.
 
 **Findings handling - loop contract:**
 
@@ -20101,6 +20102,7 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
 - `session_id` is the conductor session uuid - specifically **`$CLAUDE_CODE_SESSION_ID`** (the same value `content/references/events-log.md` binds MUST-equal to the Stop hook's `payload.session_id`), and explicitly **NOT** the `<ISO-date>-<4hex>` id form used for `tasks.jsonl` entries. Every conductor write to `loop-state-$LOOP_KEY.json` includes this field; every write applies Contract A's per-write `session_id`-mismatch abort gate. A harness that cannot produce an id matching this namespace MUST write `session_id: null` rather than synthesizing a value in the wrong namespace (see Contract A's self-ownership carve-out for how writers and readers treat a null value on such a harness). Readers tolerate absence for back-compat with state files written by prior versions. See "Batch state contracts" above.
 - `last_updated` is the per-turn liveness timestamp written ONLY by `hooks/lib/state-mark.js`'s `refreshLiveness` (via the Stop hook's `--cadence=turn` dispatch) or by the conductor's own Contract A writes; it is never written by the terminal interrupted-mark (`markInterrupted`, on the SessionEnd hook `hooks/session-end-wrap.js`). `batch-state.json`'s equivalent field is named `updated_at`, not `last_updated` - readers falling back to the wrong file's field name will silently see a stale/absent value. `updated_at` is the CANONICAL field on `batch-state.json` (every staleness gate keys on it, per the batch-state schema's Field semantics above), not a fallback; `last_updated` remains canonical on `loop-state-$LOOP_KEY.json` only.
 - `loop_state.tier` is written at loop initialization from the conductor's declared tier for the Skeptic spawn (default 2, per the existing tier-declaration prose). Readers treat an ABSENT `tier` key (pre-DS-87 state files) as `"2 (default, undeclared)"` - the same back-compat pattern used for `session_id` above.
+- `loop_state.max_iterations` is 2 when `ELEVATED_ROUTE=single-review` (breadcrumb `1/2`), else 3.
 - `last_phase` is the **authoritative resume key** - used exclusively for resume entry selection. Do NOT use `loop_state.phase` for this.
 - `loop_state.phase` reflects which loop is active (skeptic or qa) and is used only to reconstruct in-context LOOP_STATE on resume.
 - `last_engineer_summary` must be written verbatim to disk when an Engineer returns, capped at 2000 characters if longer. This allows resume to reconstruct the brief for the next Skeptic spawn.
@@ -20173,10 +20175,10 @@ META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that
 Tracker append is a single line per `original_task_id`; the file is created if absent (`.agentic/.meta-divergence-surfaced`, matching `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`)). Minor-only divergences are NOT surfaced inline. See `content/references/skeptic-protocol.md` Section 14 for the full specification.
 
 **Step 3. Termination check:**
-- **Single-review route** (`max_iterations` 2; skeptic-protocol §Complexity-based round limit): with no open Critical, run Steps 4-5 once on every open finding except deferred Minors, then return here and take the clean-exit branch below with no re-review. A round-1 Critical runs Steps 4-5, then round 2; a Critical open after round 2 takes the cap bullet's Escalate branch.
+- **Single-review route** (skeptic-protocol §Complexity-based round limit): with no open Critical, one Steps 4-5 pass on all open findings but deferred Minors, then the clean-exit branch below with no re-review; fixed Majors stay `addressed`. A round-1 Critical: Steps 4-5, then round 2; still open after round 2: the cap bullet's Escalate branch.
 - If no Critical or Major findings: if any `Scope drift:` Minor, or any `Comment discipline:` Minor with a span in code, is open, run Steps 4-5 on those Minors only, then return here instead of to Step 1 (no Skeptic re-review). Then set every open or addressed `findings_log` entry to `closed`. Do not set `termination_reason: clean` with `findings_log` empty if this loop had findings (Step 2 populates it first; a genuinely-zero round may still exit clean empty). Set `termination_reason: clean`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Set `SKEPTIC_ROUNDS` to this loop's final `loop_state.iteration` (in-context variable; see below). **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
 
-**`SKEPTIC_ROUNDS` must be captured here, at Phase 6 exit - not read back later.** Phase 6b **overwrites the Phase 6 state** with `phase: qa, iteration: 1`, and fires for every Elevated unit with `qa_skip == null` - the common case. By Phase 9, `loop_state.iteration` on disk is the QA count, not the Skeptic round count: 3 Skeptic rounds plus a first-pass QA reads back as `1`. This is the pattern Phase 6b already uses for `QA_RAN_AND_PASSED`. The Trivial path never reaches Phase 6 and never sets `SKEPTIC_ROUNDS`, which is why the ledger's `skeptic_rounds` is legitimately null there.
+**`SKEPTIC_ROUNDS` must be captured here, at Phase 6 exit - not read back later.** Phase 6b **overwrites the Phase 6 state** with `phase: qa, iteration: 1`, and fires for every full-route Elevated unit with `qa_skip == null` - the common case. By Phase 9, `loop_state.iteration` on disk is the QA count, not the Skeptic round count: 3 Skeptic rounds plus a first-pass QA reads back as `1`. This is the pattern Phase 6b already uses for `QA_RAN_AND_PASSED`. The Trivial path never reaches Phase 6 and never sets `SKEPTIC_ROUNDS`, which is why the ledger's `skeptic_rounds` is legitimately null there.
 - If `iteration == max_iterations` AND Critical or Major findings remain: take one of the two actions in `content/sections/05-qa-gate.md` §Re-route limits; an unresolved Critical forces escalate. **Ship:** mark every remaining open or addressed `findings_log` entry `deferred` (this ship decision at cap is the explicit approval Step 2 requires; it is recorded by the deferred entries and the PR body, never in the hook's state file), set `termination_reason: clean`, and take the clean-exit branch above. **Escalate:** set `termination_reason: cap_reached`, overwrite `.agentic/loop-state-$LOOP_KEY.json`, apply the Batch-mode escalation routing subsection below, then emit the Escalation format. Phase 6b does NOT run.
 - If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below, then escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section's override note. One re-raise after a claimed fix suffices within the loop.)
 
@@ -20318,9 +20320,9 @@ Fires exactly once per ticket per `/ds-implement-ticket` invocation.
 
 **Phase 6b only runs if Phase 6 exits cleanly (Skeptic sign-off granted, `termination_reason: clean`).** If Phase 6 exits via `cap_reached`, `convergence_failure`, or `blocked` escalation, Phase 6b is skipped entirely. Running QA on a Skeptic-rejected implementation is wasteful - the Phase 6 escalation subsumes Phase 6b for that session.
 
-**Cap independence:** the Phase 6 Skeptic cap (3 fix passes) and the Phase 6b QA cap (3) are separate budgets.
+**Cap independence:** the Phase 6 Skeptic cap (3 fix passes; single-review: 2 rounds) and the Phase 6b QA cap (3) are separate budgets.
 
-**Trigger:** Phase 6b QA fires for Elevated units (single-engineer routes: see the Phase 2 declaration) IFF all of the following hold:
+**Trigger:** Phase 6b QA fires for Elevated units (single-engineer routes: Phase 2) IFF all of the following hold:
 1. The unit's `qa_criteria` block (from the Brief, or from the architect plan if no Brief) is present.
 2. `qa_criteria.qa_skip == null`.
 3. `qa_criteria.scenarios[]` is non-empty.
@@ -20346,7 +20348,7 @@ After normalization, re-evaluate the trigger conditions (with `qa_skip` now null
 
 - **If trigger conditions hold (QA fires) - UI-visible changes (concurrent path):** when the unit's diff is UI-visible, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/references/qa-gate.md` §"QA gate flow (UI-visible - concurrent)" for the full concurrent QA spec.
 - **If trigger conditions hold (QA fires) - non-UI changes (sequential path):** proceed with the QA loop contract below.
-- **If trigger conditions do not hold (QA skipped):** record the skip rationale (`qa_skip` value or "Trivial path") in the conductor's status update and proceed directly to Phase 7. Also set `QA_STATUS="skipped:<rationale>"` using that same rationale (in-context variable consumed by the Phase 9 ticket-rework ledger write). Writing the rationale rather than leaving it empty is what lets the rework notice distinguish "QA was deliberately skipped, here is why" from "QA status unavailable".
+- **If trigger conditions do not hold (QA skipped):** record the skip rationale (`qa_skip` value, "Trivial path", or "single-review path") in the conductor's status update and proceed directly to Phase 7. Also set `QA_STATUS="skipped:<rationale>"` using that same rationale (in-context variable consumed by the Phase 9 ticket-rework ledger write). Writing the rationale rather than leaving it empty is what lets the rework notice distinguish "QA was deliberately skipped, here is why" from "QA status unavailable".
 
 For full QA gate rules, see `METHODOLOGY.md §QA Gate`.
 
@@ -21045,7 +21047,7 @@ Field derivation:
 |---|---|---|---|
 | `RISK_CLASS` | Phase 1, per-ticket reset | Phase 2 "Risk classification declaration (unconditional)" | `Trivial` \| `Low` \| `Elevated`, post-floor |
 | `SKEPTIC_ROUNDS` | Phase 1, per-ticket reset | Phase 6, Step 3 clean exit | final `loop_state.iteration`; stays empty on the Trivial and small-change Low paths, which never reach Phase 6 |
-| `QA_STATUS` | Phase 1, per-ticket reset | **Three** sites: Phase 2 declaration (`skipped:Trivial path` or `skipped:Low path`, the only site those paths reach); Phase 6b skip branch (`skipped:<qa_skip enum>`); Phase 6b terminal outcome (the QA verdict) | see the bullet above |
+| `QA_STATUS` | Phase 1, per-ticket reset | **Three** sites: Phase 2 declaration (`skipped:Trivial path`, `skipped:Low path`, or `skipped:single-review path`, the only site the first two reach); Phase 6b skip branch (`skipped:<qa_skip enum>`); Phase 6b terminal outcome (the QA verdict) | see the bullet above |
 
 Every row is cleared at the Phase 1 per-ticket reset and re-set on this ticket's own path. Without that reset each variable's single definition site would leak the previous batch ticket's value into any ticket that does not take that path - see "Per-ticket variable reset" in Phase 1.
 
@@ -21055,7 +21057,7 @@ Every row is cleared at the Phase 1 per-ticket reset and re-set on this ticket's
 # REWORK_DETECTION / TICKET_ID / RISK_CLASS / SKEPTIC_ROUNDS / QA_STATUS are the shell-variable
 # form of the conductor's in-context state (definition sites in the table above).
 # QA_STATUS holds the QA result when QA ran, and "skipped:<qa_skip enum>" or
-# "skipped:Trivial path" / "skipped:Low path" when it did not. It is empty ONLY in the degenerate
+# "skipped:Trivial path" / "skipped:Low path" / "skipped:single-review path" when it did not. It is empty ONLY in the degenerate
 # case where neither a result nor a rationale exists - every ordinary non-QA path carries one.
 if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
   # pr_number derived live from the ticket currently in flight's own branch - never $PR_NUMBER.

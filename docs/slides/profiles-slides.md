@@ -232,9 +232,9 @@ After activation, answer only from held context. Explicit unfamiliar or multi-re
 
 - Single-file locally-scoped behavioral edits: **Low** (no Skeptic)
 - Small single-concern changes (one source file plus tests/docs, under 100 changed lines): **Low** (no Skeptic)
-- All other legacy Elevated signals remain **Elevated**
+- All other legacy Elevated signals remain **Elevated** (no risk surface: one Skeptic pass)
 - Multi-file UI-only changes: **Elevated** (Skeptic runs)
-- Elevated work touching no risk surface: one engineer, one Skeptic pass
+- The right choice for most day-to-day work
 
 </div>
 

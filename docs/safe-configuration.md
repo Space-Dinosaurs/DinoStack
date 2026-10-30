@@ -243,7 +243,7 @@ The methodology supports three risk profiles that move the line between Low
   correctness matters more than speed.
 
 Under `default` and `relaxed`, Elevated work that touches no risk surface (no
-Mandatory Tier-3 category, no public-API change) takes the single-review route:
+Mandatory Tier-3 category, no public-API change, not a rework ticket) takes the single-review route:
 one engineer, then one Skeptic pass whose findings are fixed once. `strict`
 removes that route.
 
