@@ -686,7 +686,7 @@ hr {
 }
 " lang="C" data-marpit-pagination="4" style="--paginate:true;--theme:default;--style:@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap')
 ;" data-marpit-pagination-total="11">
-<h2 id="hard-stop-vs-surface-and-proceed">Hard-stop vs surface-and-proceed</h2>
+<h2 id="hard-stop-vs-act-and-report">Hard-stop vs act-and-report</h2>
 <div class="columns">
 <div class="card">
 <strong>Hard-stop branch</strong><br />
@@ -695,16 +695,11 @@ Fires when the decision would produce <strong>irreversible state</strong>: data 
 Never overridden by default-and-proceed. A recommended default may be offered, but the conductor does not proceed until the user replies.
 </div>
 <div class="card">
-<strong>Surface-and-proceed branch</strong><br />
-Non-irreversible. Used when ALL hold:<br />
-- No default can be derived from the six sources, and, for a design or approach question, any required architect consultation has already returned its plan<br />
-- Guessing wrong would waste more than 30 minutes<br />
-- The question is specific and bounded<br /><br />
-Surface the question with a recommended default AND proceed with that default in the same turn.
+<strong>Act-and-report branch</strong><br />Non-irreversible, and no stop condition holds: take the recommended default, then report it in the next warranted turn. Never surfaced as an Operator decisions item.
 </div>
 </div>
 <div class="callout">
-Mandatory phrasing for surface-and-proceed: <em>"Proceeding with approach A (matches existing pattern in src/foo.ts) unless you say otherwise."</em>
+Report phrasing: <em>"Picked approach A (matches existing pattern in src/foo.ts); flag if wrong."</em>
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="5" data-marpit-scope-s004="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -872,7 +867,7 @@ hr {
 <div class="columns">
 <div class="card">
 <strong>Standing authorizations</strong><br />
-Routine repo hygiene - branch cleanup once the merge signal is satisfied, worktree removal, session-start prune - is <strong>durably pre-authorized and never an operator choice</strong>. It never reaches the hard-stop branch, because it was never a per-instance decision to begin with.
+Routine repo hygiene - branch cleanup once the merge signal is satisfied, worktree removal, session-start prune, session scratch cleanup - is <strong>durably pre-authorized and never an operator choice</strong>. It never reaches the hard-stop branch, because it was never a per-instance decision to begin with.
 </div>
 <div class="card">
 <strong>Host-harness instruction conflicts</strong><br />
@@ -1050,7 +1045,7 @@ An architect-declared "Open Questions" section is a <strong>protocol-level block
 </div>
 <div class="card">
 <strong>Explicit command directives</strong><br />
-Command files under <code>content/commands/</code> that contain their own "stop and ask" directives are controlling for that decision. Example: <code>implement-ticket.md</code>'s <code>BASE_BRANCH</code> stop-and-ask, which fires when no base branch is declared and neither <code>develop</code> nor <code>development</code> exists - it asks main vs. develop-setup, recommends <code>main</code>, never auto-creates.
+Command files under <code>content/commands/</code> that contain their own "stop and ask" directives are controlling for that decision when it meets a stop condition. Example: <code>ds-implement-ticket.md</code>'s context-size warning, which waits because only the operator can start a fresh session.
 </div>
 <div class="card">
 <strong>Agent-spec-mandated decisions</strong><br />
@@ -1419,8 +1414,9 @@ hr {
 <strong>Stop and ask the user</strong>
 <ul>
 <li>Destructive or irreversible action not pre-authorized - routine repo hygiene named in Standing authorizations is durably pre-authorized and never reaches this branch</li>
-<li>Credential, external API key, product judgment only the user can make</li>
-<li>A name only the user knows</li>
+<li>Credential, external API key, product judgment or name only the user knows</li>
+<li>Operator-only grant token</li>
+<li>Required operator ratification (vision.md, tier dial)</li>
 <li>Architect-declared Open Question</li>
 <li>Declared scope is complete and expansion needs approval</li>
 </ul>

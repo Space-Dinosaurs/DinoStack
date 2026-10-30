@@ -646,7 +646,7 @@ if [ -z "${AE_WORKTREE_REAP_DISABLE:-}" ]; then
     echo "WARNING: ds-cleanup-worktrees not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Session-start worktree reap skipped this session." >&2
   fi
 fi
-# Base branch (BASE_BRANCH) is NOT resolved here - it is resolved lazily on first shippable need; see content/rules/conventions.md, "Base branch resolution".
+# Base branch (BASE_BRANCH) is NOT resolved here - the conductor preflight resolves it; see content/rules/conventions.md, "Base branch resolution".
 # Local branch prune (four-layer subsumption predicate - ancestry, squash-patch
 # equivalence, tip-subsumption, content-on-main; see §Branch prune below) runs
 # here via bin/ds-branch-prune (DS-153), covering worktree-agent-* branches
@@ -835,6 +835,7 @@ These are authorized once, for every session, and are never an operator choice:
   deliberate defense; no cross-session-branch-skip gate is added, since the
   tool has no visibility into other sessions' branches beyond the locked
   flag.
+- Deleting scratch or temp files and directories the current session itself created outside any git working tree (the system temp directory and the session scratchpad) - never a path it did not create (use `find <dir> -depth -delete`; `rm -rf` is harness-denied).
 
 The boundary is unchanged and is not restated here - see §Guardrail: never
 force-override the harness lock above and the Safe boundary paragraph in

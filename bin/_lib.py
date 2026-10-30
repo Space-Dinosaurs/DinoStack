@@ -444,24 +444,17 @@ def _run(
 # first miss (tier b is the sole exception - see above). Only when every
 # candidate fails does resolution fail, naming every candidate tried.
 #
-# This order deliberately differs from content/rules/conventions.md's
-# canonical §Base branch resolution in three ways, all because this tool
-# runs non-interactively with no operator to prompt:
-#   1. it inserts an extra tier (c, origin/HEAD) between the AGENTS.md
-#      declaration and the local develop/development tiers - the
-#      strongest automatic signal of a repo's actual configured default
-#      branch when AGENTS.md declares nothing, ahead of a local
-#      develop/development branch that could be an unrelated leftover
-#      branch a contributor happened to create locally;
-#   2. conventions.md's final step is an interactive prompt (offering
-#      main, falling back to master, with an explicit decline path) - this
-#      tool has no operator to prompt, so it resolves main (falling back
-#      to master) directly instead of stopping to ask;
-#   3. a declared-but-unresolvable AGENTS.md base fails resolution outright
-#      instead of falling through to a lower tier - conventions.md's prose
-#      does not itself specify fallthrough-on-declared-but-unresolvable
-#      behavior, since its resolution is interactive; this tool makes the
-#      choice explicit rather than picking silent substitution by default.
+# Tiers b-f match content/rules/conventions.md's canonical §Base branch
+# resolution. origin/HEAD (c) ranks ahead of a local develop/development
+# branch because it is the strongest automatic signal of a repo's actual
+# configured default branch when AGENTS.md declares nothing, and a local
+# develop/development could be an unrelated leftover branch a contributor
+# happened to create locally. One deliberate difference: a
+# declared-but-unresolvable AGENTS.md base fails resolution outright
+# instead of falling through to a lower tier - conventions.md's prose does
+# not itself specify fallthrough-on-declared-but-unresolvable behavior;
+# this tool makes the choice explicit rather than picking silent
+# substitution by default.
 # --------------------------------------------------------------------------
 
 #: Matches a `BASE_BRANCH:` declaration line, tolerating an optional

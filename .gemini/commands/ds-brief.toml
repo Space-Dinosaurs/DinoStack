@@ -21,7 +21,7 @@ Public API: /ds-brief [topic] | /ds-brief --from <path>
 
 Upstream deps: content/references/planning-artifacts.md (Brief template and field guidance,
                including Outcome rubric field schema);
-               content/sections/02-delegation.md (surface-and-proceed protocol);
+               content/sections/02-delegation.md (Act-and-report branch);
                content/rules/conventions.md (git worktree conventions, base-branch resolution);
                .agentic/brief-session.json (resume state, includes rubric array);
                MEMORY.md (prior-decisions scan, delivered to the main session at start; else grep on demand);
@@ -234,10 +234,10 @@ Write `status: iterating` during revision rounds.
    - On CREATE_STATUS=failed: emit the failure line; in `offer` mode proceed ad-hoc (architect spawn, step 6); in `require` mode STOP and wait for operator resolution.
    - On CREATE_STATUS=skipped (`offer` mode): emit the skip line and proceed ad-hoc (architect spawn, step 6).
    - On CREATE_STATUS=skipped (`require` mode): surface the conflict (`ticket_driven=require but tracker '<type>' has no create integration - proceed ad-hoc this once, or stop?`) and WAIT for operator.
-5. When no ticket was created (ad-hoc path only): surface-and-proceed:
-   > "Brief written to docs/planning/<slug>.md and committed. Spawning architect with
-   > brief_path - reply STOP to halt or refine the Brief first."
-6. If no STOP in one turn: spawn architect with `brief_path` in execution contract.
+5. When no ticket was created (ad-hoc path only): act-and-report:
+   > "Brief written to docs/planning/<slug>.md and committed. Spawned architect with
+   > brief_path - reply STOP to halt it or refine the Brief."
+6. Spawn the architect with `brief_path` in the execution contract in the same turn as step 5. If the operator's next turn is STOP, halt the architect; a STOP arriving after the architect returns halts every later step not yet started (no Skeptic, engineer, or PR).
 7. After architect returns: spawn Skeptic using the operator-confirmed variant (Section 6), plus the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5): field 2 (Brief/Plan artifact) is `n/a - Skeptic-on-Brief (Brief is the artifact under review)`; field 4 (per-consumer impact table) is `n/a - Brief tier (per-consumer lives in architect plan path above)`; field 6 (diff under review) leads with the unit's stable key with the `-brief` suffix (§4.5) followed by " | " and the paths the Brief proposes to touch, since this is a pre-implementation review and no diff exists yet; field 7 (conductor spawn brief) is `n/a - internal scaffolding artifact (no conductor claim-bearing brief text distinct from the artifact itself)`.
 8. PR opens at the end of the full engineer flow (after Skeptic sign-off on engineer
    output), NOT after Brief commit.

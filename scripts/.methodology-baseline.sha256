@@ -1,6 +1,6 @@
 # methodology baseline: one <basename> <sha256> line per content/sections/[0-9][0-9]-*.md
 01-activation-preflight.md b594c8596e542f53fd0a4fc7be1fe3dc8672f1a13d45a6cbc629046560091e39
-02-delegation.md dc968658987cd61c37313c01b26b8662d9047e77168e7c133dbbf211e22e67c5
+02-delegation.md 360b96d7edc5cbaf78ace818c8ab46ab4e6ed12e84d5e41b7bae4af1c9c98b6b
 03-planning-artifacts.md 172af9106ff02d8a73b4a7472ea51e779e9a6e73857fc4bf69db9920bc1a4ed9
 04-risk-classification.md 775298ddb3e738ec41372e38681461ce13e5a56b84db40cafd98d5e5e0b1a5ff
 05-qa-gate.md bf31cdadae5cf9889758a814b0e25ed95397e40bbc83fd23b406d30245c1feab
@@ -9,5 +9,5 @@
 08-task-state-file.md 1116e2b83dae5f66ae9e3576f5c82a03d1d081b53919232228f8726a96aa4650
 09-events-log.md 51fbdc84918c87d25acb2e4bee12eeb1cfd845bf1e886e0c6bc35acd7f95e1d3
 10-task-decomposition.md 0fdfedb5c572be64e740c90dab9aba7319078e27333430949cf9aa3b6b8ec240
-11-worktree-lifecycle.md 2f895a7463f99d940fb87d247756ed420a5e140d14a88db67402f667a09ef0ae
+11-worktree-lifecycle.md 57a375aefe79552a8f4a4d6083c20462aab2a97f1ee09c0e668cb2d15f86ca93
 12-protocol-details.md dd28fdb069d88a6f9d496ffc66bdd6a523b149107bab2ce0f2faeef6d951e92f
