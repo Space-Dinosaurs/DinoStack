@@ -1122,6 +1122,16 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "76b152f79af24bee75885ef907980b02f6ed1622b8e2c7cd9eb057dd64b7db1f",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -2230,16 +2240,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "hooks/enforce-tier.py"
-    },
-    {
-      "expected_target": "content/references/worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
-      "kind": "operational",
-      "occurrence_hash": "f5be6b0ad3d2470d46cf381fea744c721408ad0845d98bd7cef9716b618b2b05",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
@@ -21432,16 +21432,6 @@
       "source_token": ".agentic/memory.md"
     },
     {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "3b3f6379213e7b73b641a060613dc8b31edfedf02d5f3d609cac88d2795183c6",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/rules/conventions.md"
-    },
-    {
       "expected_target": ".claude/compression-state.json",
       "generated_token": "$AE_PROJECT_DIR/.claude/compression-state.json",
       "kind": "operational",
@@ -24400,6 +24390,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".claude/"
+    },
+    {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "df770d94abb713a837fa494be92ba14f2ca09b7619232e2eed9c02e17ca762ed",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": ".agentic/wrap/last-wrap",

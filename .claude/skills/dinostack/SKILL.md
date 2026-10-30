@@ -263,7 +263,7 @@ The conductor surfaces a question to the user under one of two branches:
 
 **Hard-stop branch (MUST stop and wait for the user).** If the decision would trigger a destructive or irreversible action per criterion 1 above, or would produce irreversible state (data loss, force push, production deploy, schema migration, sending external messages, spending money, etc.), the conductor MUST stop and wait for an explicit user response. This branch is NEVER overridden by the default-and-proceed protocol. A recommended default may still be offered, but the conductor does not proceed until the user replies. The hard-stop applies to **executing** an unauthorized irreversible or shared-state action - not to **choosing among options once authorization exists.** When the operator has already authorized proceeding (e.g. "proceed", "do it", "go ahead", or an approved plan), the remaining "which path do we take" question is a default-and-proceed decision, not a hard-stop: the conductor derives the best option from the six sources and proceeds. Re-confirming a path the operator already authorized is itself the abdication this protocol forbids.
 
-**Standing authorizations.** Pre-authorization is durable, not per-instance: branch cleanup on a satisfied merge signal, worktree removal, deleting scratch files the session itself created, and the session-start worktree/branch/ref prune are authorized once, here, for every session and are never an operator choice. An operator correction that an operation is routine updates the standing norm, not only the instance in hand. Full list and boundaries: `content/references/worktree-lifecycle.md` §Standing authorizations.
+**Standing authorizations.** Pre-authorization is durable, not per-instance: branch cleanup on a satisfied merge signal, worktree removal, deleting scratch files the session itself created outside any git working tree, and the session-start worktree/branch/ref prune are authorized once, here, for every session and are never an operator choice. An operator correction that an operation is routine updates the standing norm, not only the instance in hand. Full list and boundaries: `content/references/worktree-lifecycle.md` §Standing authorizations.
 
 **Act-and-report branch (formerly surface-and-proceed; non-irreversible).** When the hard-stop branch does not apply and no stop condition 2-6 above holds, the conductor takes its recommended default and reports the choice afterwards, as above - never as an `## Operator decisions` item, never as a question awaiting a reply. Example report: "Picked approach A (matches existing pattern in src/foo.ts); flag if wrong."
 
@@ -877,8 +877,8 @@ Read `content/references/conventions-detail.md` §The Intent Layer for the artif
 
 **Base branch resolution** - resolve `BASE_BRANCH` in this order and cache the result for the session:
 1. **Explicit declaration wins.** If the project declares a base/integration branch via a `BASE_BRANCH:` line in `AGENTS.md`, use it. Highest priority.
-2. Else if a local `develop` branch exists - use `develop`.
-3. Else if a local `development` branch exists - use `development`.
+2. Else `develop` if it exists locally or as `refs/remotes/origin/develop`.
+3. Else `development` if it exists locally or as `refs/remotes/origin/development`.
 4. Else the remote's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`, stripping `origin/`), else `main` (fall back to `master`). Do NOT auto-create any branch. Print `BASE_BRANCH resolved to: [value]` and cache it as `BASE_BRANCH` for the session.
 
 **Conductor preflight** - run this checklist ONCE at session start. Do not skip it when the user issues a direct command; commands are goals, not overrides for workflow hygiene. Cache the resolved base branch in-context for the session; do not re-run the full preflight before every subagent spawn. Re-run only if the user explicitly switches branches or after 30+ minutes of idle time.

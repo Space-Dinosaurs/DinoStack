@@ -127,8 +127,8 @@ Read `content/references/conventions-detail.md` §The Intent Layer for the artif
 
 **Base branch resolution** - resolve `BASE_BRANCH` in this order and cache the result for the session:
 1. **Explicit declaration wins.** If the project declares a base/integration branch via a `BASE_BRANCH:` line in `AGENTS.md`, use it. Highest priority.
-2. Else if a local `develop` branch exists - use `develop`.
-3. Else if a local `development` branch exists - use `development`.
+2. Else `develop` if it exists locally or as `refs/remotes/origin/develop`.
+3. Else `development` if it exists locally or as `refs/remotes/origin/development`.
 4. Else the remote's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`, stripping `origin/`), else `main` (fall back to `master`). Do NOT auto-create any branch. Print `BASE_BRANCH resolved to: [value]` and cache it as `BASE_BRANCH` for the session.
 
 **Conductor preflight** - run this checklist ONCE at session start. Do not skip it when the user issues a direct command; commands are goals, not overrides for workflow hygiene. Cache the resolved base branch in-context for the session; do not re-run the full preflight before every subagent spawn. Re-run only if the user explicitly switches branches or after 30+ minutes of idle time.
