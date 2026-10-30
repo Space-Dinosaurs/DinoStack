@@ -1,0 +1,1 @@
+../../content/references/open-goal-loop.md
