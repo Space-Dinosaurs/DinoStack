@@ -274,7 +274,7 @@ The **risk profile** is the primary lever for cutting that cost. Moving from
 `strict` or `default` toward `relaxed` reclassifies more small work as Low, which removes the Skeptic and most of
 the pipeline: Low work is conductor direct action, except small single-concern
 code changes, which get one worktree-isolated engineer and no architect or
-Skeptic. Elevated work that touches no risk surface skips the architect and
+Skeptic. Non-rework Elevated work that touches no risk surface skips the architect and
 gets one Skeptic pass. See the [Risk profiles](#risk-profiles) section above for
 the full list of which signals shift at each level.
 
