@@ -10,8 +10,9 @@ Purpose: DS-179 per-hook fire report. Joins each hook's fire
          "zero fires because this posture logs every reached verdict, so
          zero really does mean never invoked". This distinction is the
          whole point of the tool: a bare fire count alone cannot tell a
-         reader whether a hook is a dead rule or an unmeasured one, and conflating the two would turn an
-         instrumentation gap into a false deletion candidate.
+         reader whether a hook is a dead rule or an unmeasured one, and
+         conflating the two would turn an instrumentation gap into a
+         false deletion candidate.
 
 Public API: ds-hook-fire-report [--repo PATH] [--days N] [--json]
             Default output: a fixed-width table to stdout, one row per
@@ -227,9 +228,9 @@ _REPO_ROOT_DEFAULT = _BIN_DIR.parent
 # corruption are the two independent ways a log can look adequate on span
 # alone while actually being useless; both feed meta.log_confidence_eligible.
 #
-# MIN_PARSED_LINES_FOR_CONFIDENCE = 30: chosen to roughly match a 30-day
-# coverage threshold - i.e. a log claiming ~30 days of genuine coverage should contain on the order of one
-# parsed record per day of that span, not a handful of stray old ones. This
+# MIN_PARSED_LINES_FOR_CONFIDENCE = 30: a log claiming ~30 days of genuine
+# coverage should contain on the order of one parsed record per day of that
+# span, not a handful of stray old ones. This
 # is a deliberately loose floor (not "one record per hook per day"), meant
 # to catch the Skeptic's measured failure mode (2-3 records) rather than to
 # model realistic fire cadence precisely.
@@ -440,10 +441,10 @@ def build_report(repo_root: Path, days: int, hooks_root: Path | None = None) -> 
     """Return {"meta": {...}, "hooks": [...]} per the module's Status enum.
     `days` is the fire-count window in days (requested_window_days),
     measured back from "now" (UTC) at call time - it governs
-    fire_count_window only. Confidence tiering belongs to the caller and
-    must key on
-    meta.log_confidence_eligible (density + corruption) together with
-    meta.log_coverage_days (span), never on requested_window_days alone.
+    fire_count_window only. This function assigns no confidence tier; a
+    reader judging confidence must key on meta.log_confidence_eligible
+    (density + corruption) together with meta.log_coverage_days (span),
+    never on requested_window_days alone.
     `hooks_root` is the tree whose hooks/ supplies hook sources (default
     `repo_root`); fire logs are always read from `repo_root`."""
     if hooks_root is None:

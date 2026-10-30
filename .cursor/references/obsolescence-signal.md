@@ -13,7 +13,7 @@ Two questions, asked in order:
 1. **Harness-driven or model-driven?** A harness-driven vestige exists because of a limitation in the tooling around the model (a stale API shape, a workaround for a harness bug that has since been fixed, a fallback path for a capability the harness no longer lacks). A model-driven claim rests on "the model is smarter now": that claim never justifies removing a floor, because a floor was never written for any particular model's capability. Against a dial, a model-driven claim may justify condensing or removing it, but only after measuring the claim against the weakest model actually assigned to the agent carrying that rule - not the weakest model the methodology could conceivably support, and not the current frontier model.
 2. **Floor or dial?** A floor is a rule whose violation is catastrophic or silently unrecoverable if skipped (an enforcement hook, a hard behavioral rule with no graceful degradation). A dial is a rule whose strictness can vary with capability (how much detail a prompt needs to spell out, how many worked examples a rule needs to land correctly). Only dials move with model capability, and only after the measurement in Question 1. Floors do not move.
 
-See "The test" above for how these two answers combine into the pre-filter's eligibility rule.
+See "The test" above for how these two answers combine to decide whether a rule or hook may be removed or condensed.
 
 ## Worked examples (this repo)
 
