@@ -835,6 +835,7 @@ These are authorized once, for every session, and are never an operator choice:
   deliberate defense; no cross-session-branch-skip gate is added, since the
   tool has no visibility into other sessions' branches beyond the locked
   flag.
+- Deleting scratch or temp files and directories the current session itself created - never a path it did not create, and never a gitignored path inside a worktree (use `find <dir> -depth -delete`; `rm -rf` is harness-denied).
 
 The boundary is unchanged and is not restated here - see §Guardrail: never
 force-override the harness lock above and the Safe boundary paragraph in

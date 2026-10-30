@@ -140,7 +140,7 @@ or command. Until that route starts, do not inspect or verify candidate work; a 
 in a blocker. Canonical candidate-branch and fail-closed details:
 `$AE_REPO_DIR/content/sections/04-risk-classification.md` §Relaxed ephemeral chat-advice override.
 
-**Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation for the full rule, anti-patterns, and stop-frequency thresholds.
+**Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. With a recommendation, act on it and report afterwards. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, scope-completion decisions, an operator-only grant, or a required operator ratification. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation for the full rule, anti-patterns, and stop-frequency thresholds.
 
 ## Rules (read these files)
 

@@ -1,7 +1,7 @@
 # DinoStack Product Vision (North Star)
 
-**Status:** Ratified 2026-06-28. Condensed 2026-08-25. Amended 2026-10-29.
-Same eight pillars; the 2026-10-29 amendment re-scoped the shared boundary.
+**Status:** Ratified 2026-06-28. Condensed 2026-08-25. Amended 2026-10-29 and 2026-10-30.
+Same eight pillars; the 2026-10-29 amendment re-scoped the shared boundary, the 2026-10-30 amendment set Pillar 1's vanilla baseline.
 
 ## The problem
 
@@ -16,6 +16,9 @@ named agents.
 1. **Guard operator attention.** Surface decisions and work-stoppages, not status. A change that
    adds capability but increases what the operator must read, watch, or babysit is a regression,
    not a feature. (The "attention test" is the tie-breaker when trade-offs are unclear.)
+   Attention is measured against vanilla Claude Code alongside accuracy and cost: a tier or process
+   setting that matches vanilla on accuracy but costs the operator more attention (more stops to
+   answer, more status to read or poll) loses to vanilla.
 2. **Produce verifiable outcomes autonomously.** Agents should drive work to a checkable result -
    tests/lints/gates passing, an adversarial Skeptic sign-off, a clear `ok | needs_human |
    blocked` exit - without a human in the loop for routine steps. Verifiability is what makes

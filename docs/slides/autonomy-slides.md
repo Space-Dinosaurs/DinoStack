@@ -223,7 +223,7 @@ If any source yields a reasonable default, the conductor proceeds and notes the 
 
 ---
 
-## Hard-stop vs surface-and-proceed
+## Hard-stop vs act-and-report
 
 <style scoped>
   .columns { gap: 1em; margin-bottom: 0.5em; }
@@ -241,17 +241,12 @@ Fires when the decision would produce <strong>irreversible state</strong>: data 
 Never overridden by default-and-proceed. A recommended default may be offered, but the conductor does not proceed until the user replies.
 </div>
 <div class="card" style="border-left-color: #3ad99a;">
-<strong>Surface-and-proceed branch</strong><br/>
-Non-irreversible. Used when ALL hold:<br/>
-- No default can be derived from the six sources, and, for a design or approach question, any required architect consultation has already returned its plan<br/>
-- Guessing wrong would waste more than 30 minutes<br/>
-- The question is specific and bounded<br/><br/>
-Surface the question with a recommended default AND proceed with that default in the same turn.
+<strong>Act-and-report branch</strong><br/>Non-irreversible, and no stop condition holds: take the recommended default, then report it in the next warranted turn. Never surfaced as an Operator decisions item.
 </div>
 </div>
 
 <div class="callout">
-Mandatory phrasing for surface-and-proceed: <em>"Proceeding with approach A (matches existing pattern in src/foo.ts) unless you say otherwise."</em>
+Report phrasing: <em>"Picked approach A (matches existing pattern in src/foo.ts); flag if wrong."</em>
 </div>
 
 ---
@@ -268,7 +263,7 @@ Mandatory phrasing for surface-and-proceed: <em>"Proceeding with approach A (mat
 <div class="columns">
 <div class="card" style="border-left-color: #3ad99a;">
 <strong>Standing authorizations</strong><br/>
-Routine repo hygiene - branch cleanup once the merge signal is satisfied, worktree removal, session-start prune - is <strong>durably pre-authorized and never an operator choice</strong>. It never reaches the hard-stop branch, because it was never a per-instance decision to begin with.
+Routine repo hygiene - branch cleanup once the merge signal is satisfied, worktree removal, session-start prune, session scratch cleanup - is <strong>durably pre-authorized and never an operator choice</strong>. It never reaches the hard-stop branch, because it was never a per-instance decision to begin with.
 </div>
 <div class="card" style="border-left-color: #18E0FF;">
 <strong>Host-harness instruction conflicts</strong><br/>
@@ -295,7 +290,7 @@ An architect-declared "Open Questions" section is a <strong>protocol-level block
 </div>
 <div class="card">
 <strong>Explicit command directives</strong><br/>
-Command files under <code>content/commands/</code> that contain their own "stop and ask" directives are controlling for that decision. Example: <code>implement-ticket.md</code>'s <code>BASE_BRANCH</code> stop-and-ask, which fires when no base branch is declared and neither <code>develop</code> nor <code>development</code> exists - it asks main vs. develop-setup, recommends <code>main</code>, never auto-creates.
+Command files under <code>content/commands/</code> that contain their own "stop and ask" directives are controlling for that decision when it meets a stop condition. Example: <code>ds-implement-ticket.md</code>'s context-size warning, which waits because only the operator can start a fresh session.
 </div>
 <div class="card">
 <strong>Agent-spec-mandated decisions</strong><br/>
@@ -363,8 +358,9 @@ Design-taste BLOCKED returns are a contract violation. New-dep, major-upgrade, a
 <strong>Stop and ask the user</strong>
 <ul>
 <li>Destructive or irreversible action not pre-authorized - routine repo hygiene named in Standing authorizations is durably pre-authorized and never reaches this branch</li>
-<li>Credential, external API key, product judgment only the user can make</li>
-<li>A name only the user knows</li>
+<li>Credential, external API key, product judgment or name only the user knows</li>
+<li>Operator-only grant token</li>
+<li>Required operator ratification (vision.md, tier dial)</li>
 <li>Architect-declared Open Question</li>
 <li>Declared scope is complete and expansion needs approval</li>
 </ul>
