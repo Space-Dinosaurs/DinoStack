@@ -261,7 +261,7 @@ fail-closed behavior.
 | Unfamiliar codebase area ("haven't Read this file in the current conversation", "Read it earlier but it changed since", "first time working in this subsystem") | No | **Yes** |
 | Logic with emergent/non-obvious cross-component interactions | No | **Yes** |
 | User signals high stakes ("production", "critical", "don't mess this up") | No | **Yes** |
-| Changes to shared utilities (single-file but high blast radius) | No | **Yes** |
+| Changes to shared utilities (single-file; a route risk surface only when high blast radius per `content/sections/04-risk-classification.md` §Elevated routes) | No | **Yes** |
 | Bash with side effects (writes, deletes, network, DB) | No | **Yes** |
 | Document synthesis / architecture / planning | Chat discussion only when the relaxed ephemeral chat-advice override fully qualifies | **Yes**, except qualifying relaxed chat |
 | Research that produces an artifact (doc, plan, recommendation) | Chat advice only when the relaxed ephemeral chat-advice override fully qualifies; artifact production is never direct | **Yes**, except qualifying relaxed chat |
@@ -452,7 +452,7 @@ See §Delegation signal table above for the full Elevated signals list.
 
 ### Elevated routes
 
-An Elevated task takes the `single-review` route only when all hold: (a) the profile is `default` or `relaxed`; (b) `IS_REWORK` is false (rework tickets take the full route); (c) it touches no risk surface. Otherwise it takes the `full` route. A risk surface is any Mandatory Tier-3 category (`content/references/risk-config-and-tiers.md` §Mandatory Tier-3 review escalation: security, auth, crypto, payments, or secrets; an irreversible operation; novel architecture; high blast radius, a shared utility, an LLM prompt, or a gate or its threshold; release, deploy, or production state) or a public-API change: an exported symbol or type, a route, a CLI flag, or a config key a downstream consumer reads. Judge it when the task is classified, from the ticket text and the codebase reads; when unclear, take the full route. `strict` always takes the full route, and Elevated + Cleanup exists only on it. The single-review route is one worktree-isolated `engineer`, then one `skeptic` pass whose findings are fixed once (loop rule: `content/references/skeptic-protocol.md` §Complexity-based round limit); QA fires only for a user-visible UI change, with the acceptance text as its criteria.
+An Elevated task takes the `single-review` route only when all hold: (a) the profile is `default` or `relaxed`; (b) `IS_REWORK` is false (rework tickets take the full route); (c) it touches no risk surface. Otherwise it takes the `full` route. A risk surface is any Mandatory Tier-3 category (`content/references/risk-config-and-tiers.md` §Mandatory Tier-3 review escalation: security, auth, crypto, payments, or secrets; an irreversible operation; novel architecture; high blast radius, a shared utility, an LLM prompt, or a gate or its threshold; release, deploy, or production state) or a public-API change: an exported symbol or type, a route, a CLI flag, or a config key a downstream consumer reads. High blast radius, including a shared-utility change, means the change alters an exported or public API of a shared module, or modifies code used by 3 or more consumers (direct call sites of the modified code in distinct modules, packages, or products); an internal fix inside a shared module or component that changes no exported interface is not high blast radius, and with no other risk surface takes the `single-review` route. Judge it when the task is classified, from the ticket text and the codebase reads; when unclear, take the full route. `strict` always takes the full route, and Elevated + Cleanup exists only on it. The single-review route is one worktree-isolated `engineer`, then one `skeptic` pass whose findings are fixed once (loop rule: `content/references/skeptic-protocol.md` §Complexity-based round limit); QA fires only for a user-visible UI change, with the acceptance text as its criteria.
 
 ### Trivial signals
 
@@ -8076,7 +8076,7 @@ Spawning security-auditor.
 - security, auth, crypto, payments, or secrets
 - irreversible operation: delete, migration, schema change, force push
 - novel architecture constraining future choices
-- high blast radius / shared-utility change - this includes a diff that authors or edits an LLM prompt, a confidence/quality/safety gate or its threshold, or sourcing/editorial policy logic
+- high blast radius / shared-utility change, as defined in `content/sections/04-risk-classification.md` §Elevated routes - this includes a diff that authors or edits an LLM prompt, a confidence/quality/safety gate or its threshold, or sourcing/editorial policy logic
 - release, deploy, or production-state change
 
 This reuses the Elevated risk-signal vocabulary above. On these review spawns the conductor must pass `model: fable` when the effective Claude Code settings `availableModels` key is absent or lists fable; otherwise pass `model: opus` - the reviewer then sits a tier above the Opus author, and both satisfy the floor. `model_profile: budget` NEVER downgrades a mandated-Tier-3 Skeptic. An `availableModels` allowlist that excludes a requested model silently drops it and the agent inherits the session model, so the conductor surfaces to the operator only when neither `fable` nor `opus` is available, rather than proceed on an inherited model. On Claude Code this rule is mechanically backstopped by `hooks/enforce-tier.py` (escalate-only, fail-open): it denies an explicit sub-Tier-3 `model` param on a mandated-Tier-3 review spawn (security-auditor always; skeptic when the brief matches an escalation signal) - the accept set is `opus` or `fable` (DS-226), both satisfying Tier 3 or above. It backstops four of the five signal categories - the novel-architecture signal is not keyword-detectable, and the hook guards the spawn-call param only, not the `CLAUDE_CODE_SUBAGENT_MODEL` env override.
@@ -9833,7 +9833,7 @@ chat-advice override for the canonical pre-read, candidate-branch, and fail-clos
 | Touches external APIs or services | No | **Yes** |
 | Unfamiliar codebase area ("haven't Read this file in the current conversation", "Read it earlier but it changed since", "first time working in this subsystem") | No | **Yes** |
 | Logic with emergent/non-obvious cross-component interactions | No | **Yes** |
-| Changes to shared utilities, helpers, or abstractions used across many call sites (single-file but high blast radius) | No | **Yes** |
+| Changes to shared utilities, helpers, or abstractions used across many call sites (single-file; a route risk surface only when high blast radius per `content/sections/04-risk-classification.md` §Elevated routes) | No | **Yes** |
 | User signals high stakes ("production", "critical", "don't mess this up") | No | **Yes** |
 | Any Bash with side effects (writes, deletes, network, DB) | No | **Yes** |
 | Document synthesis / architecture / planning | Chat discussion only when the relaxed ephemeral chat-advice override fully qualifies | **Yes**, except qualifying relaxed chat |
