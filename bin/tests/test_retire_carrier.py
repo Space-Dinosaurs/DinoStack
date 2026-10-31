@@ -401,6 +401,19 @@ def test_o_self_held(fx: Fixture) -> None:
     assert wt.exists() and last(fx)["revisit"] == "re-run from outside the carrier"
 
 
+# o2. A live process whose cwd is inside the carrier holds it.
+def test_o2_live_process_cwd_held(fx: Fixture) -> None:
+    wt = fx.add("br-o2", branch="feature/o2")
+    holder = subprocess.Popen(["sleep", "120"], cwd=str(wt))
+    try:
+        proc = fx.run(str(wt))
+    finally:
+        holder.kill()
+        holder.wait()
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert wt.exists() and last(fx)["reason"] == f"live process cwd: pid {holder.pid} sleep"
+
+
 # p. --dry-run returns the verdict and writes nothing, fetching nothing.
 def test_p_dry_run_writes_nothing(fx: Fixture) -> None:
     clean = fx.add("br-p", branch="feature/p")
