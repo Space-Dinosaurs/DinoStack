@@ -10,9 +10,11 @@
 #          verbatim. Differences from those blocks: inputs arrive as flags
 #          and arguments; "proceed to Phase 9" is `return 0` (the cleanup
 #          blocks still run); the first-create and steady-state paths are
-#          joined by an if/else on REMOTE_EXISTS; slug derivation, which was
-#          prose, is code; block output goes to stderr so stdout carries only
-#          the URL records.
+#          joined by an if/else on REMOTE_EXISTS; the first-create scratch
+#          clone pushes to $REPO's origin rather than to $REPO (the moved
+#          block created the branch only in $REPO and still printed URLs);
+#          slug derivation, which was prose, is code; block output goes to
+#          stderr so stdout carries only the URL records.
 #          Catches: Phase 8.5 never running (2026-10 reach: qa-evidence 0% of
 #          real sessions). Retires: if the post-adoption reach audit of the
 #          first 20 lean /ds-implement-ticket sessions shows QA evidence still
@@ -93,8 +95,11 @@ done
 REMOTE_EXISTS=$(git -C "$REPO" ls-remote --heads origin qa-evidence | wc -l)
 
 if [ "$REMOTE_EXISTS" -eq 0 ]; then
+# A clone of $REPO pushes to $REPO itself, so point it at $REPO's origin.
+QA_ORIGIN_URL=$(git -C "$REPO" remote get-url --push origin) || { QA_EVIDENCE_URLS=(); return 0; }
 TEMP_CLONE="/tmp/qa-evidence-clone-$$"
 git clone --depth=1 "$REPO" "$TEMP_CLONE"
+git -C "$TEMP_CLONE" remote set-url origin "$QA_ORIGIN_URL"
 git -C "$TEMP_CLONE" checkout --orphan qa-evidence
 git -C "$TEMP_CLONE" rm -rf . 2>/dev/null || true
 mkdir -p "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"

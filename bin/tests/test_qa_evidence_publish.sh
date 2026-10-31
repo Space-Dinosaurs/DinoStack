@@ -6,7 +6,8 @@
 #          resolves through both: a steady-state publish lands the
 #          screenshots on origin's qa-evidence branch and prints one URL
 #          record per screenshot on stdout, retires its worktree and
-#          deletes the consumed files; a rejected push prints no URLs;
+#          deletes the consumed files; the first publish creates the
+#          branch on origin itself; a rejected push prints no URLs;
 #          nothing to copy publishes nothing; missing flags exit 2.
 #
 # Public API: none (standalone script;
@@ -47,7 +48,8 @@ assert() {
   fi
 }
 
-# build_repo <name>: a clone of a bare origin that already has qa-evidence.
+# build_repo <name> [fresh]: a clone of a bare origin that already has
+# qa-evidence, or has none with `fresh`.
 build_repo() {
   local origin="$SCRATCH/$1-origin.git" repo="$SCRATCH/$1"
   git init -q --bare -b main "$origin"
@@ -59,7 +61,7 @@ build_repo() {
   git -C "$repo" add README.md .gitignore
   git -C "$repo" commit -q -m init
   git -C "$repo" push -q -u origin main
-  git -C "$repo" push -q origin main:qa-evidence
+  [ "${2:-}" = fresh ] || git -C "$repo" push -q origin main:qa-evidence
   echo "$repo"
 }
 
@@ -96,6 +98,19 @@ run_suite() {
   assert $? "the qa-evidence worktree was retired"
   grep -q '\[phase: qa-evidence | screenshots=2 | urls=2 | branch=qa-evidence\]' "$SCRATCH/$SH_NAME-steady.err"
   assert $? "breadcrumb on stderr"
+
+  REPO="$(build_repo "$SH_NAME-first" fresh)"
+  ORIGIN="$SCRATCH/$SH_NAME-first-origin.git"
+  echo four > "$SHOTS/qa_four.png"
+  OUT="$("$SH" "$CLI" --repo "$REPO" --ticket ENG-12 --branch fix/first --gh-repo o/r -- \
+    "$(entry "$SHOTS/qa_four.png" d AC1)" 2>/dev/null)"
+  assert $? "first publish exits 0"
+  [ "$(git --git-dir="$ORIGIN" show qa-evidence:eng-12/first/qa_four.png 2>/dev/null)" = four ]
+  assert $? "first publish creates qa-evidence on the real origin"
+  [ "$(printf '%s\n' "$OUT" | jq -r .url 2>/dev/null)" = "https://github.com/o/r/blob/qa-evidence/eng-12/first/qa_four.png" ]
+  assert $? "first publish prints the URL of the file that landed on origin"
+  ! git -C "$REPO" show-ref --verify --quiet refs/heads/qa-evidence
+  assert $? "first publish leaves no local qa-evidence branch in the checkout"
 
   REPO="$(build_repo "$SH_NAME-reject")"
   ORIGIN="$SCRATCH/$SH_NAME-reject-origin.git"
