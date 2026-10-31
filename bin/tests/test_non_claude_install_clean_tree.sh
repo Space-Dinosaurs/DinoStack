@@ -6,7 +6,10 @@
 #          the real .gemini/install.sh and .kimi/install.sh with a fake HOME,
 #          after seeding pre-existing dirt in each adapter dir (an edit to a
 #          tracked generated file and a new untracked file), and asserts that
-#          `git status --porcelain` and the seeded content are unchanged.
+#          `git status --porcelain` and the seeded content are unchanged. A
+#          second case puts content/ ahead of the committed Kimi files (a
+#          renamed section heading) and asserts two Kimi installs leave the
+#          tree and .kimi/AGENTS.md unchanged.
 #
 # Public API: bash bin/tests/test_non_claude_install_clean_tree.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -32,7 +35,7 @@ CASES=".gemini|.gemini/skills/dinostack/SKILL.md|.gemini/zz-test-untracked.txt
 SEEDED_TRACKED=()
 SEEDED_UNTRACKED=()
 FAKE_HOME="$(mktemp -d)"
-cleanup() {
+restore_seeded() {
   local p
   for p in ${SEEDED_TRACKED[@]+"${SEEDED_TRACKED[@]}"}; do
     git -C "$REPO_DIR" checkout -q -- "$p"
@@ -40,6 +43,11 @@ cleanup() {
   for p in ${SEEDED_UNTRACKED[@]+"${SEEDED_UNTRACKED[@]}"}; do
     rm -f "$REPO_DIR/$p"
   done
+  SEEDED_TRACKED=()
+  SEEDED_UNTRACKED=()
+}
+cleanup() {
+  restore_seeded
   find "${FAKE_HOME:?}" -depth -delete 2>/dev/null
 }
 trap cleanup EXIT
@@ -105,6 +113,52 @@ $after"
 done <<EOF
 $CASES
 EOF
+restore_seeded
+
+# Content ahead of the committed Kimi files: .kimi/install.sh reads content/
+# at install time, so a renamed section heading must not make it rewrite or
+# grow the tracked .kimi/AGENTS.md, on the first install or on a repeat.
+AHEAD=content/sections/03-planning-artifacts.md
+if [ -n "$(git -C "$REPO_DIR" status --porcelain -- "$AHEAD" .kimi/AGENTS.md)" ]; then
+  if [ -n "${CI:-}" ]; then
+    _fail "content-ahead: $AHEAD or .kimi/AGENTS.md is already dirty; cannot seed it"
+  else
+    echo "SKIP: content-ahead: $AHEAD or .kimi/AGENTS.md is already dirty locally"
+  fi
+else
+  python3 - "$REPO_DIR/$AHEAD" <<'PYEOF'
+import os, re, sys
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+new, n = re.subn(r"^## (.+)$", r"## \1 (renamed by test)", text, count=1, flags=re.M)
+assert n == 1, "no '## ' heading to rename"
+tmp = path + ".seed-tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    f.write(new)
+os.replace(tmp, path)
+PYEOF
+  # .kimi/AGENTS.md is restored on exit too, in case an install grew it.
+  SEEDED_TRACKED+=("$AHEAD" ".kimi/AGENTS.md")
+  agents_bytes_before="$(wc -c < "$REPO_DIR/.kimi/AGENTS.md" | tr -d '[:space:]')"
+  before="$(git -C "$REPO_DIR" status --porcelain)"
+  for run in 1 2; do
+    env -u DS_ALL_HARNESSES -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME \
+      HOME="$FAKE_HOME" bash "$REPO_DIR/.kimi/install.sh" \
+      --no-identity --mode=opt-out --profile=default </dev/null >"$FAKE_HOME/install.out" 2>&1
+    rc=$?
+    after="$(git -C "$REPO_DIR" status --porcelain)"
+    agents_bytes_after="$(wc -c < "$REPO_DIR/.kimi/AGENTS.md" | tr -d '[:space:]')"
+    if [ "$rc" -eq 0 ] && [ "$before" = "$after" ] && [ "$agents_bytes_before" = "$agents_bytes_after" ]; then
+      _pass "content-ahead: Kimi install $run leaves git status and .kimi/AGENTS.md ($agents_bytes_after B) unchanged"
+    else
+      _fail "content-ahead: Kimi install $run (exit $rc) changed the tree or .kimi/AGENTS.md ($agents_bytes_before B -> $agents_bytes_after B):
+--- before
+$before
+--- after
+$after"
+    fi
+  done
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed."

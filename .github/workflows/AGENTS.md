@@ -65,7 +65,9 @@ merged trees had never been evaluated by any run**:
   1. *Inside the script* - any inability to resolve the PR, fetch
      `refs/pull/N/head`, or read either tree yields `run_full=true`.
   2. *At the job boundary* - every suite job guards on
-     `if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}`.
+     `if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}`
+     (`merged-codex-skill-sync` adds `inputs.all_harnesses &&` after
+     `!cancelled()`, so it runs only on an `all_harnesses` dispatch).
      The status-check function is load-bearing. A bare
      `if: needs.needs-full-run.outputs.run_full == 'true'` carries none, so
      GitHub applies the implicit `success()` and a **failed** gate job (step

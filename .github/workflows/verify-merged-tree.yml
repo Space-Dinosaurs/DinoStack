@@ -83,7 +83,9 @@ jobs:
   #   - inside the script: any inability to resolve the PR, fetch its head, or
   #     read either tree yields run_full=true;
   #   - at the job boundary: every suite job below guards on
-  #     `${{ !cancelled() && (needs.needs-full-run.result != 'success' || ...) }}`,
+  #     `${{ !cancelled() && (needs.needs-full-run.result != 'success' || ...) }}`
+  #     (merged-codex-skill-sync adds `inputs.all_harnesses &&` after
+  #     `!cancelled()`, so it runs only on an all_harnesses dispatch),
   #     so a gate job that FAILS or times out runs the suite rather than
   #     skipping it. Without a status-check function GitHub applies the
   #     implicit `success()` and a failed gate would skip everything - the

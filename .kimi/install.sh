@@ -165,6 +165,11 @@ fi
 # `bash .kimi/build.sh` regenerates AGENTS.md back to its lean stub form.)
 # ---------------------------------------------------------------------------
 
+# The gate verifies what build.sh just wrote, so it runs only when the tracked
+# build ran (DS_ALL_HARNESSES=1). Otherwise the committed AGENTS.md is
+# installed as-is: checking it against a content/ it lags would report the
+# embed incomplete and append the fallback to a tracked file on every install.
+if [[ "${DS_ALL_HARNESSES:-}" == "1" ]]; then
 KIMI_SKILL_MD_OK=true
 KIMI_SKILL_MD_REASON=""
 KIMI_SKILL_MD_TARGET="$REPO_DIR/.kimi/skills/dinostack/SKILL.md"
@@ -285,6 +290,7 @@ if [[ "$KIMI_SKILL_MD_OK" != "true" ]]; then
       echo ""
     done < <(kimi_rules_files "$REPO_DIR/content")
   } >> "$AGENTS_DST_FALLBACK"
+fi
 fi
 
 # ---------------------------------------------------------------------------
