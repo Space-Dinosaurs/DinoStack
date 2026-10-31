@@ -2296,7 +2296,7 @@ fi
 # ---------------------------------------------------------------------------
 
 # AE_INSTALL_SKIP_BUILD=1 is a test-harness opt-in (scripts/check-local.sh sets
-# it after its own build-all.sh gate): the build regenerates tracked files in
+# it after its own .claude/build.sh gate, or build-all.sh under DS_ALL_HARNESSES=1): the build regenerates tracked files in
 # this checkout and is idempotent, so the installer tests re-running it on
 # every install add minutes and no coverage. Unset means build, as always.
 if [[ "${AE_INSTALL_SKIP_BUILD:-}" == "1" ]]; then

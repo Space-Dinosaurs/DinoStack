@@ -48,7 +48,7 @@ jobs:
   # Removed rather than demoted to a weekly cron.
   check-codex-skill-sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    timeout-minutes: 45
     env:
       DS_ALL_HARNESSES: '1'
     steps:
@@ -65,7 +65,7 @@ jobs:
       # observed max. Small setup steps measured well under 15s each; 2 min
       # is a generous multiple, not a tight fit. "Run clean-clone mutation
       # gate" measured 31s-47s; 5 min is ~6x headroom. Timed step timeouts
-      # sum to 59 min, kept under the 65-min job timeout so each step's own
+      # sum to 39 min, kept under the 45-min job timeout so each step's own
       # bound - not the job-level backstop - is what actually fires on a hang.
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -91,13 +91,3 @@ jobs:
       - name: Verify public build is clean
         run: git diff --exit-code
         timeout-minutes: 1
-      # The Codex installer cases of these two shell suites install the
-      # committed generated Codex skills, so bin-tests.yml skips them outside
-      # DS_ALL_HARNESSES; this job (DS_ALL_HARNESSES=1) runs them on any PR
-      # touching .codex/**.
-      - name: Run Codex installer config-dir cases
-        run: bash bin/tests/test_install_profile_config_dir.sh
-        timeout-minutes: 10
-      - name: Run Codex installer hooks-snapshot migration cases
-        run: bash bin/tests/test_hooks_snapshot_migration.sh
-        timeout-minutes: 10

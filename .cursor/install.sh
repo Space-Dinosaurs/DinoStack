@@ -423,8 +423,12 @@ done
 
 echo "Running initial build..."
 [[ -f "$REPO_DIR/.claude/build.sh" ]] && bash "$REPO_DIR/.claude/build.sh"
-. "$REPO_DIR/scripts/lib/harness-build.sh"
-ae_harness_build "$REPO_DIR" "$REPO_DIR/.cursor/build.sh"
+# Claude Code first (root AGENTS.md): outside DS_ALL_HARNESSES=1 this installs
+# the committed files instead of rebuilding them from a content/ they may lag,
+# so the checkout stays clean for ds-update between catch-ups.
+if [[ "${DS_ALL_HARNESSES:-}" == "1" ]]; then
+  bash "$REPO_DIR/.cursor/build.sh"
+fi
 
 # ---------------------------------------------------------------------------
 # Install pre-commit hook

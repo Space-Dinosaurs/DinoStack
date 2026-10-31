@@ -45,13 +45,6 @@ FAILS=0
 pass() { echo "  ok: $1"; }
 fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 
-# .codex/install.sh installs the committed generated Codex skills, so its
-# cases run only under DS_ALL_HARNESSES=1 (also run by codex-skill-sync.yml).
-CFG_HARNESSES="claude omp pi"
-if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
-  CFG_HARNESSES="claude codex omp pi"
-fi
-
 # ---------------------------------------------------------------------------
 # Test 1: --config-dir redirects the harness config; shared state stays in HOME
 # ---------------------------------------------------------------------------
@@ -147,7 +140,7 @@ SX="$(mktemp -d)"
 export HOME="$SX/home"; mkdir -p "$HOME"
 PROF_TENANT_A="$SX/.harness-a"
 PROF_TENANT_B="$SX/.harness-b"
-for harness in $CFG_HARNESSES; do
+for harness in claude codex omp pi; do
   tenant_a="$PROF_TENANT_A/$harness"
   tenant_b="$PROF_TENANT_B/$harness"
   tenant_out="$(env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR bash "$REPO_DIR/.$harness/install.sh" --config-dir="$tenant_a" --no-identity --mode=opt-out --profile=default 2>&1 || true)"
@@ -305,7 +298,6 @@ ln -sf "$SYMT/victim_a" "$SY_PI/agentic-engineering.json"
 bash "$REPO_DIR/.pi/install.sh" --config-dir="$SY_PI" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || true
 grep -q KEEP "$SYMT/victim_a" && pass "pi JSON symlink write blocked" || fail "pi JSON symlink write truncated victim"
 
-if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
 SY_CX="$SYMT/codex_prof"; mkdir -p "$SY_CX"
 mkdir -p "$SYMT/victim_b"
 echo "KEEP" > "$SYMT/victim_b/inside.txt"
@@ -322,7 +314,6 @@ if [[ "$keep_b_kept" == "true" ]]; then
 else
   fail "codex config.toml symlink write truncated victim"
 fi
-fi
 rm -rf "$SYMT"
 
 # ---------------------------------------------------------------------------
@@ -332,7 +323,7 @@ SYMD="$(mktemp -d)"
 export HOME="$SYMD/home"; mkdir -p "$HOME"
 mkdir -p "$SYMD/real_dir"
 echo "KEEP_DIR" > "$SYMD/real_dir/inside.txt"
-for harness in $CFG_HARNESSES; do
+for harness in claude codex omp pi; do
   link="$SYMD/.${harness}-victim"
   ln -sfn "$SYMD/real_dir" "$link"
   # Snapshot the symlink target's contents so we can detect a file planted
@@ -396,7 +387,7 @@ rm -rf "$SYP"
 # orchestrated install-profiles flow because it pre-creates tenant dirs).
 NX="$(mktemp -d)"
 export HOME="$NX/home"; mkdir -p "$HOME"
-for harness in $CFG_HARNESSES; do
+for harness in claude codex omp pi; do
   # Deliberately deep + nonexistent: neither the leaf nor its parent exist yet.
   target="$NX/fresh-$harness/nested/agent"
   rc=0

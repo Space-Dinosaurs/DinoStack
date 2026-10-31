@@ -9,6 +9,8 @@
 #                       references/,sections/,commands/,agents/,templates/,
 #                       project-scaffolding.yml}, .kimi/skills/<command>/SKILL.md (one per
 #                       content/commands/ file).
+#               --untracked-only builds only the gitignored per-command skills
+#               (.kimi/skills/<command>/), leaving every tracked output alone.
 # Failure modes: exits non-zero on missing inputs (SKILL.frontmatter.yaml, content/SKILL.md)
 #               or assembly script failure. Side-effect: if a prior symlink is present at
 #               .kimi/skills/dinostack/SKILL.md (pre-DS-185 layout), it is removed before the
@@ -35,6 +37,8 @@ get_inode() {
     stat -f %i "$1"
   fi
 }
+
+if [[ "${1:-}" != "--untracked-only" ]]; then
 
 # ---------------------------------------------------------------------------
 # Build AGENTS.md (DS-185: activation stub only)
@@ -199,6 +203,8 @@ else
   ln "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST" 2>/dev/null || cp "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST"
 fi
 echo "  + project-scaffolding.yml"
+
+fi
 
 # ---------------------------------------------------------------------------
 # Create per-command skill directories

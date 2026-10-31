@@ -128,6 +128,56 @@ else
 $ADAPTER_PATHS"
 fi
 
+# Every copy of the adapter pathspecs must match adapter-sync.yml's, which is
+# the canonical one: its two drift lines, its two existence loops, and the
+# non-Claude pathspec in CONTRIBUTING.md's catch-up and recovery commands.
+_join_continuations() { sed -e ':a' -e '/\\$/N; s/\\\n[[:space:]]*/ /; ta' "$1" | tr -s ' '; }
+_drift_specs() {
+  _join_continuations "$1" | grep -oE 'git diff --exit-code -- \.[a-z][^;]*' \
+    | sed 's/^git diff --exit-code -- //; s/[[:space:]]*$//' | LC_ALL=C sort -u
+}
+_loop_specs() {
+  _join_continuations "$1" | grep -oE 'for p in \.[^;]*; do' \
+    | sed 's/^for p in //; s/; do$//; s/[[:space:]]*$//' | LC_ALL=C sort -u
+}
+CANON_WF="$REPO_ROOT/.github/workflows/adapter-sync.yml"
+CANON_DRIFT="$(_drift_specs "$CANON_WF")"
+CANON_LOOPS="$(_loop_specs "$CANON_WF")"
+CANON_NON_CLAUDE="$(printf '%s\n' "$CANON_DRIFT" | grep -v '^\.claude$')"
+if [ "$(printf '%s\n' "$CANON_DRIFT" | grep -c .)" -eq 2 ] && [ "$(printf '%s\n' "$CANON_LOOPS" | grep -c .)" -eq 2 ]; then
+  _pass "adapter-sync.yml carries 2 drift pathspecs and 2 existence loops"
+else
+  _fail "expected 2 drift pathspecs and 2 existence loops in adapter-sync.yml, got:
+$CANON_DRIFT
+$CANON_LOOPS"
+fi
+if [ "$(printf '%s\n' "$CANON_NON_CLAUDE" | tr ' ' '\n')" = "$(printf '%s\n' "$CANON_LOOPS" | grep -v '^\.claude$' | tr ' ' '\n')" ]; then
+  _pass "adapter-sync.yml's non-Claude drift pathspec and existence loop list the same entries"
+else
+  _fail "adapter-sync.yml's non-Claude drift pathspec and existence loop differ"
+fi
+for copy in "$GATE" "$REPO_ROOT/.github/workflows/verify-merged-tree.yml"; do
+  # verify-merged-tree's merged-codex-skill-sync also runs a scoped
+  # `git diff --exit-code -- .codex` after its Codex build; that is not an
+  # adapter-sync copy.
+  if [ "$(_drift_specs "$copy" | grep -vx '\.codex')" = "$CANON_DRIFT" ] && [ "$(_loop_specs "$copy")" = "$CANON_LOOPS" ]; then
+    _pass "${copy#"$REPO_ROOT"/}: drift pathspecs and existence loops match adapter-sync.yml"
+  else
+    _fail "${copy#"$REPO_ROOT"/}: drift pathspecs or existence loops differ from adapter-sync.yml:
+$(_drift_specs "$copy")
+$(_loop_specs "$copy")"
+  fi
+done
+DOC_SPECS="$(_join_continuations "$REPO_ROOT/CONTRIBUTING.md" | grep -E -- ' -- \.codex \.cursor ' \
+  | sed 's/^.* -- \(\.codex .*\)$/\1/; s/[[:space:]]*#.*$//; s/[[:space:]]*$//')"
+DOC_COUNT="$(printf '%s\n' "$DOC_SPECS" | grep -c .)"
+if [ "$DOC_COUNT" -eq 3 ] && [ "$(printf '%s\n' "$DOC_SPECS" | LC_ALL=C sort -u)" = "$CANON_NON_CLAUDE" ]; then
+  _pass "CONTRIBUTING.md's 3 non-Claude pathspec commands match adapter-sync.yml"
+else
+  _fail "CONTRIBUTING.md's non-Claude pathspec commands (expected 3) differ from adapter-sync.yml:
+$DOC_SPECS"
+fi
+
 # ---------------------------------------------------------------------------
 # Fixture: a miniature of this repo, with stub gates.
 # ---------------------------------------------------------------------------

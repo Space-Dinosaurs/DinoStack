@@ -387,10 +387,6 @@ else
   _fail "gemini: settings.json changed on re-run (not idempotent)"
 fi
 
-# .codex/install.sh installs the committed generated Codex skills, so this
-# section runs only under DS_ALL_HARNESSES=1 (also run by codex-skill-sync.yml).
-if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
-
 # =============================================================
 # 3. Codex
 # =============================================================
@@ -448,11 +444,6 @@ if [[ ! -e "$HOME_CODEX/.codex/hooks.json" && ! -L "$HOME_CODEX/.codex/hooks.jso
   _pass "codex: uninstall removes snapshot-backed hooks.json symlink"
 else
   _fail "codex: uninstall left hooks.json behind: $(readlink "$HOME_CODEX/.codex/hooks.json" 2>/dev/null || echo '<not symlink>')"
-fi
-
-else
-  echo ""
-  echo "=== 3. SKIP: .codex section (set DS_ALL_HARNESSES=1 to run) ==="
 fi
 
 # =============================================================

@@ -46,8 +46,12 @@ for arg in "$@"; do
 done
 
 echo "Building Pi coding agent adapter..."
-. "$REPO_DIR/scripts/lib/harness-build.sh"
-ae_harness_build "$REPO_DIR" "$REPO_DIR/.pi/build.sh"
+# Claude Code first (root AGENTS.md): outside DS_ALL_HARNESSES=1 this installs
+# the committed files instead of rebuilding them from a content/ they may lag,
+# so the checkout stays clean for ds-update between catch-ups.
+if [[ "${DS_ALL_HARNESSES:-}" == "1" ]]; then
+  bash "$REPO_DIR/.pi/build.sh"
+fi
 
 # Activation config path defaults to the shared $HOME location but is also
 # redirectable via --config-dir so multi-tenant installs do not clobber each

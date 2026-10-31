@@ -46,15 +46,17 @@ DS_ALL_HARNESSES=1 bash scripts/check-local.sh
 python3 scripts/test/test_codex_skills.py
 ```
 
-Then open the PR from that branch.
+Then open the PR from that branch. Its body needs a filled `## North Star alignment` section (the `check-vision-alignment` check reads it, since the diff touches adapter install and build paths).
 
-**Between catch-ups (the trade-off).** `main` carries non-Claude files that lag `content/`, so users of those adapters run slightly older methodology until the next catch-up merges. Their installers still build, but outside `DS_ALL_HARNESSES=1` they restore every tracked file the build changed and remove any new untracked file it created (`scripts/lib/harness-build.sh`), so the checkout stays clean and `ds-update` keeps working. `.codex/install.sh` warns that its source is stale and installs the committed files.
+**Between catch-ups (the trade-off).** `main` carries non-Claude generated files that lag `content/`. Outside `DS_ALL_HARNESSES=1` the non-Claude installers do not run their build: they install the committed files, so the checkout stays clean and `ds-update` keeps working (the Kimi installer still builds its gitignored per-command skills, which are never committed). What those users get is a mix: files the adapters symlink straight into `content/` are current, generated files are as old as the last catch-up, and a link to a `content/` file that was renamed or deleted since then dangles until the next catch-up. `.codex/install.sh` warns that its source is stale and installs the committed files. To build and install a non-Claude adapter from current `content/`, run its installer with `DS_ALL_HARNESSES=1` (this dirties the checkout until the catch-up merges).
 
-**Recovery.** If `ds-update` stops with `working tree has uncommitted changes` and lists only paths under the non-Claude adapter directories (for example after an older installer, or a manual `bash .gemini/build.sh`), those are rebuilt artifacts. Check that none of them are your own edits, then discard them and re-run:
+**Recovery.** If `ds-update` stops with `working tree has uncommitted changes` and lists only paths under the non-Claude adapter directories (for example after an older installer, a manual `bash .gemini/build.sh`, or an install with `DS_ALL_HARNESSES=1`), those are rebuilt artifacts. Check that none of them are your own edits, then discard them and re-run:
 
 ```bash
-git -C <checkout> checkout -- .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot .github
-git -C <checkout> clean -n -- .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot .github   # review, then -f
+git -C <checkout> checkout -- .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot \
+  .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills
+git -C <checkout> clean -n -- .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot \
+  .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills   # review, then -f
 ds-update
 ```
 
