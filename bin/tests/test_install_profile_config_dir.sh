@@ -45,6 +45,13 @@ FAILS=0
 pass() { echo "  ok: $1"; }
 fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 
+# The codex/omp/pi installers rebuild or verify their own adapter dirs in the
+# live checkout, so they run only under DS_ALL_HARNESSES=1.
+CFG_HARNESSES="claude"
+if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
+  CFG_HARNESSES="claude codex omp pi"
+fi
+
 # ---------------------------------------------------------------------------
 # Test 1: --config-dir redirects the harness config; shared state stays in HOME
 # ---------------------------------------------------------------------------
@@ -132,7 +139,7 @@ for harness in claude codex copilot cursor gemini hermes kimi omp openclaw openc
 done
 
 # ---------------------------------------------------------------------------
-# Test 4: per-harness --config-dir isolation across all 4 harnesses
+# Test 4: per-harness --config-dir isolation across $CFG_HARNESSES
 # (regression for PR #416 review finding 4: AE_CONFIG_PATH must follow
 # --config-dir for codex/omp/pi, not collapse to $HOME/.claude).
 # ---------------------------------------------------------------------------
@@ -140,7 +147,7 @@ SX="$(mktemp -d)"
 export HOME="$SX/home"; mkdir -p "$HOME"
 PROF_TENANT_A="$SX/.harness-a"
 PROF_TENANT_B="$SX/.harness-b"
-for harness in claude codex omp pi; do
+for harness in $CFG_HARNESSES; do
   tenant_a="$PROF_TENANT_A/$harness"
   tenant_b="$PROF_TENANT_B/$harness"
   tenant_out="$(env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR bash "$REPO_DIR/.$harness/install.sh" --config-dir="$tenant_a" --no-identity --mode=opt-out --profile=default 2>&1 || true)"
@@ -174,6 +181,7 @@ rm -rf "$SX"
 # ---------------------------------------------------------------------------
 # Test 4b: Pi/OMP identity scope follows runtime-visible bindings only.
 # ---------------------------------------------------------------------------
+if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
 for harness in omp pi; do
   ISO="$(mktemp -d)"
   export HOME="$ISO/home"; mkdir -p "$HOME"
@@ -280,9 +288,12 @@ for harness in omp pi; do
   rm -rf "$ORCH_ENV"
 done
 
+fi
+
 # ---------------------------------------------------------------------------
 # Test 5: symlinked config FILE refusal (PR #416 review finding 1+2)
 # ---------------------------------------------------------------------------
+if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
 SYMT="$(mktemp -d)"
 export HOME="$SYMT/home"; mkdir -p "$HOME"
 echo "KEEP" > "$SYMT/victim_a"
@@ -315,6 +326,7 @@ else
   fail "codex config.toml symlink write truncated victim"
 fi
 rm -rf "$SYMT"
+fi
 
 # ---------------------------------------------------------------------------
 # Test 6: symlinked config DIRECTORY refusal (PR #416 review finding 3)
@@ -323,7 +335,7 @@ SYMD="$(mktemp -d)"
 export HOME="$SYMD/home"; mkdir -p "$HOME"
 mkdir -p "$SYMD/real_dir"
 echo "KEEP_DIR" > "$SYMD/real_dir/inside.txt"
-for harness in claude codex omp pi; do
+for harness in $CFG_HARNESSES; do
   link="$SYMD/.${harness}-victim"
   ln -sfn "$SYMD/real_dir" "$link"
   # Snapshot the symlink target's contents so we can detect a file planted
@@ -387,7 +399,7 @@ rm -rf "$SYP"
 # orchestrated install-profiles flow because it pre-creates tenant dirs).
 NX="$(mktemp -d)"
 export HOME="$NX/home"; mkdir -p "$HOME"
-for harness in claude codex omp pi; do
+for harness in $CFG_HARNESSES; do
   # Deliberately deep + nonexistent: neither the leaf nor its parent exist yet.
   target="$NX/fresh-$harness/nested/agent"
   rc=0

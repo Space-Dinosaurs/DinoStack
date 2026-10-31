@@ -43,6 +43,13 @@
 
 set -uo pipefail
 
+# Runs the real .gemini/install.sh, which rebuilds .gemini/ in the live
+# checkout: a non-Claude harness test, run only under DS_ALL_HARNESSES=1.
+if [ "${DS_ALL_HARNESSES:-}" != 1 ]; then
+  echo "SKIP: non-Claude harness test (set DS_ALL_HARNESSES=1 to run)"
+  exit 0
+fi
+
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # shellcheck source=bin/tests/lib/precommit-hook-guard.sh

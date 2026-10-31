@@ -124,6 +124,13 @@
 
 set -uo pipefail
 
+# Runs the real .gemini/install.sh, which rebuilds .gemini/ in the live
+# checkout: a non-Claude harness test, run only under DS_ALL_HARNESSES=1.
+if [ "${DS_ALL_HARNESSES:-}" != 1 ]; then
+  echo "SKIP: non-Claude harness test (set DS_ALL_HARNESSES=1 to run)"
+  exit 0
+fi
+
 # -P is required: scenarios 6a and 7a compare REPO_DIR against a
 # `readlink -f` result, so a logical path containing a symlink component
 # (e.g. macOS's /tmp) would fail here on plain `pwd`. CI runs from an

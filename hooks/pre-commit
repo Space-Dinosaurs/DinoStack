@@ -9,8 +9,9 @@
 #                scripts/check-symlinks-relative.sh (run in --staged mode against
 #                the staged blob, not the working-tree copy),
 #                scripts/stamp-agent-fragments.sh (runs before the adapter
-#                builds so they see stamped content/agents/*.md), and all
-#                adapter build scripts.
+#                builds so they see stamped content/agents/*.md), and
+#                .claude/build.sh (all adapter build scripts under
+#                DS_ALL_HARNESSES=1).
 #
 # Downstream consumers: local Git commits and worktree-isolated engineer commits.
 #
@@ -118,9 +119,14 @@ fi
 # receive the same read-only drift protection as the primary checkout. The
 # path set includes canonical prose/resources, generator configuration and CI
 # workflow inputs, tracked mirrors, and every generated native-skill output.
+#
+# Claude Code first: a methodology commit regenerates only .claude/, so the
+# Codex mirror is expected to lag until the catch-up chore. This gate runs
+# only under DS_ALL_HARNESSES=1.
 # ---------------------------------------------------------------------------
 
 CODEX_SKILL_SYNC_REQUIRED=false
+if [[ "${DS_ALL_HARNESSES:-}" == "1" ]]; then
 while IFS= read -r staged_path; do
   case "$staged_path" in
     content/*|\
@@ -147,6 +153,7 @@ while IFS= read -r staged_path; do
       ;;
   esac
 done <<< "$(git diff --cached --name-only --diff-filter=ACMRD)"
+fi
 
 if [[ "$CODEX_SKILL_SYNC_REQUIRED" == "true" ]]; then
   echo "[pre-commit] Checking staged Codex native skill sync..."
@@ -214,17 +221,6 @@ if git diff --cached --name-only | grep -q "^content/"; then
     STAMPED_AGENT_FILES+=("$REPO_DIR/$line")
   done < <(echo "$STAMP_OUTPUT" | sed -n 's/^stamp-agent-fragments: stamped //p')
   bash "$REPO_DIR/.claude/build.sh"
-  bash "$REPO_DIR/.codex/build.sh"
-  bash "$REPO_DIR/.cursor/build.sh"
-  bash "$REPO_DIR/.gemini/build.sh"
-  bash "$REPO_DIR/.hermes/build.sh"
-  bash "$REPO_DIR/.kimi/build.sh"
-  bash "$REPO_DIR/.omp/build.sh"
-  bash "$REPO_DIR/.openclaw/build.sh"
-  bash "$REPO_DIR/.opencode/build.sh"
-  bash "$REPO_DIR/.pi/build.sh"
-  bash "$REPO_DIR/.copilot/build.sh"
-  bash "$REPO_DIR/scripts/check-codex-skill-sync.sh"
 
   # Stage generated files
   # content/agents/*.md is hand-authored source, not generated - stage only
@@ -237,7 +233,23 @@ if git diff --cached --name-only | grep -q "^content/"; then
   git add \
     "$REPO_DIR/.claude/commands/"*.md \
     "$REPO_DIR/.claude/skills/dinostack/METHODOLOGY.md" \
-    "$REPO_DIR/.claude/skills/dinostack/SKILL.md" \
+    "$REPO_DIR/.claude/skills/dinostack/SKILL.md"
+
+  # The other adapters are built and staged only under DS_ALL_HARNESSES=1;
+  # otherwise the catch-up chore regenerates them.
+  if [[ "${DS_ALL_HARNESSES:-}" == "1" ]]; then
+  bash "$REPO_DIR/.codex/build.sh"
+  bash "$REPO_DIR/.cursor/build.sh"
+  bash "$REPO_DIR/.gemini/build.sh"
+  bash "$REPO_DIR/.hermes/build.sh"
+  bash "$REPO_DIR/.kimi/build.sh"
+  bash "$REPO_DIR/.omp/build.sh"
+  bash "$REPO_DIR/.openclaw/build.sh"
+  bash "$REPO_DIR/.opencode/build.sh"
+  bash "$REPO_DIR/.pi/build.sh"
+  bash "$REPO_DIR/.copilot/build.sh"
+  bash "$REPO_DIR/scripts/check-codex-skill-sync.sh"
+  git add \
     "$REPO_DIR/.codex/AGENTS.md" \
     "$REPO_DIR/.codex/agents/"*.toml \
     "$REPO_DIR/.codex/skills" \
@@ -279,6 +291,7 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.github/instructions/"*.md \
     "$REPO_DIR/.github/hooks/"* \
     "$REPO_DIR/.copilot/references/"*.md
+  fi
 
   echo "[pre-commit] Generated files staged."
 fi

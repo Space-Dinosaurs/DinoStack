@@ -44,6 +44,13 @@
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
+# Runs the real .cursor/install.sh and .opencode/install.sh, which rebuild their adapter dirs in the live
+# checkout: a non-Claude harness test, run only under DS_ALL_HARNESSES=1.
+if [ "${DS_ALL_HARNESSES:-}" != 1 ]; then
+  echo "SKIP: non-Claude harness test (set DS_ALL_HARNESSES=1 to run)"
+  exit 0
+fi
+
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 CURSOR_INSTALL="$REPO_DIR/.cursor/install.sh"
 OPENCODE_INSTALL="$REPO_DIR/.opencode/install.sh"

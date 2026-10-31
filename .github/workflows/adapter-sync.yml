@@ -11,6 +11,12 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+# Claude Code first (root AGENTS.md): a methodology PR regenerates only
+# `.claude`. The non-Claude adapters are rebuilt and drift-checked only on
+# the on-demand catch-up chore PR, whose branch starts with
+# `chore/adapter-catch-up`, which sets DS_ALL_HARNESSES.
+env:
+  DS_ALL_HARNESSES: ${{ startsWith(github.head_ref, 'chore/adapter-catch-up') && '1' || '' }}
 jobs:
   check-adapter-sync:
     runs-on: ubuntu-latest
@@ -21,9 +27,25 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install pyyaml
-      - name: Rebuild all adapters
+      - name: Rebuild the Claude Code adapter
+        run: bash .claude/build.sh
+      - name: Verify adapter-sync pathspec entries exist
         run: |
-          bash .claude/build.sh
+          for p in .claude; do
+            if [[ ! -e "$p" ]]; then
+              echo "::error::adapter-sync pathspec entry missing: $p (drift check would silently pass on this)" >&2
+              exit 1
+            fi
+          done
+      - name: Fail on adapter drift
+        run: |
+          if ! git diff --exit-code -- .claude; then
+            echo "::error::Claude Code adapter output is out of sync with content/. Run bash .claude/build.sh locally and commit the regenerated files." >&2
+            exit 1
+          fi
+      - name: Rebuild the non-Claude adapters
+        if: env.DS_ALL_HARNESSES == '1'
+        run: |
           bash .cursor/build.sh
           bash .codex/build.sh
           bash .gemini/build.sh
@@ -34,19 +56,21 @@ jobs:
           bash .hermes/build.sh
           bash .openclaw/build.sh
           bash .copilot/build.sh
-      - name: Verify adapter-sync pathspec entries exist
+      - name: Verify non-Claude adapter-sync pathspec entries exist
+        if: env.DS_ALL_HARNESSES == '1'
         run: |
-          for p in .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot \
+          for p in .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot \
                    .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills; do
             if [[ ! -e "$p" ]]; then
               echo "::error::adapter-sync pathspec entry missing: $p (drift check would silently pass on this)" >&2
               exit 1
             fi
           done
-      - name: Fail on adapter drift
+      - name: Fail on non-Claude adapter drift
+        if: env.DS_ALL_HARNESSES == '1'
         run: |
-          if ! git diff --exit-code -- .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills; then
-            echo "::error::Adapter output is out of sync with content/. Run the build scripts locally and commit the regenerated adapter files." >&2
+          if ! git diff --exit-code -- .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills; then
+            echo "::error::Non-Claude adapter output is out of sync with content/. Run bash scripts/build-all.sh and commit the regenerated adapter files." >&2
             exit 1
           fi
       - name: Verify Codex hook commands resolve (DS-57 regression guard)

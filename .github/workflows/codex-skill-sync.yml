@@ -17,14 +17,23 @@ permissions:
   contents: read
 
 jobs:
-  # Required PR/push status check (context: "check-codex-skill-sync", pinned
-  # in the `main` branch ruleset). Ubuntu-only - this job MUST NOT carry a
-  # strategy.matrix key. GitHub Actions appends " (<matrix value>)" to the
-  # reported check name for ANY job with a matrix block, even a single-value
-  # one - verified against a real public job (materialyzeai/maml's
-  # .github/workflows/lint.yml `build` job, `matrix: { python-version:
-  # [3.11] }`) whose actual run reported as "build (3.11)", not "build". A
-  # matrix here would make the required context unsatisfiable again.
+  # Advisory, not required (removed from the `main` ruleset 2026-10-31). Claude
+  # Code first (root AGENTS.md): a methodology PR regenerates only `.claude`,
+  # so the Codex mirror is EXPECTED to be stale on every such PR and on `main`
+  # until the on-demand catch-up chore. This job therefore runs only where it
+  # can be green: on the catch-up chore PR (branch `chore/adapter-catch-up*`)
+  # and on workflow_dispatch. A `paths:` filter was not used: it would skip
+  # the content/ edits that make the mirror stale, and go red on any PR that
+  # touches `.codex/**` while `main` is mid-lag, for reasons that PR did not
+  # cause.
+  #
+  # Ubuntu-only - this job MUST NOT carry a strategy.matrix key. GitHub
+  # Actions appends " (<matrix value>)" to the reported check name for ANY
+  # job with a matrix block, even a single-value one - verified against a
+  # real public job (materialyzeai/maml's .github/workflows/lint.yml `build`
+  # job, `matrix: { python-version: [3.11] }`) whose actual run reported as
+  # "build (3.11)", not "build". A matrix here would rename the
+  # "check-codex-skill-sync" context.
   #
   # No secondary-platform leg: across all 1,534 historical runs of this
   # workflow, the (now-removed) non-Linux job never caught a cross-platform
@@ -34,8 +43,11 @@ jobs:
   # escape passes through python3; see that file around lines 428-447).
   # Removed rather than demoted to a weekly cron.
   check-codex-skill-sync:
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'chore/adapter-catch-up') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      DS_ALL_HARNESSES: '1'
     steps:
       # Step-level timeouts below are per the bin-tests.yml TIMEOUT POLICY:
       # job-level timeout-minutes is a BACKSTOP ONLY, not a substitute for

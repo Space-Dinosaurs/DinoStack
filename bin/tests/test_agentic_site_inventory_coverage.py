@@ -38,8 +38,8 @@ Purpose: Coverage-diff gate for DS-171's repo-root anchoring fix. Re-derives
     ".pi/extensions/dinostack" (index.ts) entirely): the eight SCAN_DIRS
     adapter entries above were derived by enumerating the FULL set of
     adapter roots this repo builds (the 11-entry pathspec asserted by
-    ".github/workflows/adapter-sync.yml"'s "Verify adapter-sync pathspec
-    entries exist" step: .claude .codex .cursor .gemini .kimi .opencode
+    ".github/workflows/adapter-sync.yml"'s two "Verify ... adapter-sync
+    pathspec entries exist" steps: .claude .codex .cursor .gemini .kimi .opencode
     .omp .pi .hermes .openclaw .copilot, plus the .github/* subpaths),
     then running `find <each-root> -maxdepth 2 -type d` over all 11 and
     keeping every directory name matching hook/plugin/extension/script.

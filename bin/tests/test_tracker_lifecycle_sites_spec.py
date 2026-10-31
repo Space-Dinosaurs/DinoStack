@@ -63,6 +63,7 @@ import re
 from pathlib import Path
 
 import pytest
+from harness_scope import scoped
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -717,7 +718,7 @@ def test_w1_block_byte_identical_across_adapters():
     canonical = None
     canonical_path = None
     mismatches = []
-    for path in ADAPTER_PATHS:
+    for path in scoped(REPO_ROOT, ADAPTER_PATHS):
         text = path.read_text(encoding="utf-8")
         block = _extract_w1_block(text)
         # .gemini/commands/*.toml embeds the block inside a TOML

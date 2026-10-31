@@ -45,6 +45,9 @@
 #   DS_CHECK_LOCAL_BASH5_CANDIDATES - colon-separated extra paths to search
 #            for a bash >= 5 when the `bash` on PATH is older (macOS ships
 #            3.2). Defaults to /usr/local/bin/bash:/opt/homebrew/bin/bash.
+#   DS_ALL_HARNESSES=1 - also build and check the non-Claude adapters (the
+#            catch-up chore). Unset, only .claude/ is built and drift-checked
+#            and the other adapter dirs are left untouched.
 #
 # Upstream dependencies: bash >= 5, node + npm + npm ci, python3 + pytest +
 #            pytest-timeout + pytest-xdist + pyyaml, zsh, gitleaks,
@@ -321,9 +324,13 @@ RUN_START=$(date +%s)
 if _require_file scripts/stamp-agent-fragments.sh; then
   _run_gate "stamp-agent-fragments.sh" "$BASH5" scripts/stamp-agent-fragments.sh
 fi
-if _require_file scripts/build-all.sh; then
+BUILD_GATE=.claude/build.sh
+if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
+  BUILD_GATE=scripts/build-all.sh
+fi
+if _require_file "$BUILD_GATE"; then
   _failed_before_build="$FAILED"
-  _run_gate "build-all.sh" "$BASH5" scripts/build-all.sh
+  _run_gate "$BUILD_GATE" "$BASH5" "$BUILD_GATE"
   # The tree is now freshly built, so the installer tests below need not
   # rebuild it on every one of their .claude/install.sh runs (see the
   # AE_INSTALL_SKIP_BUILD block there). Only when the build passed: otherwise
@@ -337,22 +344,35 @@ fi
 # silently exits 0 on a nonexistent pathspec, so this step is what stops the
 # drift check below from asserting nothing.
 _run_snippet "adapter-sync pathspec entries exist" '
-for p in .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot \
+for p in .claude; do
+  if [[ ! -e "$p" ]]; then
+    echo "adapter-sync pathspec entry missing: $p (drift check would silently pass on this)" >&2
+    exit 1
+  fi
+done'
+if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
+  _run_snippet "non-Claude adapter-sync pathspec entries exist" '
+for p in .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot \
          .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills; do
   if [[ ! -e "$p" ]]; then
     echo "adapter-sync pathspec entry missing: $p (drift check would silently pass on this)" >&2
     exit 1
   fi
 done'
+fi
 
 # agent-fragment-sync.yml :: "Fail on agent-check fragment drift".
 _run_gate "agent-fragment drift (git diff --exit-code -- content/agents/)" \
   git diff --exit-code -- content/agents/
 
-# Pathspec copied VERBATIM from the `Fail on adapter drift` step in
-# .github/workflows/adapter-sync.yml. Keep the two byte-identical.
+# Pathspecs copied VERBATIM from the two drift steps in
+# .github/workflows/adapter-sync.yml. Keep them byte-identical.
 _run_gate "adapter drift (git diff --exit-code)" \
-  git diff --exit-code -- .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills
+  git diff --exit-code -- .claude
+if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
+  _run_gate "non-Claude adapter drift (git diff --exit-code)" \
+    git diff --exit-code -- .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills
+fi
 
 # --- symlink + methodology drift ------------------------------------------
 if _require_file scripts/check-symlinks-relative.sh; then
@@ -362,16 +382,18 @@ if _require_file scripts/check-methodology-drift.sh; then
   _run_gate "check-methodology-drift.sh" "$BASH5" scripts/check-methodology-drift.sh
 fi
 
-# --- codex skill sync (the cheap half only) --------------------------------
+# --- codex skill sync (the cheap half only, DS_ALL_HARNESSES=1) -----------
 # codex-skill-sync.yml's own bootstrap step comes first; the full
 # scripts/test/test_codex_skills.py suite is NOT run here - see the NOT-RUN
 # block at the end.
-if _require_file .codex/lib/prompt-wrappers.py; then
-  _run_gate "codex prompt-wrapper bootstrap" \
-    python3 .codex/lib/prompt-wrappers.py build --repo .
-fi
-if _require_file scripts/check-codex-skill-sync.sh; then
-  _run_gate "check-codex-skill-sync.sh" "$BASH5" scripts/check-codex-skill-sync.sh
+if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
+  if _require_file .codex/lib/prompt-wrappers.py; then
+    _run_gate "codex prompt-wrapper bootstrap" \
+      python3 .codex/lib/prompt-wrappers.py build --repo .
+  fi
+  if _require_file scripts/check-codex-skill-sync.sh; then
+    _run_gate "check-codex-skill-sync.sh" "$BASH5" scripts/check-codex-skill-sync.sh
+  fi
 fi
 
 # --- no-planning-docs.yml --------------------------------------------------
@@ -482,7 +504,11 @@ NOT RUN LOCALLY (run in CI):
   above does NOT mean CI will be green. Run any of them by hand when your
   change touches what it covers.
 
-  codex-skill-sync.yml - the full Codex skill suite (~8-20 min in CI):
+  non-Claude harnesses - skipped unless DS_ALL_HARNESSES=1, which the
+  on-demand catch-up chore sets (see CONTRIBUTING.md):
+      DS_ALL_HARNESSES=1 bash scripts/check-local.sh
+  codex-skill-sync.yml - the full Codex skill suite (~8-20 min in CI), part
+  of the catch-up chore:
       python3 scripts/test/test_codex_skills.py
       python3 scripts/test/test_codex_skills.py --clean-clone
       bash .codex/build.sh && git diff --exit-code
