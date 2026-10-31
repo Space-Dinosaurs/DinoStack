@@ -144,7 +144,7 @@ Unset by default. Set to `1` to disable the named guard for a session.
 | `AE_TURN_SHAPE_GUARD_DISABLE=1` | guard active | Turn-shape guard - all three of the hook's checks as of DS-ANSWERFIRST: the blocking structural check (`_execution_prose_flag`, including its `SLOT_LINE_MAX_COUNT` slot-line count and duplicate-label bound), the blocking zero-warrant status-only check (`_status_only_flag`, restored by DS-ANSWERFIRST), and the advisory operator-decisions per-item check (`_decision_item_sprawl_flag`). There is no per-check kill switch (only relevant when `turn_shape_guard_enabled: true`) |
 | `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1` | guard active | Worktree-isolation-spawn enforcement hook (`hooks/enforce-worktree-isolation-spawn.py`) |
 | `AE_WORKTREE_READ_GUARD_DISABLE=1` | guard active | Worktree-isolation Read guard (`hooks/enforce-worktree-read.py`) |
-| `AE_WORKTREE_REAP_DISABLE=1` | reap active | SessionStart worktree sweep (`hooks/session-start-wrap.sh` launching `bin/ds-cleanup-worktrees`; see `content/references/worktree-lifecycle.md` §Session-start prune script) - set, the hook launches nothing |
+| `AE_WORKTREE_REAP_DISABLE=1` | reap active | SessionStart worktree sweep, Claude Code only (`hooks/session-start-wrap.sh` launching `bin/ds-cleanup-worktrees`; see `content/references/worktree-lifecycle.md` §Session-start prune script) - set, the hook launches nothing |
 | `AE_WORKTREE_WRITE_GUARD_DISABLE=1` | guard active | Worktree-isolation Write/Edit/MultiEdit guard (`hooks/enforce-worktree-write.py`) |
 | `AGENTIC_QUIET=1` | output enabled | Version-check hook user-facing output |
 | `AGENTIC_WRAP_DAEMON=1` | (unset) | **INTERNAL** - set by the deferred-wrap daemon only; users must not set this |

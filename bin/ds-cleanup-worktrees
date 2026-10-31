@@ -2852,12 +2852,37 @@ def _ignored_archive_members(worktree_path: str) -> Tuple[Optional[List[str]], s
     return members, ""
 
 
+def _ignored_archive_matches(archive: Path, worktree_path: str, members: List[str]) -> bool:
+    """True when `archive` reads back and holds every current member with
+    the same type, size, mtime (regular file) or link target (symlink) -
+    an earlier archive of this worktree and HEAD that still covers it."""
+    try:
+        with tarfile.open(archive, "r:gz") as tar:
+            stored = {info.name: info for info in tar.getmembers()}
+        for rel in members:
+            info = stored.get(rel)
+            path = os.path.join(worktree_path, rel)
+            st = os.lstat(path)
+            if info is None:
+                return False
+            if stat.S_ISLNK(st.st_mode):
+                if not info.issym() or info.linkname != os.readlink(path):
+                    return False
+            elif not info.isreg() or info.size != st.st_size or int(info.mtime) != int(st.st_mtime):
+                return False
+    except (OSError, tarfile.TarError):
+        return False
+    return True
+
+
 def _archive_ignored_files(repo: str, worktree_path: str, label: str, sha: str) -> Tuple[bool, str, Optional[str]]:
     """Saves the worktree's gitignored non-build files to
     `~/.agentic/worktree-archive/<repo>/<name>.ignored.tgz` before a
     removal. Returns `(ok, detail, tgz_path)`; `ok=False` means the caller
     must not remove the worktree. Nothing to save is `ok=True` with no path.
-    The archive is re-read and every member checked before it counts."""
+    The archive is re-read and every member checked before it counts. An
+    existing archive of the same worktree and HEAD that still matches every
+    member (`_ignored_archive_matches`) is reused rather than copied again."""
     members, error = _ignored_archive_members(worktree_path)
     if members is None:
         return False, error, None
@@ -2868,7 +2893,11 @@ def _archive_ignored_files(repo: str, worktree_path: str, label: str, sha: str) 
         archive_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return False, f"could not create archive directory {archive_dir}: {exc}", None
-    dest = _unused_archive_path(archive_dir, _archive_stem(worktree_path, label, sha), ".ignored.tgz")
+    stem = _archive_stem(worktree_path, label, sha)
+    existing = archive_dir / f"{stem}.ignored.tgz"
+    if existing.is_file() and _ignored_archive_matches(existing, worktree_path, members):
+        return True, f"reused {existing} ({len(members)} ignored file(s) unchanged)", str(existing)
+    dest = _unused_archive_path(archive_dir, stem, ".ignored.tgz")
     tmp = dest.with_name(f"{dest.name}.tmp-{os.getpid()}")
     try:
         with tarfile.open(tmp, "w:gz") as tar:
@@ -2928,6 +2957,7 @@ def _salvage_and_remove(
     bundle: Optional[str] = None,
     restore_note: Optional[str] = None,
     size_kb: Optional[int] = None,
+    expected_head: Optional[str] = None,
 ) -> Dict:
     """Round-6 requirement (Skeptic Major 1): the SINGLE salvage-then-remove
     sequence both the plain REMOVE loop and the `--archive-unproven`
@@ -2954,6 +2984,9 @@ def _salvage_and_remove(
                           `_salvage_telemetry`'s own docstring requires).
       `salvaged`        - True when telemetry was actually copied (not
                           merely "nothing to salvage").
+      `head_moved`      - present and True when `expected_head` was given
+                          and HEAD no longer matched it immediately before
+                          `git worktree remove`, which was then NOT invoked.
       `removed`         - True when `git worktree remove` succeeded AND the
                           directory is actually gone from disk afterward
                           (either because git removed it, or because a
@@ -2999,7 +3032,7 @@ def _salvage_and_remove(
     if not ignored_ok:
         return {"ignored_archive_failed": True, "salvage_failed": False, "salvaged": False,
                 "removed": False, "already_unregistered": False, "detail": ignored_detail}
-    outcome = _salvage_then_git_remove(repo, worktree_path, branch)
+    outcome = _salvage_then_git_remove(repo, worktree_path, branch, expected_head)
     outcome["ignored_archive_failed"] = False
     outcome["ignored_archive"] = tgz
     if outcome["removed"] and (tgz or bundle):
@@ -3007,7 +3040,9 @@ def _salvage_and_remove(
     return outcome
 
 
-def _salvage_then_git_remove(repo: str, worktree_path: str, branch: Optional[str]) -> Dict:
+def _salvage_then_git_remove(
+    repo: str, worktree_path: str, branch: Optional[str], expected_head: Optional[str] = None
+) -> Dict:
     """`_salvage_and_remove`'s body after the ignored-file archive; see its
     docstring for the returned keys."""
     salvage_ok, salvage_detail = _salvage_telemetry(repo, worktree_path, branch)
@@ -3016,6 +3051,12 @@ def _salvage_then_git_remove(repo: str, worktree_path: str, branch: Optional[str
                 "already_unregistered": False, "detail": salvage_detail}
 
     salvaged = salvage_detail.startswith("salvaged to ")
+    if expected_head is not None:
+        current = _head_sha(worktree_path)
+        if current != expected_head:
+            return {"salvage_failed": False, "head_moved": True, "salvaged": salvaged, "removed": False,
+                    "already_unregistered": False,
+                    "detail": f"HEAD is {current}, not the bundled {expected_head}"}
     proc = _run(["git", "-C", repo, "worktree", "remove", worktree_path])
     if proc.returncode == 0:
         if Path(worktree_path).exists():
@@ -4733,10 +4774,30 @@ def _run_repo(
                 # away from `ARCHIVED_AND_REMOVED`, the only outcome
                 # `reclaimed_kb` sums over for archived entries (see
                 # `_bump_if_unknown`'s own docstring).
+                expected_head = None
+                if not branch:
+                    heads = _run(["git", "-C", path, "bundle", "list-heads", bundle_path]).stdout.split()
+                    bundled_tip = heads[0] if heads[1:2] == ["HEAD"] else None
+                    if bundled_tip is None or bundled_tip != r.get("head"):
+                        print(
+                            f"WARNING: {path} bundled HEAD {bundled_tip} is not the evaluated HEAD "
+                            f"{r.get('head')} - worktree NOT removed (bundle={bundle_path})",
+                            file=sys.stderr,
+                        )
+                        continue
+                    expected_head = bundled_tip
                 size_kb = _measure_into(r) if args.measure_size else None
                 outcome = _salvage_and_remove(
-                    repo, path, branch, bundle=bundle_path, restore_note=f"{prereq}; {restore}", size_kb=size_kb
+                    repo, path, branch, bundle=bundle_path, restore_note=f"{prereq}; {restore}",
+                    size_kb=size_kb, expected_head=expected_head,
                 )
+                if outcome.get("head_moved"):
+                    print(
+                        f"WARNING: {path} HEAD moved after it was bundled ({outcome['detail']}) - "
+                        f"worktree NOT removed (bundle={bundle_path})",
+                        file=sys.stderr,
+                    )
+                    continue
                 if outcome["ignored_archive_failed"]:
                     print(
                         f"WARNING: ignored-file archive failed for {path} (branch={label}) after "

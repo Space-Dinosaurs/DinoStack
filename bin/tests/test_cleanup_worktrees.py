@@ -1750,6 +1750,62 @@ def test_archive_unproven_archives_detached_head(tmp_path):
     assert [row.split("\t")[2:4] for row in manifest] == [["DETACHED", sha]]
 
 
+def test_archive_unproven_skips_detached_head_moved_after_bundling(tmp_path, monkeypatch, capsys):
+    """A detached HEAD that moves after it was bundled (here: inside the
+    telemetry salvage step, the last step before `git worktree remove`) must
+    not be removed - the bundle no longer holds its tip."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = repo / ".claude" / "worktrees" / "agent-moved"
+    wt.parent.mkdir(parents=True)
+    _git(repo, "worktree", "add", "-q", "--detach", str(wt))
+    (wt / "work.txt").write_text("first\n")
+    _git(wt, "add", "work.txt")
+    _git(wt, "commit", "-q", "-m", "first")
+
+    mod = _load_module_directly()
+    real_salvage = mod._salvage_telemetry
+
+    def salvage_then_commit(repo_arg, path, branch):
+        (wt / "work.txt").write_text("second\n")
+        _git(wt, "commit", "-q", "-am", "second")
+        return real_salvage(repo_arg, path, branch)
+
+    monkeypatch.setattr(mod, "_salvage_telemetry", salvage_then_commit)
+    monkeypatch.setenv("PATH", f"{_fake_gh_dir(tmp_path)}{os.pathsep}{os.environ['PATH']}")
+    rc = mod.main([
+        "--repo", str(repo), "--base", "main", "--explain", "--min-age-hours", "0",
+        "--activity-window-hours", "0", "--archive-unproven",
+    ])
+    out = capsys.readouterr()
+    assert rc == 0, out.err
+    assert wt.is_dir() and str(wt) in worktree_paths(repo), out.out
+    assert "HEAD moved after it was bundled" in out.err, out.err
+    assert "archived-and-removed=0" in summary_line(out.out), out.out
+
+
+def test_ignored_file_archive_is_reused_for_same_worktree_and_head(tmp_path):
+    """A second removal attempt for the same worktree and HEAD reuses the
+    earlier archive when it still matches; a changed file gets a new one."""
+    mod = _load_module_directly()
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, "evals/\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-reuse", "worktree-agent-reuse")
+    (wt / "evals").mkdir()
+    (wt / "evals" / "data.txt").write_text("v1\n")
+    sha = _git(wt, "rev-parse", "HEAD").stdout.strip()
+
+    first = mod._archive_ignored_files(str(repo), str(wt), "worktree-agent-reuse", sha)
+    second = mod._archive_ignored_files(str(repo), str(wt), "worktree-agent-reuse", sha)
+    assert first[0] and second[0], (first, second)
+    assert second[2] == first[2], (first, second)
+    assert len(list(archive_dir_for(repo).glob("*.ignored.tgz"))) == 1
+
+    (wt / "evals" / "data.txt").write_text("v2 longer\n")
+    third = mod._archive_ignored_files(str(repo), str(wt), "worktree-agent-reuse", sha)
+    assert third[0] and third[2] != first[2], third
+    assert len(list(archive_dir_for(repo).glob("*.ignored.tgz"))) == 2
+
+
 # --------------------------------------------------------------------------
 # DS-191. A compact bundle excludes objects already reachable from the
 #     resolved base branch, so the bundle is materially smaller than a
