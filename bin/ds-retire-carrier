@@ -63,10 +63,13 @@ Upstream deps: git (subprocess, via PATH); bin/ds-cleanup-worktrees
                PATH-symlink invocation still finds it); bin/_lib.py `_run`;
                env `AE_SESSION_ID` / `CLAUDE_CODE_SESSION_ID` (owner default).
 
-Downstream consumers: content/commands/ds-implement-ticket.md (Phase 8
-                      post-push cleanup, fan-out pre-run and worktree
-                      cleanup, BLOCKED explicit hold, Phase 8.5 QA evidence
-                      worktree); content/references/worktree-lifecycle.md,
+Downstream consumers: bin/ds-ticket-commit (Phase 8 post-push cleanup and
+                      unpushed-commit hold), bin/ds-ticket-finish (Phase 12
+                      carrier retirement and hold re-runs);
+                      content/commands/ds-implement-ticket.md (fan-out
+                      pre-run and worktree cleanup, BLOCKED explicit hold,
+                      Phase 8.5 QA evidence worktree);
+                      content/references/worktree-lifecycle.md,
                       content/sections/11-worktree-lifecycle.md,
                       content/rules/conventions.md,
                       content/references/subagent-protocol.md,
@@ -75,7 +78,8 @@ Downstream consumers: content/commands/ds-implement-ticket.md (Phase 8
                       content/commands/ds-wrap.md Step 5 (`--list-holds`);
                       scripts/codex-skills.py `CODEX_SPAWN_CONTRACT`;
                       CI: bin/tests/test_retire_carrier.py,
-                      bin/tests/test_phase8_worktree_cleanup.sh.
+                      bin/tests/test_phase8_worktree_cleanup.sh,
+                      bin/tests/test_ticket_finish_cli.sh.
 
 Failure modes: every indeterminate read fails closed to a hold, never a
                removal: a git error on status reads as dirty; a fetch,

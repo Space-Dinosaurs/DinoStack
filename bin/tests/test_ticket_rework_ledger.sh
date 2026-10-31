@@ -3,7 +3,8 @@
 #          blocks in content/commands/ds-implement-ticket.md:
 #            1. the Phase 1 per-ticket variable reset  (RESET_MARKER)
 #            2. the Phase 1 detection read             (READ_MARKER)
-#            3. the Phase 9 ledger write               (WRITE_MARKER)
+#            3. the Phase 9 ledger-write call site     (WRITE_MARKER),
+#               which runs bin/ds-ticket-finish ledger
 #          All three are EXTRACTED FROM THE SHIPPED SPEC by their marker
 #          comment and executed, not copied here, so this test fails if the
 #          spec's bash drifts from the behaviour the spec's own prose
@@ -58,7 +59,8 @@
 #             .github/workflows/bin-tests.yml - no orphans entry needed.
 #
 # Upstream deps: bash, jq, python3, mktemp. Reads
-#                content/commands/ds-implement-ticket.md from the checkout.
+#                content/commands/ds-implement-ticket.md and runs
+#                bin/ds-ticket-finish from the checkout.
 #
 # Downstream consumers: developer running locally before commit; CI
 #                       (.github/workflows/bin-tests.yml).
@@ -169,6 +171,8 @@ GH
 chmod +x "$TMP_ROOT/bin/gh"
 export PATH="$TMP_ROOT/bin:$PATH"
 cd "$WORK" || exit 1
+# The call site runs "$REPO_DIR/bin/ds-ticket-finish" against this checkout.
+export REPO_DIR REPO="$WORK"
 
 _write() { # _write - run the Phase 9 block with the caller's env
   env "$@" bash -c "source '$WRITE_BLOCK'"

@@ -2262,7 +2262,7 @@
           <li><strong>Base branch resolution:</strong> prefer an explicit <code>BASE_BRANCH:</code> declaration in <code>AGENTS.md</code>, else the remote's default branch, else a local <code>develop</code>, else a local <code>development</code>, else <code>main</code> (falling back to <code>master</code>). Resolution never prompts.</li>
           <li><strong>Branch naming:</strong> <code>feature/&lt;name&gt;</code>, <code>fix/&lt;name&gt;</code>, <code>chore/&lt;name&gt;</code>.</li>
           <li><strong>Commit each fix immediately.</strong> Never accumulate uncommitted changes. After each validated fix: create branch, commit, PR, merge, pull - then start the next fix.</li>
-          <li><strong>Repo hygiene tooling:</strong> <code>bin/ds-branch-prune</code> prunes squash-merged local branches via a squash-aware subsumption predicate; <code>bin/ds-base-sync</code> fast-forwards the local base branch after a merge without a checkout.</li>
+          <li><strong>Repo hygiene tooling:</strong> <code>bin/ds-branch-prune</code> prunes squash-merged local branches via a squash-aware subsumption predicate; <code>bin/ds-base-sync</code> fast-forwards the local base branch after a merge without a checkout; <code>bin/ds-ticket-commit</code> (Phase 8 commit, telemetry commit, verified push, worktree retirement) and <code>bin/ds-ticket-finish</code> (Phase 9 rework-ledger write, Phase 11e knowledge commit, Phase 12 auto-merge, base sync, carrier retirement) run <code>/ds-implement-ticket</code>'s post-implementation shell as scripts.</li>
         </ul>
       </div>
     </div>

@@ -4,7 +4,7 @@ Purpose: Builds hermetic, disposable git repo fixtures that reproduce the
          methodology's markdown can run against. Two families live here:
          (a) the six Phase 8 commit-and-telemetry shapes
          (@harness:phase8-commit-and-telemetry in
-         content/commands/ds-implement-ticket.md) - the DinoStack repo itself,
+         bin/ds-ticket-commit) - the DinoStack repo itself,
          an /ds-init-project-scaffolded consumer repo, a single-engineer
          worktree (WORKTREE_PATH-resolved PR checkout), a fan-out primary
          checkout, an unconfirmed-identity operator, and a confirmed identity

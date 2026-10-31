@@ -52,7 +52,6 @@ ALLOWLISTED_FIRST_LINES = [
     re.compile(r"^PR_NUMBER=<captured-from-Phase-9>$"),
     re.compile(r'^\s*RUN_ID=\$\(gh run list --pr "\$PR_NUMBER"'),
     re.compile(r'^\s*if \[ -f \.github/CODEOWNERS \]'),
-    re.compile(r"^rm -f \.agentic/qa\.md\.snapshot-<ticket_id>"),
 ]
 
 BASH_FENCE_RE = re.compile(r"```bash\n(.*?)\n```", re.S)

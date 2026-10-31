@@ -65,7 +65,7 @@
 #                bin/ds-cleanup-worktrees (advisory note only; missing/failing
 #                is silently skipped, never fatal).
 #
-# Downstream consumers: content/commands/ds-implement-ticket.md Phase 12
+# Downstream consumers: bin/ds-ticket-finish merge (/ds-implement-ticket Phase 12)
 #                       (repo-relative invocation), content/rules/
 #                       conventions.md Conductor preflight step 6 (PATH
 #                       invocation).

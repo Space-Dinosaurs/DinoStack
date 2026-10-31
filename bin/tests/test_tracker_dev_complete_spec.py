@@ -75,6 +75,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 CANONICAL_PATH = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
+TICKET_FINISH_PATH = REPO_ROOT / "bin" / "ds-ticket-finish"
 STATUS_SYNC_PATH = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
 WRAP_PATH = REPO_ROOT / "content" / "commands" / "ds-wrap.md"
 INIT_PROJECT_PATH = REPO_ROOT / "content" / "commands" / "ds-init-project.md"
@@ -428,15 +429,18 @@ def test_no_shipped_prose_promises_an_automatic_terminal_done():
     assert "leaves the final Done transition unfired" not in status_sync_text
     assert "leaves the final dev-complete transition unfired" in status_sync_text
 
-    # 2. ds-implement-ticket.md's W7 operator-facing echo note.
-    assert (
-        'the Done transition is pushed automatically by the session-start '
-        'pending-merge sweep' not in implement_ticket_text
-    )
+    # 2. The W7 operator-facing echo note, in the Phase 12 block that
+    # bin/ds-ticket-finish runs for ds-implement-ticket.md.
+    ticket_finish_text = TICKET_FINISH_PATH.read_text(encoding="utf-8")
+    for text in (implement_ticket_text, ticket_finish_text):
+        assert (
+            'the Done transition is pushed automatically by the session-start '
+            'pending-merge sweep' not in text
+        )
     assert (
         "the dev-complete transition is pushed automatically by the "
         "session-start pending-merge sweep within one session boot of the merge"
-        in implement_ticket_text
+        in ticket_finish_text
     )
 
     # 3. ds-implement-ticket.md's W7 Note (the human-merge-path fallback

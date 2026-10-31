@@ -148,7 +148,8 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # Lowered for the route-gated split (open-goal, batch, orchestration units).
 # Lowered for the route-gated split (Phase 11e knowledge commit).
 # Lowered for the route-gated split (QA evidence publishing, Tracker Create Helper).
-THRESHOLD_BYTES=297314
+# Lowered for the Phase 8/9/12 shell moved into bin/ds-ticket-commit and bin/ds-ticket-finish.
+THRESHOLD_BYTES=285406
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

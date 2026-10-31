@@ -423,7 +423,7 @@ Mechanized form of the row above: `content/references/conventions-detail.md` §A
 Before any phase, read the project's `AGENTS.md` and extract the following values:
 
 - `REPO` — absolute path to the repo root
-- `REPO_DIR` — absolute path to the **dinostack / DinoStack install** (NOT the same as `REPO` - `REPO` is the ticket's own project checkout, `REPO_DIR` is where the `bin/`-tools live). Resolve via the canonical resolver `scripts/lib/repo-dir.sh` (`resolve_repo_dir`): read `repo_dir` from `~/.agentic/agentic-engineering-config.json` if present and a valid git repo; else fall back to `~/DinoStack`. Used by `bin/ds-resolve-worktree` (Phase 8 cleanup) and `bin/ds-base-sync` (Phase 12, repo-relative invocation).
+- `REPO_DIR` - absolute path to the **dinostack / DinoStack install** (NOT the same as `REPO` - `REPO` is the ticket's own project checkout, `REPO_DIR` is where the `bin/`-tools live). Resolve via the canonical resolver `scripts/lib/repo-dir.sh` (`resolve_repo_dir`): read `repo_dir` from `~/.agentic/agentic-engineering-config.json` if present and a valid git repo; else fall back to `~/DinoStack`. Used to call `$REPO_DIR/bin/ds-ticket-commit` (Phase 8) and `$REPO_DIR/bin/ds-ticket-finish` (Phases 9, 11e and 12), which in turn run `bin/ds-resolve-worktree`, `bin/ds-retire-carrier` and `bin/ds-base-sync` from the same install.
 - `GH_REPO` — GitHub repo slug (e.g. `org/repo-name`)
 - `BASE_BRANCH` - the branch all work is based from. Resolve in this order: (1) if declared via a `BASE_BRANCH:` line in `AGENTS.md`, use that; (2) else the remote's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`, stripping `origin/`); (3) else a local `develop` branch; (4) else a local `development` branch; (5) else `main` (fall back to `master`). Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
 - `QUALITY_CMD` — the full quality gate command to run from repo root
@@ -1941,145 +1941,30 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
 
 **Parallel path:** All commits were already made and merged in Phase 5, inside `$INTEGRATION_WORKTREE`. Phase 8 handles only post-merge fixup files not captured in the sub-branch commits. Run `git -C "$INTEGRATION_WORKTREE" status --short` to check; if non-empty, stage and commit there; if empty, skip to push.
 
-**Only run the following commit block if `status --short` was non-empty (parallel path) or on the sequential path:**
+**Which files to pass.** Pass `-- [specific files]` only on the sequential path, where the conductor itself commits in `$REPO`, and on the parallel path when `status --short` shows fixups. When the engineer already committed in its own worktree (the single-engineer and Trivial paths) or the parallel `status --short` is empty, drop `-- [specific files]` and `--message`: the feature commit is skipped and telemetry, push, and cleanup still run. Files are committed on whatever the commit checkout has checked out, so passing files while it is not on `$BRANCH_NAME` (detached HEAD included) exits 3 before anything is staged: "commit checkout is on <x>, not <branch>; if the engineer already committed, call without files". On the PR branch, a file unchanged from HEAD stages nothing and is skipped; an unmatched pathspec aborts the whole `git add` and exits 3, so name every file exactly.
 
-Stage specific files - never `git add -A` or `git add .`:
+Run `$REPO_DIR/bin/ds-ticket-commit`. Stage specific files - never `git add -A` or `git add .`. Message: imperative, whole subject including prefix ≤ 50 chars (§Commit messages); no Co-Authored-By, Generated-with, or other AI-attribution trailer - the script appends the `Developer:` and `Signed-off-by:` trailers itself.
 
 ```bash
-# @harness:phase8-commit-and-telemetry
-export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20
+"$REPO_DIR/bin/ds-ticket-commit" --repo "$REPO" --branch "$BRANCH_NAME" \
+  --worktree-path "$WORKTREE_PATH" --integration-worktree "$INTEGRATION_WORKTREE" \
+  --message "type(scope): short imperative description
 
-# Fan-out = $INTEGRATION_WORKTREE ($REPO's HEAD never switches). Sequential = $REPO.
-if [ -n "$INTEGRATION_WORKTREE" ] && [ -d "$INTEGRATION_WORKTREE" ]; then COMMIT_CHECKOUT="$INTEGRATION_WORKTREE"; else COMMIT_CHECKOUT="$REPO"; fi
-
-git -C "$COMMIT_CHECKOUT" add [specific files]
-
-# Resolve developer identity for trailer (soft-fail throughout; ds-identity may not be installed).
-# Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
-DEVELOPER=$(ds-identity show 2>/dev/null | awk '/^developer_id:/{print $NF}')
-# Clear if provisional (cmd_show emits multi-space "provisional:   true"; use flexible [[:space:]]+ match).
-if ds-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
-DEVTRAILER=${DEVELOPER:+"Developer: ${DEVELOPER}"}
-
-# Resolve DCO Signed-off-by fields (git config inherits from global; check project-local first).
-SO_NAME=$(git -C "$COMMIT_CHECKOUT" config user.name 2>/dev/null || git config --global user.name 2>/dev/null || true)
-SO_EMAIL=$(git -C "$COMMIT_CHECKOUT" config user.email 2>/dev/null || git config --global user.email 2>/dev/null || true)
-
-if [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
-  echo "WARNING: git user.name or user.email not set; skipping commit to avoid malformed DCO trailer."
-else
-  # NL assigned before the string (not inside a heredoc) so variable expansion works.
-  NL=$'
-'
-  # §Commit messages: imperative; whole subject incl. prefix ≤ 50 chars.
-  # Do not append any Co-Authored-By, Generated-with, or other AI-attribution trailer to the commit message - harness defaults that add one are overridden here.
-  COMMIT_MSG="type(scope): short imperative description${NL}${NL}More detail on what changed and why if needed.${NL}Closes [TICKET_PREFIX]-NNN${NL}${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>"
-  git -C "$COMMIT_CHECKOUT" commit -m "$COMMIT_MSG"
-fi
-
-# --- Telemetry commit (soft-fail throughout) ---
-COMMIT_TELEMETRY=$(python3 -c "
-import json, sys
-try:
-  cfg = json.load(open('$REPO/.agentic/config.json'))
-  print('true' if cfg.get('commit_telemetry', True) else 'false')
-except: print('true')
-" 2>/dev/null || echo 'true')
-
-if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
-  SESSION_LOG_SRC="$REPO/.agentic/session-log/${DEVELOPER}.jsonl"
-
-  # PR_CHECKOUT: fan-out reuses COMMIT_CHECKOUT; single-engineer uses WORKTREE_PATH.
-  if [ "$COMMIT_CHECKOUT" != "$REPO" ]; then
-    PR_CHECKOUT="$COMMIT_CHECKOUT"
-  elif [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH_NAME" ]; then
-    PR_CHECKOUT="$REPO"
-  elif [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
-    PR_CHECKOUT="$WORKTREE_PATH"
-  else
-    echo "WARNING: telemetry commit skipped - cannot resolve PR checkout for branch $BRANCH_NAME"
-    PR_CHECKOUT=""
-  fi
-
-  # Copy file into the worktree (git cannot stage outside the work tree).
-  if [ -n "$PR_CHECKOUT" ] && [ "$PR_CHECKOUT" != "$REPO" ]; then
-    mkdir -p "$PR_CHECKOUT/.agentic/session-log/"
-    cp "$SESSION_LOG_SRC" "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" 2>/dev/null || true
-  fi
-
-  # HEAD-branch guard (safety floor: never commit to the wrong branch).
-  if [ -n "$PR_CHECKOUT" ]; then
-    ACTUAL_HEAD=$(git -C "$PR_CHECKOUT" rev-parse --abbrev-ref HEAD 2>/dev/null)
-    if [ "$ACTUAL_HEAD" != "$BRANCH_NAME" ]; then
-      echo "WARNING: telemetry commit skipped - $PR_CHECKOUT is on '$ACTUAL_HEAD', expected '$BRANCH_NAME'"
-      PR_CHECKOUT=""
-    fi
-  fi
-
-  if [ -n "$PR_CHECKOUT" ] && [ -f "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" ]; then
-    # Point-of-use defeated-negation check (exact path, no probe-guessing -
-    # see bin/ds-migrate's cmd_verify_commit_path). Without this, `git add`
-    # on a defeated-negation path silently no-ops and the following
-    # `diff --cached --quiet` skips the commit with NO visible signal at
-    # all - this is the exact residual _compute_negations_defeated's
-    # probe-based sweep can miss for the 4 directory-form negations, closed
-    # here because the exact path is already known. Never redirect this
-    # check's own stdout/stderr to /dev/null.
-    TELEM_VERIFY_OUT=$(ds-migrate verify-commit-path ".agentic/session-log/${DEVELOPER}.jsonl" --project-root "$PR_CHECKOUT" 2>&1)
-    TELEM_VERIFY_RC=$?
-    if [ "$TELEM_VERIFY_RC" -eq 1 ]; then
-      echo "ERROR: [phase-8-telemetry] .agentic/session-log/${DEVELOPER}.jsonl has a negation in .gitignore that appears to target it, but git still reports it ignored (DEFEATED NEGATION) - telemetry commit skipped this run. Fix .gitignore by hand, then re-run \`ds-migrate apply\`. Detail: $TELEM_VERIFY_OUT"
-    else
-      git -C "$PR_CHECKOUT" add ".agentic/session-log/${DEVELOPER}.jsonl"
-      # Only commit if the index has a diff (avoids empty-commit on no new sessions).
-      if ! git -C "$PR_CHECKOUT" diff --cached --quiet; then
-        if [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
-          echo "WARNING: git user.name or user.email not set; skipping telemetry commit to avoid malformed DCO trailer."
-          git -C "$PR_CHECKOUT" restore --staged ".agentic/session-log/${DEVELOPER}.jsonl"
-        else
-          NL=$'
-'
-          TELEM_MSG="chore(telemetry): add session log for ${DEVELOPER}${NL}${NL}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}"
-          git -C "$PR_CHECKOUT" commit -m "$TELEM_MSG" ||           git -C "$PR_CHECKOUT" restore --staged ".agentic/session-log/${DEVELOPER}.jsonl"
-        fi
-      fi
-    fi
-    # Push here when PR_CHECKOUT != $REPO; sequential falls to the final push below.
-    if [ "$PR_CHECKOUT" != "$REPO" ]; then
-      git -C "$PR_CHECKOUT" push -u origin "$BRANCH_NAME" 2>/dev/null || true
-    fi
-  fi
-fi
-# --- End telemetry commit ---
-
-# $BRANCH_NAME is shared across all of $REPO's worktrees (only HEAD
-# differs), so this is correct even though fan-out never switches HEAD.
-git -C $REPO push -u origin [BRANCH_NAME]
-
-# --- Isolation worktree cleanup (post-push) ---
-# Retire the engineer's checkout (worktree-lifecycle.md §Carrier lifecycle by
-# purpose): ds-retire-carrier removes it only when clean, free of protected
-# ignored content, and pinning no commit that would lose its last ref; it never
-# forces, unlocks, or deletes a branch, and records a hold otherwise.
-git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
-WORKTREE_PATH=$("$REPO_DIR/bin/ds-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
-if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ] \
-   && "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$WORKTREE_PATH"; then
-  # Separate step, own proof: delete the local ref only when origin holds its tip.
-  if git -C "$REPO" ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1 \
-     && git -C "$REPO" merge-base --is-ancestor "$BRANCH_NAME" "origin/$BRANCH_NAME"; then
-    git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
-  fi
-  echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
-fi
-# Soft-fail: this entire block never blocks Phase 8 regardless of outcome -
-# a remove failure is reported (stderr + its ledger record), never fatal.
-# --- End isolation worktree cleanup ---
+More detail on what changed and why if needed.
+Closes [TICKET_PREFIX]-NNN" \
+  -- [specific files]
 ```
+
+Exit codes - every non-zero one stops Phase 8; report BLOCKED with the script's output:
+- **0**: pushed, and origin holds the local tip. The script then retires the worktree with `ds-retire-carrier` and deletes the local branch; a `[phase: worktree-cleanup | HELD | ...]` line means the checkout was kept (its hold record names why) and never fails Phase 8.
+- **1**: the push failed or could not be verified. A carrier worktree gets an explicit `BLOCKED: unpushed commit` hold (as in the engineer BLOCKED path); an `ERROR: BLOCKED hold NOT recorded` line means record it by hand. On the sequential path the branch is checked out in `$REPO` itself, so no hold is recorded and the unpushed commit stays on that branch.
+- **2**: usage error (missing `--repo`/`--branch`, files without `--message`) or `$REPO` not enterable; nothing ran.
+- **3**: the feature commit failed: files were passed while the commit checkout is not on `$BRANCH_NAME` (nothing staged; call again without files if the engineer already committed), `git add` failed (a mistyped or missing path; the ERROR line names the pathspecs), or the commit failed with changes staged (a rejecting hook, missing git identity, or a git error). No telemetry commit, push, or retirement ran; fix the cause and re-run.
+- **127**: the script is missing at `$REPO_DIR/bin/` - `$REPO_DIR` is wrong or the install predates this script.
 
 `Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).
 
-**Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `.agentic/config.json`) and identity is confirmed (non-provisional). Path-aware: fan-out uses `$PR_CHECKOUT=$INTEGRATION_WORKTREE`; single-engineer uses `$WORKTREE_PATH` from the engineer's return, captured before Phase 8 runs. Both copy the file in before staging (git cannot stage outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - a mismatched `$PR_CHECKOUT` skips with a warning, never affecting the feature commit. Fan-out and single-engineer-worktree paths push in the same block; sequential (`$PR_CHECKOUT == $REPO`) is pushed by Phase 8's unconditional push instead. A `git config user.name`/`user.email` guard mirrors the feature commit's own - if either is empty the commit is skipped (unstaged) with a WARNING, never a malformed trailer. **Eventual consistency:** the Phase 8 commit only has sessions that ended before it runs; the current session's line lands in the next ticket's commit - known, not a bug.
+**Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `.agentic/config.json`) and identity is confirmed (non-provisional). Path-aware: fan-out uses `$PR_CHECKOUT=$INTEGRATION_WORKTREE`; single-engineer uses `$WORKTREE_PATH` from the engineer's return, captured before Phase 8 runs. Both copy the file in before staging (git cannot stage outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - a mismatched `$PR_CHECKOUT` skips with a warning, never affecting the feature commit. Fan-out and single-engineer-worktree paths push in the same block; sequential (`$PR_CHECKOUT == $REPO`) is pushed by Phase 8's branch push instead. Both the telemetry commit and every push are skipped when the feature commit failed (exit 3). A `git config user.name`/`user.email` guard mirrors the feature commit's own - if either is empty the commit is skipped (unstaged) with a WARNING, never a malformed trailer. **Eventual consistency:** the Phase 8 commit only has sessions that ended before it runs; the current session's line lands in the next ticket's commit - known, not a bug.
 
 **Point-of-use defeated-negation check.** Before staging, the block runs `ds-migrate verify-commit-path .agentic/session-log/<developer_id>.jsonl --project-root $PR_CHECKOUT`. This is the exact-path counterpart to `bin/ds-migrate check`/`apply`'s manifest-wide, probe-based negation-defeat detection: `_compute_negations_defeated` must synthesize candidate probe paths for the 4 directory-form negations (`!.agentic/session-log/` + its `/**` twin, and `!.agentic/memory-shards/` + its `/**` twin) when no real file exists yet, and a defeater keyed to an unguessed name returns "ok" undetected - see that function's docstring for the full residual. At this exact commit site the target path is already known, so no guessing is needed. Exit 1 (a negation targets this path but git still reports it ignored) prints a visible `ERROR:` line and skips the commit this run - loud, unlike the silent `git add` no-op this replaces. Exit 0 covers both a genuinely reachable path and a path this project's `.gitignore` never attempted to reach at all (e.g. DinoStack's own repo, which categorically excludes `.agentic/*` by decision with zero negations) - neither is a defect, and the existing `git add` / `diff --cached --quiet` handling below is unchanged for both. Exit 2 (git missing, not a worktree, or an untrusted check result) is treated the same as exit 0 - a tooling-unavailability soft-fail must never itself block a commit that would otherwise have succeeded.
 
@@ -2318,72 +2203,12 @@ Every row is cleared at the Phase 1 per-ticket reset and re-set on this ticket's
 ```bash
 # Phase 9: ticket-rework ledger write (soft-fail; never blocks Phase 9 or anything downstream).
 # Anchored AFTER the Case A / Case B if/else above - fires for both branches, Trivial included.
-# REWORK_DETECTION / TICKET_ID / RISK_CLASS / SKEPTIC_ROUNDS / QA_STATUS are the shell-variable
-# form of the conductor's in-context state (definition sites in the table above).
-# QA_STATUS holds the QA result when QA ran, and "skipped:<qa_skip enum>" or
-# "skipped:Trivial path" / "skipped:Low path" / "skipped:single-review path" when it did not. It is empty ONLY in the degenerate
-# case where neither a result nor a rationale exists - every ordinary non-QA path carries one.
-if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
-  # pr_number derived live from the ticket currently in flight's own branch - never $PR_NUMBER.
-  TRL_PR_NUMBER=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number 2>/dev/null || true)
-
-  if [ -n "$TRL_PR_NUMBER" ]; then
-    # skeptic_rounds: prefer the value captured at Phase 6 clean exit. Empty on the Trivial
-    # path, which never reaches Phase 6 - that is a correct null, not a missing read.
-    TRL_ROUNDS="${SKEPTIC_ROUNDS:-}"
-
-    # Disk fallback for a resumed session that lost the in-context variable. TWO guards, both
-    # KEPT, for different reasons:
-    #   ticket_id  - now redundant BY CONSTRUCTION, because the file is keyed per ticket and
-    #                a wrong-ticket file is not at this path at all. Kept deliberately: it is
-    #                one jq clause, and a MIS-DERIVED $LOOP_KEY presents as exactly the
-    #                cross-ticket round-count leak this clause prevents (Trivial ticket 2
-    #                inheriting Elevated ticket 1's round count, telling the operator a
-    #                Trivial attempt got three rounds of review when it got none). Removing a
-    #                defence in the same change that introduces a new key-derivation
-    #                mechanism is the wrong direction.
-    #   phase      - Phase 6b overwrites the file with phase:qa, iteration:1. Without this
-    #                guard, an Elevated ticket that passed QA on the first try records 1
-    #                Skeptic round regardless of how many it actually took. Keying does NOT
-    #                fix this: same ticket, same key, same file.
-    if [ -z "$TRL_ROUNDS" ] && [ -f .agentic/loop-state-$LOOP_KEY.json ]; then
-      TRL_ROUNDS=$(jq -r --arg t "$TICKET_ID" '
-        select(.ticket_id == $t and .loop_state.phase == "skeptic")
-        | .loop_state.iteration // empty
-      ' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null) || TRL_ROUNDS=""
-    fi
-    case "$TRL_ROUNDS" in ''|*[!0-9]*) TRL_ROUNDS="" ;; esac
-
-    # unit_count: derived from tasks.jsonl; 1 when absent, unreadable, or no matching records.
-    # sort -u dedupes by task_id before counting - a multi-record task (e.g. pending
-    # then in_progress then done) must count once, not once per append.
-    TRL_UNITS=$(jq -r --arg t "$TICKET_ID" 'select(.ticket_id == $t) | .task_id' \
-      .agentic/tasks.jsonl 2>/dev/null | sort -u | grep -c . || true)
-    case "$TRL_UNITS" in ''|0|*[!0-9]*) TRL_UNITS=1 ;; esac
-
-    # Build the whole record first, then append it with ONE write. Do not split this append.
-    TRL_LINE=$(jq -cn \
-      --arg tid "$TICKET_ID" \
-      --argjson pr "$TRL_PR_NUMBER" \
-      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      --arg br "$BRANCH_NAME" \
-      --arg rc "$RISK_CLASS" \
-      --arg sr "${TRL_ROUNDS:-}" \
-      --arg qs "${QA_STATUS:-}" \
-      --argjson uc "$TRL_UNITS" \
-      '{ticket_id:$tid, pr_number:$pr, opened_ts:$ts, branch:$br,
-        risk_class:(if $rc == "" then null else $rc end),
-        skeptic_rounds:(if $sr == "" then null else ($sr|tonumber) end),
-        qa_status:(if $qs == "" then null else $qs end),
-        unit_count:$uc}' 2>/dev/null || true)
-
-    if [ -n "$TRL_LINE" ]; then
-      mkdir -p .agentic 2>/dev/null || true
-      printf '%s\n' "$TRL_LINE" >> .agentic/ticket-ledger.jsonl 2>/dev/null || true
-    fi
-  fi
-fi
+"$REPO_DIR/bin/ds-ticket-finish" ledger --repo "$REPO" --ticket "$TICKET_ID" --branch "$BRANCH_NAME" \
+  --gh-repo "$GH_REPO" --loop-key "$LOOP_KEY" --rework-detection "$REWORK_DETECTION" \
+  --risk-class "$RISK_CLASS" --skeptic-rounds "$SKEPTIC_ROUNDS" --qa-status "$QA_STATUS"
 ```
+
+If `ds-ticket-finish` exits 2 (usage error, or `$REPO` not enterable) or 127 (missing at `$REPO_DIR/bin/`), the step did not run: stop and report it; do not continue as if it ran.
 
 `.agentic/ticket-ledger.jsonl` is append-only and matches `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) (machine-local). It is never truncated or rewritten by this command, and Phase 12 cleanup does not remove it - the history is the point.
 
@@ -2735,70 +2560,17 @@ If the file does not exist (it was never written, e.g. loop never started), skip
 
 **qa.md snapshot cleanup.** Remove `.agentic/qa.md.snapshot-<ticket_id>` if it exists (it was created at Phase 0b for Elevated tickets). Best-effort silent-fail; if the file is absent or removal fails, do not block Phase 12 completion.
 
-```bash
-rm -f .agentic/qa.md.snapshot-<ticket_id> 2>/dev/null || true
-```
-
-**Conditional auto-merge** (only when `auto_merge_on_ci_green: true` in `.agentic/config.json`):
+**Conditional auto-merge** (only when `auto_merge_on_ci_green: true` in `.agentic/config.json`) runs inside `ds-ticket-finish merge`, which Phase 12 always calls; the same call runs the qa.md snapshot cleanup above, the post-merge local sync below, and carrier retirement:
 
 ```bash
-# @harness:phase12-auto-merge
-if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
-  DELIVERY_PUBLISHED_SHA=""
-  if DELIVERY_PUBLICATION=$(ds-pr-delivery-record --repo "$GH_REPO" --pr "$PR_NUMBER" --input "$DELIVERY_RECORD_INPUT"); then
-    DELIVERY_PUBLISHED_SHA=$(printf '%s' "$DELIVERY_PUBLICATION" | jq -er '.published_sha | select(type == "string" and length == 40 and test("^[0-9a-f]{40}$"))') || DELIVERY_PUBLISHED_SHA=""
-  fi
-  PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json isDraft,mergeable,reviewDecision 2>/dev/null)
-  IS_DRAFT=$(echo "$PR_STATE" | jq -r '.isDraft')
-  MERGEABLE=$(echo "$PR_STATE" | jq -r '.mergeable')
-  REVIEW_DECISION=$(echo "$PR_STATE" | jq -r '.reviewDecision // "NONE"')
-
-  # Re-derived HERE, never inherited: Phase 11e ran in a SEPARATE Bash
-  # invocation and no shell state crosses that boundary. On any gh failure this
-  # yields false and the block behaves exactly as it did before Phase 11e existed.
-  KC_TIP=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json commits -q '.commits[-1].messageHeadline' 2>/dev/null || true)
-  case "$KC_TIP" in
-    "chore(knowledge):"*) KC_KNOWLEDGE_PUSHED=true ;;
-    *)                    KC_KNOWLEDGE_PUSHED=false ;;
-  esac
-
-  if [ -n "$DELIVERY_PUBLISHED_SHA" ] && [ "$IS_DRAFT" = "false" ] && [ "$MERGEABLE" = "MERGEABLE" ] && [ "$REVIEW_DECISION" != "CHANGES_REQUESTED" ]; then
-    if [ "$KC_KNOWLEDGE_PUSHED" = "true" ]; then
-      if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch --auto 2>/dev/null; then
-        echo "[phase: auto-merge-queued | pr=$PR_NUMBER | reason=knowledge-commit-ci-rerun]"
-        # W7 does NOT fire: --auto exiting 0 means QUEUED, not MERGED. The
-        # dev-complete transition is pushed by the session-start pending-merge
-        # sweep within one session boot of the actual merge - the same mechanism
-        # the default auto_merge_on_ci_green=false path relies on.
-      elif [ "$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
-        echo "[phase: auto-merged | pr=$PR_NUMBER]"
-        # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
-        # with target_state: $TRACKER_STATE_DEV_COMPLETE, forward_only_guard: true.
-        # Fire-and-forget. Fires ONLY when the PR is confirmed MERGED (this branch).
-        # [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DEV_COMPLETE | trigger: auto-merge-success]
-      else
-        echo "[phase: auto-merge-deferred | pr=$PR_NUMBER | reason=knowledge-commit-ci-rerun - merge when checks are green]"
-      fi
-    elif gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch 2>/dev/null; then
-      echo "[phase: auto-merged | pr=$PR_NUMBER]"
-      # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
-      # with target_state: $TRACKER_STATE_DEV_COMPLETE, forward_only_guard: true.
-      # Fire-and-forget. Fires ONLY when merge succeeded (this branch). No
-      # `gh pr view --json state` precondition is added here: on this path an
-      # exit-0 merge already means MERGED, and an extra gh call would add a
-      # silent-drop mode on transient failure.
-      # [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DEV_COMPLETE | trigger: auto-merge-success]
-    else
-      echo "[phase: auto-merge-failed | pr=$PR_NUMBER]"
-    fi
-  else
-    echo "[phase: auto-merge-skipped | isDraft=$IS_DRAFT mergeable=$MERGEABLE reviewDecision=$REVIEW_DECISION]"
-  fi
-else
-  echo "PR #$PR_NUMBER is open and ready for review: https://github.com/$GH_REPO/pull/$PR_NUMBER"
-  echo "Note: If an agent merges this PR itself later, outside this auto-merge block, the dev-complete transition fires immediately at merge time under the Merge-time tracker writeback rule in content/rules/conventions.md §Git Workflow - not on the deferred path described next. Otherwise, if auto-merge is off (default), the dev-complete transition is pushed automatically by the session-start pending-merge sweep within one session boot of the merge (see content/rules/conventions.md §Session Context and Memory). AE never fires the terminal Done state automatically; TRACKER_STATE_DEV_COMPLETE inherits the resolved TRACKER_STATE_DONE value when undeclared, so a project that declares no post-merge lane sees the same transition as before. When rework_detection is false there are no ledger candidates, and no automatic dev-complete transition for a merge the agent did not perform itself or where the ticket ID or PR number was unknown at merge time - the merge-time rule above never consults the ledger and still fires regardless of rework_detection; run \`/ds-ticket-status-sync TICKET_ID\` after merge in that configuration. \`/ds-ticket-status-sync TICKET_ID\` also remains available to force the transition immediately."
-fi
+"$REPO_DIR/bin/ds-ticket-finish" merge --repo "$REPO" --branch "$BRANCH_NAME" --ticket "$TICKET_ID" \
+  --gh-repo "$GH_REPO" --pr "$PR_NUMBER" --delivery-record-input "$DELIVERY_RECORD_INPUT" \
+  --auto-merge "$AUTO_MERGE_ON_CI_GREEN" --base-branch "$BASE_BRANCH"
 ```
+
+If `ds-ticket-finish` exits 2 (usage error, or `$REPO` not enterable) or 127 (missing at `$REPO_DIR/bin/`), the step did not run: stop and report it; do not continue as if it ran.
+
+It prints one of `[phase: auto-merged | pr=N]`, `[phase: auto-merge-queued | ...]`, `[phase: auto-merge-deferred | ...]`, `[phase: auto-merge-failed | ...]`, `[phase: auto-merge-skipped | ...]`, or (auto-merge off) the PR-open notice, then the `ds-base-sync` breadcrumb. After the sync it retires `.agentic/worktrees/<branch>` and `.agentic/worktrees/qa-<branch>` when present and re-evaluates this session's automatic `ds-retire-carrier` holds; explicit holds stay, and no hold changes the exit code.
 
 **Knowledge-commit branch (the `--auto` path).** When Phase 11e pushed a `chore(knowledge):` commit onto the PR tip, CI is re-running, so an immediate `gh pr merge` would fail on pending checks. That case instead queues GitHub's own auto-merge with `--auto`. Three consequences worth stating plainly:
 
@@ -2814,24 +2586,11 @@ A total `gh pr view` failure leaves `PR_STATE` empty, which fails the `IS_DRAFT`
 
 Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). If an agent merges this PR itself later, outside this auto-merge block, the dev-complete transition fires immediately at merge time under the **Merge-time tracker writeback** rule in `content/rules/conventions.md` §Git Workflow, and the deferred path described next does not apply. On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here - the dev-complete transition is pushed automatically by the session-start pending-merge sweep instead (see `content/rules/conventions.md` §Session Context and Memory) within one session boot of the merge. AE never fires the terminal `TRACKER_STATE_DONE` state automatically at any site; `TRACKER_STATE_DEV_COMPLETE` inherits the resolved `TRACKER_STATE_DONE` value when undeclared, so a project that declares no post-merge lane is unaffected. The sweep is driven by the ticket ledger, so when `rework_detection` is `false` there are no candidates and no automatic dev-complete transition **for a merge the agent did not perform itself, or where the ticket ID or PR number was unknown at merge time** - the merge-time rule above never consults the ledger and still fires regardless of `rework_detection`; run `/ds-ticket-status-sync <TICKET_ID>` after merge in that configuration. `/ds-ticket-status-sync <TICKET_ID>` also remains available to force the transition immediately.
 
-**Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - Phase 11e is skipped for the same reason (no PR branch to commit onto), and the "Conditional auto-merge" block is skipped entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only).
+**Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - Phase 11e is skipped for the same reason (no PR branch to commit onto), and the "Conditional auto-merge" block is skipped entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only). `ds-ticket-finish merge` (called with an empty `--pr`) still runs the base sync and still retires `.agentic/worktrees/<branch>` and `.agentic/worktrees/qa-<branch>` when they are clean; the branch and its local, unpushed commits are kept, because `ds-retire-carrier` never deletes a branch and holds any checkout whose commits no ref would keep.
 
 **Post-merge local sync (unconditional).** Runs once at the end of every Phase 12, independent of `auto_merge_on_ci_green` and independent of whether this ticket's own PR merged - it also catches a *different* PR (this ticket's or any other) that merged asynchronously since the session started. See `content/references/base-branch-sync.md`. A non-zero exit never blocks Phase 12 completion - `status=skipped-dirty`/`diverged`/`refused-unknown`/`ref-locked-elsewhere`/`fetch-failed` are all operator-visible breadcrumbs/warnings, matching every other soft-fail convention in this phase (qa.md snapshot cleanup, tracker writeback).
 
-```bash
-# Post-merge local base-branch sync (unconditional - runs regardless of
-# auto_merge_on_ci_green, regardless of whether THIS session merged anything).
-# Fast-forward only; never merge/rebase/autostash. Repo-relative path (not PATH-
-# dependent) so it works without a re-install of bin/ onto PATH. $REPO_DIR and
-# $BASE_BRANCH are conductor-substituted values by the time Phase 12 runs (both
-# resolved in Setup) - never empty here in a correctly-running session, and the
-# tool independently validates non-empty args regardless (exit 3 on empty).
-if [ -x "$REPO_DIR/bin/ds-base-sync" ]; then
-  "$REPO_DIR/bin/ds-base-sync" "$REPO" "$BASE_BRANCH"
-else
-  echo "WARNING: ds-base-sync tool not found at $REPO_DIR/bin/ - skipping post-merge sync this run."
-fi
-```
+`ds-ticket-finish merge` runs `"$REPO_DIR/bin/ds-base-sync" "$REPO" "$BASE_BRANCH"` after the auto-merge block on every call, with or without `--pr`; when the tool is missing it prints a WARNING and skips the sync this run.
 
 ---
 

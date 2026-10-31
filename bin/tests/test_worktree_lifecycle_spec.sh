@@ -43,7 +43,7 @@
 #                content/agents/qa-engineer.md (the four points of use, each
 #                asserted to still carry a §section pointer at the canonical
 #                rule); the eleven CARRIER_WIRING_FILES plus one
-#                content/commands/ds-implement-ticket.md block, one
+#                bin/ds-ticket-commit block (Phase 8), one
 #                content/references/orchestration-units.md block, and one
 #                content/references/qa-evidence-publish.md block (grepped by
 #                check_carrier_wiring for `ds-retire-carrier`), and
@@ -1005,7 +1005,7 @@ content/references/qa-gate.md
 content/references/evidence-on-disk.md
 content/commands/ds-wrap.md
 scripts/codex-skills.py"
-IMPLEMENT_DOC="$REPO_ROOT/content/commands/ds-implement-ticket.md"
+COMMIT_SCRIPT="$REPO_ROOT/bin/ds-ticket-commit"
 ORCH_DOC="$REPO_ROOT/content/references/orchestration-units.md"
 QA_EVIDENCE_DOC="$REPO_ROOT/content/references/qa-evidence-publish.md"
 
@@ -1018,9 +1018,9 @@ check_carrier_wiring() {
     fi
   done <<< "$CARRIER_WIRING_FILES"
 
-  block=$(awk '/# --- Isolation worktree cleanup \(post-push\) ---/{c=1} c{print} /# --- End isolation worktree cleanup ---/{if(c)exit}' "$IMPLEMENT_DOC")
+  block=$(awk '/# --- Isolation worktree cleanup \(post-push\) ---/{c=1} c{print} /# --- End isolation worktree cleanup ---/{if(c)exit}' "$COMMIT_SCRIPT")
   if [ -z "$block" ] || ! printf '%s\n' "$block" | grep -qF 'ds-retire-carrier'; then
-    echo "CARRIER-WIRING VIOLATION: the Phase 8 isolation worktree cleanup block does not call ds-retire-carrier" >&2
+    echo "CARRIER-WIRING VIOLATION: the Phase 8 isolation worktree cleanup block in bin/ds-ticket-commit does not call ds-retire-carrier" >&2
     ok=1
   fi
   block=$(awk '/^\*\*Worktree cleanup\.\*\*/{c=1; next} c && /^```/{n++; if(n==2)exit; next} c && n==1{print}' "$ORCH_DOC")
@@ -1065,10 +1065,64 @@ PYEOF
   return "$ok"
 }
 
-echo "== Carrier wiring check: 11 files and 3 ds-implement-ticket blocks name ds-retire-carrier =="
+echo "== Carrier wiring check: 11 files and 3 ds-implement-ticket blocks (Phase 8 now in bin/ds-ticket-commit) name ds-retire-carrier =="
 check_carrier_wiring
 r0i=$?
 echo "carrier-wiring exit=$r0i"
+
+# Each script call must sit in its own phase, inside a bash fence, with every
+# input flag bound to its conductor variable. Without this pin a lost call site
+# leaves the scripts green and the phase silently unrun.
+check_ticket_script_wiring() {
+  python3 - "$REPO_ROOT" <<'PYEOF'
+import re, sys
+root = sys.argv[1]
+ticket = open(f"{root}/content/commands/ds-implement-ticket.md", encoding="utf-8").read()
+kc = open(f"{root}/content/references/knowledge-commit.md", encoding="utf-8").read()
+FINISH = '"$REPO_DIR/bin/ds-ticket-finish"'
+SITES = [
+    ("Phase 8", ticket, "## Phase 8: Commit and push", "## Phase 8.5:",
+     '"$REPO_DIR/bin/ds-ticket-commit"',
+     ['--repo "$REPO"', '--branch "$BRANCH_NAME"', '--worktree-path "$WORKTREE_PATH"',
+      '--integration-worktree "$INTEGRATION_WORKTREE"', '--message "', "-- [specific files]"]),
+    ("Phase 9", ticket, "## Phase 9: Open the PR", "## Phase 10:", FINISH + " ledger",
+     ['--repo "$REPO"', '--ticket "$TICKET_ID"', '--branch "$BRANCH_NAME"', '--gh-repo "$GH_REPO"',
+      '--loop-key "$LOOP_KEY"', '--rework-detection "$REWORK_DETECTION"', '--risk-class "$RISK_CLASS"',
+      '--skeptic-rounds "$SKEPTIC_ROUNDS"', '--qa-status "$QA_STATUS"']),
+    ("Phase 12", ticket, "## Phase 12: Loop state cleanup", "## Phase 12a:", FINISH + " merge",
+     ['--repo "$REPO"', '--branch "$BRANCH_NAME"', '--ticket "$TICKET_ID"', '--gh-repo "$GH_REPO"',
+      '--pr "$PR_NUMBER"', '--delivery-record-input "$DELIVERY_RECORD_INPUT"',
+      '--auto-merge "$AUTO_MERGE_ON_CI_GREEN"', '--base-branch "$BASE_BRANCH"']),
+    ("Phase 11e (knowledge-commit.md)", kc, "## Phase 11e:", None, FINISH + " knowledge",
+     ['--repo "$REPO"', '--branch "$BRANCH_NAME"', '--ticket "$TICKET_ID"', '--gh-repo "$GH_REPO"']),
+]
+bad = 0
+for name, text, start, end, call, flags in SITES:
+    i = text.find(start)
+    j = text.find(end, i) if end else len(text)
+    if i < 0 or j < 0:
+        print(f"SCRIPT-WIRING VIOLATION: {name} section not found", file=sys.stderr)
+        bad = 1
+        continue
+    # Whole-word match: `ledgerx` or `merge-all` must not satisfy `ledger`/`merge`.
+    call_re = re.compile(re.escape(call) + r"(?![\w-])")
+    fences = [b for b in re.findall(r"```bash\n(.*?)```", text[i:j], re.S) if call_re.search(b)]
+    if len(fences) != 1:
+        print(f"SCRIPT-WIRING VIOLATION: {name} has {len(fences)} bash fence(s) calling {call} (expected 1)", file=sys.stderr)
+        bad = 1
+        continue
+    for flag in flags:
+        if flag not in fences[0]:
+            print(f"SCRIPT-WIRING VIOLATION: {name} call {call} lacks {flag}", file=sys.stderr)
+            bad = 1
+sys.exit(bad)
+PYEOF
+}
+
+echo "== Script wiring: Phases 8, 9, 11e and 12 call ds-ticket-commit / ds-ticket-finish with their flags =="
+check_ticket_script_wiring
+r0k=$?
+echo "script-wiring exit=$r0k"
 
 echo "== Completion-sentence parity: worktree-lifecycle.md, section 11 and CODEX_SPAWN_CONTRACT carry S =="
 check_completion_sentence_parity
@@ -1095,11 +1149,11 @@ echo "run3 exit=$r3"
 
 git -C "$REPO" worktree remove --force "$REPO/.agentic/worktrees/spec-fixture" >/dev/null 2>&1 || true
 
-echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b process-lifetime-prose=$r0h manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g carrier-wiring=$r0i completion-parity=$r0j run1=$r1 run2=$r2 run3=$r3"
-if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0h" = "0" ] && [ "$r0c" = "0" ] && [ "$r0d" = "0" ] && [ "$r0e" = "0" ] && [ "$r0f" = "0" ] && [ "$r0g" = "0" ] && [ "$r0i" = "0" ] && [ "$r0j" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
-  echo "PASS: prose-wiring check clean, reap-wiring check clean, process-lifetime-prose check clean, manifest-reconciliation check clean, activity-window-prose check clean, lock-caveat-pointers check clean, unattended-callers check clean, step2-argv check clean, carrier-wiring check clean, completion-parity check clean, and two distinct exit codes across three runs (0, 1, 1)"
+echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b process-lifetime-prose=$r0h manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g carrier-wiring=$r0i script-wiring=$r0k completion-parity=$r0j run1=$r1 run2=$r2 run3=$r3"
+if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0h" = "0" ] && [ "$r0c" = "0" ] && [ "$r0d" = "0" ] && [ "$r0e" = "0" ] && [ "$r0f" = "0" ] && [ "$r0g" = "0" ] && [ "$r0i" = "0" ] && [ "$r0k" = "0" ] && [ "$r0j" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
+  echo "PASS: prose-wiring check clean, reap-wiring check clean, process-lifetime-prose check clean, manifest-reconciliation check clean, activity-window-prose check clean, lock-caveat-pointers check clean, unattended-callers check clean, step2-argv check clean, carrier-wiring check clean, script-wiring check clean, completion-parity check clean, and two distinct exit codes across three runs (0, 1, 1)"
   exit 0
 fi
 
-echo "FAIL: expected prose-wiring=0, reap-wiring=0, process-lifetime-prose=0, manifest-reconciliation=0, activity-window-prose=0, lock-caveat-pointers=0, unattended-callers=0, step2-argv=0, carrier-wiring=0, completion-parity=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b process-lifetime-prose=$r0h manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g carrier-wiring=$r0i completion-parity=$r0j $r1 $r2 $r3"
+echo "FAIL: expected prose-wiring=0, reap-wiring=0, process-lifetime-prose=0, manifest-reconciliation=0, activity-window-prose=0, lock-caveat-pointers=0, unattended-callers=0, step2-argv=0, carrier-wiring=0, script-wiring=0, completion-parity=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b process-lifetime-prose=$r0h manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g carrier-wiring=$r0i script-wiring=$r0k completion-parity=$r0j $r1 $r2 $r3"
 exit 1

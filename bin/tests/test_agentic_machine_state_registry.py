@@ -111,6 +111,7 @@ REVIEWED_NOT_DISPOSABLE: Dict[str, str] = {
     "resume": "protected: cache-keepalive in-session wrap hand-off files (.agentic/resume/<sid>.md), read by the operator's next session; pruned after 14 days by the wrap itself",
     "config.json": "protected: per-project behavioral toggles",
     "qa.md": "protected: authored QA runbook",
+    "qa.md.snapshot-*": "protected: per-ticket qa.md snapshot written at /ds-implement-ticket Phase 0b, removed by bin/ds-ticket-finish merge",
     "tracker.yml": "protected: operator tracker overlay",
     "identity.yml": "protected: operator identity override",
     "team.yml": "protected: operator team config",

@@ -151,7 +151,7 @@ A carrier is any linked checkout created for one job. Its purpose, not its path,
 
 ## Isolation worktree cleanup commands
 
-Phase 8 of `content/commands/ds-implement-ticket.md` retires the engineer's checkout right after its push, through `ds-retire-carrier` (§Carrier lifecycle by purpose); outside that flow the conductor runs the same command at the carrier's completion.
+Phase 8 of `content/commands/ds-implement-ticket.md` (`bin/ds-ticket-commit`) retires the engineer's checkout right after a verified push, through `ds-retire-carrier` (§Carrier lifecycle by purpose); a push that fails or cannot be verified records an explicit `BLOCKED: unpushed commit` hold instead. Phase 12 (`bin/ds-ticket-finish merge`) retires the ticket's `.agentic/worktrees/<branch>` and `.agentic/worktrees/qa-<branch>` carriers and re-runs this session's automatic holds. Outside that flow the conductor runs the same command at the carrier's completion.
 
 If the worktree is still locked, `git worktree remove` will refuse. That
 is expected and safe - it is the correct, permanent outcome for a
