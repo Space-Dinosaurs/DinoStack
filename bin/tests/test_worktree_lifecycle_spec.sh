@@ -1094,7 +1094,7 @@ SITES = [
      ['--repo "$REPO"', '--ticket "$TICKET_ID"', '--branch "$BRANCH_NAME"', '--gh-repo "$GH_REPO"',
       '-- "${QA_SCREENSHOT_PATHS[@]}"']),
     ("Phase 10", ticket, "## Phase 10: Wait for CI checks", "## Phase 10a:", '"$REPO_DIR/bin/ds-ticket-ci"',
-     ['--pr "$PR_NUMBER"', '--gh-repo "$GH_REPO"', '--polls "$TIMEOUT_POLLS"', '--ready true']),
+     ['--pr "$PR_NUMBER"', '--gh-repo "$GH_REPO"', '--polls "$TIMEOUT_POLLS"']),
     ("Phase 12", ticket, "## Phase 12: Loop state cleanup", "## Phase 12a:", FINISH + " merge",
      ['--repo "$REPO"', '--branch "$BRANCH_NAME"', '--ticket "$TICKET_ID"', '--gh-repo "$GH_REPO"',
       '--pr "$PR_NUMBER"', '--delivery-record-input "$DELIVERY_RECORD_INPUT"',

@@ -6562,6 +6562,16 @@
       "source_token": "content/references/tracker-writeback.md"
     },
     {
+      "expected_target": "gh",
+      "generated_token": "gh",
+      "kind": "operational",
+      "occurrence_hash": "761eb5cbcda648b4218a5376975091f44f3db616aa1ffffce2262f765b4bf557",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "gh"
+    },
+    {
       "expected_target": ".agentic/loop-state-",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
       "kind": "operational",
@@ -8580,6 +8590,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/qa-gate.md"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "/dev",
+      "kind": "display-only",
+      "occurrence_hash": "be8dbcc569e59b7320c8b4300f237c6986e6a4418c6941c2dff3086ada2d14cd",
+      "resolution_mode": "display-only",
+      "scope": "display-only",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/dev"
     },
     {
       "expected_target": "content/references/ticket-rework.md",

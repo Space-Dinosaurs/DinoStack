@@ -2278,20 +2278,20 @@ fi
 
 ## Phase 10: Wait for CI checks
 
-Run `$REPO_DIR/bin/ds-ticket-ci`. It polls `gh pr checks` until a verdict or the poll budget runs out, and on a pass marks the PR ready for review. A pass needs the registered check count to reach a floor (the base branch's required-check count, or `--min-checks` when larger) on two consecutive all-complete polls, so a partial suite seen right after a push or rebase never reads green. It never merges. Before the call, apply the Phase 10b thread rule: `--ready true` is a `gh pr ready`.
+Run `$REPO_DIR/bin/ds-ticket-ci`. It polls `gh pr checks` until a verdict or the poll budget runs out. A pass needs the registered check count to reach a floor (the base branch's required-check count, or `--min-checks` when larger) on two consecutive all-complete polls, so a partial suite seen right after a push or rebase never reads green. It never merges and never marks the PR ready (Phase 10b does, after its thread rule).
 
 **Preserved fast-exit:** the `preview_blocked: true` qa.md flag continues to suppress preview-URL polling specifically. It does NOT suppress the CI-check poll - those are distinct concerns. If `preview_blocked` is set, the Test URL line in the tracker comment (Phase 11) is "Preview deploy blocked - verify with local QA."
 
 ```bash
 TIMEOUT_POLLS=60
-"$REPO_DIR/bin/ds-ticket-ci" --pr "$PR_NUMBER" --gh-repo "$GH_REPO" --polls "$TIMEOUT_POLLS" --ready true
+"$REPO_DIR/bin/ds-ticket-ci" --pr "$PR_NUMBER" --gh-repo "$GH_REPO" --polls "$TIMEOUT_POLLS"
 ```
 
 **Outcome routing (exit code):**
 - **0** passed: `[phase: ci-wait | result: passed | ...]`, or `result: passed-by-default | no-checks` when no check registered across 4 polls and the floor is 0. Proceed to Phase 10b.
 - **1** failed: `[phase: ci-wait | result: failed | failing-checks: <names>]` names them. Enter Phase 10a.
 - **2** timeout (`[phase: ci-wait | result: timeout | ...]`): write `last_phase: ci_wait, last_phase_action: timeout, auto_merge_queued: <bool>` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`, and STOP (do NOT auto-fix, do NOT proceed). When `auto_merge_on_ci_green` is `true` this is a call site of the "Auto-merge follow-through" rule - procedure, exact `gh` invocations, and message wording: `$AE_REPO_DIR/content/references/conventions-detail.md` §Auto-merge follow-through -> "Phase 10 timeout call site (full procedure)".
-- **3** usage error, or **4** `gh pr checks` unreadable on 5 consecutive polls (auth, network, wrong PR number): STOP and report BLOCKED with the output; nothing was marked ready.
+- **3** usage error, or **4** `gh pr checks` unreadable on 5 consecutive polls (auth, network, wrong PR number): STOP and report BLOCKED with the output.
 - **127**: the script is missing at `$REPO_DIR/bin/` - `$REPO_DIR` is wrong or the install predates it.
 
 ---
@@ -2337,7 +2337,13 @@ Emit breadcrumb: `[phase: ci-fix-loop | iteration N/3 | failing: <check-names>]`
 
 **Thread rule:** first apply `$AE_REPO_DIR/content/references/conventions-detail.md` §Unanswered review threads before re-request (a no-op when the PR has no review threads).
 
-**Mark ready-for-review:** the passing Phase 10 call already ran `gh pr ready` and printed `[phase: pr-ready | pr=<N>]`. A `WARNING: [phase: pr-ready]` line instead is soft-fail: log and continue; the PR remaining in draft state is recoverable (operator can mark ready manually).
+**Mark ready-for-review:**
+
+```bash
+gh pr ready "$PR_NUMBER" --repo "$GH_REPO" 2>/dev/null
+```
+
+Soft-fail: if the call errors, log and continue. The PR remaining in draft state is recoverable (operator can mark ready manually).
 
 **Reviewer assignment (resolution order; first match wins):**
 

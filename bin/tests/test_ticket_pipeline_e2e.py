@@ -1,12 +1,14 @@
 """Purpose: Run /ds-implement-ticket's post-implementation scripts end to end
 against a temp origin and a git-backed fake GitHub: ds-ticket-commit pushes
 the engineer's commit and retires its worktree, ds-ticket-ci waits out a
-lazily registering suite and marks the PR ready, ds-ticket-finish merge
+lazily registering suite, the Phase 10b ready fence (run from
+ds-implement-ticket.md) marks the PR ready, ds-ticket-finish merge
 publishes the delivery record, merges, base-syncs and retires the QA
 carrier. A red check stops at ds-ticket-ci with nothing marked ready or
 merged.
 Public API: pytest-discovered test cases.
-Upstream deps: pytest, git, jq, python3; bin/ds-ticket-commit,
+Upstream deps: pytest, git, jq, python3; Phase 10b of
+content/commands/ds-implement-ticket.md; bin/ds-ticket-commit,
 bin/ds-ticket-ci, bin/ds-ticket-finish, bin/ds-pr-delivery-record,
 bin/ds-base-sync, bin/ds-retire-carrier; record() from
 test_pr_delivery_record.py.
@@ -19,6 +21,7 @@ Performance: a few seconds per case (local git only, --interval 0).
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -31,6 +34,7 @@ from test_pr_delivery_record import record
 ROOT = Path(__file__).resolve().parents[2]
 BIN = ROOT / "bin"
 BRANCH = "feature/e2e"
+COMMAND = ROOT / "content/commands/ds-implement-ticket.md"
 
 # The fake gh keeps PR state in FAKE_GH_STATE and reads the branch head
 # and performs the squash merge in the bare origin, so merge and base sync
@@ -163,8 +167,16 @@ def run(p, *argv):
 
 def commit_and_wait(p):
     commit = run(p, BIN / "ds-ticket-commit", "--repo", p["repo"], "--branch", BRANCH, "--worktree-path", p["engineer"])
-    ci = run(p, BIN / "ds-ticket-ci", "--pr", "7", "--gh-repo", "test/repo", "--polls", "10", "--interval", "0", "--ready", "true")
+    ci = run(p, BIN / "ds-ticket-ci", "--pr", "7", "--gh-repo", "test/repo", "--polls", "10", "--interval", "0")
     return commit, ci
+
+
+def phase10b_ready_fence():
+    text = COMMAND.read_text(encoding="utf-8")
+    section = text[text.index("## Phase 10b:"):text.index("## Phase 11:")]
+    after = section[section.index("**Mark ready-for-review:**"):]
+    assert section.index("**Thread rule:**") < section.index("**Mark ready-for-review:**")
+    return re.search(r"```bash\n(.*?)```", after, re.S).group(1)
 
 
 def test_commit_ci_finish_delivers_and_cleans_up(pipeline):
@@ -187,8 +199,13 @@ def test_commit_ci_finish_delivers_and_cleans_up(pipeline):
     s = gh_state(p)
     checks_calls = [c for c in s["calls"] if c[:2] == ["pr", "checks"]]
     assert len(checks_calls) == 4, "the 1-of-3 green polls did not pass; two all-green polls at the floor did"
-    assert s["draft"] is False, "ds-ticket-ci marked the PR ready"
+    assert s["draft"] is True, "ds-ticket-ci leaves the ready step to Phase 10b"
     assert not any(c[:2] == ["pr", "merge"] for c in s["calls"]), "ds-ticket-ci never merges"
+
+    ready = subprocess.run(["bash", "-c", phase10b_ready_fence()], capture_output=True, text=True, timeout=30,
+                           env={**p["env"], "PR_NUMBER": "7", "GH_REPO": "test/repo"})
+    assert ready.returncode == 0, ready.stdout + ready.stderr
+    assert gh_state(p)["draft"] is False, "the Phase 10b fence marked the PR ready"
 
     assessment = p["tmp"] / "assessment.json"
     assessment.write_text(json.dumps(record(engineer_sha)))

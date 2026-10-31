@@ -50,6 +50,7 @@ CORRECT_COVERAGE_PHRASE = "one event per W1 gate evaluation the conductor"
 ALLOWLISTED_FIRST_LINES = [
     re.compile(r'^\s*USAGE_AND_CALIBRATION="\$\(printf'),
     re.compile(r'^\s*RUN_ID=\$\(gh run list --pr "\$PR_NUMBER"'),
+    re.compile(r'^\s*if \[ -f \.github/CODEOWNERS \]'),
 ]
 
 BASH_FENCE_RE = re.compile(r"```bash\n(.*?)\n```", re.S)

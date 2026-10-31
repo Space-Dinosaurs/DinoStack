@@ -5,7 +5,7 @@
 #          two-poll confirmation, a red check exits 1 naming it, no checks at
 #          all pass only with a zero floor, repeated unreadable reads exit 4,
 #          the only fields requested are ones `gh pr checks` accepts, and
-#          the script marks ready on a pass but never merges.
+#          the script never marks ready or merges.
 #
 # Public API: none (standalone script; `bash bin/tests/test_ticket_ci.sh`).
 #
@@ -105,21 +105,21 @@ run_suite() {
 
   scenario partial "$(checks pass pass)"
   echo "$required3" > "$FAKE/rules.json"
-  OUT="$("$SH" "$CLI" --pr 7 --gh-repo o/r --polls 4 --interval 0 --ready true 2>&1)"
+  OUT="$("$SH" "$CLI" --pr 7 --gh-repo o/r --polls 4 --interval 0 2>&1)"
   [ $? -eq 2 ]
   assert $? "2 green checks against 3 required: timeout (exit 2), never passed"
   echo "$OUT" | grep -q 'floor: 3 | required: rules=3'
   assert $? "the floor is the base branch's required-check count"
   ! grep -q '^pr ready' "$FAKE/calls"
-  assert $? "no ready call without a pass"
+  assert $? "no ready call"
 
   scenario lazy "$(checks pass pass)" "$(checks pass pass pending)" "$(checks pass pass pass)" "$(checks pass pass pass)"
   echo "$required3" > "$FAKE/rules.json"
-  "$SH" "$CLI" --pr 7 --gh-repo o/r --polls 10 --interval 0 --ready true >/dev/null 2>&1
+  "$SH" "$CLI" --pr 7 --gh-repo o/r --polls 10 --interval 0 >/dev/null 2>&1
   [ $? -eq 0 ] && [ "$(polls_made)" -eq 4 ]
   assert $? "late-registering checks: passes on the second all-green poll at the floor (poll 4)"
-  grep -q '^pr ready 7 --repo o/r' "$FAKE/calls"
-  assert $? "--ready true marks the PR ready on a pass"
+  ! grep -q '^pr ready' "$FAKE/calls"
+  assert $? "a pass does not mark the PR ready (Phase 10b does, after its thread rule)"
   grep -q 'json name,state,bucket' "$FAKE/calls"
   assert $? "requests only name,state,bucket"
 
@@ -127,11 +127,9 @@ run_suite() {
   "$SH" "$CLI" --pr 7 --gh-repo o/r --polls 10 --interval 0 >/dev/null 2>&1
   [ $? -eq 0 ] && [ "$(polls_made)" -eq 3 ]
   assert $? "a count change between green polls restarts the confirmation (pass on poll 3)"
-  ! grep -q '^pr ready' "$FAKE/calls"
-  assert $? "no ready call without --ready true"
 
   scenario red "$(checks pass pending fail)" "$(checks pass cancel fail)"
-  OUT="$("$SH" "$CLI" --pr 7 --gh-repo o/r --polls 10 --interval 0 --ready true 2>&1)"
+  OUT="$("$SH" "$CLI" --pr 7 --gh-repo o/r --polls 10 --interval 0 2>&1)"
   [ $? -eq 1 ]
   assert $? "a red check exits 1"
   echo "$OUT" | grep -q 'result: failed | failing-checks: c2, c3'
@@ -183,9 +181,9 @@ else
   echo "NOTICE: zsh not installed; zsh suite skipped"
 fi
 
-grep -q 'pr merge\|git push' "$CLI"
+grep -q 'pr merge\|pr ready\|git push' "$CLI"
 [ $? -ne 0 ]
-assert $? "ds-ticket-ci has no merge or push call"
+assert $? "ds-ticket-ci has no merge, ready or push call"
 
 echo ""
 if [ "$fail_count" -eq 0 ]; then

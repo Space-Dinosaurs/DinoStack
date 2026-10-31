@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # Module manifest
-# Purpose: /ds-implement-ticket Phase 10 CI wait as one bounded command, plus
-#          Phase 10b's mark-ready on a pass. Replaces the conductor-typed poll
+# Purpose: /ds-implement-ticket Phase 10 CI wait as one bounded command.
+#          Replaces the conductor-typed poll
 #          loop, which read `gh pr checks --json name,status,conclusion`
 #          (fields `gh pr checks` rejects, so every poll read empty) and
 #          treated whatever had registered so far as the whole suite.
@@ -15,7 +15,7 @@
 #
 # Public API:
 #   ds-ticket-ci --pr N --gh-repo OWNER/REPO [--min-checks N] [--polls N]
-#                [--interval SECONDS] [--ready true|false]
+#                [--interval SECONDS]
 #     --min-checks  extra floor on the registered check count. The floor
 #                   used is the largest of this value and the number of
 #                   required status checks on the PR's base branch (rulesets
@@ -23,19 +23,18 @@
 #                   counts 0).
 #     --polls       poll budget (default 60); --interval seconds between
 #                   polls (default 30).
-#     --ready true  on a pass, run `gh pr ready` (soft-fail).
 #   Exit codes: 0 passed (or no checks registered across 4 polls while the
 #   floor is 0); 1 failed - every check complete and at least one in bucket
 #   fail or cancel, or any failure still present at the poll budget; the
 #   `failing-checks:` breadcrumb names them; 2 timeout (poll budget spent
 #   without a verdict); 3 usage error; 4 `gh pr checks` unreadable on 5
 #   consecutive polls (auth, network, or an unknown PR).
-#   Never merges and never pushes.
+#   Never merges, pushes, or marks the PR ready.
 #
 # Upstream deps: bash 3.2+ or zsh, gh, jq.
 #
-# Downstream consumers: content/commands/ds-implement-ticket.md Phases 10,
-#                       10a and 10b; bin/tests/test_ticket_ci.sh,
+# Downstream consumers: content/commands/ds-implement-ticket.md Phases 10
+#                       and 10a; bin/tests/test_ticket_ci.sh,
 #                       bin/tests/test_ticket_pipeline_e2e.py.
 #
 # Failure modes: an unparseable `gh pr checks` read is reported on its own
@@ -48,7 +47,7 @@
 # ---------------------------------------------------------------------------
 
 usage() {
-  echo "usage: ds-ticket-ci --pr N --gh-repo OWNER/REPO [--min-checks N] [--polls N] [--interval S] [--ready true|false]" >&2
+  echo "usage: ds-ticket-ci --pr N --gh-repo OWNER/REPO [--min-checks N] [--polls N] [--interval S]" >&2
   exit 3
 }
 
@@ -61,7 +60,6 @@ CI_GH_REPO=""
 CI_MIN=0
 CI_POLLS=60
 CI_INTERVAL=30
-CI_READY=false
 while [ "$#" -gt 0 ]; do
   [ "$#" -ge 2 ] || usage
   case "$1" in
@@ -70,7 +68,6 @@ while [ "$#" -gt 0 ]; do
     --min-checks) CI_MIN="$2" ;;
     --polls) CI_POLLS="$2" ;;
     --interval) CI_INTERVAL="$2" ;;
-    --ready) CI_READY="$2" ;;
     *) usage ;;
   esac
   shift 2
@@ -166,13 +163,6 @@ if [ -z "$CI_RESULT" ] && [ -n "$CI_FAILED_NAMES" ]; then
 fi
 case "$CI_RESULT" in
   passed)
-    if [ "$CI_READY" = "true" ]; then
-      if gh pr ready "$CI_PR" --repo "$CI_GH_REPO" 2>/dev/null; then
-        echo "[phase: pr-ready | pr=$CI_PR]"
-      else
-        echo "WARNING: [phase: pr-ready] gh pr ready failed for PR #$CI_PR; it stays a draft until marked ready by hand"
-      fi
-    fi
     exit 0
     ;;
   failed)
