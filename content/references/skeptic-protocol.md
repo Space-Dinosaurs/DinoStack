@@ -119,7 +119,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 5. **Primary agent spawns a new Worker** with:
    - The original task
-   - The Skeptic's findings
+   - The Skeptic's findings, verbatim, never a prescribed design
    - The prior Worker's output (for context)
    - The session context
 
@@ -312,7 +312,7 @@ A Skeptic comparing a PR against a base branch MUST work from a live, synchroniz
 
 **Required approach:** Use `gh pr diff <n>` or `gh pr view <n> --json files,headRefName,baseRefName` to obtain the canonical PR diff. If using local git, run `git fetch origin <base> <head>` first and diff fully-qualified remote refs (`origin/<base>..origin/<head>`) - never `main..HEAD` or `FETCH_HEAD` unless you have just fetched and confirmed the ref resolves to the expected commit.
 
-**Commit-SHA attestation (when reviewing a PR against a base branch):** When the Skeptic is reviewing a PR diff - not an inline/non-PR worktree diff - it MUST state the head commit SHA and base commit SHA it reviewed. Unified format: `Reviewed: <base-sha>..<head-sha> - [files/components examined]`. The conductor confirms these match the live PR before acting on the findings. A Skeptic output that omits the SHA range on a PR review is treated as unverified and the conductor re-spawns with explicit instructions to include it. For inline/non-PR reviews (the common `/ds-implement-ticket` worktree case), the standard `Reviewed: [files/components examined]` form is used; the Skeptic MAY optionally include the commit SHA(s) under review.
+**Commit-SHA attestation (when reviewing a PR against a base branch):** When the Skeptic is reviewing a PR diff - not an inline/non-PR worktree diff - it MUST state the head commit SHA and base commit SHA it reviewed. Unified format: `Reviewed: <base-sha>..<head-sha> - ` followed by the Section 11 `Reviewed:` slots. The conductor confirms these match the live PR before acting on the findings. A Skeptic output that omits the SHA range on a PR review is treated as unverified and the conductor re-spawns with explicit instructions to include it. For inline/non-PR reviews (the common `/ds-implement-ticket` worktree case), the Section 11 `Reviewed:` form is used; the Skeptic MAY optionally include the commit SHA(s) under review.
 
 ### Skeptic Step 0 - Input validation (BLOCKED on incomplete inputs)
 

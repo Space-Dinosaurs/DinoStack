@@ -1552,7 +1552,7 @@ Emit the inline breadcrumb:
 
 **Loop entry (repeat until termination):**
 
-**Step 1.** Spawn `skeptic` with adversarial brief. When `findings_log` has open or addressed entries, put the "Prior iteration findings" block before the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). The Skeptic re-runs each entry's `check:` before marking it CLOSED. Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`. Add the draft PR body free text (Summary bullets, North Star, Test plan - drafted on iteration 1, updated when a round changes what it describes) to the Worker output; Phase 9 uses it. Apply `Comment discipline:` findings whose span is in that draft yourself and mark them `closed`.
+**Step 1.** Spawn `skeptic` with adversarial brief. When `findings_log` has open or addressed entries, put the "Prior iteration findings" block before the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Add the `fix_pass` from `last_engineer_summary`; the Skeptic re-runs each `check:` before marking an entry CLOSED. Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`. Add the draft PR body free text (Summary bullets, North Star, Test plan - drafted on iteration 1, updated when a round changes what it describes) to the Worker output; Phase 9 uses it. Apply `Comment discipline:` findings whose span is in that draft yourself and mark them `closed`.
 
 **Telemetry emit (V1):** Bracket the Skeptic `Agent` tool call with:
 ```
@@ -1666,7 +1666,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 
 **Telemetry emit (V1):** Bracket the Engineer `Agent` tool call with `ds-emit spawn_start engineer <task_id> ...` before, and `ds-emit spawn_complete engineer <task_id> ...` after - using `ds-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
-**Step 5.** Receive Engineer output.
+**Step 5.** Receive Engineer output; `last_engineer_summary` starts with its `fix_pass`.
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply the missing context (from codebase, session context, or by asking the human) and re-spawn the Engineer with the same findings brief and the added context. Do NOT increment `iteration`. If the conductor cannot supply the context, escalate to the human with the Engineer's stated gap.
 - If `Status: DONE_WITH_CONCERNS`: proceed normally. The Engineer's stated concerns become additional context for the next Skeptic spawn (include them alongside the adversarial brief). Update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Update inline breadcrumb. Go to Step 1.

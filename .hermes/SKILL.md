@@ -8189,7 +8189,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 5. **Primary agent spawns a new Worker** with:
    - The original task
-   - The Skeptic's findings
+   - The Skeptic's findings, verbatim, never a prescribed design
    - The prior Worker's output (for context)
    - The session context
 
@@ -8382,7 +8382,7 @@ A Skeptic comparing a PR against a base branch MUST work from a live, synchroniz
 
 **Required approach:** Use `gh pr diff <n>` or `gh pr view <n> --json files,headRefName,baseRefName` to obtain the canonical PR diff. If using local git, run `git fetch origin <base> <head>` first and diff fully-qualified remote refs (`origin/<base>..origin/<head>`) - never `main..HEAD` or `FETCH_HEAD` unless you have just fetched and confirmed the ref resolves to the expected commit.
 
-**Commit-SHA attestation (when reviewing a PR against a base branch):** When the Skeptic is reviewing a PR diff - not an inline/non-PR worktree diff - it MUST state the head commit SHA and base commit SHA it reviewed. Unified format: `Reviewed: <base-sha>..<head-sha> - [files/components examined]`. The conductor confirms these match the live PR before acting on the findings. A Skeptic output that omits the SHA range on a PR review is treated as unverified and the conductor re-spawns with explicit instructions to include it. For inline/non-PR reviews (the common `/ds-implement-ticket` worktree case), the standard `Reviewed: [files/components examined]` form is used; the Skeptic MAY optionally include the commit SHA(s) under review.
+**Commit-SHA attestation (when reviewing a PR against a base branch):** When the Skeptic is reviewing a PR diff - not an inline/non-PR worktree diff - it MUST state the head commit SHA and base commit SHA it reviewed. Unified format: `Reviewed: <base-sha>..<head-sha> - ` followed by the Section 11 `Reviewed:` slots. The conductor confirms these match the live PR before acting on the findings. A Skeptic output that omits the SHA range on a PR review is treated as unverified and the conductor re-spawns with explicit instructions to include it. For inline/non-PR reviews (the common `/ds-implement-ticket` worktree case), the Section 11 `Reviewed:` form is used; the Skeptic MAY optionally include the commit SHA(s) under review.
 
 ### Skeptic Step 0 - Input validation (BLOCKED on incomplete inputs)
 
@@ -20667,7 +20667,7 @@ Emit the inline breadcrumb:
 
 **Loop entry (repeat until termination):**
 
-**Step 1.** Spawn `skeptic` with adversarial brief. When `findings_log` has open or addressed entries, put the "Prior iteration findings" block before the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). The Skeptic re-runs each entry's `check:` before marking it CLOSED. Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`. Add the draft PR body free text (Summary bullets, North Star, Test plan - drafted on iteration 1, updated when a round changes what it describes) to the Worker output; Phase 9 uses it. Apply `Comment discipline:` findings whose span is in that draft yourself and mark them `closed`.
+**Step 1.** Spawn `skeptic` with adversarial brief. When `findings_log` has open or addressed entries, put the "Prior iteration findings" block before the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Add the `fix_pass` from `last_engineer_summary`; the Skeptic re-runs each `check:` before marking an entry CLOSED. Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`. Add the draft PR body free text (Summary bullets, North Star, Test plan - drafted on iteration 1, updated when a round changes what it describes) to the Worker output; Phase 9 uses it. Apply `Comment discipline:` findings whose span is in that draft yourself and mark them `closed`.
 
 **Telemetry emit (V1):** Bracket the Skeptic `Agent` tool call with:
 ```
@@ -20781,7 +20781,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 
 **Telemetry emit (V1):** Bracket the Engineer `Agent` tool call with `ds-emit spawn_start engineer <task_id> ...` before, and `ds-emit spawn_complete engineer <task_id> ...` after - using `ds-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
-**Step 5.** Receive Engineer output.
+**Step 5.** Receive Engineer output; `last_engineer_summary` starts with its `fix_pass`.
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply the missing context (from codebase, session context, or by asking the human) and re-spawn the Engineer with the same findings brief and the added context. Do NOT increment `iteration`. If the conductor cannot supply the context, escalate to the human with the Engineer's stated gap.
 - If `Status: DONE_WITH_CONCERNS`: proceed normally. The Engineer's stated concerns become additional context for the next Skeptic spawn (include them alongside the adversarial brief). Update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Update inline breadcrumb. Go to Step 1.
@@ -23527,12 +23527,10 @@ You drive the loop. Do not implement the task yourself.
 
 ## Step 1 - Spawn the Worker
 
-Spawn the **`engineer` agent in the background via the `Agent` tool** with this prompt (fill in bracketed sections):
+Spawn a **background general-purpose subagent via the `Agent` tool** with this prompt (fill in bracketed sections):
 
 ---
-SESSION_KEY: [this session's key, per `content/references/subagent-protocol.md` §11]
-
-Implement the task fully and return your complete output. The main agent will arrange Skeptic review.
+You are a Worker agent. Implement the task fully and return your complete output. The main agent will arrange Skeptic review.
 
 **Task:** $ARGUMENTS
 
@@ -23596,7 +23594,7 @@ If Critical or Major findings remain: proceed to Step 4.
 
 ## Step 4 - Route findings to a Worker
 
-Spawn the **`engineer` agent in the background via the `Agent` tool** with:
+Spawn a **background general-purpose subagent via the `Agent` tool** with:
 
 - The original task
 - The Skeptic's findings (verbatim)
@@ -23607,9 +23605,9 @@ Spawn the **`engineer` agent in the background via the `Agent` tool** with:
 Worker prompt:
 
 ---
-SESSION_KEY: [this session's key]
+SESSION_KEY: [this session's key, per `content/references/subagent-protocol.md` §11]
 
-Address the Skeptic findings below and return your revised output.
+You are a Worker agent. Address the Skeptic findings below and return your revised output.
 
 **Original task:** $ARGUMENTS
 
@@ -23622,7 +23620,9 @@ Address the Skeptic findings below and return your revised output.
 **Exchange log so far:**
 [Paste accumulated log]
 
-For each Critical or Major finding: fix every instance of its class and re-run its `check:`, or document a specific reason why it is not a real problem. Return your revised complete output.
+For each Critical or Major finding: fix it, or document a specific reason why it is not a real problem. Return your revised complete output.
+
+Find and fix every instance of each finding's class, re-run each finding's `check:`, and report its exit status plus a one-line result.
 ---
 
 Update the resolved issues preflight list with each addressed finding's identifier and description.

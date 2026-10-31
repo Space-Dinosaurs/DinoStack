@@ -14,12 +14,10 @@ You drive the loop. Do not implement the task yourself.
 
 ## Step 1 - Spawn the Worker
 
-Spawn the **`engineer` agent in the background via the `Agent` tool** with this prompt (fill in bracketed sections):
+Spawn a **background general-purpose subagent via the `Agent` tool** with this prompt (fill in bracketed sections):
 
 ---
-SESSION_KEY: [this session's key, per `content/references/subagent-protocol.md` §11]
-
-Implement the task fully and return your complete output. The main agent will arrange Skeptic review.
+You are a Worker agent. Implement the task fully and return your complete output. The main agent will arrange Skeptic review.
 
 **Task:** $ARGUMENTS
 
@@ -83,7 +81,7 @@ If Critical or Major findings remain: proceed to Step 4.
 
 ## Step 4 - Route findings to a Worker
 
-Spawn the **`engineer` agent in the background via the `Agent` tool** with:
+Spawn a **background general-purpose subagent via the `Agent` tool** with:
 
 - The original task
 - The Skeptic's findings (verbatim)
@@ -94,9 +92,9 @@ Spawn the **`engineer` agent in the background via the `Agent` tool** with:
 Worker prompt:
 
 ---
-SESSION_KEY: [this session's key]
+SESSION_KEY: [this session's key, per `content/references/subagent-protocol.md` §11]
 
-Address the Skeptic findings below and return your revised output.
+You are a Worker agent. Address the Skeptic findings below and return your revised output.
 
 **Original task:** $ARGUMENTS
 
@@ -109,7 +107,9 @@ Address the Skeptic findings below and return your revised output.
 **Exchange log so far:**
 [Paste accumulated log]
 
-For each Critical or Major finding: fix every instance of its class and re-run its `check:`, or document a specific reason why it is not a real problem. Return your revised complete output.
+For each Critical or Major finding: fix it, or document a specific reason why it is not a real problem. Return your revised complete output.
+
+Find and fix every instance of each finding's class, re-run each finding's `check:`, and report its exit status plus a one-line result.
 ---
 
 Update the resolved issues preflight list with each addressed finding's identifier and description.
