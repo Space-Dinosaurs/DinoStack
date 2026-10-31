@@ -199,8 +199,14 @@ fi
 # Gate harness.
 # ---------------------------------------------------------------------------
 FAILED=""
-GATE_LOG="$(mktemp -t check-local.XXXXXX)"
-trap 'rm -f "$GATE_LOG"' EXIT
+# Gates and tests leave test-* temp dirs behind; a per-run TMPDIR deleted on
+# exit keeps them out of the operator's own temp directory. It lives under
+# /tmp, not the caller's TMPDIR: macOS's per-user TMPDIR is long enough that
+# test_agentic_identity.py's AF_UNIX socket paths exceed the 104-byte limit.
+CHECK_LOCAL_TMP="$(mktemp -d /tmp/check-local.XXXXXX)" || exit 2
+trap 'find "${CHECK_LOCAL_TMP:?}" -depth -delete' EXIT
+export TMPDIR="$CHECK_LOCAL_TMP"
+GATE_LOG="$CHECK_LOCAL_TMP/gate.log"
 
 # _split_lines <newline-separated-list>
 # Splits on newlines only (never on spaces or tabs) with globbing disabled,

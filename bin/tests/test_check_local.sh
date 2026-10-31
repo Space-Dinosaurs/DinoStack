@@ -389,7 +389,7 @@ fi
 # seven the preflight itself probes (bash, node, npm, python3, gh, zsh,
 # gitleaks), plus the coreutils the gate harness needs once preflight passes.
 STUB_TOOLS="sed head sort dirname basename node npm python3 gh zsh gitleaks \
-mktemp cat date grep tr wc git rm mkdir chmod touch env uname awk cut expr diff"
+mktemp cat date grep tr wc git rm mkdir chmod touch env uname awk cut expr diff find"
 
 make_stub_path() {
   # make_stub_path <dir> <tool-to-omit-or-empty>
