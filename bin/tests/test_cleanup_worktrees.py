@@ -4001,11 +4001,8 @@ def add_detached_worktree_with_unique_commit(repo: Path, external_path: Path, co
     """Creates a DETACHED worktree at an absolute path outside `repo`,
     then commits UNIQUE work inside it (never pushed, never referenced
     by any branch/tag) - the commit is genuinely unreferenced, unlike
-    checking out the repo's current HEAD with no changes (round-3
-    finding 3: that shape's "unreferenced" property held only because
-    of the dead `head_reachable` field, not because the commit was
-    actually unreachable, and would break the moment `head_reachable`
-    is correctly wired by the sibling unit)."""
+    checking out the repo's current HEAD with no changes, which a live
+    ref already contains."""
     _git(repo, "worktree", "add", "--detach", str(external_path))
     (external_path / "unique.txt").write_text(content)
     _git(external_path, "add", "unique.txt")
@@ -4514,3 +4511,189 @@ def test_init_config_rejects_explicit_min_age_hours(tmp_path):
     assert proc.returncode == 2, (proc.returncode, proc.stdout, proc.stderr)
     assert "--init-config cannot be combined with any other flag" in proc.stderr
     assert not (fake_home / ".agentic" / "cleanup-worktrees.json").exists()
+
+
+# --------------------------------------------------------------------------
+# Squash-aware content subsumption, detached head reachability, live cwd.
+# Each never-REMOVE case pairs with a squash-merged fixture that IS removed
+# when nothing else blocks it.
+# --------------------------------------------------------------------------
+
+
+def _squash_merged_worktree(repo: Path, name: str) -> Path:
+    """A never-pushed branch with two commits whose combined content landed
+    on main as one squash commit, so no branch commit is an ancestor of
+    main and `git cherry` marks both `+`."""
+    wt = add_worktree(repo, f".claude/worktrees/{name}", name)
+    for fname in ("one.txt", "two.txt"):
+        (wt / fname).write_text(f"{fname}\n")
+        _git(wt, "add", fname)
+        _git(wt, "commit", "-q", "-m", fname)
+    _git(repo, "merge", "-q", "--squash", name)
+    _git(repo, "commit", "-q", "-m", f"squash {name}")
+    return wt
+
+
+def test_squash_merged_branch_without_pr_is_removed_as_content_subsumed(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = _squash_merged_worktree(repo, "squashed")
+    proc = run_reap(repo, no_gh=False, gh_dir=_fake_gh_dir(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(wt)] == "REMOVE (content-subsumed)", proc.stdout
+
+
+def test_patch_equivalent_plus_unique_commit_is_never_removed(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/half", "half")
+    (wt / "landed.txt").write_text("landed\n")
+    _git(wt, "add", "landed.txt")
+    _git(wt, "commit", "-q", "-m", "landed")
+    landed = _git(wt, "rev-parse", "HEAD").stdout.strip()
+    (wt / "unique.txt").write_text("only on this branch\n")
+    _git(wt, "add", "unique.txt")
+    _git(wt, "commit", "-q", "-m", "unique")
+    (repo / "main-only.txt").write_text("diverge so the pick is a new commit\n")
+    _git(repo, "add", "main-only.txt")
+    _git(repo, "commit", "-q", "-m", "main moves")
+    _git(repo, "cherry-pick", landed)
+    cherry = _git(repo, "cherry", "main", "half").stdout.split()
+    assert cherry[0::2] == ["-", "+"], cherry
+    proc = run_reap(repo, no_gh=False, gh_dir=_fake_gh_dir(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(wt)].startswith("SKIP_UNPROVEN"), proc.stdout
+
+
+def test_subsumed_branch_with_open_pr_is_never_removed(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = _squash_merged_worktree(repo, "open-pr")
+    proc = run_reap(repo, no_gh=False, gh_dir=_fake_gh_dir(tmp_path, pr_state="OPEN"))
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(wt)] == "SKIP_UNPROVEN (SKIP_PR_OPEN)", proc.stdout
+
+
+def test_subsumed_branch_with_failed_pr_query_is_never_removed(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = _squash_merged_worktree(repo, "gh-down")
+    proc = run_reap(repo, no_gh=False, gh_dir=_fake_gh_dir(tmp_path, pr_list_fails=True))
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(wt)].startswith("SKIP_PR_QUERY_ERROR"), proc.stdout
+
+
+def test_live_process_cwd_inside_worktree_is_never_removed(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = _squash_merged_worktree(repo, "busy")
+    holder = subprocess.Popen(["sleep", "120"], cwd=str(wt / ".."))
+    nested = subprocess.Popen(["sleep", "120"], cwd=str(wt))
+    try:
+        proc = run_reap(repo, no_gh=False, gh_dir=_fake_gh_dir(tmp_path))
+    finally:
+        for p in (holder, nested):
+            p.kill()
+            p.wait()
+    assert proc.returncode == 0, proc.stderr
+    line = outcomes(proc.stdout)[str(wt)]
+    assert line.startswith("SKIP_LIVE_CWD"), proc.stdout
+    assert f"pid {nested.pid} sleep" in line and f"pid {holder.pid}" not in line, line
+    assert "skipped-live-cwd=1" in summary_line(proc.stdout)
+
+
+def test_failed_process_scan_skips_every_entry(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/scanless", "scanless")
+    mod = _load_module_directly()
+    monkeypatch.setattr(mod, "_scan_process_cwds", lambda: None)
+    entry = _worktree_entry(wt, "scanless")
+    result = mod.evaluate_entry(
+        str(repo), entry, mod.WorktreeClass.ISOLATION, "main",
+        gh_ok=False, allow_network=False, min_age_hours=None, strict_ignored=False,
+        activity_window_hours=0.0,
+    )
+    assert result["outcome"] == "SKIP_LIVE_CWD", result
+
+
+@pytest.mark.parametrize("no_gh", [True, False])
+def test_detached_commit_named_only_by_private_reflog_is_never_removed(tmp_path, no_gh):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = repo / ".claude" / "worktrees" / "reflog-only"
+    wt.parent.mkdir(parents=True, exist_ok=True)
+    _git(repo, "worktree", "add", "-q", "--detach", str(wt), "main")
+    (wt / "only-here.txt").write_text("sole copy\n")
+    _git(wt, "add", "only-here.txt")
+    _git(wt, "commit", "-q", "-m", "sole copy")
+    _git(wt, "checkout", "-q", "--detach", "origin/main")
+    proc = run_reap(repo, no_gh=no_gh, gh_dir=None if no_gh else _fake_gh_dir(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(wt)].startswith("SKIP_UNPROVEN (private pin:"), proc.stdout
+
+
+def test_detached_whitespace_variant_of_a_base_commit_is_never_removed(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = repo / ".claude" / "worktrees" / "ws"
+    wt.parent.mkdir(parents=True, exist_ok=True)
+    _git(repo, "worktree", "add", "-q", "--detach", str(wt), "main")
+    (repo / "w.txt").write_text("a b\n")
+    _git(repo, "add", "w.txt")
+    _git(repo, "commit", "-q", "-m", "w on main")
+    (wt / "w.txt").write_text("a  b\n")
+    _git(wt, "add", "w.txt")
+    _git(wt, "commit", "-q", "-m", "w with different spacing")
+    assert _git(repo, "cherry", "main", _git(wt, "rev-parse", "HEAD").stdout.strip()).stdout.startswith("- ")
+
+    mod = _load_module_directly()
+    entry = _detached_worktree_entry(wt)
+    facts, _errored = mod._build_facts(str(repo), entry, "clean", "main", False, False)
+    assert facts.head_reachable == "unreachable", facts
+    result = mod.evaluate_entry(
+        str(repo), entry, mod.WorktreeClass.ISOLATION, "main",
+        gh_ok=False, allow_network=False, min_age_hours=None, strict_ignored=False,
+        activity_window_hours=0.0,
+    )
+    assert result["outcome"] != "REMOVE", result
+
+
+def test_live_cwd_matches_a_case_variant_registration(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    on_disk = repo / ".claude" / "worktrees" / "CaseWT"
+    on_disk.mkdir(parents=True)
+    registered = on_disk.parent / "casewt"
+    if not registered.exists():
+        pytest.skip("case-sensitive filesystem: no case-variant path to register")
+    _git(repo, "worktree", "add", "-q", str(registered), "-b", "casewt")
+    holder = subprocess.Popen(["sleep", "120"], cwd=str(on_disk))
+    try:
+        proc = run_reap(repo)
+    finally:
+        holder.kill()
+        holder.wait()
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(registered)].startswith("SKIP_LIVE_CWD"), proc.stdout
+
+
+def test_merge_commit_with_own_content_is_not_content_subsumed(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/mergey", "mergey")
+    (wt / "a.txt").write_text("a\n")
+    _git(wt, "add", "a.txt")
+    _git(wt, "commit", "-q", "-m", "a")
+    a_sha = _git(wt, "rev-parse", "HEAD").stdout.strip()
+    _git(wt, "checkout", "-q", "-b", "side-b", "main")
+    (wt / "b.txt").write_text("b\n")
+    _git(wt, "add", "b.txt")
+    _git(wt, "commit", "-q", "-m", "b")
+    b_sha = _git(wt, "rev-parse", "HEAD").stdout.strip()
+    _git(wt, "checkout", "-q", "mergey")
+    _git(wt, "merge", "-q", "--no-ff", "--no-commit", "side-b")
+    (wt / "e.txt").write_text("only in the merge commit\n")
+    _git(wt, "add", "e.txt")
+    _git(wt, "commit", "-q", "-m", "merge side-b")
+    (repo / "m.txt").write_text("main moves\n")
+    _git(repo, "add", "m.txt")
+    _git(repo, "commit", "-q", "-m", "main moves")
+    _git(repo, "cherry-pick", a_sha)
+    _git(repo, "cherry-pick", b_sha)
+    cherry = _git(repo, "cherry", "main", "mergey").stdout.split()
+    assert cherry[0::2] == ["-", "-"], cherry
+
+    proc = run_reap(repo, no_gh=False, gh_dir=_fake_gh_dir(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(wt)].startswith("SKIP_UNPROVEN"), proc.stdout

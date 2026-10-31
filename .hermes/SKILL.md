@@ -11232,11 +11232,9 @@ Purpose: Full reference for worktree and branch lifecycle command blocks
          trivially, across subsequent related tweaks, referenced by a
          pointer from content/sections/04-risk-classification.md §Trivial
          signals), and the SKIP_UNREFERENCED_COMMIT section (the
-         disposition EVERY such detached harness worktree resolves to
-         today if it crashes before its push - `head_reachable` is dead
-         code in bin/ds-cleanup-worktrees, so no leftover, pushed or not,
-         currently auto-sweeps; see that section for the manual
-         triage/recovery procedure), and the Agent-spawned process
+         disposition a crashed detached harness worktree resolves to when
+         no local branch or origin/* ref contains its HEAD; see that
+         section for the manual triage/recovery procedure), and the Agent-spawned process
          lifetime ownership section (the canonical rule that a process an
          agent launches - a dev server, a browser - reparents to launchd
          when the launching tool call returns and outlives the agent's run,
@@ -11313,15 +11311,13 @@ Failure modes: Prose + bash blocks; does not auto-execute. Carrier
                bin/ds-branch-prune, and bin/ds-cleanup-worktrees backstops.
                A crashed Implicit Trivial batching continuation leaves its
                own harness isolation worktree detached (possibly with an
-               unpushed commit) - a DIFFERENT case from the above: none of
-               the session-start prune, bin/ds-branch-prune, or the
-               automatic reap resolve it - `head_reachable` (the fact the
-               reap's ELIGIBLE path for a detached HEAD depends on) is
-               dead code in bin/ds-cleanup-worktrees, hardcoded to
-               "not_checked" at every construction site, so every such
-               leftover resolves SKIP_UNREFERENCED_COMMIT regardless of
-               push status and is left in place; only the manual procedure
-               in §SKIP_UNREFERENCED_COMMIT resolves it.
+               unpushed commit) - a DIFFERENT case from the above: the
+               automatic reap removes it only when a local branch or
+               origin/* ref contains its HEAD and no commit its private
+               gitdir names would lose its last ref; otherwise it resolves
+               SKIP_UNREFERENCED_COMMIT or SKIP_UNPROVEN (private pin) and
+               only the manual procedure in §SKIP_UNREFERENCED_COMMIT
+               resolves it.
 
 Performance: Standard.
 -->
@@ -11554,20 +11550,20 @@ worktree at `.claude/worktrees/agent-<id>` classifies ISOLATION exactly
 like a branched one. `disposition_for`'s detached-HEAD branch
 (`bin/tests/worktree_model.py:756-762`) is `ELIGIBLE` only when
 `facts.head_reachable == "reachable"`, else `SKIP_UNREFERENCED_COMMIT`.
-`bin/ds-cleanup-worktrees`'s `_build_facts` hardcodes
-`head_reachable="not_checked"` at every construction site, and
-`_compute_origin_reachable`'s own docstring (same file) calls the field
-"unrelated, dead code" - distinct from the separate, live
-`origin_reachable` field DS-196 added, which does not feed this branch at
-all (`worktree_model.py`'s `DispositionFacts` docstring).
-Since `"not_checked" != "reachable"`, the `ELIGIBLE` arm can never fire
-today: **every detached harness worktree, whether its push already
-landed or not, resolves `SKIP_UNREFERENCED_COMMIT`** and is left for
-manual handling - refused by design, the same work-preserving discipline
-as `SKIP_UNPROVEN` below, but a distinct disposition.
+`bin/ds-cleanup-worktrees`'s `_build_facts` sets `head_reachable` for a
+detached entry to `"reachable"` only when a local branch or an
+`origin/*` ref contains its HEAD, else `"unreachable"`; patch equivalence
+does not count, because nothing keeps a detached commit alive. Before
+removal it also runs `bin/ds-retire-carrier`'s gate-7 pin check over the
+worktree's private HEAD reflog, `*_HEAD` files and private refs. A crash
+after the push therefore auto-sweeps. A HEAD no live ref contains
+resolves `SKIP_UNREFERENCED_COMMIT`; a contained HEAD whose private
+gitdir still names a commit no live ref holds resolves `SKIP_UNPROVEN`
+(`private pin: ...`). Both are left for manual handling - refused by
+design, the same work-preserving discipline as `SKIP_UNPROVEN` below.
 
-**Operator triage, since the tool does not distinguish the two cases for
-you:** check whether the commit already reached `origin` -
+**Operator triage for a remaining `SKIP_UNREFERENCED_COMMIT`:** confirm
+the commit has not reached `origin` -
 `git -C <path> branch -r --contains "$(git -C <path> rev-parse HEAD)"`.
 Nonempty output means nothing is at risk - the work is already on
 `origin`, and the plain-`git worktree remove` procedure in
@@ -11576,18 +11572,6 @@ sufficient to reclaim the leftover. Empty output means the commit exists
 nowhere but this worktree - follow that section's full
 inspect-recover-or-discard procedure. See §SKIP_UNREFERENCED_COMMIT below
 for both.
-
-**A possible future enhancement, deliberately not done here:** wiring
-`head_reachable` up to a real check (mirroring `_compute_origin_reachable`'s
-existing pattern) would let a crash-after-push leftover auto-sweep
-instead of needing the manual triage above. Out of scope for this
-change - the honest-docs fix (stating the true, current behavior) is
-minimal-diff; wiring up dead code to change tool behavior is a separate,
-larger change with its own review. This paragraph is a per-change scope
-note from the docs revision that added it, not a standing cross-unit repo
-decision - deferring `head_reachable`-wiring to its own separately-scoped
-unit remains the right sequencing call, but no repo-level decision
-mandates that split.
 
 **A registered-but-out-of-tree worktree (`OUT_OF_TREE`).** A worktree THIS
 repo's own git registered, but which lives physically outside
@@ -11598,8 +11582,7 @@ real call site's shape) AND the target is not itself a linked worktree
 (see below), it classifies `OUT_OF_TREE` and is evidence-gated exactly
 like ISOLATION/CONDUCTOR_CREATED, subject to THREE removal paths, not
 one: (1) ancestor-of-base merge evidence; (2)
-`origin_reachable` (DS-196) for a branched entry - independent of
-`head_reachable` staying dead, rolled back to the pre-DS-196 evidence
+`origin_reachable` (DS-196) for a branched entry, rolled back to the pre-DS-196 evidence
 order by `--no-origin-reachable-evidence` for an operator who wants the
 more conservative behavior; and (3) `--archive-unproven`, which archives
 and removes ANY entry (of any class, including `OUT_OF_TREE`) whose
@@ -11902,7 +11885,7 @@ residual documented below.
 
 ## The unproven class, and archiving it (`--archive-unproven`)
 
-Even with every prior gate passing (unlocked, not self, idle past the activity window, clean, not protected-content), `bin/ds-cleanup-worktrees` still refuses to remove a worktree whose branch carries real, unmerged commits that were never pushed anywhere and have no matching PR - `disposition_for` correctly reports `SKIP_UNPROVEN` rather than guessing. Measured against this repo's own live checkout, this is the dominant remaining blocker once the `.agentic/`-content correction landed: `skipped-protected-content` dropped to 0, but `removed` stayed 0, because most of the remaining worktrees carry exactly this class of branch (default-named `worktree-agent-<id>` branches and legacy `ds-round8`..`ds-round12` rework branches). Left alone by this predicate, `SKIP_UNPROVEN` worktrees do not resolve on their own. **This is now qualified, not absolute (DS-196):** a `SKIP_UNPROVEN` branch that has since been pushed to `origin` and reached a resolved (non-open) PR state can resolve via the separate `origin_reachable` evidence source (see the session-start reap above), which is LENIENT-only and evaluated after `pr_state` - `SKIP_UNPROVEN` itself, produced by the STRICT branch-deletion path, is untouched by this; only the worktree-removal path gains the new resolution route. A branch that is genuinely unpushed, with no PR, still never resolves.
+Even with every prior gate passing (unlocked, not self, no live process cwd inside, idle past the activity window, clean, not protected-content), `bin/ds-cleanup-worktrees` still refuses to remove a worktree whose branch carries real, unmerged commits that were never pushed anywhere and have no matching PR - `disposition_for` correctly reports `SKIP_UNPROVEN` rather than guessing. A squash-merged branch is not in this class: `content_subsumption` resolves it when `bin/ds-branch-prune`'s `subsumption_layer` or the `git cherry` rule proves its content is on the base and its PR query answered MERGED, CLOSED or NONE (see `content/commands/ds-cleanup-worktrees.md`). Measured against this repo's own live checkout, this is the dominant remaining blocker once the `.agentic/`-content correction landed: `skipped-protected-content` dropped to 0, but `removed` stayed 0, because most of the remaining worktrees carry exactly this class of branch (default-named `worktree-agent-<id>` branches and legacy `ds-round8`..`ds-round12` rework branches). Left alone by this predicate, `SKIP_UNPROVEN` worktrees do not resolve on their own. **This is now qualified, not absolute (DS-196):** a `SKIP_UNPROVEN` branch that has since been pushed to `origin` and reached a resolved (non-open) PR state can resolve via the separate `origin_reachable` evidence source (see the session-start reap above), which is LENIENT-only and evaluated after `pr_state` - `SKIP_UNPROVEN` itself, produced by the STRICT branch-deletion path, is untouched by this; only the worktree-removal path gains the new resolution route. A branch that is genuinely unpushed, with no PR, resolves only when `content_subsumption` proves its content is already on the base (the squash-merged case above); otherwise it never resolves.
 
 **`SKIP_RECENT_ACTIVITY` masking note:** the file-activity liveness gate (`--activity-window-hours`, default 3.0) is checked after the lock, self and age gates and before the dirty check, so a worktree that is BOTH recently active AND dirty reports only `SKIP_RECENT_ACTIVITY` in a plain run - the dirty fact is still true but not the reported reason. A locked worktree now always reports `SKIP_LOCKED` (DS-245 moved the lock gate ahead of self, age and activity), so it can no longer be masked by this gate or by the age floor. This is the same masking class as the pre-existing `SKIP_TOO_YOUNG` age-floor gate; `--explain` surfaces the full evidence for a given entry regardless of which single-reason bucket it lands in.
 
@@ -11928,15 +11911,11 @@ failing and possibly an uncommitted-nowhere-else commit sitting on top.
 That leftover is a distinct disposition from `SKIP_UNPROVEN` above - it
 is not a checked-out branch with unproven ancestry, it is a **detached
 HEAD**. `disposition_for` reports it as `SKIP_UNREFERENCED_COMMIT`,
-refused by the same work-preserving discipline as `SKIP_UNPROVEN`. **As
-of today this is the outcome for EVERY such leftover, not only an
-unpushed one** - `head_reachable`, the fact that would let a leftover
-whose commit already reached `origin` resolve `ELIGIBLE` instead, is dead
-code in `bin/ds-cleanup-worktrees` (see §Crash paths above); nothing
-currently distinguishes "sole copy of the work" from "already safely on
-origin" for you. Auto-deleting an entry in this disposition is never
-acceptable either way, since the tool itself cannot yet tell which case
-it is.
+refused by the same work-preserving discipline as `SKIP_UNPROVEN`. **A
+leftover reaches this disposition only when `head_reachable` fails** - no
+local branch or `origin/*` ref contains its HEAD (see §Crash paths
+above), so this worktree may hold the sole copy of the work. Auto-deleting an entry in this disposition is never
+acceptable.
 
 **Manual recovery/discard procedure:**
 
@@ -12028,8 +12007,9 @@ These are authorized once, for every session, and are never an operator choice:
   re-protected by the activity gate. **Residual, named not fixed:** a live
   session's own or a second live session's clean, pushed, idle-past-window
   worktree (including the current session's own non-cwd feature worktree,
-  reapable via the 30-minute-idle re-fire since `SKIP_SELF` only protects the
-  cwd worktree) can be reaped out from under it. No commits are ever lost
+  reapable via the 30-minute-idle re-fire since `SKIP_SELF` and
+  `SKIP_LIVE_CWD` only protect a worktree some live process has as its cwd)
+  can be reaped out from under it. No commits are ever lost
   (removal is worktree-only, evidence-gated); the activity window is the
   deliberate defense; no cross-session-branch-skip gate is added, since the
   tool has no visibility into other sessions' branches beyond the locked
@@ -17664,11 +17644,13 @@ tool keeps no record of its own invocations (read-only guarantee above).
 
 Clean up stale git worktrees and local branches in the current repository. Covers both worktree removal and local branch prune - see `content/references/worktree-lifecycle.md` §Branch prune for the canonical branch-prune command block.
 
-`bin/ds-cleanup-worktrees` is the executable, machine-invocable form of the classify -> lock/dirty -> merge-evidence -> disposition predicate this command runs in Step 2 below - it delegates classification to `classify_entry` and the LOCKED/DIRTY/branch-evidence decision to `disposition_for` itself (both `bin/tests/worktree_model.py`), the single normative definition of both, so it can no longer diverge from a hand-authored predicate the way a bespoke reimplementation could (a round-2 Skeptic Critical/Major review caught exactly that divergence in an earlier version of this command file and required this delegation). It additionally applies four safety floors a bare classify/disposition read does not: a self-worktree guard (never reaps the worktree the invoking process is running inside), an explicit-supply age floor (`--min-age-hours`, off unless passed, implied by `--archive-unproven`, or supplied by Step 2 below when `DS_CLEANUP_MIN_AGE_HOURS` is set or a `/ds-wrap` is in progress - DS-245), a file-activity liveness gate (`--activity-window-hours`, default 3.0, unconditional), and a gitignored-content guard - a worktree can report CLEAN under plain `git status --porcelain` while holding irreplaceable ignored content, e.g. `.agentic/plan.md`. By OPERATOR DECISION (round 3) this guard is a PROTECTED DENYLIST, not a fail-safe allowlist: `docs/planning/**`, `.env*`, and `*.local` block removal; everything else ignored - including generated adapter output (`.kimi/`, `.codex/`, `.claude/skills/`) - is disposable and does not block (a round-2 fail-safe allowlist shipped first and measured `removed=0` against the live checkout). `.agentic/**` is a special case with INVERTED polarity (round-4 correction): protected by default inside `.agentic/` - EXCEPT a named set of machine-written state (routine telemetry, hook counters/caches/sentinels, the derived `context.md` rollup and its `context.d/` shards, `session-log/`, `wrap/`, ...) - list and drift test in `bin/ds-cleanup-worktrees`. Round 3's blanket `.agentic/**` protection also measured `removed=0`, because this repo dogfoods its own methodology and every worktree that has ever hosted an agent accumulates routine telemetry; `.agentic/**` was only ever meant to protect AUTHORED work (plans, notes, decisions), not session logs. Before any worktree is actually removed, its `.agentic/events.jsonl` (if present) is salvaged into the primary repo's `.agentic/reaped-telemetry/` first and the copy is verified - a failed salvage blocks removal rather than becoming a silent deletion. `--strict-ignored` restores the round-2 allowlist behavior UNCHANGED (including for `.agentic/`, where it still blocks `events.jsonl` exactly like round 2) for an operator who wants the more conservative (and less effective) polarity instead. These floors (self-worktree, age fallback, file activity, gitignored-content) can only make the tool remove FEWER worktrees than the bare `disposition_for` predicate alone would, never more. See `bin/ds-cleanup-worktrees`'s own module docstring for the full rationale, disposable-set definitions, and salvage mechanics. Both `ds-base-sync`'s advisory note and the SessionStart worktree-count nudge invoke it in `--count-only` mode (a raw count, zero network, zero per-entry evaluation - not a removal forecast).
+`bin/ds-cleanup-worktrees` is the executable, machine-invocable form of the classify -> lock/dirty -> merge-evidence -> disposition predicate this command runs in Step 2 below - it delegates classification to `classify_entry` and the LOCKED/DIRTY/branch-evidence decision to `disposition_for` itself (both `bin/tests/worktree_model.py`), the single normative definition of both, so it can no longer diverge from a hand-authored predicate the way a bespoke reimplementation could (a round-2 Skeptic Critical/Major review caught exactly that divergence in an earlier version of this command file and required this delegation). It additionally applies five safety floors a bare classify/disposition read does not: a self-worktree guard (never reaps the worktree the invoking process is running inside), a live-process-cwd guard (any other process whose cwd is at or under the worktree resolves `SKIP_LIVE_CWD`, and `--explain` names its pid and command; one process scan per run, and a scan that cannot run skips every entry), an explicit-supply age floor (`--min-age-hours`, off unless passed, implied by `--archive-unproven`, or supplied by Step 2 below when `DS_CLEANUP_MIN_AGE_HOURS` is set or a `/ds-wrap` is in progress - DS-245), a file-activity liveness gate (`--activity-window-hours`, default 3.0, unconditional), and a gitignored-content guard - a worktree can report CLEAN under plain `git status --porcelain` while holding irreplaceable ignored content, e.g. `.agentic/plan.md`. By OPERATOR DECISION (round 3) this guard is a PROTECTED DENYLIST, not a fail-safe allowlist: `docs/planning/**`, `.env*`, and `*.local` block removal; everything else ignored - including generated adapter output (`.kimi/`, `.codex/`, `.claude/skills/`) - is disposable and does not block (a round-2 fail-safe allowlist shipped first and measured `removed=0` against the live checkout). `.agentic/**` is a special case with INVERTED polarity (round-4 correction): protected by default inside `.agentic/` - EXCEPT a named set of machine-written state (routine telemetry, hook counters/caches/sentinels, the derived `context.md` rollup and its `context.d/` shards, `session-log/`, `wrap/`, ...) - list and drift test in `bin/ds-cleanup-worktrees`. Round 3's blanket `.agentic/**` protection also measured `removed=0`, because this repo dogfoods its own methodology and every worktree that has ever hosted an agent accumulates routine telemetry; `.agentic/**` was only ever meant to protect AUTHORED work (plans, notes, decisions), not session logs. Before any worktree is actually removed, its `.agentic/events.jsonl` (if present) is salvaged into the primary repo's `.agentic/reaped-telemetry/` first and the copy is verified - a failed salvage blocks removal rather than becoming a silent deletion. `--strict-ignored` restores the round-2 allowlist behavior UNCHANGED (including for `.agentic/`, where it still blocks `events.jsonl` exactly like round 2) for an operator who wants the more conservative (and less effective) polarity instead. These floors (self-worktree, age fallback, file activity, gitignored-content) can only make the tool remove FEWER worktrees than the bare `disposition_for` predicate alone would, never more. See `bin/ds-cleanup-worktrees`'s own module docstring for the full rationale, disposable-set definitions, and salvage mechanics. Both `ds-base-sync`'s advisory note and the SessionStart worktree-count nudge invoke it in `--count-only` mode (a raw count, zero network, zero per-entry evaluation - not a removal forecast).
 
 **The `SKIP_UNPROVEN` class and `--archive-unproven` (round 5).** A worktree can pass every other gate (unlocked, not self, idle past the activity window, clean, not protected-content) and STILL never resolve, because its branch carries real, unmerged commits that were never pushed anywhere and have no matching PR - `disposition_for` correctly refuses to call that `ELIGIBLE` (the round-4 measurement against this repo's own live checkout found this to be the dominant remaining blocker once the `.agentic/` correction landed: `skipped-protected-content` dropped to 0, but `removed` stayed 0 because most of the remaining worktrees carry exactly this class of branch - default-named `worktree-agent-<id>` branches and legacy `ds-round8`..`ds-round12` rework branches). Left alone, `SKIP_UNPROVEN` worktrees accumulate indefinitely - nothing ever resolves them. `--archive-unproven` (OPT-IN, NEVER the default) extends this repo's own precedent for the identical problem on BRANCHES - a 2026-08-11 manual one-off operator sweep archived 75 unprovable branches into one verified `git bundle` before deleting them (DS-153, `.agentic/branch-archive/`; `bin/ds-branch-prune` itself does not call `git bundle`) - to WORKTREES, but only to an explicit whitelist within `SKIP_UNPROVEN`, never the whole bucket (round 6 correction): only `SKIP_NOT_PUSHED` and `SKIP_AMBIGUOUS_NO_PR` qualify - `SKIP_PR_OPEN` (a hard safety override) and `SKIP_LS_REMOTE_ERROR` (a transient failure) are NEVER archived, even with the flag set. Separately, a PER-ENTRY `gh pr list` query failure (auth fine, that one call errored/timed out/rate-limited) is reported as its OWN `SKIP_PR_QUERY_ERROR` outcome - never `SKIP_UNPROVEN` at all - so it is never eligible for `--archive-unproven` in the first place, not merely excluded from the whitelist: a query failure is a distinct fact from "no PR exists" and must never be treated as proof of anything (round-7/8 correction; see `bin/ds-cleanup-worktrees`'s own module docstring, Removal predicate gate 10). Passing `--archive-unproven` IMPLIES the 24h age fallback when `--min-age-hours` is not supplied alongside it (DS-245): every other removal path acts on an entry some gate affirmatively cleared, whereas this one removes an entry whose branch evidence is unresolved by construction, so the age floor is doing work no other gate does there - and the flag is unattended by its nature. Pass `--min-age-hours 0` explicitly to override it. It also refuses to run at all in degraded gh mode (`--no-gh`, or `gh` unavailable/unauthenticated) - without PR evidence it cannot distinguish a genuinely-unprovable branch from one behind an open PR. For every whitelisted entry, it archives the full branch (every commit unique to it) into a verified `git bundle` under `.agentic/worktree-archive/` (never removing anything if the bundle create or verify fails), salvages telemetry (same guard as the plain removal path - a failed salvage also blocks removal), then removes the worktree and prints the exact restore command. **Compaction (DS-191):** when the resolved base branch's objects can be excluded from the bundle without producing an empty bundle, the exclusion is applied - the result is a small bundle plus a recorded prerequisite commit, useful specifically as a full-disk reclaim path, rather than a bundle that duplicates history already present on the base. This is skipped (a full-history bundle is produced instead, with a `NOTE:` printed to stderr) for any of several causes: the base ref cannot be verified locally, the branch shares no history with it, an explicit `--base` was supplied but does not resolve to the same commit this tool's own auto-resolution would have picked (refused outright, never compacted against an unvalidated caller-supplied ref - see `content/references/worktree-lifecycle.md`), a concurrent `git fetch` advanced the base ref past the branch tip between the pre-create measurement and the actual bundle creation (a TOCTOU race, retried once without compaction rather than left stuck), or the rev-list commit count could not be parsed - a compact bundle also requires that prerequisite commit to remain present in this repo's object store to restore (a full-history bundle has no such dependency). It removes the worktree only, never the branch - branch deletion remains `bin/ds-branch-prune`'s job. `.agentic/worktree-archive/` is gitignored (same `/.agentic/*` umbrella as `.agentic/reaped-telemetry/`, no new carve-out) and grows unbounded - pruning it is the operator's own responsibility, exactly like `.agentic/branch-archive/`. See `bin/ds-cleanup-worktrees`'s own module docstring ("Archiving unproven branches") for the full mechanism.
 
 **Origin-reachability evidence and the activity liveness gate (DS-196).** A worktree's branch can be pushed to `origin` and behind a resolved (non-open) PR yet still read `SKIP_UNPROVEN` forever, because the branch was squash-merged (never an ancestor of the base) or never had its own PR. `origin_reachable` is a new, LENIENT-only `DispositionFacts` evidence source (`_compute_origin_reachable`: `git branch -r --contains <head-sha> --list 'origin/*'`; nonempty stdout = `reachable`) added to `WORKTREE_REMOVAL_EVIDENCE_ORDER = (merge_evidence, content_subsumption, pr_state, origin_reachable, ls_remote_status)` - positioned after `pr_state` so an `SKIP_PR_OPEN` veto always resolves first, and it carries its own safety precondition: it never fires unless `pr_state` has been affirmatively resolved (not `"not_checked"`), so under `--no-gh` or a `gh` query failure the new evidence source is inert and the tool degrades to pre-DS-196 behavior. It never touches the STRICT branch-deletion path (`disposition_for_orphan_branch`, `bin/ds-branch-prune`) - branch deletion still requires the four-layer subsumption predicate. Pair it with the new `_worktree_activity_hours` file-activity liveness gate (recursive mtime over files, not directories, under the worktree root, pruning `.git`/`node_modules`/`.venv`/`dist`/`build`/`.next`/`__pycache__`; unresolvable reads fail closed as "too recent") - a worktree with a file touched inside `--activity-window-hours` (CLI default `3.0`) resolves the new `SKIP_RECENT_ACTIVITY` outcome regardless of any other evidence, checked after the lock, self and age gates and before dirty, so it can mask (never reveal less than) a `SKIP_DIRTY` reason in a plain run - same class as `SKIP_TOO_YOUNG`; a locked worktree always reports `SKIP_LOCKED` and can no longer be masked by either (DS-245). Use `--explain` for the full evidence. `--no-origin-reachable-evidence` is the rollback lever, restoring the pre-DS-196 evidence order exactly.
+
+**Squash-aware content subsumption.** A squash-merged branch is never an ancestor of the base, so it used to stop at `SKIP_UNPROVEN` (usually `SKIP_NOT_PUSHED`) unless its PR read MERGED. The tool now fills `content_subsumption` for a branched entry: `subsumed` when the per-branch PR query answered MERGED, CLOSED or NONE without error AND either `bin/ds-branch-prune`'s `subsumption_layer` proves the tip (L2 squash-patch equivalence, L3 tip-subsumed, L4 content-on-main; the merged-PR window is fetched once per repo) or `git cherry <base> <tip>` marks every base..tip commit `-`. An OPEN PR, a failed PR query, or `--no-gh` leaves it `not_checked`, because it is consulted before `pr_state`. A detached entry's `head_reachable` is now live too: `reachable` only when a local branch or an `origin/*` ref contains its HEAD, else `unreachable` (`SKIP_UNREFERENCED_COMMIT`); patch equivalence does not count for a detached commit, because nothing keeps it alive. Before any entry is REMOVEd or offered to `--archive-unproven`, bin/ds-retire-carrier's gate-7 pin check runs on it (HEAD, `*_HEAD` files, private refs and private reflogs in the worktree's own gitdir; no fetch, and phase 1 only under `--no-gh`): a commit no live ref holds keeps it `SKIP_UNPROVEN` with reason `private pin: ...`. `--explain` labels these removals `content-subsumed` and `head-reachable`.
 
 **The automatic session-start reap (DS-196).** In addition to being run on demand via this command, `bin/ds-cleanup-worktrees` is now also invoked by the conductor's session-start preflight, backgrounded so it never blocks, from the session-start prune prose block in `content/references/worktree-lifecycle.md` (§Session-start prune script) - after `git worktree prune`, before `bin/ds-branch-prune`. Output is appended (never truncated) to `<repo-root>/.agentic/worktree-reap.log`, with a per-run header line (UTC timestamp + pid) so DIFFERENT concurrent sessions interleave identifiably rather than clobbering the only record of a mutating removal - `$$` in a backgrounded subshell expands to the PARENT shell's own pid (verified in both bash and zsh), so a same-session 30-minute-idle preflight re-fire shares this pid across every run and is distinguished by its timestamp alone, not by pid. Suppress it with `AE_WORKTREE_REAP_DISABLE=1`; PATH-absence degrades to a `WARNING:` rather than blocking session start.
 

@@ -23,8 +23,9 @@ Purpose: Executable reference implementation of the `/ds-cleanup-worktrees`
          ds-cleanup-worktrees.md` Step 2 now invokes this tool to run,
          rather than restating - so this tool can no longer diverge from
          it. See "Removal predicate" below for the full gate order,
-         including four additional safety floors `disposition_for` does
-         not know about: a self-worktree guard, an explicit-supply age
+         including five additional safety floors `disposition_for` does
+         not know about: a self-worktree guard, a live-process-cwd guard,
+         an explicit-supply age
          fallback (`--min-age-hours`, off unless supplied or implied by
          `--archive-unproven` - DS-245), a file-activity liveness gate,
          and a gitignored-content guard.
@@ -76,6 +77,11 @@ Gate order, first match wins, ALL must clear for REMOVE:
      gate, which is likewise terminal, so this remains a hard floor on
      removal. A hard floor, not a heuristic: a v1 dry run against the live
      38-worktree checkout flagged this tool's OWN worktree as REMOVE.
+  4a. LIVE CWD -> any process other than this one whose cwd is at or
+     under the worktree resolves `SKIP_LIVE_CWD`; `--explain` names up to
+     five `pid <n> <command>` holders. One process scan per run (/proc on
+     Linux, `lsof -d cwd` elsewhere); a scan that cannot run skips EVERY
+     entry. bin/ds-retire-carrier gate 1 reuses `_live_cwd_holders`.
   5. AGE FALLBACK (round-2 Major 2b; demoted to explicit-supply by
      DS-245) -> a worktree whose OWN ROOT DIRECTORY's mtime (an
      approximate proxy, re-armed by any operation touching the path
@@ -169,7 +175,22 @@ Gate order, first match wins, ALL must clear for REMOVE:
      `--no-origin-reachable-evidence` restores pre-DS-196 evidence order
      exactly. See `worktree_model.py`'s `WORKTREE_REMOVAL_EVIDENCE_ORDER`
      and `_check_origin_reachable` docstrings for the full precedence
-     rationale and safety precondition. A non-`ELIGIBLE` outcome here is
+     rationale and safety precondition. `content_subsumption` is
+     `"subsumed"` when the PR query answered MERGED/CLOSED/NONE without
+     error AND either bin/ds-branch-prune's `subsumption_layer` proves the
+     tip (L2 squash-patch, L3 tip-subsumed, L4 content-on-main; merged
+     PRs fetched once per repo) or `git cherry <base> <tip>` lists every
+     base..tip commit with `-`; an OPEN or unanswered PR query leaves it
+     `"not_checked"`, since it is consulted before `pr_state`. A detached
+     entry's `head_reachable` is `"reachable"` only when a local branch or
+     an `origin/*` ref contains its HEAD (`_head_in_live_ref`), else
+     `"unreachable"` (SKIP_UNREFERENCED_COMMIT); patch equivalence is not
+     enough there, since nothing keeps a detached commit alive. An entry
+     that resolves `ELIGIBLE`, or into the `--archive-unproven` whitelist,
+     then runs bin/ds-retire-carrier's gate-7 pin check
+     (`_private_pin_hold`; phase 1 only when offline) and stays
+     `SKIP_UNPROVEN` ("private pin: ...") if its private gitdir names a
+     commit no live ref holds. A non-`ELIGIBLE` outcome here is
      `SKIP_UNPROVEN`, which is also the only bucket `--archive-unproven`
      draws its candidates from - and passing that flag implies the gate-5
      age fallback (see `_resolve_min_age_hours`), because archiving
@@ -940,6 +961,14 @@ Upstream deps: Python 3 stdlib only (argparse, fnmatch, json, os, re, shutil,
                call in this file goes through it, so its `env=` REPLACEMENT
                semantics and synthetic rc=124 timeout result (see its
                docstring in bin/_lib.py) are this file's behavior too.
+               bin/ds-branch-prune (`subsumption_layer`,
+               `_load_merged_prs`, `_candidates_for_branch`, `_rev_parse`,
+               `_merge_base`, `_upstream`), loaded by resolved path with
+               SourceFileLoader since it has no `.py` suffix.
+               bin/ds-retire-carrier (`_common_dir`, `_private_gitdir`,
+               `_local_pin_check`, `_pin_gate`, `Hold`, `UsageError`),
+               loaded on first use because it loads this file. `lsof`
+               (non-Linux live-cwd scan; absence skips every entry).
                bin/tests/worktree_model.py (WorktreeClass, classify_entry,
                parse_porcelain, Disposition, DispositionFacts,
                disposition_for - imported by path exactly like
@@ -1153,6 +1182,8 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import importlib.machinery as _ilm
+import importlib.util as _ilu
 import json
 import os
 import re
@@ -1161,7 +1192,7 @@ import sys
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # --------------------------------------------------------------------------
 # Shared helpers: worktree_model.py (bin/tests/), imported by resolved path
@@ -1204,6 +1235,10 @@ from _lib import (  # noqa: E402
     _strip_fenced_and_indented_lines,
     resolve_base_branch,
 )
+
+_prune_loader = _ilm.SourceFileLoader("_ds_branch_prune", str(_BIN_DIR / "ds-branch-prune"))
+_prune = _ilu.module_from_spec(_ilu.spec_from_loader("_ds_branch_prune", _prune_loader))
+_prune_loader.exec_module(_prune)
 
 #: Every network-touching subprocess call in this file is bounded by this
 #: timeout (round-2 Major 4) - `git ls-remote`, `gh auth status`, and
@@ -1990,9 +2025,7 @@ def _compute_origin_reachable(repo: str, head_sha: Optional[str]) -> str:
     this tool's callers treat `"not_checked"` as inconclusive (never a
     green light) while `"unreachable"` is an affirmative negative result
     from a query that DID run successfully. Populates `facts.
-    origin_reachable` ONLY - never `facts.head_reachable`, which remains
-    unrelated, dead code (see `worktree_model.DispositionFacts`'s own
-    docstring).
+    origin_reachable` only.
 
     Depends on stale remote-tracking refs surviving locally - see the
     module docstring's `fetch.prune` caveat.
@@ -2000,6 +2033,219 @@ def _compute_origin_reachable(repo: str, head_sha: Optional[str]) -> str:
     if not head_sha:
         return "not_checked"
     proc = _run(["git", "-C", repo, "branch", "-r", "--contains", head_sha, "--list", "origin/*"])
+    if proc.returncode != 0:
+        return "not_checked"
+    return "reachable" if proc.stdout.strip() else "unreachable"
+
+
+#: Merged-PR window per repo realpath, fetched at most once per process.
+_MERGED_PRS_CACHE: Dict[str, List[Dict]] = {}
+
+
+def _merged_prs(repo: str) -> List[Dict]:
+    key = os.path.realpath(repo)
+    if key not in _MERGED_PRS_CACHE:
+        prs, _degraded, _incomplete = _prune._load_merged_prs(repo, None, False)
+        _MERGED_PRS_CACHE[key] = prs
+    return _MERGED_PRS_CACHE[key]
+
+
+def _cherry_subsumed(repo: str, base_ref: str, tip: Optional[str]) -> bool:
+    """True when `git cherry <base> <tip>` lists at least one commit, none
+    `+`, and covers every commit in base..tip. cherry omits merge commits,
+    so the count check keeps a merge carrying its own content from passing.
+    """
+    if not tip:
+        return False
+    proc = _run(["git", "-C", repo, "cherry", base_ref, tip])
+    if proc.returncode != 0:
+        return False
+    lines = [line for line in proc.stdout.splitlines() if line.strip()]
+    if not lines or any(not line.startswith("- ") for line in lines):
+        return False
+    count = _run(["git", "-C", repo, "rev-list", "--count", f"{base_ref}..{tip}"])
+    return count.returncode == 0 and count.stdout.strip() == str(len(lines))
+
+
+def _compute_content_subsumption(
+    repo: str, branch: str, base_ref: str, pr_state: str, pr_query_errored: bool
+) -> str:
+    """`content_subsumption` for a branched entry. Consulted before
+    `pr_state` in the evidence order, so it stays "not_checked" unless the
+    PR query affirmatively answered MERGED/CLOSED/NONE - an OPEN or unknown
+    PR must reach `_check_pr_state_lenient` untouched.
+    """
+    if pr_query_errored or pr_state not in ("MERGED", "CLOSED", "NONE"):
+        return "not_checked"
+    tip = _prune._rev_parse(repo, branch)
+    base_sha = _prune._merge_base(repo, branch, base_ref) if tip else None
+    if tip is None or base_sha is None:
+        return "not_subsumed"
+    candidates = _prune._candidates_for_branch(
+        branch, tip, _prune._upstream(repo, branch), base_ref, _merged_prs(repo)
+    )
+    if _prune.subsumption_layer(repo, tip, base_sha, base_ref, candidates) is not None:
+        return "subsumed"
+    return "subsumed" if _cherry_subsumed(repo, base_ref, tip) else "not_subsumed"
+
+
+#: One process-cwd scan per run, cleared by `main`. A None scan means the
+#: scan itself failed.
+_LIVE_CWD_SCAN: Dict[str, Optional[List[Tuple[int, str, str]]]] = {}
+_LIVE_CWD_SCAN_TIMEOUT_SECONDS = 30
+
+
+def _scan_process_cwds() -> Optional[List[Tuple[int, str, str]]]:
+    """Every readable process's `(pid, command, cwd)`, or None when the
+    scan cannot run. Linux reads /proc; elsewhere `lsof -d cwd`. Processes
+    the caller may not inspect are absent from both, never a failure.
+    """
+    if os.path.isdir("/proc/self") and os.path.islink("/proc/self/cwd"):
+        try:
+            names = os.listdir("/proc")
+        except OSError:
+            return None
+        rows: List[Tuple[int, str, str]] = []
+        for name in names:
+            if not name.isdigit():
+                continue
+            try:
+                cwd = os.readlink(f"/proc/{name}/cwd")
+            except OSError:
+                continue
+            try:
+                with open(f"/proc/{name}/comm", encoding="utf-8", errors="replace") as fh:
+                    comm = fh.read().strip()
+            except OSError:
+                comm = "?"
+            rows.append((int(name), comm, cwd))
+        return rows
+    lsof = shutil.which("lsof")
+    if lsof is None:
+        return None
+    proc = _run([lsof, "-n", "-P", "-w", "-d", "cwd", "-F", "pcn"], timeout=_LIVE_CWD_SCAN_TIMEOUT_SECONDS)
+    if proc.returncode != 0:
+        return None
+    rows = []
+    pid: Optional[int] = None
+    comm = "?"
+    for line in proc.stdout.splitlines():
+        tag, value = line[:1], line[1:]
+        if tag == "p":
+            pid, comm = (int(value) if value.isdigit() else None), "?"
+        elif tag == "c":
+            comm = value
+        elif tag == "n" and pid is not None:
+            rows.append((pid, comm, value))
+    return rows
+
+
+def _live_cwd_scan() -> Optional[List[Tuple[int, str, str]]]:
+    if "scan" not in _LIVE_CWD_SCAN:
+        _LIVE_CWD_SCAN["scan"] = _scan_process_cwds()
+    return _LIVE_CWD_SCAN["scan"]
+
+
+def _ancestor_ids(path: str) -> Set[Tuple[int, int]]:
+    """`(st_dev, st_ino)` of `path` and every ancestor that can be stat'd.
+    Identity, not spelling: a case-insensitive volume reports a cwd in its
+    on-disk case while git may have registered the worktree in another.
+    """
+    ids: Set[Tuple[int, int]] = set()
+    current = path
+    while True:
+        try:
+            st = os.stat(current)
+            ids.add((st.st_dev, st.st_ino))
+        except OSError:
+            pass
+        parent = os.path.dirname(current)
+        if parent == current:
+            return ids
+        current = parent
+
+
+def _live_cwd_holders(path: str) -> Optional[List[Tuple[int, str]]]:
+    """`(pid, command)` of every process other than this one whose cwd is
+    at or under `path`; None when the process scan failed or `path` cannot
+    be stat'd (callers hold).
+    """
+    scan = _live_cwd_scan()
+    if scan is None:
+        return None
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    target_id = (st.st_dev, st.st_ino)
+    target = os.path.realpath(path)
+    prefix = target.rstrip(os.sep) + os.sep
+    me = os.getpid()
+    holders = []
+    for pid, comm, cwd in scan:
+        if pid == me:
+            continue
+        if cwd not in _CWD_ANCESTOR_IDS:
+            _CWD_ANCESTOR_IDS[cwd] = _ancestor_ids(cwd)
+        real = os.path.realpath(cwd)
+        if target_id in _CWD_ANCESTOR_IDS[cwd] or real == target or real.startswith(prefix):
+            holders.append((pid, comm))
+    return holders
+
+
+#: Per-run memo of `_ancestor_ids` by cwd string, cleared with the scan.
+_CWD_ANCESTOR_IDS: Dict[str, Set[Tuple[int, int]]] = {}
+
+
+_RETIRE_CARRIER: Dict[str, Any] = {}
+
+
+def _retire_carrier() -> Any:
+    """bin/ds-retire-carrier, loaded on first use: it loads this file at
+    import, so loading it here at import would recurse."""
+    if "mod" not in _RETIRE_CARRIER:
+        loader = _ilm.SourceFileLoader("_ds_retire_carrier", str(_BIN_DIR / "ds-retire-carrier"))
+        mod = _ilu.module_from_spec(_ilu.spec_from_loader("_ds_retire_carrier", loader))
+        loader.exec_module(mod)
+        _RETIRE_CARRIER["mod"] = mod
+    return _RETIRE_CARRIER["mod"]
+
+
+def _private_pin_hold(repo: str, path: str, head: Optional[str], allow_network: bool) -> Optional[str]:
+    """bin/ds-retire-carrier gate 7 without `--pin` or a fetch: the reason
+    removing `path` would drop a commit that only its private gitdir (HEAD,
+    `*_HEAD`, private refs, private reflogs) still names, or None. Offline
+    runs stop at phase 1, so a commit only `origin` holds also holds here.
+    """
+    retire = _retire_carrier()
+    try:
+        common = retire._common_dir(path)
+        gitdir = retire._private_gitdir(path, common)
+        if allow_network:
+            retire._pin_gate(path, repo, common, gitdir, head, False, True)
+        else:
+            _candidates, _pins, unpinned = retire._local_pin_check(repo, common, gitdir, head)
+            if unpinned:
+                sample = ", ".join(sha[:8] for sha in unpinned[:5])
+                return f"{len(unpinned)} unpinned commit(s) ({sample}); offline, origin not consulted"
+    except retire.Hold as hold:
+        return hold.reason
+    except (retire.UsageError, OSError) as exc:
+        return f"pin check failed: {exc}"
+    return None
+
+
+def _head_in_live_ref(repo: str, head: Optional[str]) -> str:
+    """`head_reachable` for a detached entry: "reachable" when a local
+    branch or an `origin/*` ref contains `head`. Containment only - a
+    patch-equivalent commit elsewhere does not keep this one alive.
+    """
+    if not head:
+        return "not_checked"
+    proc = _run(
+        ["git", "-C", repo, "for-each-ref", "--contains", head, "--count=1",
+         "--format=%(refname)", "refs/heads/", "refs/remotes/origin/"]
+    )
     if proc.returncode != 0:
         return "not_checked"
     return "reachable" if proc.stdout.strip() else "unreachable"
@@ -2880,12 +3126,21 @@ def _build_facts(
     # passed to disposition_for, never whether this fact gets computed.
     origin_reachable = _compute_origin_reachable(repo, entry.head)
 
+    content_subsumption = "not_checked"
+    head_reachable = "not_checked"
+    if entry.branch is not None:
+        content_subsumption = _compute_content_subsumption(
+            repo, entry.branch, base_ref, pr_state, pr_query_errored
+        )
+    else:
+        head_reachable = _head_in_live_ref(repo, entry.head)
+
     facts = DispositionFacts(
         dirty_status=dirty_status,
-        head_reachable="not_checked",
+        head_reachable=head_reachable,
         ls_remote_status=ls_remote_status,
         merge_evidence=merge_evidence,
-        content_subsumption="not_checked",
+        content_subsumption=content_subsumption,
         pr_state=pr_state,
         origin_reachable=origin_reachable,
     )
@@ -2899,6 +3154,8 @@ def _display_reason(facts: DispositionFacts) -> str:
     """
     if facts.merge_evidence == "merged":
         return "ancestor-of-base"
+    if facts.content_subsumption == "subsumed":
+        return "content-subsumed"
     if facts.pr_state == "MERGED":
         return "pr-merged"
     # DS-196: checked after merge_evidence and pr_state == "MERGED", mirroring
@@ -2906,6 +3163,8 @@ def _display_reason(facts: DispositionFacts) -> str:
     # after pr_state).
     if facts.origin_reachable == "reachable":
         return "origin-reachable"
+    if facts.head_reachable == "reachable":
+        return "head-reachable"
     return "eligible"
 
 
@@ -2950,7 +3209,7 @@ def evaluate_entry(
     no_origin_reachable_evidence: bool = False,
 ) -> Dict:
     """Resolves one worktree entry. `outcome` is one of: SKIP_UNMANAGED,
-    SKIP_MISSING, SKIP_MISSING_LOCKED, SKIP_SELF, SKIP_TOO_YOUNG,
+    SKIP_MISSING, SKIP_MISSING_LOCKED, SKIP_SELF, SKIP_LIVE_CWD, SKIP_TOO_YOUNG,
     SKIP_RECENT_ACTIVITY, SKIP_LOCKED, SKIP_DIRTY, SKIP_PROTECTED_CONTENT,
     SKIP_PR_QUERY_ERROR, SKIP_UNPROVEN, REMOVE.
 
@@ -3002,6 +3261,13 @@ def evaluate_entry(
 
     if _is_self_worktree(entry.path):
         return {**base, "outcome": "SKIP_SELF"}
+
+    holders = _live_cwd_holders(entry.path)
+    if holders is None:
+        return {**base, "outcome": "SKIP_LIVE_CWD", "reason": "process cwd scan failed"}
+    if holders:
+        listed = ", ".join(f"pid {pid} {comm}" for pid, comm in holders[:5])
+        return {**base, "outcome": "SKIP_LIVE_CWD", "reason": listed}
 
     # Gate 5 (DS-245): the age floor applies ONLY when a caller supplied
     # it (or `--archive-unproven` implied it - see
@@ -3067,6 +3333,10 @@ def evaluate_entry(
             "outcome": "SKIP_PR_QUERY_ERROR",
             "reason": f"gh pr query failed (would-be {disposition.value})",
         }
+    if disposition is Disposition.ELIGIBLE or disposition.value in _ARCHIVABLE_UNPROVEN_DISPOSITIONS:
+        pinned = _private_pin_hold(repo, entry.path, entry.head, allow_network)
+        if pinned is not None:
+            return {**base, "outcome": "SKIP_UNPROVEN", "reason": f"private pin: {pinned}"}
     if disposition is Disposition.ELIGIBLE:
         return {**base, "outcome": "REMOVE", "reason": _display_reason(facts)}
     return {**base, "outcome": "SKIP_UNPROVEN", "reason": disposition.value}
@@ -3848,6 +4118,7 @@ _ALL_OUTCOMES = (
     "SKIP_MISSING",
     "SKIP_MISSING_LOCKED",
     "SKIP_SELF",
+    "SKIP_LIVE_CWD",
     "SKIP_TOO_YOUNG",
     "SKIP_RECENT_ACTIVITY",
     "SKIP_LOCKED",
@@ -4762,6 +5033,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         pass
 
     args = parse_args(argv)
+    _LIVE_CWD_SCAN.clear()
+    _CWD_ANCESTOR_IDS.clear()
 
     if args.init_config:
         # `--init-config` is a standalone scaffolding action, mutually

@@ -150,6 +150,9 @@ Downstream consumers: content/references/worktree-lifecycle.md (§Session-
                       bin/ds-cleanup-worktrees, so a change to the tier
                       order affects BOTH tools - see that module's own
                       manifest.
+                      bin/ds-cleanup-worktrees loads this file by path and
+                      calls `subsumption_layer` (L2-L4) plus
+                      `_load_merged_prs` to prove worktree-branch content.
                       `bin/agentic-branch-prune` is a plain symlink to this
                       file for naming consistency with the established
                       `bin/ds-base-sync` primary-name-plus-symlink pattern
@@ -893,6 +896,37 @@ def _candidates_for_branch(
     return result
 
 
+def subsumption_layer(
+    repo: str, tip_sha: str, base_sha: str, base_ref: str, candidates: List[Dict]
+) -> Optional[str]:
+    """First of L2/L3/L4 proving `tip_sha`'s content is on `base_ref`, or
+    None. bin/ds-cleanup-worktrees calls this for worktree branches."""
+    for cand in candidates:
+        mc = cand["mergeCommit"]
+        if not _commit_exists(repo, mc):
+            continue
+        if not _is_ancestor(repo, mc, base_ref):
+            continue
+        if _l2_match(repo, base_sha, tip_sha, mc):
+            return "L2"
+
+    for cand in candidates:
+        mc = cand["mergeCommit"]
+        head_oid = cand["headRefOid"]
+        if not head_oid:
+            continue
+        if not _is_ancestor(repo, mc, base_ref):
+            continue
+        if not _commit_exists(repo, head_oid):
+            continue
+        if _is_ancestor(repo, tip_sha, head_oid):
+            return "L3"
+
+    if _l4_match(repo, base_sha, tip_sha, base_ref):
+        return "L4"
+    return None
+
+
 # --------------------------------------------------------------------------
 # Per-branch evidence resolution
 # --------------------------------------------------------------------------
@@ -963,32 +997,7 @@ def evaluate_branch(
         pr_state = "not_checked" if (degraded or incomplete_reason) else "NONE"
 
     if layer is None:
-        for cand in candidates:
-            mc = cand["mergeCommit"]
-            if not _commit_exists(repo, mc):
-                continue
-            if not _is_ancestor(repo, mc, base_ref):
-                continue
-            if _l2_match(repo, base_sha, tip_sha, mc):
-                layer = "L2"
-                break
-
-    if layer is None:
-        for cand in candidates:
-            mc = cand["mergeCommit"]
-            head_oid = cand["headRefOid"]
-            if not head_oid:
-                continue
-            if not _is_ancestor(repo, mc, base_ref):
-                continue
-            if not _commit_exists(repo, head_oid):
-                continue
-            if _is_ancestor(repo, tip_sha, head_oid):
-                layer = "L3"
-                break
-
-    if layer is None and _l4_match(repo, base_sha, tip_sha, base_ref):
-        layer = "L4"
+        layer = subsumption_layer(repo, tip_sha, base_sha, base_ref, candidates)
 
     content_subsumed = layer is not None and layer != "L1"
 

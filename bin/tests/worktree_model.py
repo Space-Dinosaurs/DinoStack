@@ -478,7 +478,7 @@ class DispositionFacts:
     DS-196: `origin_reachable` is a NEW, required (no-default) field,
     preserving this invariant - every construction site across the
     codebase must pass it explicitly. It is distinct from the existing
-    (untouched, still-dead) `head_reachable` field: `head_reachable` is
+    `head_reachable` field: `head_reachable` is
     about a DETACHED-HEAD commit still being referenced somewhere;
     `origin_reachable` is about whether this entry's own branch tip is
     reachable from ANY `origin/*` ref (not necessarily the base branch),
