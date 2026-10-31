@@ -229,7 +229,7 @@ The `content/` directory is the single source of truth. Adapter files (`.claude/
 ```
 content/
   rules/        2 rule files (code-standards, conventions)
-  references/   47 reference docs (agent-team, base-branch-sync, skeptic-protocol,
+  references/   49 reference docs (agent-team, base-branch-sync, skeptic-protocol,
                     qa-gate, capability-preflight, events-log, planning-artifacts, ...)
   commands/     28 command files (ds-implement-ticket, ds-init-project, ds-wrap, ds-brief, ...)
   agents/       18 agent definitions (architect, engineer, skeptic, qa-engineer, ...)
@@ -299,7 +299,7 @@ Pull-before-edit is especially important here. This repo sees active refactors -
 
 1. Create `.<toolname>/` matching the tool's config directory convention
 2. Convert the 2 rules into the tool's native rule format (from `content/rules/`)
-3. Copy or symlink the 47 reference docs (from `content/references/`)
+3. Copy or symlink the 49 reference docs (from `content/references/`)
 4. Convert the 28 commands into the tool's command format (from `content/commands/`)
 5. Wire up lifecycle hooks - risk reminder (before prompt) and context save (on stop)
 6. Write `.<toolname>/README.md` with setup instructions

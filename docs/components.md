@@ -4,7 +4,7 @@
 - Code standards - documentation evidence, tool selection, code comments, reuse, quality gates, resource use, and dependencies (per-language defaults, browser verification, and detailed procedures load on trigger from `code-standards-detail.md`)
 - Conventions - writing style, project structure, session context, git workflow
 
-**Reference docs** (47 .md docs plus 3 example .yml files; `content/references/` is the authoritative list) - detailed protocol specs loaded on trigger:
+**Reference docs** (49 .md docs plus 3 example .yml files; `content/references/` is the authoritative list) - detailed protocol specs loaded on trigger:
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
 - Agent team - roles, composed flows, decision rules, spawn requirements
@@ -41,6 +41,8 @@
 - Open-goal loop - `/ds-implement-ticket` open-goal init/resume and per-iteration goal-condition check, read only when `goal_mode=open_goal`
 - Orchestration units - `/ds-implement-ticket` Phase 3b orchestration plan and Phase 5 parallel fan-out, read only for multi-unit plans
 - Knowledge commit - `/ds-implement-ticket` Phase 11e checkout-free commit of session knowledge files onto the PR branch, read only when Phase 9 opened a PR
+- QA evidence publish - `/ds-implement-ticket` QA regressions curator, Phase 8.5 orphan-branch screenshot evidence, and Phase 11 tracker screenshot upload, read only when QA failed or produced screenshots
+- Tracker create - the Tracker Create Helper's invocation contract, collision pre-check, and per-tracker create branches, read only when a ticket is being created
 - Tracker writeback - the reusable Tracker Writeback Helper invocation pattern shared by every tracker state-transition call site
 - Learnings capture instruction - what counts as a learning and the canonical learnings_candidate digest-field definition
 - Subagent return contract - the attention test that classifies every subagent return field as MECHANICAL or ADVISORY

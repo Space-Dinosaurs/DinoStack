@@ -318,7 +318,7 @@ Lead with the Problem. These are soft targets, not hard caps, and they bound der
 - **Acceptance Criteria:** soft target ≤ 8 bullets.
 - **Total:** soft target ≈ 15 lines.
 
-The fixed-form `## Scope boundary` append (written by the Create Helper collision pre-check - see `content/commands/ds-implement-ticket.md` §Tracker Create Helper) is excluded from the budget.
+The fixed-form `## Scope boundary` append (written by the Create Helper collision pre-check - see `content/references/tracker-create.md` §Tracker Create Helper) is excluded from the budget.
 
 Per-line self-check: would a future reader need this line to know what to build, or when it is done? If not, delete it. A line that describes HOW rather than WHAT or WHY fails this check even when short.
 
