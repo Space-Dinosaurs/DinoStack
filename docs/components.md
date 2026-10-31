@@ -42,7 +42,7 @@
 - Orchestration units - `/ds-implement-ticket` Phase 3b orchestration plan and Phase 5 parallel fan-out, read only for multi-unit plans
 - Knowledge commit - `/ds-implement-ticket` Phase 11e checkout-free commit of session knowledge files onto the PR branch, read only when Phase 9 opened a PR
 - QA evidence publish - `/ds-implement-ticket` QA regressions curator, Phase 8.5 orphan-branch screenshot evidence, and Phase 11 tracker screenshot upload, read only when QA failed or produced screenshots
-- Tracker create - the Tracker Create Helper's invocation contract, collision pre-check, and per-tracker create branches, read only when a ticket is being created
+- Tracker create - the Tracker Create Helper's per-tracker create branches and loud failure line, read only when a ticket is being created
 - Tracker writeback - the reusable Tracker Writeback Helper invocation pattern shared by every tracker state-transition call site
 - Learnings capture instruction - what counts as a learning and the canonical learnings_candidate digest-field definition
 - Subagent return contract - the attention test that classifies every subagent return field as MECHANICAL or ADVISORY

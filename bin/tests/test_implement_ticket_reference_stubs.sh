@@ -69,6 +69,23 @@ tracker-create.md:1
 qa-evidence-publish.md:3
 STUBSPEC
 
+# Phase 0's consume-time collision backstop runs on single-ticket runs and
+# reuses the Create Helper's overlap scan, so the scan must stay in the command.
+TRACKER_CREATE="$REPO_DIR/content/references/tracker-create.md"
+for marker in '**Collision pre-check (runs BEFORE the create branches):**' \
+              'scan in-flight tickets in the same tracker project/team'; do
+  if grep -qF -- "$marker" "$CMD"; then
+    _pass "command carries the collision pre-check: $marker"
+  else
+    _fail "command lost the collision pre-check: $marker"
+  fi
+  if grep -qF -- "$marker" "$TRACKER_CREATE"; then
+    _fail "tracker-create.md carries the collision pre-check: $marker"
+  else
+    _pass "tracker-create.md does not carry the collision pre-check: $marker"
+  fi
+done
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -gt 0 ]] && exit 1
