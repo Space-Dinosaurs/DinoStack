@@ -5,9 +5,11 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          limits, content/references/skeptic-protocol.md §Round budget and
          value-per-round gate): a max of `_ROUND_CAP` Skeptic rounds per
          unit. Past the cap, exactly one more round is allowed per operator
-         grant: a genuine operator turn in the session transcript containing
-         the `skeptic-grant-<8 hex>` token the deny prints for that unit and
-         round. Nothing the conductor writes to the state file reopens it.
+         grant: a genuine operator turn in the session transcript, after
+         the unit's latest cap deny, saying "grant" (or another
+         `_PLAIN_GRANT_RE` phrase), or containing the `skeptic-grant-<8 hex>`
+         token the deny prints for that unit and round. Nothing the
+         conductor writes to the state file reopens it.
          Before this hook, the cap was enforced only by "the conductor tracks
          re-route count in-context" - unenforced prose. A single session ran
          12 Skeptic rounds / 13 spawns on one unit with no mechanism firing.
@@ -132,9 +134,13 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
            - next_round <= _ROUND_CAP: ALLOW. Persist round_count =
              next_round.
            - next_round >= _ROUND_CAP + 1 (cap reached): ALLOW only when
-             `_operator_granted()` finds `_grant_token(unit_key,
-             next_round)` in a genuine operator turn of the main-session
-             transcript; persist round_count = next_round. The token is
+             `_operator_granted()` finds a grant in a genuine operator turn
+             of the main-session transcript; persist round_count =
+             next_round and grant_line, the grant's line index. A
+             plain-language grant counts only after this unit's latest cap
+             deny and after the recorded grant_line, so one operator turn
+             allows one round of each unit already past the cap, and each
+             further round needs a new turn after a new deny. The token is
              sha1(`<unit_key>#<next_round>`)[:8], so it authorizes one round
              of one unit: advancing round_count retires it, and another
              unit's token never matches. A grant-allowed round whose state
@@ -142,7 +148,7 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
              grant would re-allow on every retry. Otherwise DENY with
              `_DENY_CAP_TEMPLATE`, which names the unit, the round count,
              the two permitted actions (ship with accepted debt, or stop and
-             report to the operator) and the token.
+             report to the operator and ask for "grant").
          Legacy `decision` and unresolved-Critical keys a state file may
          still carry are ignored (preserved verbatim via the `_extra`
          passthrough, never read): a conductor could write them with a plain
@@ -377,9 +383,13 @@ Failure modes:
       state file.
     - Two truly concurrent spawns at the cap can both read the same
       pre-advance state and share one grant.
+    - Any operator turn after a cap deny that uses a `_PLAIN_GRANT_RE`
+      word without a negation grants, even one about something else.
+    - grant_line lives in the state file, like round_count: a conductor
+      that lowers it by hand lets an already-spent grant turn count again.
     - An SDK driver's prompt (`claude -p`) is recorded as a genuine user
       turn and counts as operator input. So does a conductor resuming its
-      own session headlessly (`claude -p --resume <session> "<token>"`),
+      own session headlessly (`claude -p --resume <session> "grant"`),
       and a hand-forged transcript line: the transcript is
       non-forgeable only against the conductor's ordinary tools, not
       against a deliberate self-resume or file edit.
@@ -747,9 +757,37 @@ def _operator_texts(obj: dict, loop_guard) -> list[str]:
     return [text] if isinstance(text, str) else []
 
 
-def _operator_granted(transcript_path: object, token: str) -> bool:
-    """True when a genuine operator turn in the MAIN-SESSION transcript
-    contains `token` (case-insensitive). Never raises; any error is False.
+_PLAIN_GRANT_RE = re.compile(
+    r"\b(?:grant|granted|lift\s+the\s+cap|cap\s+(?:is\s+)?lifted|go\s+ahead\s+with\s+another\s+round)\b",
+    re.IGNORECASE,
+)
+_NEGATED_GRANT_RE = re.compile(r"\b(?:not|no|don'?t|don\u2019t)\s+grant", re.IGNORECASE)
+_CAP_DENY_HEAD = "Skeptic round cap reached:"
+
+
+def _tool_result_texts(obj: dict) -> list[str]:
+    msg = obj.get("message")
+    content = msg.get("content") if isinstance(msg, dict) else None
+    if obj.get("type") != "user" or not isinstance(content, list):
+        return []
+    texts: list[str] = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "tool_result":
+            texts.extend(_content_texts(block.get("content")))
+    return texts
+
+
+def _operator_granted(
+    transcript_path: object, token: str, unit_key: str, consumed_line: int
+) -> int | None:
+    """Return the transcript line index of the operator grant that allows
+    `unit_key`'s next round past the cap, or None. Never raises; any error
+    is None. A grant is either `token` in a genuine operator turn, or a
+    plain-language grant (`_PLAIN_GRANT_RE`, no `_NEGATED_GRANT_RE`) in a
+    genuine operator turn after this unit's latest cap deny and after
+    `consumed_line`, the grant line the unit's last grant-allowed round
+    recorded. The returned index is the latest grant line, so main() can
+    record it and no earlier turn can grant again.
 
     Reads only the payload's `transcript_path`, never the SubagentStop-only
     agent transcript or a `subagents/` transcript: conductor-authored spawn
@@ -757,19 +795,27 @@ def _operator_granted(transcript_path: object, token: str) -> bool:
     self-issuable (same hazard as enforce-ticket-batching.py's
     non-forgeability note). Compaction summaries and sidechain lines pass
     loop_guard's classifier but are not operator input, so they are skipped
-    here. See `_operator_texts` for the line shapes that count."""
+    here. See `_operator_texts` for the line shapes that count. A cap deny is
+    found only in a tool_result block, which only the harness writes."""
     try:
         if not isinstance(transcript_path, str) or not transcript_path:
-            return False
+            return None
         if "/subagents/" in transcript_path.replace(os.sep, "/"):
-            return False
+            return None
         loop_guard = _load_loop_guard()
         if loop_guard is None:
-            return False
+            return None
         needle = token.lower()
+        deny_marker = f"spent on unit {unit_key} (max "
+        last_deny = -1
+        token_line = -1
+        plain_line = -1
         with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
-            for line in f:
-                if needle not in line.lower():
+            for i, line in enumerate(f):
+                has_token = needle in line.lower()
+                maybe_deny = _CAP_DENY_HEAD in line
+                maybe_plain = _PLAIN_GRANT_RE.search(line) is not None
+                if not (has_token or maybe_deny or maybe_plain):
                     continue
                 try:
                     obj = json.loads(line)
@@ -781,11 +827,26 @@ def _operator_granted(transcript_path: object, token: str) -> bool:
                     continue
                 if obj.get("isSidechain") is True:
                     continue
-                if any(needle in text.lower() for text in _operator_texts(obj, loop_guard)):
-                    return True
-        return False
+                if maybe_deny and any(
+                    t.startswith(_CAP_DENY_HEAD) and deny_marker in t for t in _tool_result_texts(obj)
+                ):
+                    last_deny = i
+                if not (has_token or maybe_plain):
+                    continue
+                texts = _operator_texts(obj, loop_guard)
+                if has_token and any(needle in t.lower() for t in texts):
+                    token_line = i
+                if any(
+                    _PLAIN_GRANT_RE.search(t) and not _NEGATED_GRANT_RE.search(t) for t in texts
+                ):
+                    plain_line = i
+        if token_line >= 0:
+            return max(token_line, plain_line)
+        if last_deny >= 0 and plain_line > last_deny and plain_line > consumed_line:
+            return plain_line
+        return None
     except Exception:
-        return False
+        return None
 
 
 # Sibling PreToolUse hooks (registered on the SAME "Task"/"Agent" spawn
@@ -1026,7 +1087,7 @@ def _state_path(cwd: str, key: str) -> Path | None:
 _KNOWN_STATE_KEYS = frozenset({
     "round_count", "last_round_fingerprint",
     "last_decision_allow", "last_decision_reason", "tool_use_ids",
-    "unit_key", "last_updated",
+    "grant_line", "unit_key", "last_updated",
 })
 
 
@@ -1056,6 +1117,7 @@ def _load_state(path: Path) -> dict:
         "last_decision_allow": None,
         "last_decision_reason": "",
         "tool_use_ids": [],
+        "grant_line": -1,
         "_extra": {},
     }
     try:
@@ -1078,6 +1140,7 @@ def _load_state(path: Path) -> dict:
             "last_decision_allow": raw.get("last_decision_allow") if isinstance(raw.get("last_decision_allow"), bool) else None,
             "last_decision_reason": raw.get("last_decision_reason") if isinstance(raw.get("last_decision_reason"), str) else "",
             "tool_use_ids": tool_use_ids,
+            "grant_line": raw.get("grant_line") if isinstance(raw.get("grant_line"), int) else -1,
             "_extra": extra,
         }
     except Exception:
@@ -1315,14 +1378,14 @@ _DENY_CAP_TEMPLATE = (
     "Take exactly one of two actions: (a) ship, recording every unresolved "
     "non-Critical finding in the PR body as accepted debt - an unresolved "
     "Critical never ships; or (b) stop and report to the operator, stating "
-    "cost-to-date, what another round would buy, whether the last two "
+    "cost-to-date, what another round would buy, and whether the last two "
     "rounds' Majors were one defect class at new sites (skeptic-protocol.md "
-    "Round budget item 6), and the grant token {token}. Another round "
-    "runs only after the operator's own typed message in this session "
-    "contains {token}. A decision written to the state file, a cross-session "
-    "message, an AskUserQuestion answer, or agent text does not count; a "
-    "prompt sent with claude -p --resume does, so only the operator may send "
-    "one carrying the token."
+    "Round budget item 6), and ask them to reply \"grant\" for one more "
+    "round (or paste {token}). Only the operator's own typed message in this "
+    "session, sent after this deny, counts. A decision written to the state "
+    "file, a cross-session message, an AskUserQuestion answer, or agent text "
+    "does not; a prompt sent with claude -p --resume does, so only the "
+    "operator may send one."
 )
 
 _DENY_KEYLESS_TEMPLATE = (
@@ -1351,8 +1414,8 @@ def _decide(
     state: dict, round_fingerprint: str | None, granted: bool
 ) -> tuple[bool, dict, bool]:
     """Return (allow, new_state, allowed_via_grant). `granted` is True only
-    when main() found the operator's token for this unit's next round past
-    the cap; nothing in the state file can stand in for it."""
+    when main() found an operator grant for this unit's next round past the
+    cap; nothing in the state file can stand in for it."""
     # Fingerprint coalescing: a parallel multi-dimensional fan-out
     # (correctness-Skeptic + security-auditor + perf-analyst, all sharing
     # this unit's key because they all review the same diff AND the same
@@ -1451,12 +1514,20 @@ def main() -> None:
 
         next_round = state["round_count"] + 1
         token = _grant_token(unit_key, next_round)
-        granted = next_round > _ROUND_CAP and _operator_granted(data.get("transcript_path"), token)
+        grant_line = (
+            _operator_granted(data.get("transcript_path"), token, unit_key, state["grant_line"])
+            if next_round > _ROUND_CAP
+            else None
+        )
         cap_reason = _DENY_CAP_TEMPLATE.format(
             round_count=state["round_count"], unit_key=unit_key, cap=_ROUND_CAP, token=token
         )
 
-        allow, new_state, allowed_via_grant = _decide(state, _round_fingerprint(tinput), granted)
+        allow, new_state, allowed_via_grant = _decide(
+            state, _round_fingerprint(tinput), grant_line is not None
+        )
+        if allowed_via_grant:
+            new_state["grant_line"] = max(state["grant_line"], grant_line)
 
         if not allow:
             _deny(data, cap_reason)
