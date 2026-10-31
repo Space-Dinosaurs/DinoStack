@@ -150,7 +150,6 @@ bin/ds-ticket-commit::cfg = json.load(open('$REPO/.agentic/config.json'))
 bin/ds-ticket-commit::cp "$SESSION_LOG_SRC" "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" 2>/dev/null || true
 bin/ds-ticket-commit::if [ -n "$PR_CHECKOUT" ] && [ -f "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" ]; then
 bin/ds-ticket-commit::mkdir -p "$PR_CHECKOUT/.agentic/session-log/"
-bin/ds-ticket-finish::" "$REPO/.agentic/config.json" 2>/dev/null || echo 'false')
 bin/ds-ticket-finish::> "$REPO/.agentic/knowledge-commit-state.json.tmp" 2>/dev/null &&
 bin/ds-ticket-finish::cfg = json.load(open('$REPO/.agentic/config.json'))
 bin/ds-ticket-finish::cfg = json.load(open('$REPO/.agentic/config.json'))#2
