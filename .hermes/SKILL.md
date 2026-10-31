@@ -3232,7 +3232,7 @@ Lead with the Problem. These are soft targets, not hard caps, and they bound der
 - **Acceptance Criteria:** soft target ≤ 8 bullets.
 - **Total:** soft target ≈ 15 lines.
 
-The fixed-form `## Scope boundary` append (written by the Create Helper collision pre-check - see `content/references/tracker-create.md` §Tracker Create Helper) is excluded from the budget.
+The fixed-form `## Scope boundary` append (written by the Create Helper collision pre-check - see `content/commands/ds-implement-ticket.md` §Tracker Create Helper) is excluded from the budget.
 
 Per-line self-check: would a future reader need this line to know what to build, or when it is done? If not, delete it. A line that describes HOW rather than WHAT or WHY fails this check even when short.
 
@@ -10900,77 +10900,44 @@ The Elevated floor and the Tier-3 escalation at 2+ attempts are both command-sco
 ### tracker-create
 
 <!--
-Purpose: Full procedure for the Tracker Create Helper of
-         `/ds-implement-ticket` - the synchronous pattern that creates a
-         tracker ticket and returns its ID - moved verbatim out of
+Purpose: Create branches of the Tracker Create Helper of
+         `/ds-implement-ticket` - the per-tracker calls that create a
+         tracker ticket and return its ID - moved verbatim out of
          content/commands/ds-implement-ticket.md so a run that never
-         creates a ticket does not carry it. Covers the invocation
-         contract, the collision pre-check and its `## Scope boundary`
-         append, the per-tracker create branches, and the loud failure
-         line.
+         creates a ticket does not carry them. Covers the Linear, Jira,
+         and unsupported-tracker branches and the loud failure line.
 
 Public API: Read-only reference document, addressed by its retained
-            `## Tracker Create Helper` heading. The heading and its
-            caller paragraph (the ticket-offer gate, and operator-approved
-            creation per content/references/delegation-detail.md
-            §Follow-up Ticket Creation Discipline) stay inline in
-            content/commands/ds-implement-ticket.md, followed by a
-            one-line `**Procedure:**` pointer to this file.
+            `## Tracker Create Helper` heading. The heading, its caller
+            paragraph, the invocation contract, and the collision
+            pre-check stay inline in
+            content/commands/ds-implement-ticket.md (Phase 0's
+            consume-time collision backstop reuses that scan), followed
+            by a one-line `**Procedure:**` pointer to this file.
 
 Upstream deps: none (prose reference only; no code, no runtime execution).
-               Assumes the Setup tracker resolution (`TRACKER`,
-               `TICKET_PREFIX`, `JIRA_BASE_URL`) in
-               content/commands/ds-implement-ticket.md is in context.
+               Assumes the Tracker Create Helper's invocation contract and
+               collision pre-check, and the Setup tracker resolution
+               (`TRACKER`, `TICKET_PREFIX`, `JIRA_BASE_URL`), in
+               content/commands/ds-implement-ticket.md are in context.
 
 Downstream consumers: content/commands/ds-implement-ticket.md (pointer
-                      line); content/commands/ds-brief.md and
-                      content/commands/ds-feedback-triage.md (callers);
-                      content/references/conventions-detail.md
-                      (`## Scope boundary` budget exclusion).
+                      line); callers of the Helper, all of which enter
+                      through the command's inline section:
+                      content/sections/02-delegation.md (ticket-offer
+                      gate, offer and require modes),
+                      content/commands/ds-brief.md (ticket_driven
+                      offer/require step), and
+                      content/commands/ds-feedback-triage.md (Step 4d).
 
 Failure modes: Prose reference; does not auto-execute. A caller that
-               skips the pointer creates a ticket without the collision
-               pre-check or the loud failure line.
+               skips the pointer creates no ticket and emits no loud
+               failure line.
 
 Performance: n/a (static reference document).
 -->
 
 ## Tracker Create Helper
-
-**Invocation contract:**
-
-Caller supplies:
-- `TICKET_TITLE` - one-line summary of the work
-- `TICKET_BODY` - markdown description; Problem + Acceptance Criteria mandatory (conventions-detail.md §Ticket descriptions)
-- `TICKET_TYPE` - `feature` | `bug` | `task`
-
-Helper returns:
-- `CREATED_TICKET_ID` - e.g. DS-42; empty on failure
-- `CREATED_TICKET_URL` - empty on failure
-- `CREATE_STATUS` - `created` | `skipped` | `failed`
-- `CREATE_ERROR` - error message, or null on success
-**Collision pre-check (runs BEFORE the create branches):**
-
-Before calling any tracker create API, scan in-flight tickets in the same tracker project/team for overlapping output surfaces. Overlap surface = same source files, exported symbols, DB tables/migrations, or shared utility/config the proposed TICKET_BODY scope touches. This is the cross-ticket boundary analysis: agree the boundary at creation, don't retrofit it after the ticket exists.
-
-Scan target: open AND in-progress tickets in the same project/team. For Linear: `mcp__linear__list_issues` filtered by team, excluding state types completed, canceled, and duplicate. For Jira: `mcp__mcp-atlassian__jira_search` with project JQL scoped to statusCategory != Done. For trackers with no query branch: skip silently (fail-safe - the boundary-in-body rule below still applies via the conductor's scope knowledge rather than a scan).
-
-Decision:
-
-- **No overlap, OR tracker has no query branch:** proceed to the create branches with TICKET_BODY unchanged.
-- **Overlap found:** append a `## Scope boundary` section to TICKET_BODY BEFORE the create call. The section names the overlapping ticket(s) and the file/symbol/table each side owns. Worked example (AUT-301 vs AUT-300, both touching the operator-list surface):
-
-  ```
-  ## Scope boundary
-
-  - AUT-300 owns: packages/qa-auth/src/adapters/admin.ts (prod-DB guard), admin/scripts/seed-qa-operator.ts, and any isTestAccount schema migration if that route is chosen.
-  - This ticket owns: backend/src/operators/index.ts GET /operators WHERE-clause filter only.
-  - Merge order: this ticket is the symptom-fix; AUT-300 is root-cause. If AUT-300 adds an isTestAccount flag, that migration is AUT-300's to own.
-  ```
-
-The boundary section is binding, not advisory: it travels with the ticket into the tracker so the other session sees it on its next pull. If the conductor cannot determine a clean boundary (the two tickets genuinely own the same lines with no split), STOP before creating and surface the conflict to the operator for a manual scope-split.
-
-The scan is a single tracker query (one API roundtrip, paginated to the project/team), cheap, create-time only - not on every phase transition.
 
 **Branch on TRACKER:**
 
@@ -17217,7 +17184,7 @@ Write `status: iterating` during revision rounds.
    git commit -m "docs(brief): add <slug> brief"
    ```
 4. If `TRACKER != none` AND `ticket_driven` active (per resolution rule in `content/sections/02-delegation.md` §Ticket-offer gate; any other ticket needs an explicit operator yes per `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline): derive TICKET_TITLE from the Brief's Feature Name, TICKET_BODY from Problem + Success criteria (the ticket's Acceptance Criteria; when Success criteria is empty, write `Acceptance Criteria: not yet defined - <blocking reason>` per `content/references/conventions-detail.md` §Ticket descriptions rather than omitting it), TICKET_TYPE from the Brief type (default `feature`); then:
-   - **`offer` mode:** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` Wait one turn. If no STOP: invoke the Tracker Create Helper (cross-ref `content/references/tracker-create.md` §Tracker Create Helper). If STOP: skip creation, proceed ad-hoc (architect spawn, step 6).
+   - **`offer` mode:** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` Wait one turn. If no STOP: invoke the Tracker Create Helper (cross-ref `content/commands/ds-implement-ticket.md` §Tracker Create Helper). If STOP: skip creation, proceed ad-hoc (architect spawn, step 6).
    - **`require` mode:** invoke the Tracker Create Helper immediately (no skip path).
    - On CREATE_STATUS=created: hand off to `/ds-implement-ticket <CREATED_TICKET_ID>` with `brief_path` in the execution contract INSTEAD of spawning the architect directly (skip steps 5-6).
    - On CREATE_STATUS=failed: emit the failure line; in `offer` mode proceed ad-hoc (architect spawn, step 6); in `require` mode STOP and wait for operator resolution.
@@ -18921,8 +18888,8 @@ This step is unaffected by `content/references/delegation-detail.md`
 an explicit per-batch human greenlight (Step 2), a stronger control than
 anything in that discipline.
 
-Call the Tracker Create Helper (`content/references/tracker-create.md`
-§"Tracker Create Helper") by reference - do not reimplement its per-tracker branches here.
+Call the Tracker Create Helper (`/ds-implement-ticket` §"Tracker Create
+Helper") by reference - do not reimplement its per-tracker branches here.
 Supply:
 
 - `TICKET_TITLE` = `item.suggested_title`
@@ -20096,7 +20063,42 @@ Full reference (invocation contract, forward-only guard algorithm, diagnostic en
 
 Reusable SYNCHRONOUS pattern - the conductor waits for the new ticket ID before routing to `/ds-implement-ticket`. Called by the ticket-offer gate (cross-ref `content/sections/02-delegation.md` §Ticket-offer gate). Any other ticket needs an explicit operator yes first: `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline.
 
-**Procedure:** when the ticket-offer gate or an operator-approved ticket creation invokes this Helper, Read `$REPO_DIR/content/references/tracker-create.md` §Tracker Create Helper before any step here; its steps are only in that file.
+**Invocation contract:**
+
+Caller supplies:
+- `TICKET_TITLE` - one-line summary of the work
+- `TICKET_BODY` - markdown description; Problem + Acceptance Criteria mandatory (conventions-detail.md §Ticket descriptions)
+- `TICKET_TYPE` - `feature` | `bug` | `task`
+
+Helper returns:
+- `CREATED_TICKET_ID` - e.g. DS-42; empty on failure
+- `CREATED_TICKET_URL` - empty on failure
+- `CREATE_STATUS` - `created` | `skipped` | `failed`
+- `CREATE_ERROR` - error message, or null on success
+**Collision pre-check (runs BEFORE the create branches):**
+
+Before calling any tracker create API, scan in-flight tickets in the same tracker project/team for overlapping output surfaces. Overlap surface = same source files, exported symbols, DB tables/migrations, or shared utility/config the proposed TICKET_BODY scope touches. This is the cross-ticket boundary analysis: agree the boundary at creation, don't retrofit it after the ticket exists.
+
+Scan target: open AND in-progress tickets in the same project/team. For Linear: `mcp__linear__list_issues` filtered by team, excluding state types completed, canceled, and duplicate. For Jira: `mcp__mcp-atlassian__jira_search` with project JQL scoped to statusCategory != Done. For trackers with no query branch: skip silently (fail-safe - the boundary-in-body rule below still applies via the conductor's scope knowledge rather than a scan).
+
+Decision:
+
+- **No overlap, OR tracker has no query branch:** proceed to the create branches with TICKET_BODY unchanged.
+- **Overlap found:** append a `## Scope boundary` section to TICKET_BODY BEFORE the create call. The section names the overlapping ticket(s) and the file/symbol/table each side owns. Worked example (AUT-301 vs AUT-300, both touching the operator-list surface):
+
+  ```
+  ## Scope boundary
+
+  - AUT-300 owns: packages/qa-auth/src/adapters/admin.ts (prod-DB guard), admin/scripts/seed-qa-operator.ts, and any isTestAccount schema migration if that route is chosen.
+  - This ticket owns: backend/src/operators/index.ts GET /operators WHERE-clause filter only.
+  - Merge order: this ticket is the symptom-fix; AUT-300 is root-cause. If AUT-300 adds an isTestAccount flag, that migration is AUT-300's to own.
+  ```
+
+The boundary section is binding, not advisory: it travels with the ticket into the tracker so the other session sees it on its next pull. If the conductor cannot determine a clean boundary (the two tickets genuinely own the same lines with no split), STOP before creating and surface the conflict to the operator for a manual scope-split.
+
+The scan is a single tracker query (one API roundtrip, paginated to the project/team), cheap, create-time only - not on every phase transition.
+
+**Procedure:** when the ticket-offer gate or an operator-approved ticket creation invokes this Helper and the Collision pre-check did not stop creation, Read `$REPO_DIR/content/references/tracker-create.md` §Tracker Create Helper before any step here; its steps are only in that file.
 
 ---
 

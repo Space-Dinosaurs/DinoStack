@@ -2722,16 +2722,6 @@
       "source_token": ".agentic/"
     },
     {
-      "expected_target": "content/references/tracker-create.md",
-      "generated_token": "$AE_REPO_DIR/content/references/tracker-create.md",
-      "kind": "operational",
-      "occurrence_hash": "4847d9cc6109f3c168345b6af3f88cb88ac389b7f29a31d7fecc01789000486c",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-brief.md",
-      "source_token": "content/references/tracker-create.md"
-    },
-    {
       "expected_target": "rg --files",
       "generated_token": "Glob",
       "kind": "semantic-reference",
@@ -2820,6 +2810,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-brief.md",
       "source_token": "/ds-brief"
+    },
+    {
+      "expected_target": "content/commands/ds-implement-ticket.md",
+      "generated_token": "$AE_REPO_DIR/content/commands/ds-implement-ticket.md",
+      "kind": "operational",
+      "occurrence_hash": "868e37f163336712a52b62957d40db92a64c0d94a668f28c0d0dc23fe32afe43",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-brief.md",
+      "source_token": "content/commands/ds-implement-ticket.md"
     },
     {
       "expected_target": "dinostack-codex-brief",
@@ -3210,6 +3210,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/rules/conventions.md"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "04e3c4191f18251024c43c1fcbba000298ddd7b3a26eaa32e709413c44a21ad1",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "Read"
     },
     {
       "expected_target": ".agentic/loop-state-",
@@ -5912,16 +5922,6 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "45891636a05fab7d2846ba8c79be6fdd7f6086a86720b4e4c684842e0f011af7",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "--arg",
       "kind": "display-only",
@@ -8590,6 +8590,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "NL"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "/operators",
+      "kind": "display-only",
+      "occurrence_hash": "85ac131e024ea475cb0de9bdd8de5b154c90e330fec0943547b830a605cd18f1",
+      "resolution_mode": "display-only",
+      "scope": "display-only",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/operators"
     },
     {
       "expected_target": "hashed-source-occurrence",

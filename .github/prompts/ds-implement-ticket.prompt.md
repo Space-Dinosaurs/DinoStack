@@ -513,7 +513,42 @@ Full reference (invocation contract, forward-only guard algorithm, diagnostic en
 
 Reusable SYNCHRONOUS pattern - the conductor waits for the new ticket ID before routing to `/ds-implement-ticket`. Called by the ticket-offer gate (cross-ref `content/sections/02-delegation.md` §Ticket-offer gate). Any other ticket needs an explicit operator yes first: `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline.
 
-**Procedure:** when the ticket-offer gate or an operator-approved ticket creation invokes this Helper, Read `$REPO_DIR/content/references/tracker-create.md` §Tracker Create Helper before any step here; its steps are only in that file.
+**Invocation contract:**
+
+Caller supplies:
+- `TICKET_TITLE` - one-line summary of the work
+- `TICKET_BODY` - markdown description; Problem + Acceptance Criteria mandatory (conventions-detail.md §Ticket descriptions)
+- `TICKET_TYPE` - `feature` | `bug` | `task`
+
+Helper returns:
+- `CREATED_TICKET_ID` - e.g. DS-42; empty on failure
+- `CREATED_TICKET_URL` - empty on failure
+- `CREATE_STATUS` - `created` | `skipped` | `failed`
+- `CREATE_ERROR` - error message, or null on success
+**Collision pre-check (runs BEFORE the create branches):**
+
+Before calling any tracker create API, scan in-flight tickets in the same tracker project/team for overlapping output surfaces. Overlap surface = same source files, exported symbols, DB tables/migrations, or shared utility/config the proposed TICKET_BODY scope touches. This is the cross-ticket boundary analysis: agree the boundary at creation, don't retrofit it after the ticket exists.
+
+Scan target: open AND in-progress tickets in the same project/team. For Linear: `mcp__linear__list_issues` filtered by team, excluding state types completed, canceled, and duplicate. For Jira: `mcp__mcp-atlassian__jira_search` with project JQL scoped to statusCategory != Done. For trackers with no query branch: skip silently (fail-safe - the boundary-in-body rule below still applies via the conductor's scope knowledge rather than a scan).
+
+Decision:
+
+- **No overlap, OR tracker has no query branch:** proceed to the create branches with TICKET_BODY unchanged.
+- **Overlap found:** append a `## Scope boundary` section to TICKET_BODY BEFORE the create call. The section names the overlapping ticket(s) and the file/symbol/table each side owns. Worked example (AUT-301 vs AUT-300, both touching the operator-list surface):
+
+  ```
+  ## Scope boundary
+
+  - AUT-300 owns: packages/qa-auth/src/adapters/admin.ts (prod-DB guard), admin/scripts/seed-qa-operator.ts, and any isTestAccount schema migration if that route is chosen.
+  - This ticket owns: backend/src/operators/index.ts GET /operators WHERE-clause filter only.
+  - Merge order: this ticket is the symptom-fix; AUT-300 is root-cause. If AUT-300 adds an isTestAccount flag, that migration is AUT-300's to own.
+  ```
+
+The boundary section is binding, not advisory: it travels with the ticket into the tracker so the other session sees it on its next pull. If the conductor cannot determine a clean boundary (the two tickets genuinely own the same lines with no split), STOP before creating and surface the conflict to the operator for a manual scope-split.
+
+The scan is a single tracker query (one API roundtrip, paginated to the project/team), cheap, create-time only - not on every phase transition.
+
+**Procedure:** when the ticket-offer gate or an operator-approved ticket creation invokes this Helper and the Collision pre-check did not stop creation, Read `$REPO_DIR/content/references/tracker-create.md` §Tracker Create Helper before any step here; its steps are only in that file.
 
 ---
 

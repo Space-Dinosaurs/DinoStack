@@ -144,8 +144,8 @@ This step is unaffected by `content/references/delegation-detail.md`
 an explicit per-batch human greenlight (Step 2), a stronger control than
 anything in that discipline.
 
-Call the Tracker Create Helper (`content/references/tracker-create.md`
-§"Tracker Create Helper") by reference - do not reimplement its per-tracker branches here.
+Call the Tracker Create Helper (`/ds-implement-ticket` §"Tracker Create
+Helper") by reference - do not reimplement its per-tracker branches here.
 Supply:
 
 - `TICKET_TITLE` = `item.suggested_title`

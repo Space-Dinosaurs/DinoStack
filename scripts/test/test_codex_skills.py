@@ -1517,11 +1517,6 @@ class CodexSkillGenerationTests(unittest.TestCase):
         orchestration = (
             self.repo / ".codex/references/orchestration-units.md"
         ).read_text(encoding="utf-8")
-        # The Tracker Create Helper's create branches moved to tracker-create.md.
-        tracker_create = (
-            self.repo / ".codex/references/tracker-create.md"
-        ).read_text(encoding="utf-8")
-        self.assertIn('task -> "Task"; omit to accept project default', tracker_create)
         self.assertIn(
             "`$REPO_DIR/content/references/tracker-create.md` §Tracker Create Helper",
             ticket,
@@ -1534,7 +1529,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertIn("## Task entries (machine-readable)", orchestration)
         self.assertIn("## Current Task / Next Steps", wrap)
         self.assertIn("## Task-state file", methodology)
-        self.assertNotIn("spawn_agent-state", ticket + methodology + orchestration + tracker_create)
+        self.assertNotIn("spawn_agent-state", ticket + methodology + orchestration)
 
     def test_shell_occurrences_classifies_ds_prefixed_bin_tokens(self) -> None:
         """Regression for the DS-rename classifier gap (scripts/codex-skills.py
