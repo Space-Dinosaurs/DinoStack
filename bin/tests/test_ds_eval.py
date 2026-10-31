@@ -675,8 +675,8 @@ def test_ordering_key_puts_priced_first_then_count():
 
 def test_route_rule():
     assert ev.ROUTES == {"D1a": "update-agentic-engineering", "D1b": "update-agentic-engineering",
-                         "D1c": "update-agentic-engineering", "D2": "prune-harness", "D3": "tracker-ticket"}
-    assert ev._decision("D2", "h", "f", 1, 1, None, "/r")["route"] == "prune-harness"
+                         "D1c": "update-agentic-engineering", "D2": "update-agentic-engineering", "D3": "tracker-ticket"}
+    assert ev._decision("D2", "h", "f", 1, 1, None, "/r")["route"] == "update-agentic-engineering"
 
 
 def test_gaps_carry_no_route_and_no_rank(tmp_path):

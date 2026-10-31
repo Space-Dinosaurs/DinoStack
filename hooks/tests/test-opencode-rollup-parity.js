@@ -178,7 +178,7 @@ console.log('\n--- retired semantics stay retired ---');
 console.log('\n--- retired conductor_direct event name ---');
 {
   assert(!ts.includes('conductor_direct'),
-    'TS: the plugin file contains no occurrence of the retired event name "conductor_direct" (PL-20260825-6), not just no filter-arm shape');
+    'TS: the plugin file contains no occurrence of the retired event name "conductor_direct", not just no filter-arm shape');
 }
 
 console.log(`\n${passed} passed, ${failed} failed.`);

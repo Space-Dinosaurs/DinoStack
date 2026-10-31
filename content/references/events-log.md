@@ -44,11 +44,7 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       binding contract)" under Step 3);
                       bin/ds-hook-fire-report (DS-179 - reads
                       .agentic/.enforcement-fires.jsonl to compute per-hook
-                      fire-count status consumed by the pruning-harness
-                      command's Signal 8; the conductor runs it and passes
-                      the JSON output into the prune analyst's spawn
-                      prompt, since the analyst Worker's tool_scope has no
-                      Bash);
+                      fire-count status; operator-run);
                       bin/ds-change-delta (DS-241 - merges
                       .agentic/.enforcement-fires.jsonl deny-decision rows,
                       plus its stranded-copy locations, across every

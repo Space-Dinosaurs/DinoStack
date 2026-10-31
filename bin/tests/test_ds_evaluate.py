@@ -198,7 +198,7 @@ def test_consumer_repo_exits_0_and_ends_with_proposals_then_gaps(tmp_path):
     assert out.index("\nRefinement proposals\n") < out.index("\nTelemetry gaps\n")
     proposals = _section(out, "Refinement proposals", "Telemetry gaps")
     assert proposals[0].startswith("  1. D2   enforce-x  [hooks[enforce-x].repeat_share = ")
-    assert proposals[0].endswith("n=12]  unpriced  -> prune-harness")
+    assert proposals[0].endswith("n=12]  unpriced  -> update-agentic-engineering")
     assert proposals[1] == f"       label samples for repo {_real(consumer)} (fire_key  ts  reason):"
     assert [line.split()[0] for line in proposals[2:]] == ["tu-11", "tu-10", "tu-9", "tu-8", "tu-7"]
     assert proposals[2].endswith('"blocked 11"')

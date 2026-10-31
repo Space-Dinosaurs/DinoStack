@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Purpose: DS-179 /ds-prune-harness Signal 8 input. Joins each hook's fire
+Purpose: DS-179 per-hook fire report. Joins each hook's fire
          posture (ACTION-ONLY vs EVERY-VERDICT - derived off
          hooks/enforce-*.py source via scripts/lib/enforcer_facts.py)
          against `.agentic/.enforcement-fires.jsonl` fire counts over a
@@ -10,19 +10,16 @@ Purpose: DS-179 /ds-prune-harness Signal 8 input. Joins each hook's fire
          "zero fires because this posture logs every reached verdict, so
          zero really does mean never invoked". This distinction is the
          whole point of the tool: a bare fire count alone cannot tell a
-         prune-harness analyst whether a hook is a dead rule or an
-         unmeasured one, and conflating the two would turn an
-         instrumentation gap into a false deletion candidate.
+         reader whether a hook is a dead rule or an unmeasured one, and
+         conflating the two would turn an instrumentation gap into a
+         false deletion candidate.
 
 Public API: ds-hook-fire-report [--repo PATH] [--days N] [--json]
             Default output: a fixed-width table to stdout, one row per
             hooks/enforce-*.py file, preceded by a legend. --json emits a
             JSON OBJECT (not a bare array) with two top-level keys: "meta"
             (log-level facts and the legend) and "hooks" (the array of
-            per-hook rows) - the shape /ds-prune-harness Signal 8 passes
-            verbatim into its analyst spawn prompt (the analyst Worker has
-            no Bash in its tool_scope, so the CONDUCTOR runs this command,
-            not the Worker). --days sets the fire-count window (default
+            per-hook rows). --days sets the fire-count window (default
             14) - this governs `fire_count_window` only, NOT confidence;
             confidence is keyed on `meta.log_confidence_eligible`
             (DS-179 round 3), a single derived bool, never on the requested
@@ -56,12 +53,11 @@ Public API: ds-hook-fire-report [--repo PATH] [--days N] [--json]
             MAX_MALFORMED_RATIO_FOR_CONFIDENCE (corruption - a log that is
             mostly garbage cannot be trusted even where a handful of lines
             happened to parse). One derived field rather than three raw
-            fields left for the Signal 8 prose to combine correctly itself -
+            fields left for each reader to combine correctly itself -
             see the two module-level constants below for the exact
             thresholds and their rationale.
 
-Status enum (binding contract, see content/commands/ds-prune-harness.md
-    Signal 8):
+Status enum (binding contract):
   - UNMEASURED           - either the fires log is absent entirely, OR it
                             is present but zero lines in it parsed as a
                             JSON object (`meta.log_parsed_lines == 0` -
@@ -138,15 +134,15 @@ Upstream deps: Python 3 stdlib only (argparse, datetime, json, sys,
                (worktree cleanup / archive retention, not this tool, is
                what eventually removes them).
 
-Downstream consumers: content/commands/ds-prune-harness.md Signal 8 (the
-                       conductor runs `ds-hook-fire-report --json` at
-                       Step 0/1 and passes the output into the analyst
-                       spawn prompt verbatim - the analyst itself never
-                       shells out to this tool). Signal 8's confidence
-                       tier reads `meta.log_confidence_eligible` (gating
-                       whether MEDIUM is reachable at all) together with
-                       `meta.log_coverage_days` (the >= 30 span check),
-                       never `meta.requested_window_days` or a per-row
+Downstream consumers: operator-run directly. bin/ds-change-delta and
+                       bin/_eval.py duplicate its timestamp parsing and
+                       fires-log reading (bin/ds-change-delta also its
+                       stranded-copy merge) rather than importing it, so a
+                       change to those here must be mirrored there. A
+                       confidence judgment reads
+                       `meta.log_confidence_eligible` together with
+                       `meta.log_coverage_days`, never
+                       `meta.requested_window_days` or a per-row
                        `window_days` - see the Public API note above.
                        `meta.stranded_worktree_logs_merged` (count of
                        stranded copies, across all three locations above,
@@ -205,9 +201,8 @@ Failure modes: never raises on a missing or malformed fires log - an
                MAX_MALFORMED_RATIO_FOR_CONFIDENCE) still reports a real
                per-hook status (UNMEASURED/ZERO_*/ACTIVE proceed exactly as
                documented above - status logic is unaffected) but
-               `meta.log_confidence_eligible` is False, so Signal 8 cannot
-               reach MEDIUM confidence off it regardless of
-               `log_coverage_days`.
+               `meta.log_confidence_eligible` is False, so no confidence
+               judgment rests on it regardless of `log_coverage_days`.
 
 Performance: one AST parse per hooks/enforce-*.py file (via
              enforcer_facts) plus one linear pass over the fires log -
@@ -233,11 +228,9 @@ _REPO_ROOT_DEFAULT = _BIN_DIR.parent
 # corruption are the two independent ways a log can look adequate on span
 # alone while actually being useless; both feed meta.log_confidence_eligible.
 #
-# MIN_PARSED_LINES_FOR_CONFIDENCE = 30: chosen to roughly match the
-# 30-day MEDIUM-confidence coverage threshold Signal 8 already used before
-# this fix (content/commands/ds-prune-harness.md Signal 8) - i.e. a log
-# claiming ~30 days of genuine coverage should contain on the order of one
-# parsed record per day of that span, not a handful of stray old ones. This
+# MIN_PARSED_LINES_FOR_CONFIDENCE = 30: a log claiming ~30 days of genuine
+# coverage should contain on the order of one parsed record per day of that
+# span, not a handful of stray old ones. This
 # is a deliberately loose floor (not "one record per hook per day"), meant
 # to catch the Skeptic's measured failure mode (2-3 records) rather than to
 # model realistic fire cadence precisely.
@@ -448,10 +441,10 @@ def build_report(repo_root: Path, days: int, hooks_root: Path | None = None) -> 
     """Return {"meta": {...}, "hooks": [...]} per the module's Status enum.
     `days` is the fire-count window in days (requested_window_days),
     measured back from "now" (UTC) at call time - it governs
-    fire_count_window only. Confidence tiering belongs to the caller
-    (content/commands/ds-prune-harness.md Signal 8) and must key on
-    meta.log_confidence_eligible (density + corruption) together with
-    meta.log_coverage_days (span), never on requested_window_days alone.
+    fire_count_window only. This function assigns no confidence tier; a
+    reader judging confidence must key on meta.log_confidence_eligible
+    (density + corruption) together with meta.log_coverage_days (span),
+    never on requested_window_days alone.
     `hooks_root` is the tree whose hooks/ supplies hook sources (default
     `repo_root`); fire logs are always read from `repo_root`."""
     if hooks_root is None:
@@ -714,8 +707,7 @@ def main(argv: list[str] | None = None) -> int:
         description=(
             "Per-hook fire-count status for hooks/enforce-*.py, joining "
             "posture (ACTION_ONLY vs EVERY_VERDICT) against "
-            ".agentic/.enforcement-fires.jsonl. Input for /ds-prune-harness "
-            "Signal 8."
+            ".agentic/.enforcement-fires.jsonl."
         ),
     )
     parser.add_argument(

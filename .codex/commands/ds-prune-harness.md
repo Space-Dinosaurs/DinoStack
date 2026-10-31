@@ -1,1 +1,0 @@
-../../content/commands/ds-prune-harness.md

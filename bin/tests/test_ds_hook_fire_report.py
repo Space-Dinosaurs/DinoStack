@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Tests for bin/ds-hook-fire-report (DS-179 /ds-prune-harness Signal 8 input).
+Tests for bin/ds-hook-fire-report (DS-179 per-hook fire report).
 
-Covers the binding status-enum contract from the module's own manifest and
-content/commands/ds-prune-harness.md Signal 8: UNMEASURED is never conflated
+Covers the binding status-enum contract from the module's own manifest:
+UNMEASURED is never conflated
 with a real zero (ZERO_INVOCATIONS / ZERO_ACTION_IN_WINDOW), the two zero
 statuses stay distinct per posture, a present-but-unparseable log is never
 read as a real zero-fire measurement, and confidence-bearing coverage is
