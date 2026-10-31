@@ -363,10 +363,10 @@ assert $? "scenario 10: unrecorded hold is reported on stderr"
 # --------------------------------------------------------------------------
 # Scenario 11: single-engineer path - the engineer already committed and
 # pushed in its own worktree, $REPO stays on main, and the call still names a
-# file -> nothing to commit, not a failure: exit 0, push verified, retired.
+# file -> exit 3 before staging; $REPO and origin untouched.
 # --------------------------------------------------------------------------
 echo ""
-echo "== Scenario 11: engineer already committed -> files stage nothing, exit 0 =="
+echo "== Scenario 11: files passed with the commit checkout off the PR branch -> exit 3 =="
 REPO11="$(build_repo scenario11)"
 BRANCH11="feature/scenario-11"
 git -C "$REPO11" worktree add -q "$REPO11/.claude/worktrees/wt11" -b "$BRANCH11"
@@ -374,17 +374,68 @@ echo feature > "$REPO11/.claude/worktrees/wt11/feature.txt"
 git -C "$REPO11/.claude/worktrees/wt11" add feature.txt
 git -C "$REPO11/.claude/worktrees/wt11" -c user.email=spec@example.com -c user.name=spec commit -q -m "feat: add feature file"
 git -C "$REPO11/.claude/worktrees/wt11" push -q -u origin "$BRANCH11"
+MAIN11="$(git -C "$REPO11" rev-parse HEAD)"
+ORIGIN11="$(git ls-remote "$SCRATCH/scenario11-origin.git" | sort)"
 OUT11="$(run_block "$REPO11" "$BRANCH11" --worktree-path "$REPO11/.claude/worktrees/wt11" \
   --message "feat: add feature file" -- feature.txt 2>&1)"
 RC11=$?
-[ "$RC11" -eq 0 ]
-assert $? "scenario 11: CLI exits 0, got $RC11"
-echo "$OUT11" | grep -q "push=verified"
-assert $? "scenario 11: push verified"
-echo "$OUT11" | grep -q "feature-commit=skipped | reason=nothing to commit"
-assert $? "scenario 11: feature commit reported as nothing to commit"
-[ ! -d "$REPO11/.claude/worktrees/wt11" ]
-assert $? "scenario 11: engineer worktree retired"
+[ "$RC11" -eq 3 ]
+assert $? "scenario 11: CLI exits 3, got $RC11"
+echo "$OUT11" | grep -q "commit checkout is on main, not $BRANCH11; if the engineer already committed, call without files"
+assert $? "scenario 11: names the checked-out branch and the remedy"
+[ "$(git -C "$REPO11" rev-parse HEAD)" = "$MAIN11" ] && [ -z "$(git -C "$REPO11" diff --cached --name-only)" ]
+assert $? "scenario 11: \$REPO HEAD and index untouched"
+[ "$(git ls-remote "$SCRATCH/scenario11-origin.git" | sort)" = "$ORIGIN11" ]
+assert $? "scenario 11: origin untouched"
+[ -d "$REPO11/.claude/worktrees/wt11" ]
+assert $? "scenario 11: engineer worktree not retired"
+
+# --------------------------------------------------------------------------
+# Scenario 14: $REPO on main with a staged change, files passed for the PR
+# branch -> exit 3; nothing committed on main.
+# --------------------------------------------------------------------------
+echo ""
+echo "== Scenario 14: staged change on main is never committed there =="
+REPO14="$(build_repo scenario14)"
+BRANCH14="feature/scenario-14"
+git -C "$REPO14" branch "$BRANCH14"
+git -C "$REPO14" push -q origin "$BRANCH14"
+MAIN14="$(git -C "$REPO14" rev-parse HEAD)"
+echo change > "$REPO14/README.md"
+git -C "$REPO14" add README.md
+OUT14="$(run_block "$REPO14" "$BRANCH14" --message "feat: change readme" -- README.md 2>&1)"
+RC14=$?
+[ "$RC14" -eq 3 ]
+assert $? "scenario 14: CLI exits 3, got $RC14"
+echo "$OUT14" | grep -q "push=verified"
+[ $? -ne 0 ]
+assert $? "scenario 14: never reports push=verified"
+[ "$(git -C "$REPO14" rev-parse HEAD)" = "$MAIN14" ]
+assert $? "scenario 14: main HEAD unchanged (nothing committed)"
+[ "$(git ls-remote "$SCRATCH/scenario14-origin.git" refs/heads/main | cut -f1)" = "$MAIN14" ]
+assert $? "scenario 14: origin main unchanged"
+
+# --------------------------------------------------------------------------
+# Scenario 15: single-engineer path called correctly - no files -> exit 0,
+# push verified, engineer worktree retired.
+# --------------------------------------------------------------------------
+echo ""
+echo "== Scenario 15: engineer already committed, no files -> exit 0 =="
+REPO15="$(build_repo scenario15)"
+BRANCH15="feature/scenario-15"
+git -C "$REPO15" worktree add -q "$REPO15/.claude/worktrees/wt15" -b "$BRANCH15"
+echo feature > "$REPO15/.claude/worktrees/wt15/feature.txt"
+git -C "$REPO15/.claude/worktrees/wt15" add feature.txt
+git -C "$REPO15/.claude/worktrees/wt15" -c user.email=spec@example.com -c user.name=spec commit -q -m "feat: add feature file"
+git -C "$REPO15/.claude/worktrees/wt15" push -q -u origin "$BRANCH15"
+OUT15="$(run_block "$REPO15" "$BRANCH15" --worktree-path "$REPO15/.claude/worktrees/wt15" 2>&1)"
+RC15=$?
+[ "$RC15" -eq 0 ]
+assert $? "scenario 15: CLI exits 0, got $RC15"
+echo "$OUT15" | grep -q "push=verified"
+assert $? "scenario 15: push verified"
+[ ! -d "$REPO15/.claude/worktrees/wt15" ]
+assert $? "scenario 15: engineer worktree retired"
 
 # --------------------------------------------------------------------------
 # Scenarios 12-13: sequential path ($REPO on the PR branch) with a pathspec
@@ -413,6 +464,24 @@ for CASE in "12:a.txtt" "13:a.txt typo.txt"; do
   [ "$(git ls-remote "$SCRATCH/scenario$N-origin.git" "refs/heads/$BRANCHN" | cut -f1)" = "$ORIGINN_TIP" ]
   assert $? "scenario $N: origin branch unchanged"
 done
+
+# --------------------------------------------------------------------------
+# Scenario 16: sequential path, the named file is unchanged from HEAD on the PR
+# branch -> nothing to commit, skipped: exit 0, push verified.
+# --------------------------------------------------------------------------
+echo ""
+echo "== Scenario 16: unchanged file on the PR branch -> skipped, exit 0 =="
+REPO16="$(build_repo scenario16)"
+BRANCH16="feature/scenario-16"
+git -C "$REPO16" checkout -q -b "$BRANCH16"
+OUT16="$(run_block "$REPO16" "$BRANCH16" --message "feat: nothing" -- README.md 2>&1)"
+RC16=$?
+[ "$RC16" -eq 0 ]
+assert $? "scenario 16: CLI exits 0, got $RC16"
+echo "$OUT16" | grep -q "feature-commit=skipped | reason=nothing to commit"
+assert $? "scenario 16: reported as nothing to commit"
+echo "$OUT16" | grep -q "push=verified"
+assert $? "scenario 16: push verified"
 
 # --------------------------------------------------------------------------
 # Summary

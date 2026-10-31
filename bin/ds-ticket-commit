@@ -10,10 +10,12 @@
 #          instead of being retyped by the conductor. Differences from that
 #          block:
 #          - files and message arrive as arguments, not template placeholders;
-#          - no files, or files that stage nothing while the commit checkout
-#            is off the PR branch, skip the feature commit with a breadcrumb;
-#          - a failed `git add` on the PR branch, or a commit that fails with
-#            changes staged, stops the run before telemetry, push and cleanup;
+#          - no files, or files unchanged from HEAD on the PR branch, skip the
+#            feature commit with a breadcrumb;
+#          - files passed while the commit checkout is not on the PR branch
+#            (detached HEAD included), a failed `git add` (an unmatched
+#            pathspec), or a commit that fails with changes staged, stop the
+#            run before telemetry, push and cleanup;
 #          - the telemetry commit is skipped when the feature commit failed;
 #          - the push is verified (origin holds the local tip);
 #          - an unverified push holds a carrier worktree explicitly instead of
@@ -41,20 +43,23 @@
 #        Signed-off-by trailers. Required when FILEs are given.
 #     FILE  paths to stage for the feature commit (never `-A`), passed only
 #        where the conductor commits on the PR branch (sequential path in R,
-#        parallel fixups in I). With none, or when the commit checkout is off
-#        the PR branch and they stage nothing (the engineer already committed
-#        in its own worktree), the feature commit is skipped and telemetry,
-#        push and cleanup run.
+#        parallel fixups in I). With none (the engineer already committed in
+#        its own worktree), the feature commit is skipped and telemetry, push
+#        and cleanup run. On the PR branch, files unchanged from HEAD stage
+#        nothing and are skipped; an unmatched pathspec exits 3. Files passed
+#        while the commit checkout is on any other branch exit 3 before
+#        anything is staged.
 #   Inputs come only from flags: same-named environment variables are
 #   unset first and never read.
 #   Exit codes: 0 pushed and verified (origin holds the local tip);
 #   1 push failed or unverified (a carrier worktree gets an explicit
 #   "BLOCKED: unpushed commit" hold; on the sequential path the branch is
 #   checked out in R itself and no hold is recorded); 2 usage error or R
-#   not enterable; 3 feature commit failed - `git add` failed with the
-#   commit checkout on the PR branch (an unmatched pathspec aborts the
-#   whole add), or the commit failed with changes staged (a rejecting hook,
-#   missing identity, or a git error) - nothing pushed, nothing retired.
+#   not enterable; 3 feature commit failed - files were passed while the
+#   commit checkout is not on the PR branch, `git add` failed (an unmatched
+#   pathspec aborts the whole add), or the commit failed with changes
+#   staged (a rejecting hook, missing identity, or a git error) - nothing
+#   pushed, nothing retired.
 #   A worktree that ds-retire-carrier holds (its exit 3) prints a
 #   `[phase: worktree-cleanup | HELD | ...]` line and never changes the
 #   exit code.
@@ -126,7 +131,18 @@ if [ -n "$INTEGRATION_WORKTREE" ] && [ -d "$INTEGRATION_WORKTREE" ]; then COMMIT
 
 FEATURE_COMMIT_FAILED=false
 FEATURE_ADD_RC=0
-[ "$#" -eq 0 ] || git -C "$COMMIT_CHECKOUT" add -- "$@" || FEATURE_ADD_RC=$?
+if [ "$#" -gt 0 ]; then
+  # HEAD-branch guard, as the telemetry commit's below: files are committed on
+  # whatever $COMMIT_CHECKOUT has checked out, so it must be the PR branch
+  # (a detached HEAD reads as "HEAD" and fails this too).
+  COMMIT_HEAD=$(git -C "$COMMIT_CHECKOUT" rev-parse --abbrev-ref HEAD 2>/dev/null)
+  if [ "$COMMIT_HEAD" != "$BRANCH_NAME" ]; then
+    echo "ERROR: commit checkout is on ${COMMIT_HEAD:-<unknown>}, not $BRANCH_NAME; if the engineer already committed, call without files."
+    FEATURE_COMMIT_FAILED=true
+  else
+    git -C "$COMMIT_CHECKOUT" add -- "$@" || FEATURE_ADD_RC=$?
+  fi
+fi
 
 # Resolve developer identity for trailer (soft-fail throughout; ds-identity may not be installed).
 # Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
@@ -141,19 +157,15 @@ SO_EMAIL=$(git -C "$COMMIT_CHECKOUT" config user.email 2>/dev/null || git config
 
 if [ "$#" -eq 0 ]; then
   echo "[phase: commit | feature-commit=skipped | reason=no files given]"
-elif [ "$FEATURE_ADD_RC" -ne 0 ] \
-     && [ "$(git -C "$COMMIT_CHECKOUT" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH_NAME" ]; then
-  # The checkout is on the PR branch, so these files were meant to be committed
-  # here; one unmatched pathspec aborts the whole add and would drop the change.
+elif [ "$FEATURE_COMMIT_FAILED" = "true" ]; then
+  :
+elif [ "$FEATURE_ADD_RC" -ne 0 ]; then
+  # One unmatched pathspec aborts the whole add and would drop the change.
   echo "ERROR: git add failed (exit $FEATURE_ADD_RC) on $BRANCH_NAME for pathspec(s): $* - feature commit not made."
   FEATURE_COMMIT_FAILED=true
 elif git -C "$COMMIT_CHECKOUT" diff --cached --quiet; then
-  # Nothing staged: the work is already committed (often in the engineer's own
-  # worktree, where these paths do not exist in $COMMIT_CHECKOUT). Not a failure.
+  # The named files match HEAD on the PR branch: nothing to commit, not a failure.
   echo "[phase: commit | feature-commit=skipped | reason=nothing to commit in $COMMIT_CHECKOUT]"
-elif [ "$FEATURE_ADD_RC" -ne 0 ]; then
-  echo "ERROR: git add failed (exit $FEATURE_ADD_RC) with changes staged; feature commit not made."
-  FEATURE_COMMIT_FAILED=true
 elif [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
   echo "WARNING: git user.name or user.email not set; skipping commit to avoid malformed DCO trailer."
   FEATURE_COMMIT_FAILED=true
