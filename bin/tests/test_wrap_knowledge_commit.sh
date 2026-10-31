@@ -44,6 +44,7 @@ REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_DIR" || exit 1
 
 IMPLEMENT_TICKET=content/commands/ds-implement-ticket.md
+KNOWLEDGE_COMMIT=content/references/knowledge-commit.md
 WRAP=content/commands/ds-wrap.md
 CONV_DETAIL=content/references/conventions-detail.md
 
@@ -55,19 +56,20 @@ _fail() { echo "FAIL: $1" >&2; FAIL=$((FAIL + 1)); }
 echo "--- ds-wrap knowledge-commit refactor ---"
 
 # 1. The dead Phase 11c bridging variables must be fully gone from
-#    ds-implement-ticket.md - they had no consumer outside the deleted range.
-COUNT_MEMORY_MD_PATH=$(grep -c 'MEMORY_MD_PATH' "$IMPLEMENT_TICKET" || true)
+#    ds-implement-ticket.md and from knowledge-commit.md (where the Phase 11e
+#    body now lives) - they had no consumer outside the deleted range.
+COUNT_MEMORY_MD_PATH=$(cat "$IMPLEMENT_TICKET" "$KNOWLEDGE_COMMIT" | grep -c 'MEMORY_MD_PATH' || true)
 if [ "$COUNT_MEMORY_MD_PATH" -eq 0 ]; then
-  _pass "MEMORY_MD_PATH absent from $IMPLEMENT_TICKET (count=0)"
+  _pass "MEMORY_MD_PATH absent from $IMPLEMENT_TICKET and $KNOWLEDGE_COMMIT (count=0)"
 else
-  _fail "MEMORY_MD_PATH still appears $COUNT_MEMORY_MD_PATH time(s) in $IMPLEMENT_TICKET - the dead Phase 11c bridging variable was not fully deleted."
+  _fail "MEMORY_MD_PATH still appears $COUNT_MEMORY_MD_PATH time(s) in $IMPLEMENT_TICKET + $KNOWLEDGE_COMMIT - the dead Phase 11c bridging variable was not fully deleted."
 fi
 
-COUNT_APPEND_HELPER=$(grep -c '_ae_append_entries' "$IMPLEMENT_TICKET" || true)
+COUNT_APPEND_HELPER=$(cat "$IMPLEMENT_TICKET" "$KNOWLEDGE_COMMIT" | grep -c '_ae_append_entries' || true)
 if [ "$COUNT_APPEND_HELPER" -eq 0 ]; then
-  _pass "_ae_append_entries absent from $IMPLEMENT_TICKET (count=0)"
+  _pass "_ae_append_entries absent from $IMPLEMENT_TICKET and $KNOWLEDGE_COMMIT (count=0)"
 else
-  _fail "_ae_append_entries still appears $COUNT_APPEND_HELPER time(s) in $IMPLEMENT_TICKET - the dead knowledge-commit append helper was not fully deleted."
+  _fail "_ae_append_entries still appears $COUNT_APPEND_HELPER time(s) in $IMPLEMENT_TICKET + $KNOWLEDGE_COMMIT - the dead knowledge-commit append helper was not fully deleted."
 fi
 
 # 2. Part G must exist in ds-wrap.md, in the zero-substance skip enumeration,
@@ -100,11 +102,11 @@ else
   _fail "'## Phase 11d: Delivery record and Review rigor' not found in $IMPLEMENT_TICKET - the promoted top-level heading is missing or mislabeled."
 fi
 
-COUNT_11C=$(grep -c '11c' "$IMPLEMENT_TICKET" || true)
+COUNT_11C=$(cat "$IMPLEMENT_TICKET" "$KNOWLEDGE_COMMIT" | grep -c '11c' || true)
 if [ "$COUNT_11C" -eq 0 ]; then
-  _pass "'11c' no longer appears anywhere in $IMPLEMENT_TICKET (count=0)"
+  _pass "'11c' no longer appears anywhere in $IMPLEMENT_TICKET or $KNOWLEDGE_COMMIT (count=0)"
 else
-  _fail "'11c' still appears $COUNT_11C time(s) in $IMPLEMENT_TICKET - a self-reference to the deleted Phase 11c was left behind."
+  _fail "'11c' still appears $COUNT_11C time(s) in $IMPLEMENT_TICKET + $KNOWLEDGE_COMMIT - a self-reference to the deleted Phase 11c was left behind."
 fi
 
 # ticket-rework.md must describe the real mechanism (Phase 11b, genuinely
@@ -353,15 +355,15 @@ else
 fi
 
 # 17. Writer/reader filename contract. The marker file is WRITTEN by the
-#     Phase 11e block and READ by Part G's dedup gate; they live in different
+#     Phase 11e block ($KNOWLEDGE_COMMIT) and READ by Part G's dedup gate; they live in different
 #     files, so renaming one side alone is a silent break with no conflict
 #     marker. Assert both sides name the same file.
-COUNT_STATE_WRITER=$(grep -c 'knowledge-commit-state\.json' "$IMPLEMENT_TICKET" || true)
+COUNT_STATE_WRITER=$(grep -c 'knowledge-commit-state\.json' "$KNOWLEDGE_COMMIT" || true)
 COUNT_STATE_READER=$(grep -c 'knowledge-commit-state\.json' "$WRAP" || true)
 if [ "$COUNT_STATE_WRITER" -ge 1 ] && [ "$COUNT_STATE_READER" -ge 1 ]; then
-  _pass "'.agentic/knowledge-commit-state.json' is named on BOTH sides of the writer/reader contract ($IMPLEMENT_TICKET=$COUNT_STATE_WRITER, $WRAP=$COUNT_STATE_READER)"
+  _pass "'.agentic/knowledge-commit-state.json' is named on BOTH sides of the writer/reader contract ($KNOWLEDGE_COMMIT=$COUNT_STATE_WRITER, $WRAP=$COUNT_STATE_READER)"
 else
-  _fail "the knowledge-commit-state.json writer/reader contract is broken ($IMPLEMENT_TICKET=$COUNT_STATE_WRITER, $WRAP=$COUNT_STATE_READER; both must be >= 1) - Phase 11e writes the marker and Part G's dedup gate reads it, so a rename on one side alone silently disables the gate."
+  _fail "the knowledge-commit-state.json writer/reader contract is broken ($KNOWLEDGE_COMMIT=$COUNT_STATE_WRITER, $WRAP=$COUNT_STATE_READER; both must be >= 1) - Phase 11e writes the marker and Part G's dedup gate reads it, so a rename on one side alone silently disables the gate."
 fi
 
 # 18. The dedup gate must be FAIL-OPEN toward committing. A duplicate commit
@@ -422,20 +424,20 @@ fi
 #     no PR branch to commit onto" is indistinguishable from "nothing changed"
 #     in events.jsonl - the ambiguity that let this phase's deleted predecessor
 #     ship zero commits for its entire lifetime unnoticed.
-if grep -qF 'no-branch' "$WRAP" && grep -qF 'KC_STATUS="no-branch"' "$IMPLEMENT_TICKET"; then
-  _pass "the 'no-branch' status is set in $IMPLEMENT_TICKET and documented in $WRAP's enum sentence"
+if grep -qF 'no-branch' "$WRAP" && grep -qF 'KC_STATUS="no-branch"' "$KNOWLEDGE_COMMIT"; then
+  _pass "the 'no-branch' status is set in $KNOWLEDGE_COMMIT and documented in $WRAP's enum sentence"
 else
-  _fail "the 'no-branch' status is missing from $IMPLEMENT_TICKET's block and/or $WRAP's enum sentence - the ref-absent path would report 'no-changes', which is indistinguishable from 'nothing changed' in events.jsonl."
+  _fail "the 'no-branch' status is missing from $KNOWLEDGE_COMMIT's block and/or $WRAP's enum sentence - the ref-absent path would report 'no-changes', which is indistinguishable from 'nothing changed' in events.jsonl."
 fi
 
 # 24. The gitignore diagnostic must stay audible in the Phase 11e block too -
 #     assertion 5 above already covers $WRAP, but the check-ignore gate now
 #     exists in BOTH files and only one of them was protected.
-COUNT_SUPPRESSED_CI_IT=$(grep -c 'check-ignore.*2>/dev/null' "$IMPLEMENT_TICKET" || true)
+COUNT_SUPPRESSED_CI_IT=$(cat "$IMPLEMENT_TICKET" "$KNOWLEDGE_COMMIT" | grep -c 'check-ignore.*2>/dev/null' || true)
 if [ "$COUNT_SUPPRESSED_CI_IT" -eq 0 ]; then
-  _pass "check-ignore is never suffixed 2>/dev/null in $IMPLEMENT_TICKET (count=0)"
+  _pass "check-ignore is never suffixed 2>/dev/null in $IMPLEMENT_TICKET or $KNOWLEDGE_COMMIT (count=0)"
 else
-  _fail "check-ignore is suffixed 2>/dev/null $COUNT_SUPPRESSED_CI_IT time(s) in $IMPLEMENT_TICKET - this would suppress the Phase 11e gitignored-file diagnostic, which is load-bearing for correctness (git add refuses an ignored path without -f), not merely diagnostic."
+  _fail "check-ignore is suffixed 2>/dev/null $COUNT_SUPPRESSED_CI_IT time(s) in $IMPLEMENT_TICKET + $KNOWLEDGE_COMMIT - this would suppress the Phase 11e gitignored-file diagnostic, which is load-bearing for correctness (git add refuses an ignored path without -f), not merely diagnostic."
 fi
 
 echo

@@ -1,8 +1,9 @@
 """
-Purpose: Executes the two shell blocks Phase 11e added to
-         content/commands/ds-implement-ticket.md - the knowledge-commit block
-         (`@harness:phase11e-knowledge-commit`) and the amended Phase 12
-         auto-merge block (`@harness:phase12-auto-merge`) - against real git
+Purpose: Executes the two shell blocks Phase 11e added - the
+         knowledge-commit block (`@harness:phase11e-knowledge-commit`, in
+         content/references/knowledge-commit.md) and the amended Phase 12
+         auto-merge block (`@harness:phase12-auto-merge`, in
+         content/commands/ds-implement-ticket.md) - against real git
          fixtures under both bash and zsh, instead of only ever reading them as
          prose. Every test is written from the shape of a DEFECT the block must
          not have (zsh word-splitting, staging against the real index, a
@@ -21,6 +22,7 @@ Upstream deps: bin/tests/lib/md_shell_extract.py (extraction + non-exported
                bin/tests/lib/git_fixture.py (the six build_knowledge_*
                shapes, per that module's own manifest count, plus
                install_git_stub, install_push_reject_hook),
+               content/references/knowledge-commit.md and
                content/commands/ds-implement-ticket.md (the blocks under test).
 
                md_shell_extract.render() is deliberately NOT used and MUST NOT
@@ -62,6 +64,7 @@ import lib.md_shell_extract as mse  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MD_PATH = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
+KC_MD_PATH = REPO_ROOT / "content" / "references" / "knowledge-commit.md"
 MARKER = "phase11e-knowledge-commit"
 MARKER_PHASE12 = "phase12-auto-merge"
 
@@ -99,7 +102,8 @@ def _shell_or_skip(shell: str) -> str:
 
 
 def _block(marker: str = MARKER) -> str:
-    return mse.extract_marked_block(str(MD_PATH), marker)
+    path = KC_MD_PATH if marker == MARKER else MD_PATH
+    return mse.extract_marked_block(str(path), marker)
 
 
 def _script(fixture: git_fixture.Fixture, block: str | None = None) -> str:
