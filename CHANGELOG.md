@@ -3,6 +3,41 @@
 
 # Changelog
 
+## 2026-10-31
+
+### Features
+
+- **#1058** [squash-aware removal predicate and live-cwd gate](https://github.com/Space-Dinosaurs/DinoStack/pull/1058) - tyson-solara6
+
+### Refactoring
+
+- **#1057** [move QA evidence publish and tracker-create branches to references](https://github.com/Space-Dinosaurs/DinoStack/pull/1057) - tyson-solara6
+- **#1056** [move the Phase 11e knowledge commit procedure to a reference](https://github.com/Space-Dinosaurs/DinoStack/pull/1056) - tyson-solara6
+
+### Maintenance
+
+- **#1055** [delete /ds-prune-harness](https://github.com/Space-Dinosaurs/DinoStack/pull/1055) - tyson-solara6
+
+## 2026-10-30
+
+### Features
+
+- **#1052** [act on recommendations and report, instead of asking](https://github.com/Space-Dinosaurs/DinoStack/pull/1052) - tyson-solara6
+- **#1051** [Elevated single-review route for tickets with no risk surface](https://github.com/Space-Dinosaurs/DinoStack/pull/1051) - tyson-solara6
+
+### Fixes
+
+- **#1050** [drop false Trivial isolation-exemption clause](https://github.com/Space-Dinosaurs/DinoStack/pull/1050) - tyson-solara6
+- **#1049** [state spawn call shape and Low/Trivial docs currency](https://github.com/Space-Dinosaurs/DinoStack/pull/1049) - tyson-solara6
+
+### Refactoring
+
+- **#1054** [move open-goal, batch, and orchestration-unit procedures to references](https://github.com/Space-Dinosaurs/DinoStack/pull/1054) - tyson-solara6
+
+### Documentation
+
+- **#1053** [measure Pillar 1 attention against vanilla Claude Code](https://github.com/Space-Dinosaurs/DinoStack/pull/1053) - tyson-solara6
+
 ## 2026-10-29
 
 ### Features
