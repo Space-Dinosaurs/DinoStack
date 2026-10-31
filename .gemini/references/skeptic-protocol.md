@@ -247,7 +247,7 @@ Every Skeptic spawn prompt MUST include the following block in this order, after
 
 **Deriving KEY.** The rule is mechanical so that two conductors derive the same KEY for one unit.
 
-- **BASE:** `$LOOP_KEY` inside `/ds-implement-ticket`. Elsewhere, the ticket id passed through `$LOOP_KEY`'s sanitizer (`ae_sanitize` in `/ds-implement-ticket`'s Resume check: every character outside `A-Za-z0-9._-` becomes `-`). With no ticket, the name of the unit's own feature branch through the same sanitizer, never the base branch it merges into; if that branch does not exist yet, use the name it will be created under. Naming it does not require creating it.
+- **BASE:** `$LOOP_KEY` inside `/ds-implement-ticket`. Elsewhere, the ticket id passed through `$LOOP_KEY`'s sanitizer (`ae_sanitize` in `bin/ds-ticket-setup`, which `/ds-implement-ticket`'s Resume check runs: every character outside `A-Za-z0-9._-` becomes `-`). With no ticket, the name of the unit's own feature branch through the same sanitizer, never the base branch it merges into; if that branch does not exist yet, use the name it will be created under. Naming it does not require creating it.
 - **KEY** is BASE plus the review kind's suffix:
 
 | Review kind | KEY |

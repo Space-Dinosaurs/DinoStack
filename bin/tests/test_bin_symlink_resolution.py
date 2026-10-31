@@ -72,6 +72,9 @@ CASES = [
     ("agentic-change-delta", ["--help"], 0),
     ("agentic-eval", ["--help"], 0),
     ("agentic-cost", ["--help"], 0),
+    # agentic-ticket-setup exits on --help before it loads _lib.py, so it
+    # runs a real (read-only) resolution instead.
+    ("agentic-ticket-setup", ["--ticket", "DS-1"], 0),
 ]
 
 # Completeness backstop: every bin/agentic-* python CLI that carries the

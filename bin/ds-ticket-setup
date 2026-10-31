@@ -1,0 +1,473 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# Module manifest
+# Purpose: The /ds-implement-ticket Setup call. One invocation resolves what
+#          the command's Setup, Resume check and Phase 1 rework detection
+#          used to compute inline, and prints it as one JSON line:
+#            {repo_dir, base_branch, tracker, loop_key, mode, resume, rework}
+#          When mode is batch, open_goal or resume it then prints that
+#          mode's procedure reference body (content/references/batch-mode.md,
+#          open-goal-loop.md, cross-session-loop-resume.md) to stdout. In 26
+#          eval control runs the conductor Read a pointed-to reference 0
+#          times, so a rare-mode procedure has to arrive in tool output.
+#          Retire the injection when a measured run shows the pointer Read.
+#
+# Public API:
+#   ds-ticket-setup [--session-id ID] [--repo PATH] [--ticket ID|-] [--rework-only] [--stdin|-] [--] [<input...>]
+#     <input...>  the /ds-implement-ticket <input>, as one or more args.
+#     --stdin, -  read <input> from stdin instead. The command passes
+#                 operator text this way (a quoted heredoc), so no shell
+#                 ever expands it.
+#     --ticket    use ID verbatim as TICKET_ID (mode single) instead of
+#                 classifying <input>; `--ticket -` reads ID from stdin.
+#                 Phase 0a-pre's batch pick (its own key and resume check).
+#     --rework-only  with --ticket: print only {ticket_id, rework}. The
+#                 re-run once Phase 0 resolves a ticket the first call
+#                 could not parse; it never yields a loop_key or resume,
+#                 so the first call's key is never re-derived.
+#     --session-id  SESSION_ID for the loop key; default $CLAUDE_CODE_SESSION_ID.
+#     --repo      the ticket's project checkout; default the cwd's git
+#                 toplevel, else the cwd.
+#   stdout line 1 is the JSON (plus `ticket_id`: the parsed or --ticket
+#   id, null when none); an injected body follows a
+#   "--- procedure: <path> (mode=<mode>) ---" line. The sanitize-to-empty
+#   notice goes to stderr. Exit 0 on every resolution outcome; 2 on a usage
+#   error or a missing python3.
+#   Sourcing this file (instead of executing it) defines ae_sanitize,
+#   ae_derive_loop_key and ae_rework_detect and runs nothing else;
+#   bin/tests/test_loop_key_derivation.sh and test_ticket_rework_ledger.sh
+#   rely on that.
+#
+# Upstream deps: bash 3.2+, python3, jq (rework read; absent = no prior
+#   attempts), git (absent = no git tiers), this install's
+#   scripts/lib/repo-dir.sh, bin/_lib.py and bin/ds-tracker.
+#
+# Downstream consumers: content/commands/ds-implement-ticket.md (Setup call,
+#   Resume check, Phase 1 ticket-rework detection).
+#
+# Failure modes: read-only - never writes, deletes or fetches. No tracker
+#   config, a consumer repo, a non-git cwd, or a missing ds-tracker all
+#   still print the JSON (tracker null only when ds-tracker printed nothing
+#   parseable).
+#
+# Performance: one python3 and one ds-tracker process; no network.
+# ---------------------------------------------------------------------------
+
+# Resume check: loop-key derivation
+ae_sanitize() {
+  # 1. every char outside [A-Za-z0-9._-] -> '-'   2. collapse '-' runs
+  # 3. strip leading/trailing '-' and '.'          4. truncate to 64
+  # 5. re-strip trailing '-' and '.' exposed by the truncation
+  #
+  # STEP 1 USES `tr -c`, NOT `sed`. This is not a style choice. `sed` and `cut`
+  # are LINE-ORIENTED: a newline is sed's record separator, so `s/[^...]/-/g`
+  # does NOT replace it, and `cut -c1-64` truncates PER LINE. Measured:
+  #   printf 'x\ny' | sed -e 's/[^A-Za-z0-9._-]/-/g'   ->  x\ny   (newline SURVIVES)
+  #   printf 'x\ny' | tr -c 'A-Za-z0-9._-' '-'          ->  x-y   (correct)
+  # With sed, a newline-bearing ticket id yields a filename containing a raw
+  # newline, which fails the `^loop-state-.+\.json$` invariant the hooks'
+  # candidate enumeration relies on, and a multi-line 200-char id defeats the
+  # 64-char cap entirely (measured: key length 129). `tr` is byte-oriented and
+  # has no record concept, so it closes both.
+  #
+  # `tr -c` complements the SET, so the set must not be a regex bracket
+  # expression - `A-Za-z0-9._-` with the `-` last is correct for tr.
+  printf '%s' "${1-}" \
+    | LC_ALL=C tr -c 'A-Za-z0-9._-' '-' \
+    | LC_ALL=C sed -e 's/--*/-/g' \
+    | LC_ALL=C sed -e 's/^[-.]*//' -e 's/[-.]*$//' \
+    | cut -c1-64 \
+    | LC_ALL=C sed -e 's/[-.]*$//'
+}
+
+ae_derive_loop_key() {
+  # arg1 = TICKET_ID (may be empty)   arg2 = SESSION_ID (may be empty, or "null")
+  #
+  # This function's ONLY output is the key on stdout. Do NOT add a diagnostic
+  # print here - callers capture stdout as the key, and so does
+  # bin/tests/test_loop_key_derivation.sh. The sanitize-to-empty operator
+  # notice is emitted by the CALLER (see below), not from inside here.
+  local raw_ticket="${1-}" raw_sid="${2-}" core key=""
+
+  # B1 - ticket branch.
+  core="$(ae_sanitize "$raw_ticket")"
+  [ -n "$core" ] && key="$core"
+
+  # B2 - session branch. SESSION_ID is sanitized BEFORE the prefix is applied,
+  # never after: sanitizing "session-<garbage>" would yield the shared key
+  # "session", colliding across every session that reached this branch.
+  # The 4-char string "null" is treated as absent - Contract A mandates
+  # session_id: null on harnesses with no id namespace, and a JSON null read
+  # through `jq -r` surfaces as that literal string.
+  if [ -z "$key" ] && [ -n "$raw_sid" ] && [ "$raw_sid" != "null" ]; then
+    core="$(ae_sanitize "$raw_sid")"
+    [ -n "$core" ] && key="session-$core"
+  fi
+
+  # Truncate + re-strip, applied uniformly to whatever B1/B2 produced.
+  if [ -n "$key" ]; then
+    key="$(printf '%s' "$key" | cut -c1-64 | LC_ALL=C sed -e 's/[-.]*$//')"
+  fi
+
+  # B3 - TERMINAL FLOOR. The emptiness test is on the FINAL ASSEMBLED KEY,
+  # not on the raw inputs. This is what makes `.agentic/loop-state-.json`
+  # unreachable: no branch above can emit an empty key past this point.
+  if [ -z "$key" ]; then
+    key="session-nosid-$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+  fi
+
+  printf '%s' "$key"
+}
+
+# Reads REWORK_DETECTION and TICKET_ID; sets PRIOR_COMPLETED_JSON,
+# PRIOR_ATTEMPTS and IS_REWORK. Runs from the project root (relative path).
+ae_rework_detect() {
+# Phase 1: ticket-rework detection (soft-fail; zero tracker/network calls - one local file read).
+# Emits the deduped prior-attempt records, most recent last.
+PRIOR_COMPLETED_JSON='[]'
+PRIOR_ATTEMPTS=0
+if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ] && [ -f .agentic/ticket-ledger.jsonl ]; then
+  # `-Rn` + `inputs` + `fromjson? // empty` parses PER LINE and drops only the lines that fail.
+  # Do NOT use `-s` (slurp) here: slurp aborts the whole parse on the first malformed line, so
+  # one partial write from a concurrent appender would silently disable detection for every
+  # ticket in the file, permanently and with no operator signal. The ledger is written
+  # locklessly and O_APPEND is not atomic over NFS, so a torn line is a real, expected input.
+  #
+  # `X=$(...) || X=default` puts the fallback on jq's own exit status and discards any partial
+  # output. Do NOT use `$(jq ... || echo '[]')`: on an unreadable file some jq builds emit a
+  # result AND fail, so the fallback would concatenate onto it.
+  PRIOR_COMPLETED_JSON=$(jq -Rn --arg t "$TICKET_ID" '
+    [ inputs
+      | fromjson? // empty
+      | select(type == "object" and .ticket_id == $t and (.pr_number != null)) ]
+    | group_by(.pr_number)
+    | map(max_by(.opened_ts // ""))
+    | sort_by(.opened_ts // "")
+  ' .agentic/ticket-ledger.jsonl 2>/dev/null) || PRIOR_COMPLETED_JSON='[]'
+  [ -n "$PRIOR_COMPLETED_JSON" ] || PRIOR_COMPLETED_JSON='[]'
+  PRIOR_ATTEMPTS=$(printf '%s' "$PRIOR_COMPLETED_JSON" | jq 'length' 2>/dev/null) || PRIOR_ATTEMPTS=0
+  case "$PRIOR_ATTEMPTS" in ''|*[!0-9]*) PRIOR_ATTEMPTS=0 ;; esac
+fi
+if [ "$PRIOR_ATTEMPTS" -ge 1 ]; then IS_REWORK=true; else IS_REWORK=false; fi
+}
+
+_ts_usage() {
+  echo "usage: ds-ticket-setup [--session-id ID] [--repo PATH] [--ticket ID|-] [--rework-only] [--stdin|-] [--] [<input...>]" >&2
+}
+
+# bash 3.2 misparses a heredoc inside $(...), so the python programs
+# live in plain functions and run as python3 -c "$(...)".
+_ts_classify_py() {
+cat <<'PY'
+import re, sys
+raw = sys.stdin.read()
+open_goal = False
+for m in re.finditer(r'(\w+)=("[^"]*"|\S+)', raw):
+    if m.group(1) == "goal_mode" and m.group(2).strip('"') == "open_goal":
+        open_goal = True
+raw = re.sub(r'(?:^|\s)\w+=("[^"]*"|\S+)', " ", raw)
+bare = re.compile(r'^[A-Z][A-Z0-9_]+-\d+$')
+urls = (re.compile(r'^https?://[^/]+/browse/([A-Z][A-Z0-9_]+-\d+)'),
+        re.compile(r'^https?://linear\.app/[^/]+/issue/([A-Z][A-Z0-9_]+-\d+)'))
+ids = []
+for tok in re.split(r'[,\s]+', raw):
+    tid = tok if bare.match(tok) else None
+    for rx in urls:
+        m = rx.match(tok)
+        if m:
+            tid = m.group(1)
+    if tid and tid not in ids:
+        ids.append(tid)
+mode = "open_goal" if open_goal else ("batch" if len(ids) >= 2 else "single")
+print(mode)
+print(ids[0] if mode == "single" and ids else "")
+PY
+}
+
+_ts_assemble_py() {
+cat <<'PY'
+import datetime, glob, importlib.util, json, os, subprocess
+
+env = os.environ
+mode = env["TS_MODE"]
+ticket = env["TS_TICKET"]
+loop_key = env["TS_LOOP_KEY"]
+
+
+def git(*args):
+    try:
+        p = subprocess.run(["git", *args], capture_output=True, text=True)
+    except OSError:
+        return None
+    return p.stdout.strip() if p.returncode == 0 else None
+
+
+def declared_base():
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "_ds_lib", os.path.join(env["TS_SELF_ROOT"], "bin", "_lib.py"))
+        lib = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(lib)
+        text = open("AGENTS.md", encoding="utf-8", errors="replace").read()
+        return lib._parse_base_branch_declaration(text)
+    except Exception:
+        return None
+
+
+def base_branch():
+    # Setup's order: AGENTS.md declaration, origin/HEAD, local develop,
+    # local development, then main falling back to master.
+    value = declared_base()
+    if value:
+        return value
+    ref = git("symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+    if ref and ref.startswith("origin/") and len(ref) > len("origin/"):
+        return ref[len("origin/"):]
+    for name in ("develop", "development"):
+        if git("show-ref", "--verify", "--quiet", "refs/heads/" + name) is not None:
+            return name
+    if git("show-ref", "--verify", "--quiet", "refs/heads/main") is None and \
+            git("show-ref", "--verify", "--quiet", "refs/heads/master") is not None:
+        return "master"
+    return "main"
+
+
+def parse_ts(value):
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        dt = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt
+
+
+def classify(path):
+    # interrupted, or active with last_updated over 10 minutes old, is
+    # resumable; active and fresh is live; complete/stalled is to clear.
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            raise ValueError("not an object")
+    except (OSError, ValueError):
+        return {"path": path, "verdict": "parse_error"}
+    state = data.get("status")
+    if state == "interrupted":
+        verdict = "resumable"
+    elif state == "active":
+        ts = parse_ts(data.get("last_updated"))
+        now = datetime.datetime.now(datetime.timezone.utc)
+        fresh = ts is not None and (now - ts).total_seconds() <= 600
+        verdict = "live" if fresh else "resumable"
+    elif state in ("complete", "stalled"):
+        verdict = "clear"
+    else:
+        verdict = "unknown"
+    out = {"path": path, "verdict": verdict}
+    for key in ("status", "loop_key", "ticket_id", "last_phase",
+                "last_phase_action", "last_updated", "interrupt_reason"):
+        if key in data:
+            out[key] = data[key]
+    return out
+
+
+def resume_state():
+    keyed_path = ".agentic/loop-state-%s.json" % loop_key
+    keyed = classify(keyed_path) if os.path.isfile(keyed_path) else None
+    legacy = classify(".agentic/loop-state.json") \
+        if os.path.isfile(".agentic/loop-state.json") else None
+    others = [classify(p) for p in sorted(glob.glob(".agentic/loop-state-*.json"))
+              if p != keyed_path]
+    if keyed is None and legacy is None and not others:
+        return None
+    recommended = None
+    if keyed is not None and keyed["verdict"] == "resumable":
+        recommended = keyed_path
+    elif not ticket:
+        sessions = [o for o in others if o["verdict"] == "resumable"
+                    and os.path.basename(o["path"]).startswith("loop-state-session-")]
+        if len(sessions) == 1:
+            recommended = sessions[0]["path"]
+    if recommended is None and keyed is None and legacy is not None \
+            and legacy["verdict"] == "resumable":
+        recommended = legacy["path"]
+    others.sort(key=lambda o: str(o.get("last_updated") or ""), reverse=True)
+    return {"keyed": keyed, "legacy": legacy, "others": others,
+            "recommended": recommended}
+
+
+tracker = None
+try:
+    parsed = json.loads(env.get("TS_TRACKER") or "")
+    if isinstance(parsed, dict):
+        tracker = parsed
+except ValueError:
+    pass
+
+try:
+    prior = json.loads(env.get("TS_PRIOR") or "[]")
+except ValueError:
+    prior = []
+
+rework = {
+    "rework_detection": env["TS_REWORK_DETECTION"] != "false",
+    "prior_attempts": int(env.get("TS_ATTEMPTS") or 0),
+    "is_rework": env.get("TS_IS_REWORK") == "true",
+    "prior_completed": prior,
+}
+if env.get("TS_REWORK_ONLY") == "true":
+    print(json.dumps({"ticket_id": ticket or None, "rework": rework}))
+    print("rework_only")
+    raise SystemExit(0)
+
+resume = resume_state()
+if mode == "single" and resume is not None and resume["recommended"]:
+    mode = "resume"
+
+print(json.dumps({
+    "repo_dir": env["TS_REPO_DIR"],
+    "base_branch": base_branch(),
+    "tracker": tracker,
+    "ticket_id": ticket or None,
+    "loop_key": loop_key,
+    "mode": mode,
+    "resume": resume,
+    "rework": rework,
+}))
+print(mode)
+PY
+}
+
+_ts_main() {
+  set -uo pipefail
+
+  # The install root comes from this file's own location, resolved through
+  # any ~/.local/bin symlink chain, before anything changes directory.
+  local src="${BASH_SOURCE[0]}" link_dir
+  while [ -L "$src" ]; do
+    link_dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    case "$src" in /*) ;; *) src="$link_dir/$src" ;; esac
+  done
+  local self_root
+  self_root="$(cd -P "$(dirname "$src")/.." && pwd)"
+
+  local session_id="${CLAUDE_CODE_SESSION_ID-}" repo="" ticket_arg="" has_ticket=false
+  local from_stdin=false rework_only=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --session-id) [ $# -ge 2 ] || { _ts_usage; return 2; }; session_id="$2"; shift 2 ;;
+      --session-id=*) session_id="${1#--session-id=}"; shift ;;
+      --repo) [ $# -ge 2 ] || { _ts_usage; return 2; }; repo="$2"; shift 2 ;;
+      --repo=*) repo="${1#--repo=}"; shift ;;
+      --ticket) [ $# -ge 2 ] || { _ts_usage; return 2; }; ticket_arg="$2"; has_ticket=true; shift 2 ;;
+      --ticket=*) ticket_arg="${1#--ticket=}"; has_ticket=true; shift ;;
+      --stdin|-) from_stdin=true; shift ;;
+      --rework-only) rework_only=true; shift ;;
+      -h|--help) _ts_usage; return 0 ;;
+      --) shift; break ;;
+      *) break ;;
+    esac
+  done
+  local raw_input="$*"
+  if [ "$rework_only" = true ] && [ "$has_ticket" = false ]; then
+    _ts_usage
+    return 2
+  fi
+  if [ "$has_ticket" = true ] && [ "$ticket_arg" = "-" ]; then
+    [ "$from_stdin" = false ] || { _ts_usage; return 2; }
+    ticket_arg="$(cat)"
+  elif [ "$from_stdin" = true ]; then
+    raw_input="$(cat)"
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "ds-ticket-setup: python3 is required" >&2
+    return 2
+  fi
+
+  if [ -z "$repo" ]; then
+    repo="$(git rev-parse --show-toplevel 2>/dev/null)" || repo=""
+    [ -n "$repo" ] || repo="$(pwd)"
+  fi
+  cd "$repo" || { echo "ds-ticket-setup: cannot enter repo '$repo'" >&2; return 2; }
+  repo="$(pwd)"
+
+  AE_REPO_DIR=""
+  # shellcheck source=../scripts/lib/repo-dir.sh
+  if [ -f "$self_root/scripts/lib/repo-dir.sh" ]; then
+    . "$self_root/scripts/lib/repo-dir.sh"
+    resolve_repo_dir --quiet || true
+  fi
+  [ -n "$AE_REPO_DIR" ] || AE_REPO_DIR="$self_root"
+
+  # Classify the input: trailing goal_mode=open_goal, and the ticket ids a
+  # bare id or single-issue URL names. Search/filter URLs, screenshots and
+  # freeform text stay Phase 0's job.
+  local parsed mode ticket_id
+  parsed="$(printf '%s' "$raw_input" | python3 -c "$(_ts_classify_py)")" \
+    || { echo "ds-ticket-setup: could not classify <input>" >&2; return 2; }
+  mode="$(printf '%s\n' "$parsed" | sed -n 1p)"
+  ticket_id="$(printf '%s\n' "$parsed" | sed -n 2p)"
+  if [ "$has_ticket" = true ]; then
+    mode=single
+    ticket_id="$ticket_arg"
+  fi
+
+  local loop_key=""
+  [ "$rework_only" = true ] || loop_key="$(ae_derive_loop_key "$ticket_id" "$session_id")"
+  if [ "$rework_only" = false ] && [ -n "$ticket_id" ] && [ -z "$(ae_sanitize "$ticket_id")" ]; then
+    echo "Ticket id '$ticket_id' sanitizes to empty; loop state keyed on session instead ($loop_key)." >&2
+  fi
+
+  REWORK_DETECTION="$(jq -r 'if type == "object" and has("rework_detection") then (.rework_detection | tostring) else "true" end' .agentic/config.json 2>/dev/null)" || REWORK_DETECTION=true
+  [ "$REWORK_DETECTION" = "false" ] || REWORK_DETECTION=true
+  TICKET_ID="$ticket_id"
+  ae_rework_detect
+
+  local tracker_json=""
+  if [ "$rework_only" = false ] && [ -x "$self_root/bin/ds-tracker" ]; then
+    tracker_json="$("$self_root/bin/ds-tracker" resolve --json --project-root "$repo")" || true
+  fi
+
+  local out
+  out="$(TS_REPO_DIR="$AE_REPO_DIR" TS_SELF_ROOT="$self_root" TS_MODE="$mode" \
+    TS_TICKET="$ticket_id" TS_LOOP_KEY="$loop_key" \
+    TS_TRACKER="$tracker_json" TS_PRIOR="$PRIOR_COMPLETED_JSON" \
+    TS_ATTEMPTS="$PRIOR_ATTEMPTS" TS_IS_REWORK="$IS_REWORK" \
+    TS_REWORK_DETECTION="$REWORK_DETECTION" TS_REWORK_ONLY="$rework_only" \
+    python3 -c "$(_ts_assemble_py)")" \
+    || { echo "ds-ticket-setup: JSON assembly failed" >&2; return 2; }
+
+  printf '%s\n' "$out" | sed -n 1p
+  mode="$(printf '%s\n' "$out" | sed -n 2p)"
+
+  local ref=""
+  case "$mode" in
+    batch) ref="batch-mode.md" ;;
+    open_goal) ref="open-goal-loop.md" ;;
+    resume) ref="cross-session-loop-resume.md" ;;
+  esac
+  if [ -n "$ref" ]; then
+    local ref_path="$self_root/content/references/$ref"
+    echo
+    echo "--- procedure: content/references/$ref (mode=$mode) ---"
+    if [ -f "$ref_path" ]; then
+      # Skip the leading <!-- manifest --> block; print the body.
+      awk 'NR == 1 && /^<!--/ { skip = 1 }
+           skip { if (/^-->[[:space:]]*$/) { skip = 0 }; next }
+           { print }' "$ref_path"
+    else
+      echo "(not found at $ref_path - Read content/references/$ref from the DinoStack install)"
+    fi
+  fi
+  return 0
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  _ts_main "$@"
+  exit $?
+fi

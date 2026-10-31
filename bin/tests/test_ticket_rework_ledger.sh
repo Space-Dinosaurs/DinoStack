@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # Purpose: Regression guard for the ticket-rework alert's THREE executable
-#          blocks in content/commands/ds-implement-ticket.md:
+#          blocks:
 #            1. the Phase 1 per-ticket variable reset  (RESET_MARKER)
 #            2. the Phase 1 detection read             (READ_MARKER)
 #            3. the Phase 9 ledger-write call site     (WRITE_MARKER),
 #               which runs bin/ds-ticket-finish ledger
-#          All three are EXTRACTED FROM THE SHIPPED SPEC by their marker
-#          comment and executed, not copied here, so this test fails if the
-#          spec's bash drifts from the behaviour the spec's own prose
-#          promises. Each marker is part of the contract - see Failure modes.
+#          Blocks 1 and 3 are EXTRACTED FROM content/commands/
+#          ds-implement-ticket.md by their marker comment; block 2 lives in
+#          bin/ds-ticket-setup (`ae_rework_detect`, same marker), which this
+#          test sources. All three are executed, not copied here, so this
+#          test fails if the shipped bash drifts from the behaviour the
+#          spec's own prose promises. Each marker is part of the contract -
+#          see Failure modes.
 #
 #          Each fixture below pins a defect found in Skeptic review of the
 #          originating PR, so a future edit that reintroduces one fails here.
@@ -59,8 +62,9 @@
 #             .github/workflows/bin-tests.yml - no orphans entry needed.
 #
 # Upstream deps: bash, jq, python3, mktemp. Reads
-#                content/commands/ds-implement-ticket.md and runs
-#                bin/ds-ticket-finish from the checkout.
+#                content/commands/ds-implement-ticket.md, runs
+#                bin/ds-ticket-finish and sources bin/ds-ticket-setup from
+#                the checkout.
 #
 # Downstream consumers: developer running locally before commit; CI
 #                       (.github/workflows/bin-tests.yml).
@@ -77,6 +81,7 @@ set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 SPEC="$REPO_DIR/content/commands/ds-implement-ticket.md"
+SETUP="$REPO_DIR/bin/ds-ticket-setup"
 
 PASS=0
 FAIL=0
@@ -126,11 +131,12 @@ if ! _extract "$WRITE_MARKER" "$WRITE_BLOCK"; then
 fi
 _pass "extracted Phase 9 write block from the shipped spec"
 
-if ! _extract "$READ_MARKER" "$READ_BLOCK"; then
-  _fail "could not extract the Phase 1 detection block from the spec"
+if ! grep -qF -- "$READ_MARKER" "$SETUP"; then
+  _fail "bin/ds-ticket-setup lost the Phase 1 detection marker"
   echo "Results: $PASS passed, $FAIL failed"; exit 1
 fi
-_pass "extracted Phase 1 detection block from the shipped spec"
+printf '. %q\nae_rework_detect\n' "$SETUP" > "$READ_BLOCK"
+_pass "Phase 1 detection block is bin/ds-ticket-setup's ae_rework_detect"
 
 RESET_BLOCK="$TMP_ROOT/reset.sh"
 if ! _extract "$RESET_MARKER" "$RESET_BLOCK"; then
@@ -400,6 +406,18 @@ _eq "other ticket unaffected"   "$(_read DS-99 true)" "1|true|401"
 _eq "unknown ticket is inert"   "$(_read DS-404 true)" "0|false|-"
 _eq "toggle off is inert"       "$(_read DS-87 false)" "0|false|-"
 
+_setup_rework() { # _setup_rework <ticket> -> the Setup call's JSON rework, same shape as _read
+  "$SETUP" --repo "$PWD" --session-id s --ticket "$1" 2>/dev/null | head -1 \
+    | jq -r '.rework | "\(.prior_attempts)|\(.is_rework)|\(.prior_completed[-1].pr_number // "-")"'
+}
+_eq "Setup JSON rework equals the detection block's" "$(_setup_rework DS-87)" "$(_read DS-87 true)"
+_eq "Setup JSON rework for an unknown ticket"        "$(_setup_rework DS-404)" "0|false|-"
+[[ -f .agentic/config.json ]] && cp .agentic/config.json "$TMP_ROOT/config.keep"
+printf '{"rework_detection": false}\n' > .agentic/config.json
+_eq "Setup reads rework_detection=false from .agentic/config.json" "$(_setup_rework DS-87)" "0|false|-"
+rm -f .agentic/config.json
+[[ -f "$TMP_ROOT/config.keep" ]] && cp "$TMP_ROOT/config.keep" .agentic/config.json
+
 echo ""
 echo "--- Major 4: ONE malformed line must not disable the whole ledger ---"
 cp .agentic/ticket-ledger.jsonl "$TMP_ROOT/ledger.good"
@@ -500,10 +518,18 @@ _present "the overwrite hazard is stated at the capture site" \
 
 echo ""
 echo "--- Major 4 (prose): the anti-slurp rule must survive edits ---"
-_present "spec warns against -s (slurp) for the detection read" \
-         'Do NOT use .-s. \(slurp\)'
+if grep -qiE 'Do NOT use .-s. \(slurp\)' "$SETUP"; then
+  _pass "detection block warns against -s (slurp)"
+else
+  _fail "detection block warns against -s (slurp) - bin/ds-ticket-setup no longer contains: /Do NOT use .-s. \(slurp\)/"
+fi
 _absent  "detection block no longer uses jq -cs" \
          'jq -cs --arg t'
+if grep -qiE 'jq -cs --arg t' "$SETUP"; then
+  _fail "detection block no longer uses jq -cs - bin/ds-ticket-setup still contains: /jq -cs --arg t/"
+else
+  _pass "detection block in bin/ds-ticket-setup no longer uses jq -cs"
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
