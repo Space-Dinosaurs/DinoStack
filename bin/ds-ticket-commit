@@ -23,8 +23,12 @@
 #   Inputs come only from flags: same-named environment variables are
 #   unset first and never read.
 #   Exit codes: 0 pushed and verified (origin holds the local tip);
-#   1 push failed or unverified (the worktree gets an explicit
-#   "BLOCKED: unpushed commit" hold); 2 usage error.
+#   1 push failed or unverified (a carrier worktree gets an explicit
+#   "BLOCKED: unpushed commit" hold; on the sequential path the branch is
+#   checked out in R itself and no hold is recorded); 2 usage error or R
+#   not enterable; 3 feature commit failed (git add, missing identity, or a
+#   rejecting hook) - nothing pushed, nothing retired, the change left
+#   staged in the commit checkout.
 #   A worktree that ds-retire-carrier holds (its exit 3) prints a
 #   `[phase: worktree-cleanup | HELD | ...]` line and never changes the
 #   exit code.
@@ -75,8 +79,7 @@ if [ "$#" -gt 0 ] && [ -z "${COMMIT_MESSAGE:-}" ]; then
   echo "ds-ticket-commit: --message is required when files are given" >&2
   exit 2
 fi
-cd "$REPO" || exit 2
-
+# Resolved before the cd below, which would break a relative $0 or --repo.
 if [ -z "${REPO_DIR:-}" ]; then
   SELF="$0"
   while [ -L "$SELF" ]; do
@@ -86,6 +89,8 @@ if [ -z "${REPO_DIR:-}" ]; then
   done
   REPO_DIR="$(cd "$(dirname "$SELF")/.." && pwd -P)"
 fi
+cd "$REPO" || exit 2
+REPO="$(pwd)"
 
 # @harness:phase8-commit-and-telemetry
 export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20
@@ -93,7 +98,8 @@ export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" &
 # Fan-out = $INTEGRATION_WORKTREE ($REPO's HEAD never switches). Sequential = $REPO.
 if [ -n "$INTEGRATION_WORKTREE" ] && [ -d "$INTEGRATION_WORKTREE" ]; then COMMIT_CHECKOUT="$INTEGRATION_WORKTREE"; else COMMIT_CHECKOUT="$REPO"; fi
 
-[ "$#" -eq 0 ] || git -C "$COMMIT_CHECKOUT" add -- "$@"
+FEATURE_COMMIT_FAILED=false
+[ "$#" -eq 0 ] || git -C "$COMMIT_CHECKOUT" add -- "$@" || FEATURE_COMMIT_FAILED=true
 
 # Resolve developer identity for trailer (soft-fail throughout; ds-identity may not be installed).
 # Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
@@ -108,8 +114,11 @@ SO_EMAIL=$(git -C "$COMMIT_CHECKOUT" config user.email 2>/dev/null || git config
 
 if [ "$#" -eq 0 ]; then
   echo "[phase: commit | feature-commit=skipped | reason=no files given]"
+elif [ "$FEATURE_COMMIT_FAILED" = "true" ]; then
+  echo "ERROR: git add failed for the given files; feature commit not made."
 elif [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
   echo "WARNING: git user.name or user.email not set; skipping commit to avoid malformed DCO trailer."
+  FEATURE_COMMIT_FAILED=true
 else
   # NL assigned before the string (not inside a heredoc) so variable expansion works.
   NL=$'
@@ -117,7 +126,12 @@ else
   # §Commit messages: imperative; whole subject incl. prefix ≤ 50 chars.
   # Do not append any Co-Authored-By, Generated-with, or other AI-attribution trailer to the commit message - harness defaults that add one are overridden here.
   COMMIT_MSG="${COMMIT_MESSAGE}${NL}${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>"
-  git -C "$COMMIT_CHECKOUT" commit -m "$COMMIT_MSG"
+  git -C "$COMMIT_CHECKOUT" commit -m "$COMMIT_MSG" || FEATURE_COMMIT_FAILED=true
+fi
+# A failed feature commit stops here: no telemetry commit, push, or retirement,
+# so nothing half-made reaches origin and the staged change stays visible.
+if [ "$FEATURE_COMMIT_FAILED" = "true" ]; then
+  echo "ERROR: feature commit failed in $COMMIT_CHECKOUT; skipping telemetry, push and worktree cleanup."
 fi
 
 # --- Telemetry commit (soft-fail throughout) ---
@@ -129,7 +143,7 @@ try:
 except: print('true')
 " 2>/dev/null || echo 'true')
 
-if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
+if [ "$FEATURE_COMMIT_FAILED" != "true" ] && [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
   SESSION_LOG_SRC="$REPO/.agentic/session-log/${DEVELOPER}.jsonl"
 
   # PR_CHECKOUT: fan-out reuses COMMIT_CHECKOUT; single-engineer uses WORKTREE_PATH.
@@ -199,7 +213,9 @@ fi
 # differs), so this is correct even though fan-out never switches HEAD.
 # Verified = the push exited 0 AND origin now holds the local tip.
 PUSH_VERIFIED=false
-if git -C "$REPO" push -u origin "$BRANCH_NAME"; then
+if [ "$FEATURE_COMMIT_FAILED" = "true" ]; then
+  :
+elif git -C "$REPO" push -u origin "$BRANCH_NAME"; then
   git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
   if git -C "$REPO" ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1 \
      && git -C "$REPO" merge-base --is-ancestor "$BRANCH_NAME" "origin/$BRANCH_NAME"; then
@@ -212,13 +228,27 @@ fi
 # purpose): ds-retire-carrier removes it only when clean, free of protected
 # ignored content, and pinning no commit that would lose its last ref; it never
 # forces, unlocks, or deletes a branch, and records a hold otherwise.
-WORKTREE_PATH=$("$REPO_DIR/bin/ds-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
-if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
+WORKTREE_PATH=""
+if [ "$FEATURE_COMMIT_FAILED" != "true" ]; then
+  if [ -x "$REPO_DIR/bin/ds-resolve-worktree" ]; then
+    WORKTREE_PATH=$("$REPO_DIR/bin/ds-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
+  else
+    echo "WARNING: $REPO_DIR/bin/ds-resolve-worktree not found; worktree cleanup skipped." >&2
+  fi
+fi
+if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ] \
+   && [ "$(cd "$WORKTREE_PATH" && pwd -P)" = "$(cd "$REPO" && pwd -P)" ]; then
+  # Sequential path: the branch is checked out in $REPO itself, which is not a
+  # carrier. Nothing to retire or hold; an unpushed commit stays on the branch.
+  echo "[phase: worktree-cleanup | none | branch=$BRANCH_NAME checked out in $REPO]"
+elif [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
   if [ "$PUSH_VERIFIED" != "true" ]; then
     # The unpushed commit is the deliverable: hold the checkout explicitly
     # until a human resolves the push rejection; never retire it here.
-    "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" --hold --reason "BLOCKED: unpushed commit" \
-      --revisit "operator resolves the push rejection" "$WORKTREE_PATH" || true
+    if ! "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" --hold --reason "BLOCKED: unpushed commit" \
+      --revisit "operator resolves the push rejection" "$WORKTREE_PATH"; then
+      echo "ERROR: BLOCKED hold NOT recorded for $WORKTREE_PATH - record it by hand before anything removes that worktree." >&2
+    fi
   else
     "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$WORKTREE_PATH"
     RETIRE_RC=$?
@@ -230,12 +260,18 @@ if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
       echo "[phase: worktree-cleanup | HELD | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
     fi
   fi
+elif [ "$FEATURE_COMMIT_FAILED" != "true" ] && [ "$PUSH_VERIFIED" != "true" ]; then
+  echo "WARNING: no worktree found for $BRANCH_NAME; no BLOCKED hold recorded." >&2
 fi
 # Soft-fail: this entire block never blocks Phase 8 regardless of outcome -
 # a remove failure is reported (stderr + its ledger record), never fatal.
 # --- End isolation worktree cleanup ---
 # @harness-end:phase8-commit-and-telemetry
 
+if [ "$FEATURE_COMMIT_FAILED" = "true" ]; then
+  echo "[phase: ticket-commit | feature-commit=FAILED | branch=$BRANCH_NAME] nothing pushed; fix the commit failure and re-run."
+  exit 3
+fi
 if [ "$PUSH_VERIFIED" = "true" ]; then
   echo "[phase: ticket-commit | push=verified | branch=$BRANCH_NAME]"
   exit 0

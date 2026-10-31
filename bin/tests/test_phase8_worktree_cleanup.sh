@@ -291,6 +291,76 @@ assert $? "scenario 7: Signed-off-by trailer from repo-local git config"
 assert $? "scenario 7: only the named file was staged"
 
 # --------------------------------------------------------------------------
+# Scenario 8: a pre-commit hook rejects the feature commit -> exit 3, nothing
+# pushed, worktree not retired, the change left staged.
+# --------------------------------------------------------------------------
+echo ""
+echo "== Scenario 8: rejected feature commit -> exit 3, no push, no retire =="
+REPO8="$(build_repo scenario8)"
+BRANCH8="feature/scenario-8"
+git -C "$REPO8" worktree add -q "$REPO8/.claude/worktrees/wt8" -b "$BRANCH8"
+git -C "$REPO8" push -q -u origin "$BRANCH8"
+ORIGIN8_TIP="$(git -C "$REPO8" rev-parse "origin/$BRANCH8")"
+echo feature > "$REPO8/.claude/worktrees/wt8/feature.txt"
+printf '#!/bin/sh\necho "rejected by spec pre-commit" >&2\nexit 1\n' > "$REPO8/.git/hooks/pre-commit"
+chmod +x "$REPO8/.git/hooks/pre-commit"
+OUT8="$(run_block "$REPO8" "$BRANCH8" --integration-worktree "$REPO8/.claude/worktrees/wt8" \
+  --message "feat: add feature file" -- feature.txt 2>&1)"
+RC8=$?
+[ "$RC8" -eq 3 ]
+assert $? "scenario 8: CLI exits 3 (feature commit failed), got $RC8"
+echo "$OUT8" | grep -q "push=verified"
+[ $? -ne 0 ]
+assert $? "scenario 8: never reports push=verified"
+[ "$(git ls-remote "$SCRATCH/scenario8-origin.git" "refs/heads/$BRANCH8" | cut -f1)" = "$ORIGIN8_TIP" ]
+assert $? "scenario 8: origin branch unchanged"
+[ -d "$REPO8/.claude/worktrees/wt8" ]
+assert $? "scenario 8: worktree not retired"
+[ "$(git -C "$REPO8/.claude/worktrees/wt8" diff --cached --name-only)" = "feature.txt" ]
+assert $? "scenario 8: the change is left staged"
+
+# --------------------------------------------------------------------------
+# Scenario 9: relative script path with no REPO_DIR in the environment, push
+# rejected -> the install is still found and the BLOCKED hold is recorded.
+# --------------------------------------------------------------------------
+echo ""
+echo "== Scenario 9: relative invocation still records the BLOCKED hold =="
+REPO9="$(build_repo scenario9)"
+BRANCH9="feature/scenario-9"
+git -C "$REPO9" worktree add -q "$REPO9/.claude/worktrees/wt9" -b "$BRANCH9"
+printf '#!/bin/sh\nexit 1\n' > "$SCRATCH/scenario9-origin.git/hooks/pre-receive"
+chmod +x "$SCRATCH/scenario9-origin.git/hooks/pre-receive"
+( cd "$REPO_ROOT" && env -u REPO_DIR bin/ds-ticket-commit --repo "$REPO9" --branch "$BRANCH9" ) >/dev/null 2>&1
+[ $? -eq 1 ]
+assert $? "scenario 9: CLI exits 1"
+python3 -c "
+import json, sys
+rec = json.loads(open(sys.argv[1]).read().splitlines()[-1])
+assert rec['explicit'] and rec['reason'] == 'BLOCKED: unpushed commit' and 'wt9' in rec['path'], rec
+" "$REPO9/.agentic/worktree-cleanup-skips.jsonl"
+assert $? "scenario 9: explicit BLOCKED hold recorded"
+
+# --------------------------------------------------------------------------
+# Scenario 10: push rejected and ds-retire-carrier cannot record the hold ->
+# a loud ERROR, never a silent skip.
+# --------------------------------------------------------------------------
+echo ""
+echo "== Scenario 10: failed BLOCKED hold is reported =="
+REPO10="$(build_repo scenario10)"
+BRANCH10="feature/scenario-10"
+git -C "$REPO10" worktree add -q "$REPO10/.claude/worktrees/wt10" -b "$BRANCH10"
+printf '#!/bin/sh\nexit 1\n' > "$SCRATCH/scenario10-origin.git/hooks/pre-receive"
+chmod +x "$SCRATCH/scenario10-origin.git/hooks/pre-receive"
+FAKE10="$SCRATCH/fake-install"
+mkdir -p "$FAKE10/bin"
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$REPO_ROOT/bin/ds-resolve-worktree" > "$FAKE10/bin/ds-resolve-worktree"
+printf '#!/bin/sh\nexit 1\n' > "$FAKE10/bin/ds-retire-carrier"
+chmod +x "$FAKE10/bin/ds-retire-carrier" "$FAKE10/bin/ds-resolve-worktree"
+ERR10="$( (REPO_DIR="$FAKE10" "$CLI" --repo "$REPO10" --branch "$BRANCH10") 2>&1 >/dev/null)"
+echo "$ERR10" | grep -q "ERROR: BLOCKED hold NOT recorded for .*/wt10 "
+assert $? "scenario 10: unrecorded hold is reported on stderr"
+
+# --------------------------------------------------------------------------
 # Summary
 # --------------------------------------------------------------------------
 echo ""

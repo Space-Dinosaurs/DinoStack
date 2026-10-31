@@ -30,9 +30,10 @@
 #   SKEPTIC_ROUNDS, QA_STATUS, PR_NUMBER, DELIVERY_RECORD_INPUT,
 #   AUTO_MERGE_ON_CI_GREEN, BASE_BRANCH). Inputs come only from flags:
 #   same-named environment variables are unset first and never read.
-#   `--auto-merge` absent: read `auto_merge_on_ci_green` from
-#   R/.agentic/config.json (default false). `merge` with no `--pr` (the
-#   open-goal dry-run path) skips the auto-merge block only.
+#   `--auto-merge` carries the Setup value of AUTO_MERGE_ON_CI_GREEN;
+#   anything but `true` (including absent) takes the no-merge branch.
+#   `merge` with no `--pr` (the open-goal dry-run path) skips the
+#   auto-merge block only.
 #   Exit codes: 0 always once inputs parse (every step is soft-fail);
 #   2 usage error. The breadcrumb lines carry the outcome:
 #   `[phase: auto-merged | pr=N]` is the W7 tracker-writeback trigger.
@@ -70,9 +71,9 @@ usage() {
 finish_ledger() {
 # @harness:phase9-ticket-ledger
 # Phase 9: ticket-rework ledger write (soft-fail; never blocks Phase 9 or anything downstream).
-# Anchored AFTER the Case A / Case B if/else above - fires for both branches, Trivial included.
-# REWORK_DETECTION / TICKET_ID / RISK_CLASS / SKEPTIC_ROUNDS / QA_STATUS are the shell-variable
-# form of the conductor's in-context state (definition sites in the table above).
+# Called from Phase 9 after the Case A / Case B if/else closes - fires for both branches, Trivial included.
+# REWORK_DETECTION / TICKET_ID / RISK_CLASS / SKEPTIC_ROUNDS / QA_STATUS arrive as flags carrying
+# the conductor's in-context state (definition sites in ds-implement-ticket.md's Phase 9 table).
 # QA_STATUS holds the QA result when QA ran, and "skipped:<qa_skip enum>" or
 # "skipped:Trivial path" / "skipped:Low path" / "skipped:single-review path" when it did not. It is empty ONLY in the degenerate
 # case where neither a result nor a rationale exists - every ordinary non-QA path carries one.
@@ -148,8 +149,8 @@ finish_knowledge() {
 #
 # PORTABILITY (bash + zsh): zsh does not word-split unquoted expansions. Never
 # write `git add -- $KC_SURVIVORS`; never build a list with `echo $VAR | tr`;
-# never use awk ENVIRON[...] (BRANCH_NAME is substituted, not exported, so
-# ENVIRON resolves empty under BOTH shells) - pass it with -v. Never name a
+# never use awk ENVIRON[...] (BRANCH_NAME is a flag-set shell variable, not
+# exported, so ENVIRON resolves empty under BOTH shells) - pass it with -v. Never name a
 # variable `path` or `status` (zsh collisions). ALWAYS brace an expansion that
 # is followed by a literal `:` - zsh applies history-style modifiers to an
 # UNBRACED `$VAR:...` even inside double quotes, so "$KC_SHA:refs/heads/..."
@@ -618,10 +619,9 @@ finish_base_sync() {
 # Post-merge local base-branch sync (unconditional - runs regardless of
 # auto_merge_on_ci_green, regardless of whether THIS session merged anything).
 # Fast-forward only; never merge/rebase/autostash. Repo-relative path (not PATH-
-# dependent) so it works without a re-install of bin/ onto PATH. $REPO_DIR and
-# $BASE_BRANCH are conductor-substituted values by the time Phase 12 runs (both
-# resolved in Setup) - never empty here in a correctly-running session, and the
-# tool independently validates non-empty args regardless (exit 3 on empty).
+# dependent) so it works without a re-install of bin/ onto PATH. $REPO_DIR is
+# this script's own install (or env REPO_DIR); $BASE_BRANCH comes from
+# --base-branch. The tool validates non-empty args regardless (exit 3 on empty).
 if [ -x "$REPO_DIR/bin/ds-base-sync" ]; then
   "$REPO_DIR/bin/ds-base-sync" "$REPO" "$BASE_BRANCH"
 else
@@ -688,8 +688,7 @@ while [ "$#" -gt 0 ]; do
   shift 2
 done
 [ -n "${REPO:-}" ] && [ -n "${BRANCH_NAME:-}" ] || usage
-cd "$REPO" || exit 2
-
+# Resolved before the cd below, which would break a relative $0 or --repo.
 if [ -z "${REPO_DIR:-}" ]; then
   SELF="$0"
   while [ -L "$SELF" ]; do
@@ -699,6 +698,8 @@ if [ -z "${REPO_DIR:-}" ]; then
   done
   REPO_DIR="$(cd "$(dirname "$SELF")/.." && pwd -P)"
 fi
+cd "$REPO" || exit 2
+REPO="$(pwd)"
 
 case "$FIN_STEP" in
   ledger)
@@ -708,14 +709,6 @@ case "$FIN_STEP" in
     finish_knowledge
     ;;
   merge)
-    if [ -z "${AUTO_MERGE_ON_CI_GREEN+x}" ]; then
-      AUTO_MERGE_ON_CI_GREEN=$(python3 -c "
-import json, sys
-try:
-  print('true' if json.load(open(sys.argv[1])).get('auto_merge_on_ci_green', False) is True else 'false')
-except Exception: print('false')
-" "$REPO/.agentic/config.json" 2>/dev/null || echo 'false')
-    fi
     if [ -n "${TICKET_ID:-}" ]; then
       rm -f ".agentic/qa.md.snapshot-$TICKET_ID" 2>/dev/null || true
     fi

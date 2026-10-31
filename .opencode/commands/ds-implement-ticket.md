@@ -424,7 +424,7 @@ Mechanized form of the row above: `content/references/conventions-detail.md` §A
 Before any phase, read the project's `AGENTS.md` and extract the following values:
 
 - `REPO` — absolute path to the repo root
-- `REPO_DIR` — absolute path to the **dinostack / DinoStack install** (NOT the same as `REPO` - `REPO` is the ticket's own project checkout, `REPO_DIR` is where the `bin/`-tools live). Resolve via the canonical resolver `scripts/lib/repo-dir.sh` (`resolve_repo_dir`): read `repo_dir` from `~/.agentic/agentic-engineering-config.json` if present and a valid git repo; else fall back to `~/DinoStack`. Used by `bin/ds-resolve-worktree` (Phase 8 cleanup) and `bin/ds-base-sync` (Phase 12, repo-relative invocation).
+- `REPO_DIR` - absolute path to the **dinostack / DinoStack install** (NOT the same as `REPO` - `REPO` is the ticket's own project checkout, `REPO_DIR` is where the `bin/`-tools live). Resolve via the canonical resolver `scripts/lib/repo-dir.sh` (`resolve_repo_dir`): read `repo_dir` from `~/.agentic/agentic-engineering-config.json` if present and a valid git repo; else fall back to `~/DinoStack`. Used to call `$REPO_DIR/bin/ds-ticket-commit` (Phase 8) and `$REPO_DIR/bin/ds-ticket-finish` (Phases 9, 11e and 12), which in turn run `bin/ds-resolve-worktree`, `bin/ds-retire-carrier` and `bin/ds-base-sync` from the same install.
 - `GH_REPO` — GitHub repo slug (e.g. `org/repo-name`)
 - `BASE_BRANCH` - the branch all work is based from. Resolve in this order: (1) if declared via a `BASE_BRANCH:` line in `AGENTS.md`, use that; (2) else the remote's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`, stripping `origin/`); (3) else a local `develop` branch; (4) else a local `development` branch; (5) else `main` (fall back to `master`). Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
 - `QUALITY_CMD` — the full quality gate command to run from repo root
@@ -1956,7 +1956,12 @@ Closes [TICKET_PREFIX]-NNN" \
   -- [specific files]
 ```
 
-Exit 0: pushed, and origin holds the local tip. Exit 1: the push failed or could not be verified; the script recorded an explicit `BLOCKED: unpushed commit` hold on the worktree (as in the engineer BLOCKED path) - stop and report BLOCKED. After a verified push the script retires the worktree with `ds-retire-carrier` and deletes the local branch; a `[phase: worktree-cleanup | HELD | ...]` line means the checkout was kept (its hold record names why) and never fails Phase 8.
+Exit codes - every non-zero one stops Phase 8; report BLOCKED with the script's output:
+- **0**: pushed, and origin holds the local tip. The script then retires the worktree with `ds-retire-carrier` and deletes the local branch; a `[phase: worktree-cleanup | HELD | ...]` line means the checkout was kept (its hold record names why) and never fails Phase 8.
+- **1**: the push failed or could not be verified. A carrier worktree gets an explicit `BLOCKED: unpushed commit` hold (as in the engineer BLOCKED path); an `ERROR: BLOCKED hold NOT recorded` line means record it by hand. On the sequential path the branch is checked out in `$REPO` itself, so no hold is recorded and the unpushed commit stays on that branch.
+- **2**: usage error (missing `--repo`/`--branch`, files without `--message`) or `$REPO` not enterable; nothing ran.
+- **3**: the feature commit failed (`git add`, missing git identity, or a rejecting hook). Nothing was pushed or retired and the change stays staged; fix the cause and re-run.
+- **127**: the script is missing at `$REPO_DIR/bin/` - `$REPO_DIR` is wrong or the install predates this script.
 
 `Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).
 
