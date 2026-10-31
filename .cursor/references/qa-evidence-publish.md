@@ -65,7 +65,7 @@ Run `$REPO_DIR/bin/ds-qa-evidence-publish`, passing each `QA_SCREENSHOT_PATHS` e
   --branch "$BRANCH_NAME" --gh-repo "$GH_REPO" -- "${QA_SCREENSHOT_PATHS[@]}"
 ```
 
-The script commits the screenshots to `qa-evidence` and pushes it, deletes the consumed screenshot files and `/tmp/qa_devserver.log`, and prints the `[phase: qa-evidence | screenshots=<N> | urls=<M> | branch=qa-evidence]` breadcrumb on stderr. Its stdout is one JSON object `{url, criterion_id, description, result}` per published screenshot: set `QA_EVIDENCE_URLS` to those lines, one entry each. Stdout is empty when the push did not succeed; Phase 8.5 is always soft-fail - do not block Phase 9. Exit 2 is a usage error; 127 means the script is missing at `$REPO_DIR/bin/`.
+The script commits the screenshots to `qa-evidence` and pushes it, deletes the consumed screenshot files and `/tmp/qa_devserver.log`, and prints the `[phase: qa-evidence | screenshots=<N> | urls=<M> | branch=qa-evidence]` breadcrumb on stderr. Its stdout is one JSON object `{url, criterion_id, description, result}` per published screenshot: set `QA_EVIDENCE_URLS` to those lines, one entry each. Stdout is empty when the push did not succeed or `$REPO` has no usable origin (a `WARNING` line says which); Phase 8.5 is always soft-fail - do not block Phase 9. Exit 2 is a usage error; 127 means the script is missing at `$REPO_DIR/bin/`.
 
 ## Phase 11: Post to tracker
 

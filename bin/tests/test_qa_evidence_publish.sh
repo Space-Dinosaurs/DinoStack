@@ -6,8 +6,11 @@
 #          resolves through both: a steady-state publish lands the
 #          screenshots on origin's qa-evidence branch and prints one URL
 #          record per screenshot on stdout, retires its worktree and
-#          deletes the consumed files; the first publish creates the
-#          branch on origin itself; a rejected push prints no URLs;
+#          deletes the consumed files and the --devserver-log file (a
+#          scratch path, never the real /tmp log); the first publish
+#          creates the branch on origin itself, including through a
+#          relative-path origin URL; no origin publishes nothing and says
+#          so; a rejected push prints no URLs;
 #          nothing to copy publishes nothing; missing flags exit 2.
 #
 # Public API: none (standalone script;
@@ -75,13 +78,15 @@ run_suite() {
   echo "== $SH_NAME ($SH) =="
 
   local REPO SHOTS OUT ERR ORIGIN
+  DEVLOG="$SCRATCH/$SH_NAME-devserver.log"
+  echo log > "$DEVLOG"
   REPO="$(build_repo "$SH_NAME-steady")"
   ORIGIN="$SCRATCH/$SH_NAME-steady-origin.git"
   SHOTS="$SCRATCH/$SH_NAME-shots"
   mkdir -p "$SHOTS"
   echo one > "$SHOTS/qa_one.png"
   echo two > "$SHOTS/qa_two.png"
-  OUT="$("$SH" "$CLI" --repo "$REPO" --ticket ENG-12 --branch feature/zoom/view --gh-repo o/r -- \
+  OUT="$("$SH" "$CLI" --repo "$REPO" --ticket ENG-12 --branch feature/zoom/view --gh-repo o/r --devserver-log "$DEVLOG" -- \
     "$(entry "$SHOTS/qa_one.png" 'opens "zoom"' AC1)" "$(entry "$SHOTS/qa_two.png" 'closes' AC2)" \
     2>"$SCRATCH/$SH_NAME-steady.err")"
   assert $? "steady-state publish exits 0"
@@ -98,11 +103,13 @@ run_suite() {
   assert $? "the qa-evidence worktree was retired"
   grep -q '\[phase: qa-evidence | screenshots=2 | urls=2 | branch=qa-evidence\]' "$SCRATCH/$SH_NAME-steady.err"
   assert $? "breadcrumb on stderr"
+  [ ! -e "$DEVLOG" ]
+  assert $? "the --devserver-log file is deleted"
 
   REPO="$(build_repo "$SH_NAME-first" fresh)"
   ORIGIN="$SCRATCH/$SH_NAME-first-origin.git"
   echo four > "$SHOTS/qa_four.png"
-  OUT="$("$SH" "$CLI" --repo "$REPO" --ticket ENG-12 --branch fix/first --gh-repo o/r -- \
+  OUT="$("$SH" "$CLI" --repo "$REPO" --ticket ENG-12 --branch fix/first --gh-repo o/r --devserver-log "$DEVLOG" -- \
     "$(entry "$SHOTS/qa_four.png" d AC1)" 2>/dev/null)"
   assert $? "first publish exits 0"
   [ "$(git --git-dir="$ORIGIN" show qa-evidence:eng-12/first/qa_four.png 2>/dev/null)" = four ]
@@ -112,12 +119,29 @@ run_suite() {
   ! git -C "$REPO" show-ref --verify --quiet refs/heads/qa-evidence
   assert $? "first publish leaves no local qa-evidence branch in the checkout"
 
+  REPO="$(build_repo "$SH_NAME-relative" fresh)"
+  ORIGIN="$SCRATCH/$SH_NAME-relative-origin.git"
+  git -C "$REPO" remote set-url origin "../$SH_NAME-relative-origin.git"
+  echo five > "$SHOTS/qa_five.png"
+  OUT="$("$SH" "$CLI" --repo "$REPO" --ticket ENG-12 --branch fix/rel --gh-repo o/r --devserver-log "$DEVLOG" -- \
+    "$(entry "$SHOTS/qa_five.png" d AC1)" 2>/dev/null)"
+  [ "$(git --git-dir="$ORIGIN" show qa-evidence:eng-12/rel/qa_five.png 2>/dev/null)" = five ] && [ -n "$OUT" ]
+  assert $? "a relative-path origin URL resolves against the checkout: first publish lands on origin"
+
+  REPO="$(build_repo "$SH_NAME-noorigin" fresh)"
+  git -C "$REPO" remote remove origin
+  echo six > "$SHOTS/qa_six.png"
+  OUT="$("$SH" "$CLI" --repo "$REPO" --ticket ENG-12 --branch fix/none --gh-repo o/r --devserver-log "$DEVLOG" -- \
+    "$(entry "$SHOTS/qa_six.png" d AC1)" 2>"$SCRATCH/$SH_NAME-noorigin.err")"
+  [ -z "$OUT" ] && grep -q 'no origin remote; QA evidence not published' "$SCRATCH/$SH_NAME-noorigin.err"
+  assert $? "no origin: no URL, and stderr says why"
+
   REPO="$(build_repo "$SH_NAME-reject")"
   ORIGIN="$SCRATCH/$SH_NAME-reject-origin.git"
   printf '#!/bin/sh\nexit 1\n' > "$ORIGIN/hooks/pre-receive"
   chmod +x "$ORIGIN/hooks/pre-receive"
   echo three > "$SHOTS/qa_three.png"
-  OUT="$("$SH" "$CLI" --repo "$REPO" --ticket ENG-12 --branch fix/x --gh-repo o/r -- \
+  OUT="$("$SH" "$CLI" --repo "$REPO" --ticket ENG-12 --branch fix/x --gh-repo o/r --devserver-log "$DEVLOG" -- \
     "$(entry "$SHOTS/qa_three.png" d AC1)" 2>/dev/null)"
   assert $? "rejected push still exits 0 (soft-fail)"
   [ -z "$OUT" ]
@@ -125,7 +149,7 @@ run_suite() {
 
   REPO="$(build_repo "$SH_NAME-empty")"
   ORIGIN="$SCRATCH/$SH_NAME-empty-origin.git"
-  OUT="$("$SH" "$CLI" --repo "$REPO" --ticket ENG-12 --branch fix/x --gh-repo o/r -- \
+  OUT="$("$SH" "$CLI" --repo "$REPO" --ticket ENG-12 --branch fix/x --gh-repo o/r --devserver-log "$DEVLOG" -- \
     "$(entry "$SHOTS/missing.png" d AC1)" 2>/dev/null)"
   assert $? "nothing to copy exits 0"
   [ -z "$OUT" ] && [ "$(git --git-dir="$ORIGIN" rev-parse qa-evidence)" = "$(git --git-dir="$ORIGIN" rev-parse main)" ]

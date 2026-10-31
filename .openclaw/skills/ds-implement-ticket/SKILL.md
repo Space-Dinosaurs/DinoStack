@@ -382,10 +382,10 @@ else:
 | quality_gate | rerun_pending | On the Elevated path: wait for the fix-engineer return and verify its `quality_gate_results` - do not invoke `$QUALITY_CMD` directly. On the Trivial path: re-run `$QUALITY_CMD`. |
 | quality_gate | debugger_spawned | Re-spawn Debugger from scratch with the captured gate failure output (Debugger is read-only and idempotent - same pattern as "Full Skeptic re-run on interruption"). |
 | quality_gate | debugger_returned | Debugger output was captured before interruption. Proceed to spawn the next engineer fix pass with the Debugger's Fix brief. No Debugger re-run needed. |
-| ci_wait | timeout | If `loop_state.auto_merge_queued` is `true`: run `gh pr view $PR_NUMBER --json state -q .state`. If `MERGED`, skip to Phase 10b (do NOT re-queue). If still open, re-enter the Phase 10 poll loop without re-queuing. If `auto_merge_queued` is `false` or absent: unchanged - re-enter Phase 10 poll loop once (operator may have manually fixed; if still timing out, re-escalate). |
+| ci_wait | timeout | If `loop_state.auto_merge_queued` is `true`: run `gh pr view $PR_NUMBER --json state -q .state`. If `MERGED`, skip to Phase 10b (do NOT re-queue). If still open, re-run the Phase 10 call without re-queuing. If `auto_merge_queued` is `false` or absent: unchanged - re-run the Phase 10 call once (operator may have manually fixed; if still timing out, re-escalate). |
 | ci_loop | fix_engineer_spawned | Re-spawn the fix engineer from the latest commit on the branch (assumes prior spawn was interrupted). Resume from cycle N. |
-| ci_loop | fix_engineer_returned | Re-enter Phase 10 poll loop to check CI status. |
-| ci_loop | ci_poll_pending | Re-enter Phase 10 poll loop from current iteration. |
+| ci_loop | fix_engineer_returned | Re-run the Phase 10 call to check CI status. |
+| ci_loop | ci_poll_pending | Re-run the Phase 10 call; cycle N is unchanged. |
 | ci_loop | cap_exceeded | Do NOT auto-resume. Surface the prior escalation summary and require human direction. |
 
 Mechanized form of the row above: `content/references/conventions-detail.md` §Auto-merge follow-through -> "`ci_wait | timeout` resume check". Never calls `gh pr merge` again; only decides skip-to-Phase-10b vs re-enter-poll.
@@ -2211,7 +2211,7 @@ fi
 
 ## Phase 10: Wait for CI checks
 
-Run `$REPO_DIR/bin/ds-ticket-ci`. It polls `gh pr checks` until a verdict or the poll budget runs out. A pass needs the registered check count to reach a floor (the base branch's required-check count, or `--min-checks` when larger) on two consecutive all-complete polls, so a partial suite seen right after a push or rebase never reads green. It never merges and never marks the PR ready (Phase 10b does, after its thread rule).
+Run `$REPO_DIR/bin/ds-ticket-ci` for the `$PR_NUMBER` captured from `gh pr create` in Phase 9. It passes only once every required check of the base branch is registered and green and the check count holds across two polls; it never merges or marks the PR ready (Phase 10b does, after its thread rule). Its default budget (30 minutes) outlasts a foreground tool call: run it in the background and read its output when it exits.
 
 **Preserved fast-exit:** the `preview_blocked: true` qa.md flag continues to suppress preview-URL polling specifically. It does NOT suppress the CI-check poll - those are distinct concerns. If `preview_blocked` is set, the Test URL line in the tracker comment (Phase 11) is "Preview deploy blocked - verify with local QA."
 
@@ -2221,11 +2221,12 @@ TIMEOUT_POLLS=60
 ```
 
 **Outcome routing (exit code):**
-- **0** passed: `[phase: ci-wait | result: passed | ...]`, or `result: passed-by-default | no-checks` when no check registered across 4 polls and the floor is 0. Proceed to Phase 10b.
+- **0** passed: `[phase: ci-wait | result: passed | ...]`, or `result: passed-by-default | no-checks` when no check registered across 4 polls and none is required. Proceed to Phase 10b.
 - **1** failed: `[phase: ci-wait | result: failed | failing-checks: <names>]` names them. Enter Phase 10a.
 - **2** timeout (`[phase: ci-wait | result: timeout | ...]`): write `last_phase: ci_wait, last_phase_action: timeout, auto_merge_queued: <bool>` to `.agentic/loop-state-$LOOP_KEY.json`, and STOP (do NOT auto-fix, do NOT proceed). When `auto_merge_on_ci_green` is `true` this is a call site of the "Auto-merge follow-through" rule - procedure, exact `gh` invocations, and message wording: `content/references/conventions-detail.md` §Auto-merge follow-through -> "Phase 10 timeout call site (full procedure)".
-- **3** usage error, or **4** `gh pr checks` unreadable on 5 consecutive polls (auth, network, wrong PR number): STOP and report BLOCKED with the output.
+- **3** usage error, or **4** required checks or `gh pr checks` unreadable (the output says which; `--required NAME,...` supplies the set): STOP and report BLOCKED with the output.
 - **127**: the script is missing at `$REPO_DIR/bin/` - `$REPO_DIR` is wrong or the install predates it.
+- **No `[phase: ci-wait | result: ...]` line** (run killed): no verdict; run the call again (it keeps no state).
 
 ---
 

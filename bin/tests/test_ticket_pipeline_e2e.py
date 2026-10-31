@@ -1,16 +1,17 @@
-"""Purpose: Run /ds-implement-ticket's post-implementation scripts end to end
-against a temp origin and a git-backed fake GitHub: ds-ticket-commit pushes
-the engineer's commit and retires its worktree, ds-ticket-ci waits out a
-lazily registering suite, the Phase 10b ready fence (run from
-ds-implement-ticket.md) marks the PR ready, ds-ticket-finish merge
-publishes the delivery record, merges, base-syncs and retires the QA
-carrier. A red check stops at ds-ticket-ci with nothing marked ready or
-merged.
+"""Purpose: Run /ds-implement-ticket's post-implementation steps end to end
+against a temp origin and the git-backed fake GitHub from
+test_pr_delivery_record.py: ds-ticket-commit pushes the engineer's commit and
+retires its worktree, the Phase 9 `gh pr create` fence (run from
+ds-implement-ticket.md) opens a draft PR, ds-ticket-finish ledger records it,
+ds-ticket-ci waits out a lazily registering suite, the Phase 10b ready fence
+marks the PR ready, and ds-ticket-finish merge publishes the delivery
+record, merges, base-syncs and retires the QA carrier. A red check stops at
+ds-ticket-ci with nothing marked ready or merged.
 Public API: pytest-discovered test cases.
-Upstream deps: pytest, git, jq, python3; Phase 10b of
+Upstream deps: pytest, git, jq, python3; Phases 9 and 10b of
 content/commands/ds-implement-ticket.md; bin/ds-ticket-commit,
 bin/ds-ticket-ci, bin/ds-ticket-finish, bin/ds-pr-delivery-record,
-bin/ds-base-sync, bin/ds-retire-carrier; record() from
+bin/ds-base-sync, bin/ds-retire-carrier; GH and record() from
 test_pr_delivery_record.py.
 Downstream consumers: bin-tests CI and local pytest runs.
 Failure modes: assertion failures or subprocess timeouts; all state lives
@@ -29,71 +30,12 @@ import sys
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_pr_delivery_record import record
+from test_pr_delivery_record import GH, record
 
 ROOT = Path(__file__).resolve().parents[2]
 BIN = ROOT / "bin"
-BRANCH = "feature/e2e"
 COMMAND = ROOT / "content/commands/ds-implement-ticket.md"
-
-# The fake gh keeps PR state in FAKE_GH_STATE and reads the branch head
-# and performs the squash merge in the bare origin, so merge and base sync
-# are observable as real refs.
-GH = r"""#!/usr/bin/env python3
-import json, os, subprocess, sys
-from pathlib import Path
-p = Path(os.environ["FAKE_GH_STATE"]); s = json.loads(p.read_text()); args = sys.argv[1:]
-s["calls"].append(args)
-origin = s["origin"]
-def git(*a):
-    return subprocess.run(["git", "--git-dir", origin, *a], check=True, capture_output=True, text=True).stdout.strip()
-def head():
-    return git("rev-parse", "refs/heads/" + s["branch"])
-def done(out=None, code=0, err=None):
-    p.write_text(json.dumps(s))
-    if out is not None: print(out if isinstance(out, str) else json.dumps(out))
-    if err: print(err, file=sys.stderr)
-    sys.exit(code)
-def opt(name):
-    return args[args.index(name) + 1] if name in args else None
-if args[:2] == ["pr", "view"]:
-    fields = {
-        "baseRefName": s["base"], "isDraft": s["draft"], "state": s["state"], "number": 7,
-        "mergeable": "MERGEABLE", "reviewDecision": "", "autoMergeRequest": None,
-        "body": s["body"], "url": "https://github.com/test/repo/pull/7",
-    }
-    q = opt("-q")
-    if q == ".commits[-1].messageHeadline": done(git("log", "-1", "--format=%s", "refs/heads/" + s["branch"]))
-    if "headRefOid" in opt("--json"): fields["headRefOid"] = head()
-    if q: done(json.dumps(fields[q.lstrip(".")]).strip('"') if not isinstance(fields[q.lstrip(".")], str) else fields[q.lstrip(".")])
-    done({k: fields[k] for k in opt("--json").split(",")})
-if args[:2] == ["pr", "checks"]:
-    if any(f in opt("--json") for f in ("status", "conclusion")): done(code=1, err='Unknown JSON field: "status"')
-    polls = s["check_polls"]
-    current = polls.pop(0) if len(polls) > 1 else polls[0]
-    done(current, code=8 if any(c["bucket"] == "pending" for c in current) else 0)
-if args[:2] == ["pr", "ready"]:
-    s["draft"] = False; done()
-if args[:2] == ["pr", "edit"]:
-    s["body"] = Path(opt("--body-file")).read_text(); done()
-if args[:2] == ["pr", "merge"]:
-    sha = opt("--match-head-commit")
-    if s["draft"] or s["state"] != "OPEN" or sha != head(): done(code=1, err="not mergeable")
-    tree = git("rev-parse", sha + "^{tree}")
-    squash = subprocess.run(
-        ["git", "--git-dir", origin, "commit-tree", tree, "-p", git("rev-parse", "refs/heads/" + s["base"]), "-m", "squash (#7)"],
-        check=True, capture_output=True, text=True,
-        env={**os.environ, "GIT_AUTHOR_NAME": "gh", "GIT_AUTHOR_EMAIL": "gh@example.com",
-             "GIT_COMMITTER_NAME": "gh", "GIT_COMMITTER_EMAIL": "gh@example.com"},
-    ).stdout.strip()
-    git("update-ref", "refs/heads/" + s["base"], squash)
-    if "--delete-branch" in args: git("update-ref", "-d", "refs/heads/" + s["branch"])
-    s["state"] = "MERGED"; done()
-if args[:2] == ["api", "--paginate"] and args[2].endswith("/rules/branches/" + s["base"]):
-    done([{"type": "required_status_checks",
-           "parameters": {"required_status_checks": [{"context": c} for c in s["required"]]}}])
-done(code=1, err="fake gh: unhandled " + " ".join(args))
-"""
+BRANCH = "feature/e2e"
 
 
 def git(*args, cwd=None):
@@ -102,6 +44,29 @@ def git(*args, cwd=None):
 
 def check(name, bucket):
     return {"name": name, "state": bucket.upper(), "bucket": bucket}
+
+
+def section(start, end):
+    text = COMMAND.read_text(encoding="utf-8")
+    return text[text.index(start):text.index(end)]
+
+
+def phase9_create_fence():
+    fences = [f for f in re.findall(r"```bash\n(.*?)```", section("## Phase 9:", "## Phase 10:"), re.S) if "gh pr create" in f]
+    assert len(fences) == 1
+    fence = fences[0]
+    for placeholder, value in (("[GH_REPO]", "test/repo"), ("[BASE_BRANCH]", "main"), ("[BRANCH_NAME]", BRANCH),
+                               ("[TICKET_PREFIX]-NNN", "T-1"), ("[ticket title]", "e2e")):
+        assert placeholder in fence
+        fence = fence.replace(placeholder, value)
+    return fence
+
+
+def phase10b_ready_fence():
+    text = section("## Phase 10b:", "## Phase 11:")
+    assert text.index("**Thread rule:**") < text.index("**Mark ready-for-review:**")
+    after = text[text.index("**Mark ready-for-review:**"):]
+    return re.search(r"```bash\n(.*?)```", after, re.S).group(1)
 
 
 @pytest.fixture
@@ -138,8 +103,7 @@ def pipeline(tmp_path):
     tools = {str(Path(shutil.which(t)).parent) for t in ("git", "jq", "python3", "bash")}
     state = tmp_path / "gh.json"
     state.write_text(json.dumps({
-        "origin": str(origin), "branch": BRANCH, "base": "main", "draft": True, "state": "OPEN",
-        "body": "User prose\n## Review rigor\n- pending\n## North Star alignment\nPillar 2\n",
+        "origin": str(origin), "branch": BRANCH, "base": "main", "state": "OPEN", "body": "",
         "required": ["lint", "test", "build"], "check_polls": [], "calls": [],
     }))
     env = {k: v for k, v in os.environ.items() if k not in ("REPO_DIR", "AE_SESSION_ID", "CLAUDE_CODE_SESSION_ID")}
@@ -161,49 +125,58 @@ def set_polls(p, polls):
     p["state"].write_text(json.dumps(s))
 
 
-def run(p, *argv):
-    return subprocess.run([str(a) for a in argv], env=p["env"], capture_output=True, text=True, timeout=50)
+def run(p, *argv, extra_env=None):
+    return subprocess.run([str(a) for a in argv], env={**p["env"], **(extra_env or {})},
+                          capture_output=True, text=True, timeout=50)
 
 
-def commit_and_wait(p):
+def commit_create_ledger_wait(p):
     commit = run(p, BIN / "ds-ticket-commit", "--repo", p["repo"], "--branch", BRANCH, "--worktree-path", p["engineer"])
+    create = run(p, "bash", "-c", phase9_create_fence(), extra_env={
+        "UNIT_IS_BEHAVIOR_VISIBLE": "false", "DELIVERY_RECORD_OWNER": "spec", "DEVELOPER": "", "ENGINEER_MODEL": ""})
+    ledger = run(p, BIN / "ds-ticket-finish", "ledger", "--repo", p["repo"], "--ticket", "T-1", "--branch", BRANCH,
+                 "--gh-repo", "test/repo", "--loop-key", "t-1", "--rework-detection", "true",
+                 "--risk-class", "Elevated", "--skeptic-rounds", "2", "--qa-status", "PASS")
     ci = run(p, BIN / "ds-ticket-ci", "--pr", "7", "--gh-repo", "test/repo", "--polls", "10", "--interval", "0")
-    return commit, ci
+    return commit, create, ledger, ci
 
 
-def phase10b_ready_fence():
-    text = COMMAND.read_text(encoding="utf-8")
-    section = text[text.index("## Phase 10b:"):text.index("## Phase 11:")]
-    after = section[section.index("**Mark ready-for-review:**"):]
-    assert section.index("**Thread rule:**") < section.index("**Mark ready-for-review:**")
-    return re.search(r"```bash\n(.*?)```", after, re.S).group(1)
-
-
-def test_commit_ci_finish_delivers_and_cleans_up(pipeline):
+def test_commit_through_merge_delivers_and_cleans_up(pipeline):
     p = pipeline
     engineer_sha = git("rev-parse", BRANCH, cwd=p["repo"])
-    # Two stable all-green polls of 1 check (the PR #839 shape) must not
-    # pass against 3 required checks.
+    # Two stable all-green polls missing two required checks (the PR #839
+    # shape) must not pass.
     set_polls(p, [
         [check("lint", "pass")],
         [check("lint", "pass")],
         [check("lint", "pass"), check("test", "pass"), check("build", "pass")],
     ])
-    commit, ci = commit_and_wait(p)
+    commit, create, ledger, ci = commit_create_ledger_wait(p)
 
     assert commit.returncode == 0, commit.stdout + commit.stderr
     assert git("--git-dir", str(p["origin"]), "rev-parse", "refs/heads/" + BRANCH) == engineer_sha
     assert not p["engineer"].exists(), commit.stdout + commit.stderr
 
+    assert create.returncode == 0, create.stdout + create.stderr
+    s = gh_state(p)
+    creates = [c for c in s["calls"] if c[:2] == ["pr", "create"]]
+    assert len(creates) == 1
+    assert creates[0][creates[0].index("--head") + 1] == BRANCH and creates[0][creates[0].index("--base") + 1] == "main"
+    assert s["draft"] is True, "Phase 9 opens a draft PR"
+    assert "<!-- ds-delivery-record:v1:start -->" in s["body"] and "## North Star alignment" in s["body"]
+
+    assert ledger.returncode == 0, ledger.stdout + ledger.stderr
+    rows = [json.loads(line) for line in (p["repo"] / ".agentic/ticket-ledger.jsonl").read_text().splitlines()]
+    assert [(r["ticket_id"], r["pr_number"], r["branch"], r["skeptic_rounds"]) for r in rows] == [("T-1", 7, BRANCH, 2)]
+
     assert ci.returncode == 0, ci.stdout + ci.stderr
     s = gh_state(p)
     checks_calls = [c for c in s["calls"] if c[:2] == ["pr", "checks"]]
-    assert len(checks_calls) == 4, "the 1-of-3 green polls did not pass; two all-green polls at the floor did"
+    assert len(checks_calls) == 4, "polls missing required checks did not pass; two all-green polls with all required did"
     assert s["draft"] is True, "ds-ticket-ci leaves the ready step to Phase 10b"
     assert not any(c[:2] == ["pr", "merge"] for c in s["calls"]), "ds-ticket-ci never merges"
 
-    ready = subprocess.run(["bash", "-c", phase10b_ready_fence()], capture_output=True, text=True, timeout=30,
-                           env={**p["env"], "PR_NUMBER": "7", "GH_REPO": "test/repo"})
+    ready = run(p, "bash", "-c", phase10b_ready_fence(), extra_env={"PR_NUMBER": "7", "GH_REPO": "test/repo"})
     assert ready.returncode == 0, ready.stdout + ready.stderr
     assert gh_state(p)["draft"] is False, "the Phase 10b fence marked the PR ready"
 
@@ -227,9 +200,9 @@ def test_red_check_stops_before_ready_and_merge(pipeline):
     p = pipeline
     main_before = git("--git-dir", str(p["origin"]), "rev-parse", "refs/heads/main")
     set_polls(p, [[check("lint", "pass"), check("test", "fail"), check("build", "pass")]])
-    commit, ci = commit_and_wait(p)
+    commit, create, ledger, ci = commit_create_ledger_wait(p)
 
-    assert commit.returncode == 0, commit.stdout + commit.stderr
+    assert commit.returncode == 0 and create.returncode == 0 and ledger.returncode == 0
     assert ci.returncode == 1, ci.stdout + ci.stderr
     assert "failing-checks: test" in ci.stdout
     s = gh_state(p)

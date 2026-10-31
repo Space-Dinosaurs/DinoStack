@@ -4,17 +4,13 @@
 # Purpose: /ds-implement-ticket Phase 8.5 QA evidence publish as one command:
 #          copies PASS screenshots onto the long-lived orphan `qa-evidence`
 #          branch under <TICKET_SLUG>/<BRANCH_SLUG>/ and prints their
-#          click-through URLs. The bash blocks between `qa_publish() {` and
-#          the URL output are the ones that sat in
-#          content/references/qa-evidence-publish.md §Phase 8.5, moved
-#          verbatim. Differences from those blocks: inputs arrive as flags
-#          and arguments; "proceed to Phase 9" is `return 0` (the cleanup
-#          blocks still run); the first-create and steady-state paths are
-#          joined by an if/else on REMOTE_EXISTS; the first-create scratch
-#          clone pushes to $REPO's origin rather than to $REPO (the moved
-#          block created the branch only in $REPO and still printed URLs);
-#          slug derivation, which was prose, is code; block output goes to
-#          stderr so stdout carries only the URL records.
+#          click-through URLs. When origin has no `qa-evidence` branch, a
+#          scratch clone creates it as an orphan and pushes it to $REPO's
+#          origin; otherwise a detached worktree on origin/qa-evidence adds
+#          the files and pushes `HEAD:qa-evidence`, retried up to three
+#          times, then is retired with ds-retire-carrier. URLs are printed
+#          only after a push succeeded. Nothing to copy, or no usable origin,
+#          publishes nothing.
 #          Catches: Phase 8.5 never running (2026-10 reach: qa-evidence 0% of
 #          real sessions). Retires: if the post-adoption reach audit of the
 #          first 20 lean /ds-implement-ticket sessions shows QA evidence still
@@ -22,9 +18,11 @@
 #
 # Public API:
 #   ds-qa-evidence-publish --repo R --ticket T --branch B --gh-repo G
-#                          [-- ENTRY...]
+#                          [--devserver-log PATH] [-- ENTRY...]
 #     ENTRY  one QA_SCREENSHOT_PATHS element per argument: a JSON object
 #            {path, description, criterion_id, result}.
+#     PATH   the Phase 6b dev-server log deleted at the end of every run
+#            (default /tmp/qa_devserver.log).
 #   stdout: one compact JSON object {url, criterion_id, description, result}
 #   per published screenshot (the QA_EVIDENCE_URLS entries); nothing when
 #   the push did not succeed. stderr: git output and the
@@ -39,18 +37,19 @@
 #                       Phase 8.5); bin/tests/test_qa_evidence_publish.sh.
 #
 # Failure modes: soft-fail throughout; a failed push leaves stdout empty.
-#                Deletes the consumed screenshot files and
-#                /tmp/qa_devserver.log on every run.
+#                Deletes the consumed screenshot files and the dev-server
+#                log on every run.
 #
 # Performance: one clone or worktree, one commit, up to three pushes.
 # ---------------------------------------------------------------------------
 
 usage() {
-  echo "usage: ds-qa-evidence-publish --repo R --ticket T --branch B --gh-repo G [-- ENTRY...]" >&2
+  echo "usage: ds-qa-evidence-publish --repo R --ticket T --branch B --gh-repo G [--devserver-log PATH] [-- ENTRY...]" >&2
   exit 2
 }
 
 unset REPO TICKET_ID BRANCH_NAME GH_REPO PUSH_SUCCEEDED_FIRST_CREATE PUSH_SUCCEEDED_STEADY
+QA_DEVSERVER_LOG=/tmp/qa_devserver.log
 while [ "$#" -gt 0 ]; do
   [ "$1" = "--" ] && { shift; break; }
   [ "$#" -ge 2 ] || usage
@@ -59,6 +58,7 @@ while [ "$#" -gt 0 ]; do
     --ticket) TICKET_ID="$2" ;;
     --branch) BRANCH_NAME="$2" ;;
     --gh-repo) GH_REPO="$2" ;;
+    --devserver-log) QA_DEVSERVER_LOG="$2" ;;
     *) usage ;;
   esac
   shift 2
@@ -96,7 +96,14 @@ REMOTE_EXISTS=$(git -C "$REPO" ls-remote --heads origin qa-evidence | wc -l)
 
 if [ "$REMOTE_EXISTS" -eq 0 ]; then
 # A clone of $REPO pushes to $REPO itself, so point it at $REPO's origin.
-QA_ORIGIN_URL=$(git -C "$REPO" remote get-url --push origin) || { QA_EVIDENCE_URLS=(); return 0; }
+# A relative local-path URL is relative to $REPO, not to the clone.
+QA_ORIGIN_URL=$(git -C "$REPO" remote get-url --push origin) \
+  || { echo "WARNING: [phase: qa-evidence] $REPO has no origin remote; QA evidence not published"; QA_EVIDENCE_URLS=(); return 0; }
+case "$QA_ORIGIN_URL" in
+  /*|*:*) ;;
+  *) QA_ORIGIN_URL=$(cd "$REPO" && cd "$QA_ORIGIN_URL" && pwd) \
+       || { echo "WARNING: [phase: qa-evidence] origin path not found from $REPO; QA evidence not published"; QA_EVIDENCE_URLS=(); return 0; } ;;
+esac
 TEMP_CLONE="/tmp/qa-evidence-clone-$$"
 git clone --depth=1 "$REPO" "$TEMP_CLONE"
 git -C "$TEMP_CLONE" remote set-url origin "$QA_ORIGIN_URL"
@@ -185,7 +192,7 @@ if [ "${#QA_SCREENSHOT_PATHS[@]}" -gt 0 ]; then
   done
 fi
 
-rm -f /tmp/qa_devserver.log 2>/dev/null || true
+rm -f "$QA_DEVSERVER_LOG" 2>/dev/null || true
 
 for entry in "${QA_EVIDENCE_URLS[@]}"; do
   printf '%s' "$entry" | jq -c . >&3
