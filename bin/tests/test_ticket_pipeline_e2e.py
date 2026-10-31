@@ -208,4 +208,19 @@ def test_red_check_stops_before_ready_and_merge(pipeline):
     s = gh_state(p)
     assert s["draft"] is True
     assert not any(c[:2] in (["pr", "merge"], ["pr", "ready"]) for c in s["calls"])
+
+    # Phase 10 sends a red result to 10a; only a pass reaches 10b's ready.
+    routing = section("**Outcome routing (exit code):**", "## Phase 10a:")
+    assert "- **1** failed:" in routing and "Enter Phase 10a." in routing.split("- **1** failed:")[1].split("\n")[0]
+    assert [line for line in routing.splitlines() if "Phase 10b" in line] == [
+        line for line in routing.splitlines() if line.startswith("- **0** passed:")]
+    # Merge is unreachable while the PR is a draft: a conductor that ran
+    # ds-ticket-finish merge on this red result merges nothing.
+    assessment = p["tmp"] / "assessment.json"
+    assessment.write_text(json.dumps(record(git("--git-dir", str(p["origin"]), "rev-parse", "refs/heads/" + BRANCH))))
+    finish = run(p, BIN / "ds-ticket-finish", "merge", "--repo", p["repo"], "--branch", BRANCH, "--ticket", "T-1",
+                 "--gh-repo", "test/repo", "--pr", "7", "--delivery-record-input", assessment,
+                 "--auto-merge", "true", "--base-branch", "main")
+    assert "[phase: auto-merge-skipped | isDraft=true" in finish.stdout + finish.stderr
+    assert not any(c[:2] == ["pr", "merge"] for c in gh_state(p)["calls"])
     assert git("--git-dir", str(p["origin"]), "rev-parse", "refs/heads/main") == main_before

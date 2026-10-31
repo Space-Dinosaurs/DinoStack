@@ -123,7 +123,7 @@ for i in 1 2 3; do
   fi
   # push rejected - a concurrent creator won; adopt the landed history
   git -C "$TEMP_CLONE" fetch origin qa-evidence
-  git -C "$TEMP_CLONE" reset --hard origin/qa-evidence   # adopts remote history; wipes worktree
+  git -C "$TEMP_CLONE" reset --hard FETCH_HEAD   # adopts remote history (the single-branch clone has no origin/qa-evidence); wipes worktree
   mkdir -p "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"      # recreate dest dir destroyed by reset
   cp -r "$SCREENSHOTS_SRC"/. "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"
   git -C "$TEMP_CLONE" add .

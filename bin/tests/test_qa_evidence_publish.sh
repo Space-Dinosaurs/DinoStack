@@ -40,6 +40,9 @@ ln -s "$REPO_ROOT/bin/agentic-qa-evidence-publish" "$SCRATCH/link-bin/ds-qa-evid
 CLI="$SCRATCH/link-bin/ds-qa-evidence-publish"
 trap 'chmod -R u+w "$SCRATCH" 2>/dev/null; find "$SCRATCH" -depth -delete 2>/dev/null' EXIT
 unset REPO_DIR AE_SESSION_ID CLAUDE_CODE_SESSION_ID
+# The first-create scratch clone has no repo-local identity; CI has no
+# global one.
+export GIT_AUTHOR_NAME=spec GIT_AUTHOR_EMAIL=spec@example.com GIT_COMMITTER_NAME=spec GIT_COMMITTER_EMAIL=spec@example.com
 
 fail_count=0
 assert() {
@@ -118,6 +121,24 @@ run_suite() {
   assert $? "first publish prints the URL of the file that landed on origin"
   ! git -C "$REPO" show-ref --verify --quiet refs/heads/qa-evidence
   assert $? "first publish leaves no local qa-evidence branch in the checkout"
+
+  # Lose the first-create race: origin's hook creates qa-evidence and
+  # rejects the first push, as a concurrent creator would.
+  REPO="$(build_repo "$SH_NAME-race" fresh)"
+  ORIGIN="$SCRATCH/$SH_NAME-race-origin.git"
+  cat > "$ORIGIN/hooks/pre-receive" <<'HOOK'
+#!/bin/sh
+git rev-parse -q --verify refs/heads/qa-evidence >/dev/null && exit 0
+env -u GIT_QUARANTINE_PATH git update-ref refs/heads/qa-evidence refs/heads/main
+exit 1
+HOOK
+  chmod +x "$ORIGIN/hooks/pre-receive"
+  echo seven > "$SHOTS/qa_seven.png"
+  OUT="$("$SH" "$CLI" --repo "$REPO" --ticket ENG-12 --branch fix/race --gh-repo o/r --devserver-log "$DEVLOG" -- \
+    "$(entry "$SHOTS/qa_seven.png" d AC1)" 2>/dev/null)"
+  [ "$(git --git-dir="$ORIGIN" show qa-evidence:eng-12/race/qa_seven.png 2>/dev/null)" = seven ] \
+    && [ "$(printf '%s\n' "$OUT" | jq -r .url 2>/dev/null)" = "https://github.com/o/r/blob/qa-evidence/eng-12/race/qa_seven.png" ]
+  assert $? "a first publish that loses the create race adopts origin's branch and still lands with its URL"
 
   REPO="$(build_repo "$SH_NAME-relative" fresh)"
   ORIGIN="$SCRATCH/$SH_NAME-relative-origin.git"

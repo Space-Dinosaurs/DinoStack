@@ -13,13 +13,16 @@
 #          (e.g. hands the merge to a GitHub merge queue).
 #
 # Public API:
-#   ds-ticket-ci --pr N --gh-repo OWNER/REPO [--required NAME[,NAME...]]
+#   ds-ticket-ci --pr N --gh-repo OWNER/REPO [--required NAME]...
 #                [--polls N] [--interval SECONDS]
 #     Required checks are the union of the base branch's ruleset
 #     `required_status_checks` contexts, its branch-protection contexts (when
-#     enforced), and --required. If the base branch, its rules or its
-#     protection cannot be read and --required is not given, the script
-#     stops with exit 4 rather than wait on an unknown set.
+#     enforced), and each --required NAME (repeatable; a name may contain
+#     commas). If neither the rules nor the protection can be read and no
+#     --required is given, the script stops with exit 4 rather than wait on
+#     an unknown set. A required check scoped to one app (ruleset
+#     integration_id, protection app_id) also exits 4: `gh pr checks` does
+#     not report which app produced a check.
 #     --polls       poll budget (default 60); --interval seconds between
 #                   polls (default 30).
 #   Exit codes: 0 passed (or nothing registered across 4 polls with no
@@ -45,7 +48,7 @@
 # ---------------------------------------------------------------------------
 
 usage() {
-  echo "usage: ds-ticket-ci --pr N --gh-repo OWNER/REPO [--required NAME[,NAME...]] [--polls N] [--interval S]" >&2
+  echo "usage: ds-ticket-ci --pr N --gh-repo OWNER/REPO [--required NAME]... [--polls N] [--interval S]" >&2
   exit 3
 }
 
@@ -68,7 +71,8 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --pr) CI_PR="$2" ;;
     --gh-repo) CI_GH_REPO="$2" ;;
-    --required) CI_EXTRA="$2" ;;
+    --required) CI_EXTRA="$CI_EXTRA
+$2" ;;
     --polls) CI_POLLS="$2" ;;
     --interval) CI_INTERVAL="$2" ;;
     *) usage ;;
@@ -80,35 +84,42 @@ is_count "$CI_POLLS" && is_count "$CI_INTERVAL" || usage
 [ "$CI_POLLS" -gt 0 ] || usage
 
 # Required set: ruleset contexts, enforced branch-protection contexts (the
-# branches endpoint, readable without admin), and --required.
-CI_SOURCES_OK=true
+# branches endpoint, readable without admin), and --required. Either source
+# answering is enough: a plan without rulesets returns 403 on rules.
+CI_SOURCES_OK=false
 CI_RULE_NAMES=""
 CI_PROT_NAMES=""
+CI_SCOPED=""
 CI_BASE=$(gh pr view "$CI_PR" --repo "$CI_GH_REPO" --json baseRefName -q .baseRefName 2>/dev/null)
-if [ -z "$CI_BASE" ]; then
-  CI_SOURCES_OK=false
-else
-  if CI_RAW=$(gh api --paginate "repos/$CI_GH_REPO/rules/branches/$CI_BASE" 2>/dev/null); then
-    CI_RULE_NAMES=$(printf '%s' "$CI_RAW" | jq -s -r '.[][] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' 2>/dev/null) \
-      || CI_SOURCES_OK=false
-  else
-    CI_SOURCES_OK=false
+if [ -n "$CI_BASE" ]; then
+  if CI_RAW=$(gh api --paginate "repos/$CI_GH_REPO/rules/branches/$CI_BASE" 2>/dev/null) \
+    && CI_RULE_NAMES=$(printf '%s' "$CI_RAW" | jq -s -r '.[][] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' 2>/dev/null); then
+    CI_SOURCES_OK=true
+    CI_SCOPED=$(printf '%s' "$CI_RAW" | jq -s -r '.[][] | select(.type == "required_status_checks") | .parameters.required_status_checks[] | select(.integration_id != null) | .context' 2>/dev/null)
   fi
-  if CI_RAW=$(gh api "repos/$CI_GH_REPO/branches/$CI_BASE" 2>/dev/null); then
-    CI_PROT_NAMES=$(printf '%s' "$CI_RAW" | jq -r '(.protection.required_status_checks // {}) as $r
+  if CI_RAW=$(gh api "repos/$CI_GH_REPO/branches/$CI_BASE" 2>/dev/null) \
+    && CI_PROT_NAMES=$(printf '%s' "$CI_RAW" | jq -r '(.protection.required_status_checks // {}) as $r
       | if ($r.enforcement_level // "off") == "off" then empty
-        else (($r.contexts // [])[], (($r.checks // [])[] | .context)) end' 2>/dev/null) \
-      || CI_SOURCES_OK=false
-  else
-    CI_SOURCES_OK=false
+        else (($r.contexts // [])[], (($r.checks // [])[] | .context)) end' 2>/dev/null); then
+    CI_SOURCES_OK=true
+    CI_SCOPED="$CI_SCOPED
+$(printf '%s' "$CI_RAW" | jq -r '(.protection.required_status_checks // {}) as $r
+      | if ($r.enforcement_level // "off") == "off" then empty
+        else ($r.checks // [])[] | select(.app_id != null) | .context end' 2>/dev/null)"
   fi
 fi
 if [ "$CI_SOURCES_OK" != "true" ] && [ -z "$CI_EXTRA" ]; then
   unreadable "required checks of PR #$CI_PR's base branch '${CI_BASE:-?}' not readable; fix gh access or pass --required"
 fi
-CI_REQUIRED=$(printf '%s\n%s\n%s\n' "$CI_RULE_NAMES" "$CI_PROT_NAMES" "$(printf '%s' "$CI_EXTRA" | tr ',' '\n')" | grep -v '^$' | sort -u)
+# `gh pr checks` does not say which app produced a check, so a check scoped
+# to one app could be satisfied by a same-named status from anything.
+CI_SCOPED=$(printf '%s' "$CI_SCOPED" | grep -v '^$' | sort -u | tr '\n' ';' | sed 's/;$//')
+if [ -n "$CI_SCOPED" ]; then
+  unreadable "app-scoped required checks ($CI_SCOPED) cannot be verified: gh pr checks does not report the app"
+fi
+CI_REQUIRED=$(printf '%s\n%s\n%s\n' "$CI_RULE_NAMES" "$CI_PROT_NAMES" "$CI_EXTRA" | grep -v '^$' | sort -u)
 CI_REQ_COUNT=$(printf '%s' "$CI_REQUIRED" | grep -c .)
-echo "[phase: ci-wait | required: $CI_REQ_COUNT | $(printf '%s' "$CI_REQUIRED" | tr '\n' ',' | sed 's/,$//')]"
+echo "[phase: ci-wait | required: $CI_REQ_COUNT | $(printf '%s' "$CI_REQUIRED" | tr '\n' ';' | sed 's/;$//')]"
 
 CI_ERR_FILE=$(mktemp "${TMPDIR:-/tmp}/ds-ticket-ci.XXXXXX") || exit 4
 trap 'rm -f "$CI_ERR_FILE"' EXIT
@@ -118,7 +129,7 @@ CI_ZERO_STREAK=0
 CI_READ_ERRORS=0
 CI_GREEN_TOTAL=""
 CI_FAILED_NAMES=""
-CI_MISSING="$(printf '%s' "$CI_REQUIRED" | tr '\n' ',' | sed 's/,$//; s/,/, /g')"
+CI_MISSING="$(printf '%s' "$CI_REQUIRED" | tr '\n' ';' | sed 's/;$//; s/;/, /g')"
 CI_RESULT=""
 while [ "$CI_I" -lt "$CI_POLLS" ]; do
   CI_I=$((CI_I + 1))

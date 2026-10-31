@@ -2222,7 +2222,7 @@ TIMEOUT_POLLS=60
 - **0** passed: `[phase: ci-wait | result: passed | ...]`, or `result: passed-by-default | no-checks` when no check registered across 4 polls and none is required. Proceed to Phase 10b.
 - **1** failed: `[phase: ci-wait | result: failed | failing-checks: <names>]` names them. Enter Phase 10a.
 - **2** timeout (`[phase: ci-wait | result: timeout | ...]`): write `last_phase: ci_wait, last_phase_action: timeout, auto_merge_queued: <bool>` to `.agentic/loop-state-$LOOP_KEY.json`, and STOP (do NOT auto-fix, do NOT proceed). When `auto_merge_on_ci_green` is `true` this is a call site of the "Auto-merge follow-through" rule - procedure, exact `gh` invocations, and message wording: `content/references/conventions-detail.md` §Auto-merge follow-through -> "Phase 10 timeout call site (full procedure)".
-- **3** usage error, or **4** required checks or `gh pr checks` unreadable (the output says which; `--required NAME,...` supplies the set): STOP and report BLOCKED with the output.
+- **3** usage error, or **4** required checks unreadable or app-scoped, or `gh pr checks` unreadable (the output says which; repeat `--required NAME` to supply the set): STOP and report BLOCKED with the output.
 - **127**: the script is missing at `$REPO_DIR/bin/` - `$REPO_DIR` is wrong or the install predates it.
 - **No `[phase: ci-wait | result: ...]` line** (run killed): no verdict; run the call again (it keeps no state).
 
