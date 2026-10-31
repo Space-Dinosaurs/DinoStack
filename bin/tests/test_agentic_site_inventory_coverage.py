@@ -334,6 +334,12 @@ EXCLUDED_FILES = {
     # from a hooks/*.js or hooks/*.py call site - same rationale as
     # bin/ds-change-delta above.
     "bin/_eval.py",
+    # bin/ds-ticket-setup (the /ds-implement-ticket Setup call): read-only;
+    # every `.agentic` site is relative to the directory it cd's into first,
+    # an explicit `--repo` argument (default: the invoking cwd's git
+    # toplevel) - same rationale as bin/_eval.py above. Never called from a
+    # hooks/*.js or hooks/*.py call site.
+    "bin/ds-ticket-setup",
 }
 
 # Test/fixture paths (at any depth) are never scanned as candidates.

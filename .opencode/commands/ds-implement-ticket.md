@@ -226,6 +226,29 @@ The terminal interrupted-mark now lives on `hooks/session-end-wrap.js` (the Sess
 
 ---
 
+## Setup call (runs first)
+
+Run once, before anything else, from `$REPO`. On a harness without `$CLAUDE_CODE_SESSION_ID`, add `--session-id <SESSION_ID>`.
+
+```bash
+# Setup call: ds-ticket-setup
+REPO_DIR="$(jq -r '.repo_dir // empty' "$HOME/.agentic/agentic-engineering-config.json" 2>/dev/null)"
+[ -x "$REPO_DIR/bin/ds-ticket-setup" ] || REPO_DIR="$HOME/DinoStack"
+"$REPO_DIR/bin/ds-ticket-setup" -- <input>
+```
+
+Line 1 of the output is one JSON object. Carry its keys for the rest of the run:
+
+- `repo_dir` is `REPO_DIR`, `base_branch` is `BASE_BRANCH`, and `tracker` is the `ds-tracker resolve --json` object Setup reads (null: apply Setup's prose chain).
+- `loop_key` is `LOOP_KEY` (see Loop-key derivation below).
+- `resume` holds the Candidate check's inputs: `keyed`, `legacy` and `others`, each `{path, verdict, status, last_phase, last_phase_action, last_updated, ...}` with `verdict` one of `resumable`, `live`, `clear`, `parse_error`, `unknown`, plus `recommended`, the one file the rules below recommend, or null. The script only reads; every prompt, deletion and adoption below stays the conductor's.
+- `mode` is `open_goal` (`goal_mode=open_goal`), `batch` (2+ ticket ids or issue URLs named), `resume` (`recommended` is set), else `single`.
+- `rework` is the Phase 1 ticket-rework detection result for this invocation's ticket.
+
+When `mode` is `batch`, `open_goal` or `resume`, the output continues after a `--- procedure: <path> ---` line with that mode's procedure (`batch-mode.md`, `open-goal-loop.md`, `cross-session-loop-resume.md`): the Read its pointer below calls for, already done. A batch only Phase 0 can see (a search URL, a screenshot) still takes the pointer Read.
+
+---
+
 ## Resume check (before setup)
 
 ### Loop-key derivation (runs first, exactly once per ticket)
@@ -234,79 +257,13 @@ Loop state is stored **per ticket**, at `.agentic/loop-state-<LOOP_KEY>.json`, s
 
 Inputs are the invoked `TICKET_ID` (may be absent on a batch or open-goal invocation) and the current session's `SESSION_ID` (may be absent, or the 4-char string `null` on a harness whose `session_id` is a JSON null read through `jq -r`).
 
-```bash
-# Resume check: loop-key derivation
-ae_sanitize() {
-  # 1. every char outside [A-Za-z0-9._-] -> '-'   2. collapse '-' runs
-  # 3. strip leading/trailing '-' and '.'          4. truncate to 64
-  # 5. re-strip trailing '-' and '.' exposed by the truncation
-  #
-  # STEP 1 USES `tr -c`, NOT `sed`. This is not a style choice. `sed` and `cut`
-  # are LINE-ORIENTED: a newline is sed's record separator, so `s/[^...]/-/g`
-  # does NOT replace it, and `cut -c1-64` truncates PER LINE. Measured:
-  #   printf 'x\ny' | sed -e 's/[^A-Za-z0-9._-]/-/g'   ->  x\ny   (newline SURVIVES)
-  #   printf 'x\ny' | tr -c 'A-Za-z0-9._-' '-'          ->  x-y   (correct)
-  # With sed, a newline-bearing ticket id yields a filename containing a raw
-  # newline, which fails the `^loop-state-.+\.json$` invariant the candidate
-  # enumeration below relies on, and a multi-line 200-char id defeats the
-  # 64-char cap entirely (measured: key length 129). `tr` is byte-oriented and
-  # has no record concept, so it closes both.
-  #
-  # `tr -c` complements the SET, so the set must not be a regex bracket
-  # expression - `A-Za-z0-9._-` with the `-` last is correct for tr.
-  printf '%s' "${1-}" \
-    | LC_ALL=C tr -c 'A-Za-z0-9._-' '-' \
-    | LC_ALL=C sed -e 's/--*/-/g' \
-    | LC_ALL=C sed -e 's/^[-.]*//' -e 's/[-.]*$//' \
-    | cut -c1-64 \
-    | LC_ALL=C sed -e 's/[-.]*$//'
-}
-
-ae_derive_loop_key() {
-  # arg1 = TICKET_ID (may be empty)   arg2 = SESSION_ID (may be empty, or "null")
-  #
-  # This function's ONLY output is the key on stdout. Do NOT add a diagnostic
-  # print here - callers capture stdout as the key, and so does
-  # bin/tests/test_loop_key_derivation.sh. The sanitize-to-empty operator
-  # notice is emitted by the CALLER (see below), not from inside here.
-  local raw_ticket="${1-}" raw_sid="${2-}" core key=""
-
-  # B1 - ticket branch.
-  core="$(ae_sanitize "$raw_ticket")"
-  [ -n "$core" ] && key="$core"
-
-  # B2 - session branch. SESSION_ID is sanitized BEFORE the prefix is applied,
-  # never after: sanitizing "session-<garbage>" would yield the shared key
-  # "session", colliding across every session that reached this branch.
-  # The 4-char string "null" is treated as absent - Contract A mandates
-  # session_id: null on harnesses with no id namespace, and a JSON null read
-  # through `jq -r` surfaces as that literal string.
-  if [ -z "$key" ] && [ -n "$raw_sid" ] && [ "$raw_sid" != "null" ]; then
-    core="$(ae_sanitize "$raw_sid")"
-    [ -n "$core" ] && key="session-$core"
-  fi
-
-  # Truncate + re-strip, applied uniformly to whatever B1/B2 produced.
-  if [ -n "$key" ]; then
-    key="$(printf '%s' "$key" | cut -c1-64 | LC_ALL=C sed -e 's/[-.]*$//')"
-  fi
-
-  # B3 - TERMINAL FLOOR. The emptiness test is on the FINAL ASSEMBLED KEY,
-  # not on the raw inputs. This is what makes `.agentic/loop-state-.json`
-  # unreachable: no branch above can emit an empty key past this point.
-  if [ -z "$key" ]; then
-    key="session-nosid-$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
-  fi
-
-  printf '%s' "$key"
-}
-```
+The derivation is `ae_sanitize` and `ae_derive_loop_key` in `bin/ds-ticket-setup` (marker `# Resume check: loop-key derivation`); the Setup call's `loop_key` is `ae_derive_loop_key "$TICKET_ID" "$SESSION_ID"`. A Phase 0a-pre batch pick or a Phase 1 batch entry derives its own by `"$REPO_DIR/bin/ds-ticket-setup" --ticket "$TICKET_ID"`, which returns that ticket's `loop_key`, `resume` and `rework`.
 
 `LOOP_STATE_FILE` is `.agentic/loop-state-$LOOP_KEY.json` and its staging path is `.agentic/loop-state-$LOOP_KEY.json.tmp` - a **flat sibling**, not a subdirectory, so `.tmp` files stay direct children of `.agentic/`. Before every write, assert the assembled path's dirname resolves to `.agentic/`.
 
 **Traversal impossibility has three independent guards. Do not remove one thinking it redundant:** (a) `ae_sanitize` maps `/` to `-`, so no key contains a path separator; (b) the key is always wrapped in the fixed affixes `loop-state-` and `.json`, so it can never *be* a path component like `..` - note that `..` **does** survive sanitization, because `.` is in the safe set (`feature/../../etc/passwd` yields `feature-..-..-etc-passwd`), and traversal safety never depended on stripping it; (c) the dirname assertion above.
 
-**Sanitize-to-empty notice (emitted HERE, by the caller - never from inside `ae_derive_loop_key`).** When `TICKET_ID` was non-empty but `ae_sanitize "$TICKET_ID"` returned empty (e.g. `###`, or `..`), so the key fell through to the session or nosid branch, print exactly one line:
+**Sanitize-to-empty notice (printed on stderr by `ds-ticket-setup`, the caller - never from inside `ae_derive_loop_key`).** When `TICKET_ID` was non-empty but `ae_sanitize "$TICKET_ID"` returned empty (e.g. `###`, or `..`), so the key fell through to the session or nosid branch, it prints exactly one line:
 
 ```
 Ticket id '<raw>' sanitizes to empty; loop state keyed on session instead (<LOOP_KEY>).
@@ -318,7 +275,7 @@ Emit it after the key is derived and only under that condition. It must not live
 
 ### Candidate check
 
-Before reading AGENTS.md or doing any setup, check for `.agentic/loop-state-$LOOP_KEY.json`. Also enumerate the other candidates - `.agentic/loop-state-*.json` and the legacy `.agentic/loop-state.json` - because they affect the informational line and the legacy-adoption path below, but **the recommendation is `.agentic/loop-state-$LOOP_KEY.json` only.**
+Before reading AGENTS.md or doing any setup, check for `.agentic/loop-state-$LOOP_KEY.json` (the Setup call's `resume` object is this enumeration, already read). Also enumerate the other candidates - `.agentic/loop-state-*.json` and the legacy `.agentic/loop-state.json` - because they affect the informational line and the legacy-adoption path below, but **the recommendation is `.agentic/loop-state-$LOOP_KEY.json` only.**
 
 **Key match is the primary guard, never freshness.** If the keyed file is absent or not resumable, print the informational line below and **proceed to Setup with no resume prompt.** There is deliberately **no cross-ticket freshness fallback**: a fallback on "most recent `last_updated`" would offer a resuming session another ticket's *live* file whenever that file's timestamp was over 10 minutes old - routine during a CI wait, and guaranteed on the ten harnesses with no per-turn liveness refresh - and accepting it would then destroy that ticket's `findings_log`.
 
@@ -421,7 +378,7 @@ Mechanized form of the row above: `content/references/conventions-detail.md` §A
 
 ## Setup: Read project config
 
-Before any phase, read the project's `AGENTS.md` and extract the following values:
+Before any phase, read the project's `AGENTS.md` and extract the following values. The Setup call above already resolved `REPO_DIR` (`repo_dir`), `BASE_BRANCH` (`base_branch`, by the order below) and the tracker (`tracker`, the `ds-tracker resolve --json` object, including the overlay merge); use those and resolve only the rest here.
 
 - `REPO` — absolute path to the repo root
 - `REPO_DIR` - absolute path to the **dinostack / DinoStack install** (NOT the same as `REPO` - `REPO` is the ticket's own project checkout, `REPO_DIR` is where the `bin/`-tools live). Resolve via the canonical resolver `scripts/lib/repo-dir.sh` (`resolve_repo_dir`): read `repo_dir` from `~/.agentic/agentic-engineering-config.json` if present and a valid git repo; else fall back to `~/DinoStack`. Used to call `$REPO_DIR/bin/ds-ticket-commit` (Phase 8) and `$REPO_DIR/bin/ds-ticket-finish` (Phases 9, 11e and 12), which in turn run `bin/ds-resolve-worktree`, `bin/ds-retire-carrier` and `bin/ds-base-sync` from the same install.
@@ -687,7 +644,7 @@ classifiers:
 
 **Trigger:** invocation carries `goal_mode=open_goal`. Mutually exclusive with Phase 0a-pre/Phase 0a - skip both when this fires; fall through unmodified when it does not.
 
-**Procedure:** when the trigger above holds, Read `$REPO_DIR/content/references/open-goal-loop.md` §Phase 0a-open-goal: Open-goal loop init or resume (conditional) before any step here; its steps are only in that file.
+**Procedure:** when the trigger above holds, Read `$REPO_DIR/content/references/open-goal-loop.md` §Phase 0a-open-goal: Open-goal loop init or resume (conditional) before any step here; its steps are only in that file. When the Setup call's output already carries it, that is this Read.
 
 ---
 
@@ -699,7 +656,7 @@ classifiers:
 
 **Single-ticket wallclock carve-out.** Single-entry invocations bypass this phase entirely - no `.agentic/batch-state.json` is read or created - EXCEPT when `max_wallclock_min` is declared on a single-entry invocation with no `goal_mode`. In that case: apply the Contract C refusal check (broadened per the Contract C definition above) ONLY - do NOT also run the separate N=1 foreign-batch warning first; both checks share the identical trigger (active + different session + ≤10min), so the softer warning first would be dead code (Contract C refusal always overrides any yes/proceed). This differs from the ordinary N=1 path, which never creates batch-state and never needs Contract C. On success (Contract A fresh write): create `.agentic/batch-state.json{mode:"single_ticket_capped", tickets:[{ticket_id:<the one entry>, status:"pending", cluster_id:null, depends_on:[]}], wallclock_cap_min:<max_wallclock_min>, wallclock_started_at:now}`. **This is the ONLY N=1 path that creates `batch-state.json`.**
 
-**Procedure:** when the Trigger line of this section holds, Read `$REPO_DIR/content/references/batch-mode.md` §Phase 0a-pre: Batch resume check before any step here; its steps are only in that file.
+**Procedure:** when the Trigger line of this section holds, Read `$REPO_DIR/content/references/batch-mode.md` §Phase 0a-pre: Batch resume check before any step here; its steps are only in that file. When the Setup call's output already carries it, that is this Read.
 
 ---
 
@@ -709,7 +666,7 @@ classifiers:
 
 **Skip:** Phase 0 produced exactly 1 entry. Mixed-form inputs that Phase 0 normalized down to a single entry count as single-entry and skip Phase 0a.
 
-**Procedure:** when the trigger above holds, Read `$REPO_DIR/content/references/batch-mode.md` §Phase 0a: Batch triage (Phase 0 produced ≥ 2 entries) before any step here; its steps are only in that file.
+**Procedure:** when the trigger above holds, Read `$REPO_DIR/content/references/batch-mode.md` §Phase 0a: Batch triage (Phase 0 produced ≥ 2 entries) before any step here; its steps are only in that file. When the Setup call's output already carries it, that is this Read.
 
 ---
 
@@ -859,37 +816,7 @@ Detection makes **zero tracker calls and zero network calls** - it is a single l
 3. Set `PRIOR_COMPLETED` to the deduped record set ordered by `opened_ts` ascending, `PRIOR_ATTEMPTS` to its size, and `IS_REWORK` to `PRIOR_ATTEMPTS >= 1`.
 4. **Soft-fail, per line.** If the ledger is absent or unreadable, resolve to `PRIOR_ATTEMPTS = 0`. If an individual line is malformed, **skip that line and keep going** - a single partial write must not disable detection for every other ticket in the file. A missing or corrupt ledger must never block the ticket it exists to help with.
 
-```bash
-# Phase 1: ticket-rework detection (soft-fail; zero tracker/network calls - one local file read).
-# Emits the deduped prior-attempt records, most recent last.
-PRIOR_COMPLETED_JSON='[]'
-PRIOR_ATTEMPTS=0
-if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ] && [ -f .agentic/ticket-ledger.jsonl ]; then
-  # `-Rn` + `inputs` + `fromjson? // empty` parses PER LINE and drops only the lines that fail.
-  # Do NOT use `-s` (slurp) here: slurp aborts the whole parse on the first malformed line, so
-  # one partial write from a concurrent appender would silently disable detection for every
-  # ticket in the file, permanently and with no operator signal. The ledger is written
-  # locklessly and O_APPEND is not atomic over NFS, so a torn line is a real, expected input.
-  #
-  # `X=$(...) || X=default` puts the fallback on jq's own exit status and discards any partial
-  # output. Do NOT use `$(jq ... || echo '[]')`: on an unreadable file some jq builds emit a
-  # result AND fail, so the fallback would concatenate onto it.
-  PRIOR_COMPLETED_JSON=$(jq -Rn --arg t "$TICKET_ID" '
-    [ inputs
-      | fromjson? // empty
-      | select(type == "object" and .ticket_id == $t and (.pr_number != null)) ]
-    | group_by(.pr_number)
-    | map(max_by(.opened_ts // ""))
-    | sort_by(.opened_ts // "")
-  ' .agentic/ticket-ledger.jsonl 2>/dev/null) || PRIOR_COMPLETED_JSON='[]'
-  [ -n "$PRIOR_COMPLETED_JSON" ] || PRIOR_COMPLETED_JSON='[]'
-  PRIOR_ATTEMPTS=$(printf '%s' "$PRIOR_COMPLETED_JSON" | jq 'length' 2>/dev/null) || PRIOR_ATTEMPTS=0
-  case "$PRIOR_ATTEMPTS" in ''|*[!0-9]*) PRIOR_ATTEMPTS=0 ;; esac
-fi
-if [ "$PRIOR_ATTEMPTS" -ge 1 ]; then IS_REWORK=true; else IS_REWORK=false; fi
-```
-
-`PRIOR_COMPLETED_JSON` is the shell-variable form of the conductor's in-context `PRIOR_COMPLETED` record set, matching the existing `$BRANCH_NAME` / `$GH_REPO` pattern used elsewhere in this command.
+The read is `ae_rework_detect` in `bin/ds-ticket-setup` (marker `# Phase 1: ticket-rework detection`), with `REWORK_DETECTION` from `.agentic/config.json`. Its result is the Setup call's `rework` object: `rework_detection`, `prior_attempts` (`PRIOR_ATTEMPTS`), `is_rework` (`IS_REWORK`) and `prior_completed` (`PRIOR_COMPLETED`, most recent last). That object covers this invocation's own ticket; for each batch entry, run `"$REPO_DIR/bin/ds-ticket-setup" --ticket "$TICKET_ID"` and read its `rework`.
 
 `group_by | map(max_by(...))` is used in place of `unique_by(.pr_number)` deliberately: jq's `unique_by` is `group_by | map(.[0])` over a stable sort, so it keeps the *earliest* member of each duplicate group - the opposite of what a replay duplicate calls for.
 

@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# Purpose: Pin the per-ticket LOOP_KEY derivation by EXTRACTING the shipped
-#          spec's own fenced bash block (marker `# Resume check: loop-key
-#          derivation` in content/commands/ds-implement-ticket.md) and
-#          EXECUTING it - the same extract-and-execute pattern
-#          bin/tests/test_ticket_rework_ledger.sh uses. The functions are never
-#          copied here, so this suite fails if the spec's bash drifts from the
-#          behaviour the spec's own prose promises. The marker comment is part
-#          of the contract: a failed extraction is a loud failure, not a
-#          silently-vacuous pass.
+# Purpose: Pin the per-ticket LOOP_KEY derivation by SOURCING the shipped
+#          bin/ds-ticket-setup (marker `# Resume check: loop-key derivation`,
+#          which content/commands/ds-implement-ticket.md's Setup call runs)
+#          and EXECUTING its functions, then checking the script's own JSON
+#          `loop_key` and its sanitize-to-empty stderr notice end to end. The
+#          functions are never copied here, so this suite fails if the
+#          script's bash drifts from the behaviour the spec's prose promises.
 #
 #          The properties pinned, and the mutation each one catches:
 #            - the derived key is NEVER the empty string, and the assembled
@@ -47,10 +45,9 @@
 # Public API: none (executable test). Run with:
 #             bash bin/tests/test_loop_key_derivation.sh
 #
-# Upstream deps: bash 3.2+, python3 (stdlib, for marker extraction), and
-#                content/commands/ds-implement-ticket.md as the SOURCE of the
-#                code under test. All state lives in a mktemp dir; the repo is
-#                never written to.
+# Upstream deps: bash 3.2+, python3 (stdlib, JSON parse), and
+#                bin/ds-ticket-setup as the SOURCE of the code under test. All
+#                state lives in a mktemp dir; the repo is never written to.
 #
 # Downstream consumers: the `bin-sh-tests` CI job, which glob-discovers
 #                       bin/tests/test_*.sh - no CI wiring needed.
@@ -60,13 +57,13 @@
 #                through _pass/_fail - a bare `[ ... ]` would have its verdict
 #                discarded and the suite would report "0 failed" on a real miss.
 #
-# Performance: < 2 s wall time (pure shell, no network, no subprocess spawns
-#              beyond the extraction and /dev/urandom reads).
+# Performance: < 5 s wall time (pure shell plus a few ds-ticket-setup runs,
+#              no network).
 
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-SPEC="$REPO_DIR/content/commands/ds-implement-ticket.md"
+SCRIPT="$REPO_DIR/bin/ds-ticket-setup"
 
 PASS=0
 FAIL=0
@@ -93,47 +90,38 @@ _not_matches() { # _not_matches <label> <actual> <ere>
   fi
 }
 
-if [ ! -f "$SPEC" ]; then
-  echo "FAIL: $SPEC not found" >&2
+if [ ! -f "$SCRIPT" ]; then
+  echo "FAIL: $SCRIPT not found" >&2
   exit 1
 fi
 
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
-# --- Extract the derivation block from the shipped spec by its marker -------
-DERIVE_MARKER='# Resume check: loop-key derivation'
-DERIVE_BLOCK="$TMP_ROOT/derive.sh"
-
-if ! python3 - "$SPEC" "$DERIVE_MARKER" "$DERIVE_BLOCK" <<'PY'
-import sys
-spec, marker, out = sys.argv[1], sys.argv[2], sys.argv[3]
-text = open(spec).read()
-i = text.find(marker)
-if i < 0:
-    sys.exit("marker not found: " + marker)
-j = text.find("\n```", i)
-if j < 0:
-    sys.exit("unterminated fenced block for marker: " + marker)
-open(out, "w").write(text[i:j] + "\n")
-PY
-then
-  _fail "could not extract the loop-key derivation block from the shipped spec"
-  echo "Results: $PASS passed, $FAIL failed"
-  exit 1
-fi
-_pass "extracted the loop-key derivation block from the shipped spec"
-
-if bash -n "$DERIVE_BLOCK" 2>/dev/null; then
-  _pass "extracted block is valid bash"
+if grep -qF '# Resume check: loop-key derivation' "$SCRIPT"; then
+  _pass "the script carries the marker the command cites"
 else
-  _fail "extracted block is not valid bash"
+  _fail "the script lost the '# Resume check: loop-key derivation' marker the command cites"
+fi
+
+if bash -n "$SCRIPT" 2>/dev/null; then
+  _pass "bin/ds-ticket-setup is valid bash"
+else
+  _fail "bin/ds-ticket-setup is not valid bash"
   echo "Results: $PASS passed, $FAIL failed"
   exit 1
 fi
 
+# Sourcing defines the functions and runs nothing else.
 # shellcheck source=/dev/null
-. "$DERIVE_BLOCK"
+. "$SCRIPT"
+if command -v ae_derive_loop_key >/dev/null 2>&1; then
+  _pass "sourcing the script defines ae_derive_loop_key"
+else
+  _fail "sourcing the script did not define ae_derive_loop_key"
+  echo "Results: $PASS passed, $FAIL failed"
+  exit 1
+fi
 
 echo "--- ae_derive_loop_key: every reachable branch ---"
 
@@ -287,6 +275,31 @@ echo "--- accepted, documented collision (sanitize is not injective) ---"
 _eq "documented collision: 'PROJ/123' and 'PROJ-123' map to the same key" \
   "$(ae_derive_loop_key 'PROJ/123' "$UUID")" \
   "$(ae_derive_loop_key 'PROJ-123' "$UUID")"
+
+echo "--- the Setup call's JSON loop_key and stderr notice ---"
+
+_setup_key() { # _setup_key <ticket> <session> -> loop_key from line 1 of the JSON
+  (cd "$TMP_ROOT" && "$SCRIPT" --repo "$TMP_ROOT" --session-id "$2" --ticket "$1" 2>/dev/null) \
+    | head -1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["loop_key"])'
+}
+
+for t in 'DS-90' 'feature/../../etc/passwd' 'PROJ/123'; do
+  _eq "JSON loop_key for '$t' is ae_derive_loop_key's output" \
+    "$(_setup_key "$t" "$UUID")" "$(ae_derive_loop_key "$t" "$UUID")"
+done
+_eq "JSON loop_key for '###' falls through to the session branch" \
+  "$(_setup_key '###' "$UUID")" "session-$UUID"
+_eq "a bare ticket id in <input> becomes TICKET_ID" \
+  "$( (cd "$TMP_ROOT" && "$SCRIPT" --repo "$TMP_ROOT" --session-id "$UUID" -- 'DS-90') \
+      | head -1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["loop_key"])')" "DS-90"
+
+NOTICE="$( (cd "$TMP_ROOT" && "$SCRIPT" --repo "$TMP_ROOT" --session-id "$UUID" --ticket '###' 2>&1 >/dev/null) )"
+_eq "sanitize-to-empty prints exactly the spec's one line on stderr" \
+  "$NOTICE" "Ticket id '###' sanitizes to empty; loop state keyed on session instead (session-$UUID)."
+_eq "no notice when the ticket id sanitizes to a key" \
+  "$( (cd "$TMP_ROOT" && "$SCRIPT" --repo "$TMP_ROOT" --session-id "$UUID" --ticket 'DS-90' 2>&1 >/dev/null) )" ""
+_eq "no notice when there is no ticket id" \
+  "$( (cd "$TMP_ROOT" && "$SCRIPT" --repo "$TMP_ROOT" --session-id "$UUID" 2>&1 >/dev/null) )" ""
 
 echo
 echo "Results: $PASS passed, $FAIL failed"
