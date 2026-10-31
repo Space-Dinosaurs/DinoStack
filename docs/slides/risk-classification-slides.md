@@ -228,7 +228,7 @@ A fourth path exists: <strong>Elevated + Cleanup</strong> - Worker, then Skeptic
 - Any code edit with behavioral effect (write/modify/delete)
 - Multi-file change (any size)
 - New file creation (any file)
-- Changes to shared utilities (single-file; high blast radius only when it changes an exported interface)
+- Changes to shared utilities (single-file; high blast radius when it changes an exported interface or the module has 5+ importers)
 - Logic with emergent/non-obvious cross-component interactions
 
 </div>

@@ -562,16 +562,6 @@
       "source_token": "content/references/worktree-lifecycle.md"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "37a462e123e7afe5f8ab5862fd9362de66a9864bdb9a90afb8980b4b57e6d887",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": "content/sections/04-risk-classification.md",
       "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
@@ -630,16 +620,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "AskUserQuestion"
-    },
-    {
-      "expected_target": "content/references/risk-config-and-tiers.md",
-      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
-      "kind": "operational",
-      "occurrence_hash": "409c094dfdbc10b3c055059283fb84c76bbce4555524284a75dd08f19f6b01c8",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
       "expected_target": "content/sections/04-risk-classification.md",
@@ -772,6 +752,16 @@
       "source_token": "content/sections/02-delegation.md"
     },
     {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "4a1a0ff6e0ac170c8184056992d1844ee5682849a902336173faf442818c1620",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
+    },
+    {
       "expected_target": "content/SKILL.md",
       "generated_token": "$AE_REPO_DIR",
       "kind": "operational",
@@ -780,16 +770,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack"
-    },
-    {
-      "expected_target": "dinostack-codex-implement-ticket",
-      "generated_token": "$dinostack-codex-implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "4c75d49f6fe20d17e3baa82a19d85910b61cfb6bdec9eb73f7110e250d2b4e99",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "filesystem read",
@@ -1130,6 +1110,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".claude/install.sh"
+    },
+    {
+      "expected_target": "content/references/risk-config-and-tiers.md",
+      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
+      "kind": "operational",
+      "occurrence_hash": "72010e104c5a4a42d1a320159b457edab50bb43f1780e76a6401eeb9a6df769c",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
       "expected_target": "dinostack-codex",
@@ -1600,6 +1590,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "b0ea5a0534c307cdd2848fb7fa8aae0856fb5bb27b1ccd018c79a4b4ac4e2515",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "dinostack-codex",
@@ -5092,16 +5092,6 @@
       "source_token": ".agentic/qa.md"
     },
     {
-      "expected_target": ".agentic/loop-state-",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
-      "kind": "operational",
-      "occurrence_hash": "30a91da82c9590e7a6917e61a5a37645c180c889b9284ce47a8928cfa011fb20",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/loop-state-"
-    },
-    {
       "expected_target": ".agentic/tasks.jsonl",
       "generated_token": "$AE_PROJECT_DIR/.agentic/tasks.jsonl",
       "kind": "operational",
@@ -5680,6 +5670,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "never"
+    },
+    {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "3d931949efd958d245d3d2e9bf386ee8e3f30cb3b6fad68b03c3e056f30f7a9c",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/learnings.md"
     },
     {
       "expected_target": "jq",
@@ -6610,6 +6610,16 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/dev"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "55b6ae4b779bf1e87d7981ed71f39a3f50e95456419c8d5bb635d5be879026a6",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": ".agentic/loop-state-",
@@ -8562,16 +8572,6 @@
       "source_token": "then"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "84d84f889189397965276883f67bd20bec42ad319b818a6da7ea3c178919b92a",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": "bin/ds-emit",
       "generated_token": "ds-emit",
       "kind": "operational",
@@ -9180,6 +9180,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/tracker.yml"
+    },
+    {
+      "expected_target": ".agentic/loop-state-",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
+      "kind": "operational",
+      "occurrence_hash": "92baf7535feaaf78ee43f0701e562299ee36b860d66728d7ce94527fa8d79ff1",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/loop-state-"
     },
     {
       "expected_target": ".agentic/qa.md",
@@ -13170,16 +13180,6 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/tmp"
-    },
-    {
-      "expected_target": ".agentic/learnings.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
-      "kind": "operational",
-      "occurrence_hash": "e9e8fff2e0f31193578b8e4b096e74557bbc56526928fa0a55e329199f6add8b",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/learnings.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
