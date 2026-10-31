@@ -253,7 +253,7 @@ Line 1 of the output is one JSON object. Carry its keys for the rest of the run:
 
 When `mode` is `batch` or `open_goal`, the output continues after a `--- procedure: <path> ---` line with that mode's procedure (`batch-mode.md`, `open-goal-loop.md`): the Read its pointer below calls for, already done. A batch only Phase 0 can see (a search URL, a screenshot) still takes the pointer Read. When `mode` is `resume`, it continues with `cross-session-loop-resume.md`, the resume mechanics the Candidate check and the Resume entry point table below assume (which phases resume automatically, which restart, the Brief/Plan re-read).
 
-**Per-ticket re-run.** When Phase 0 resolves a single entry whose id differs from `ticket_id` (or `ticket_id` is null: a screenshot, a search URL, a project-local classifier, a lowercase id), and for each batch entry (Phase 0a-pre's pick, each Phase 1 entry), re-run with that id on stdin and use that output's `loop_key`, `resume` and `rework` for the ticket. No loop-state file is written before Phase 6, so this replaces the first call's key rather than re-deriving a recorded one. `--ticket` always yields `single` (or `resume`).
+**Per-ticket re-run.** When Phase 0 resolves a single entry whose id differs from `ticket_id` (or `ticket_id` is null: a screenshot, a search URL, a project-local classifier, a lowercase id), and for each batch entry (Phase 0a-pre's pick, each Phase 1 entry), re-run with that id on stdin and use that output's `loop_key`, `resume` and `rework` for the ticket. `--ticket` always yields `single` (or `resume`).
 
 ```bash
 # Setup call: per-ticket re-run

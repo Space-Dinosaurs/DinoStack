@@ -319,6 +319,7 @@ hooks/tests/test-state-mark-multikey.js
 bin/ds-emit
 bin/ds-ticket-setup
 bin/tests/test_agentic_emit_loop_key.sh
+bin/tests/test_ds_ticket_setup.sh
 bin/tests/test_loop_key_derivation.sh
 bin/tests/test_loop_state_site_coverage.sh
 bin/tests/test_ticket_rework_ledger.sh
