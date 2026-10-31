@@ -442,6 +442,16 @@
       "source_token": "content/references/conductor-operating-rules.md"
     },
     {
+      "expected_target": "content/sections/04-risk-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
+      "kind": "operational",
+      "occurrence_hash": "2d2ae989151acffc5a010ff2af72ed24c0d4059111e637597ad6f96b686c9236",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/04-risk-classification.md"
+    },
+    {
       "expected_target": "content/references/skeptic-protocol.md",
       "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
       "kind": "operational",
@@ -550,16 +560,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
-      "expected_target": "content/references/risk-config-and-tiers.md",
-      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
-      "kind": "operational",
-      "occurrence_hash": "37db2bfef5f6e9747511bced96c1de6bd7ba51cd72b7b29a17db9628f47819d9",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
       "expected_target": "content/sections/04-risk-classification.md",
@@ -750,6 +750,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/sections/02-delegation.md"
+    },
+    {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "4a1a0ff6e0ac170c8184056992d1844ee5682849a902336173faf442818c1620",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "content/SKILL.md",
@@ -1092,16 +1102,6 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "70c034d1a7ffecb0c3a2ca12da228593d64b77074f39c7a8b280e48193954d3b",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": ".claude/install.sh",
       "generated_token": "$AE_REPO_DIR/.claude/install.sh",
       "kind": "operational",
@@ -1110,6 +1110,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".claude/install.sh"
+    },
+    {
+      "expected_target": "content/references/risk-config-and-tiers.md",
+      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
+      "kind": "operational",
+      "occurrence_hash": "72010e104c5a4a42d1a320159b457edab50bb43f1780e76a6401eeb9a6df769c",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
       "expected_target": "dinostack-codex",
@@ -1580,6 +1590,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "b0ea5a0534c307cdd2848fb7fa8aae0856fb5bb27b1ccd018c79a4b4ac4e2515",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "dinostack-codex",

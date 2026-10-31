@@ -90,7 +90,7 @@ This plan is a contract over files, tests, and interfaces. Prose beyond what an 
 2. [...]
 (ordered by dependency - every step names what it serves; a step serving no acceptance criterion or stated requirement is cut or moved to "Out of scope" under Trade-offs (an untraced rewrite kept under the Rules bullet "Keep existing behavior unless an acceptance criterion requires changing it" is the one exception); each step should be atomic enough for a Worker to execute; capped at 15 steps - split an oversized plan into units instead of a longer list. Kept MECHANICAL despite having no grep-matchable downstream consumer: this is the direct decision input for the engineer spawn - omitting it forces the engineer to re-derive the implementation order the Architect already worked out, a measurable autonomy loss.)
 
-**Per-consumer impact table (mandatory when the plan touches a shared utility, shared component, or shared type with 5+ importers, OR any file whose path lives under `packages/<shared>/`, `lib/shared/`, `src/shared/`, or an analogous shared-module location).** When this trigger fires, the plan MUST include a per-consumer impact table listing every importer the change reaches.
+**Per-consumer impact table (mandatory when the plan touches a shared utility, shared component, or shared type with 5+ importers, OR any file whose path lives under `packages/<shared>/`, `lib/shared/`, `src/shared/`, or an analogous shared-module location).** When this trigger fires, the plan MUST include a per-consumer impact table listing every importer the change reaches. The same 5-importer count sends any change to that module to the full route (`content/sections/04-risk-classification.md` §Elevated routes).
 
 Required columns (visual-change variant):
 

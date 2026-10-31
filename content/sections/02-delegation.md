@@ -206,7 +206,7 @@ fail-closed behavior.
 | Unfamiliar codebase area ("haven't Read this file in the current conversation", "Read it earlier but it changed since", "first time working in this subsystem") | No | **Yes** |
 | Logic with emergent/non-obvious cross-component interactions | No | **Yes** |
 | User signals high stakes ("production", "critical", "don't mess this up") | No | **Yes** |
-| Changes to shared utilities (single-file but high blast radius) | No | **Yes** |
+| Changes to shared utilities (single-file; a route risk surface only when high blast radius per `content/sections/04-risk-classification.md` §Elevated routes) | No | **Yes** |
 | Bash with side effects (writes, deletes, network, DB) | No | **Yes** |
 | Document synthesis / architecture / planning | Chat discussion only when the relaxed ephemeral chat-advice override fully qualifies | **Yes**, except qualifying relaxed chat |
 | Research that produces an artifact (doc, plan, recommendation) | Chat advice only when the relaxed ephemeral chat-advice override fully qualifies; artifact production is never direct | **Yes**, except qualifying relaxed chat |
