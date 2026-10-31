@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# Module manifest
+# Purpose: /ds-implement-ticket Phase 10 CI wait as one bounded command, plus
+#          Phase 10b's mark-ready on a pass. Replaces the conductor-typed poll
+#          loop, which read `gh pr checks --json name,status,conclusion`
+#          (fields `gh pr checks` rejects, so every poll read empty) and
+#          treated whatever had registered so far as the whole suite.
+#          Catches: a green verdict on a partial suite - checks attach lazily,
+#          so right after a push or rebase 2 of ~30 checks can be registered
+#          and complete (PR #839 merged that way). A pass therefore needs the
+#          registered count to reach a floor and two consecutive all-complete
+#          polls at the same count. Retires: when /ds-implement-ticket stops
+#          waiting on CI itself (e.g. hands the merge to a GitHub merge queue).
+#
+# Public API:
+#   ds-ticket-ci --pr N --gh-repo OWNER/REPO [--min-checks N] [--polls N]
+#                [--interval SECONDS] [--ready true|false]
+#     --min-checks  extra floor on the registered check count. The floor
+#                   used is the largest of this value and the number of
+#                   required status checks on the PR's base branch (rulesets
+#                   and classic branch protection; an unreadable source
+#                   counts 0).
+#     --polls       poll budget (default 60); --interval seconds between
+#                   polls (default 30).
+#     --ready true  on a pass, run `gh pr ready` (soft-fail).
+#   Exit codes: 0 passed (or no checks registered across 4 polls while the
+#   floor is 0); 1 failed - every check complete and at least one in bucket
+#   fail or cancel, or any failure still present at the poll budget; the
+#   `failing-checks:` breadcrumb names them; 2 timeout (poll budget spent
+#   without a verdict); 3 usage error; 4 `gh pr checks` unreadable on 5
+#   consecutive polls (auth, network, or an unknown PR).
+#   Never merges and never pushes.
+#
+# Upstream deps: bash 3.2+ or zsh, gh, jq.
+#
+# Downstream consumers: content/commands/ds-implement-ticket.md Phases 10,
+#                       10a and 10b; bin/tests/test_ticket_ci.sh,
+#                       bin/tests/test_ticket_pipeline_e2e.py.
+#
+# Failure modes: an unparseable `gh pr checks` read is reported on its own
+#                line and never counted as pending or passed; five in a row
+#                exit 4. A base branch or protection read that fails lowers
+#                the floor to --min-checks and says so.
+#
+# Performance: at most --polls reads of `gh pr checks` plus three gh calls
+#              for the floor; default worst case about 30 minutes.
+# ---------------------------------------------------------------------------
+
+usage() {
+  echo "usage: ds-ticket-ci --pr N --gh-repo OWNER/REPO [--min-checks N] [--polls N] [--interval S] [--ready true|false]" >&2
+  exit 3
+}
+
+is_count() {
+  case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac
+}
+
+CI_PR=""
+CI_GH_REPO=""
+CI_MIN=0
+CI_POLLS=60
+CI_INTERVAL=30
+CI_READY=false
+while [ "$#" -gt 0 ]; do
+  [ "$#" -ge 2 ] || usage
+  case "$1" in
+    --pr) CI_PR="$2" ;;
+    --gh-repo) CI_GH_REPO="$2" ;;
+    --min-checks) CI_MIN="$2" ;;
+    --polls) CI_POLLS="$2" ;;
+    --interval) CI_INTERVAL="$2" ;;
+    --ready) CI_READY="$2" ;;
+    *) usage ;;
+  esac
+  shift 2
+done
+is_count "$CI_PR" && [ -n "$CI_GH_REPO" ] || usage
+is_count "$CI_MIN" && is_count "$CI_POLLS" && is_count "$CI_INTERVAL" || usage
+[ "$CI_POLLS" -gt 0 ] || usage
+
+# Floor: required status checks on the base branch, never below --min-checks.
+CI_FLOOR="$CI_MIN"
+CI_BASE=$(gh pr view "$CI_PR" --repo "$CI_GH_REPO" --json baseRefName -q .baseRefName 2>/dev/null)
+if [ -n "$CI_BASE" ]; then
+  CI_RULES=$(gh api --paginate "repos/$CI_GH_REPO/rules/branches/$CI_BASE" 2>/dev/null \
+    | jq -s '[.[][] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context] | unique | length' 2>/dev/null)
+  is_count "$CI_RULES" || CI_RULES=0
+  CI_CLASSIC=$(gh api "repos/$CI_GH_REPO/branches/$CI_BASE/protection/required_status_checks" 2>/dev/null \
+    | jq '[(.contexts // [])[], ((.checks // [])[] | .context)] | unique | length' 2>/dev/null)
+  is_count "$CI_CLASSIC" || CI_CLASSIC=0
+  [ "$CI_RULES" -gt "$CI_FLOOR" ] && CI_FLOOR="$CI_RULES"
+  [ "$CI_CLASSIC" -gt "$CI_FLOOR" ] && CI_FLOOR="$CI_CLASSIC"
+  echo "[phase: ci-wait | floor: $CI_FLOOR | required: rules=$CI_RULES classic=$CI_CLASSIC | min-checks: $CI_MIN]"
+else
+  echo "WARNING: [phase: ci-wait] could not read the base branch of PR #$CI_PR; floor is --min-checks ($CI_FLOOR)"
+fi
+
+CI_ERR_FILE=$(mktemp "${TMPDIR:-/tmp}/ds-ticket-ci.XXXXXX") || exit 4
+trap 'rm -f "$CI_ERR_FILE"' EXIT
+
+CI_I=0
+CI_ZERO_STREAK=0
+CI_READ_ERRORS=0
+CI_GREEN_TOTAL=""
+CI_FAILED_NAMES=""
+CI_RESULT=""
+while [ "$CI_I" -lt "$CI_POLLS" ]; do
+  CI_I=$((CI_I + 1))
+  [ "$CI_I" -gt 1 ] && sleep "$CI_INTERVAL"
+  # gh exits non-zero while checks are pending, so stdout, not the exit
+  # status, decides whether this read is usable.
+  CI_JSON=$(gh pr checks "$CI_PR" --repo "$CI_GH_REPO" --json name,state,bucket 2>"$CI_ERR_FILE")
+  if printf '%s' "$CI_JSON" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    CI_TOTAL=$(printf '%s' "$CI_JSON" | jq 'length')
+  elif [ -z "$CI_JSON" ] && grep -q 'no checks reported' "$CI_ERR_FILE"; then
+    CI_JSON='[]'
+    CI_TOTAL=0
+  else
+    CI_READ_ERRORS=$((CI_READ_ERRORS + 1))
+    echo "[phase: ci-wait | read-error $CI_READ_ERRORS/5 | poll $CI_I/$CI_POLLS | $(head -c 200 "$CI_ERR_FILE" | tr '\n' ' ')]"
+    if [ "$CI_READ_ERRORS" -ge 5 ]; then
+      echo "[phase: ci-wait | result: unreadable]"
+      exit 4
+    fi
+    CI_GREEN_TOTAL=""
+    continue
+  fi
+  CI_READ_ERRORS=0
+
+  if [ "$CI_TOTAL" -eq 0 ]; then
+    CI_ZERO_STREAK=$((CI_ZERO_STREAK + 1))
+    CI_GREEN_TOTAL=""
+    if [ "$CI_FLOOR" -eq 0 ] && [ "$CI_ZERO_STREAK" -ge 4 ]; then
+      echo "[phase: ci-wait | result: passed-by-default | no-checks]"
+      CI_RESULT=passed
+      break
+    fi
+    echo "Waiting for CI checks... ($CI_I/$CI_POLLS, none registered, floor $CI_FLOOR)"
+    continue
+  fi
+  CI_ZERO_STREAK=0
+
+  CI_PENDING=$(printf '%s' "$CI_JSON" | jq '[.[] | select(.bucket != "pass" and .bucket != "skipping" and .bucket != "fail" and .bucket != "cancel")] | length')
+  CI_FAILED_NAMES=$(printf '%s' "$CI_JSON" | jq -r '[.[] | select(.bucket == "fail" or .bucket == "cancel") | .name] | join(", ")')
+  if [ "$CI_PENDING" -eq 0 ] && [ -n "$CI_FAILED_NAMES" ]; then
+    CI_RESULT=failed
+    break
+  fi
+  if [ "$CI_PENDING" -eq 0 ] && [ "$CI_TOTAL" -ge "$CI_FLOOR" ]; then
+    if [ "$CI_GREEN_TOTAL" = "$CI_TOTAL" ]; then
+      echo "[phase: ci-wait | result: passed | checks: $CI_TOTAL | floor: $CI_FLOOR]"
+      CI_RESULT=passed
+      break
+    fi
+    CI_GREEN_TOTAL="$CI_TOTAL"
+    echo "Waiting for CI checks... ($CI_I/$CI_POLLS, $CI_TOTAL/$CI_TOTAL complete, confirming the count holds)"
+    continue
+  fi
+  CI_GREEN_TOTAL=""
+  echo "Waiting for CI checks... ($CI_I/$CI_POLLS, $((CI_TOTAL - CI_PENDING))/$CI_TOTAL complete, floor $CI_FLOOR)"
+done
+
+if [ -z "$CI_RESULT" ] && [ -n "$CI_FAILED_NAMES" ]; then
+  CI_RESULT=failed
+fi
+case "$CI_RESULT" in
+  passed)
+    if [ "$CI_READY" = "true" ]; then
+      if gh pr ready "$CI_PR" --repo "$CI_GH_REPO" 2>/dev/null; then
+        echo "[phase: pr-ready | pr=$CI_PR]"
+      else
+        echo "WARNING: [phase: pr-ready] gh pr ready failed for PR #$CI_PR; it stays a draft until marked ready by hand"
+      fi
+    fi
+    exit 0
+    ;;
+  failed)
+    echo "[phase: ci-wait | result: failed | failing-checks: $CI_FAILED_NAMES]"
+    exit 1
+    ;;
+esac
+echo "[phase: ci-wait | result: timeout | polls: $CI_POLLS | floor: $CI_FLOOR]"
+exit 2

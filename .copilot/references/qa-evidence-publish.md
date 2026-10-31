@@ -3,10 +3,11 @@ Purpose: Full procedures for QA evidence publishing in
          `/ds-implement-ticket`, moved verbatim out of
          content/commands/ds-implement-ticket.md so a run with no QA
          screenshots or QA failures does not carry them. Covers the
-         Phase 6b QA regressions curator brief, the Phase 8.5 body
-         (slug derivation, the orphan `qa-evidence` branch commit and
-         push, evidence URLs, cleanup), and the Phase 11 native
-         screenshot attachment upload for Linear and Jira.
+         Phase 6b QA regressions curator brief, the Phase 8.5 call to
+         bin/ds-qa-evidence-publish (which holds the orphan `qa-evidence`
+         branch commit and push, evidence URLs and cleanup), and the
+         Phase 11 native screenshot attachment upload for Linear and
+         Jira.
 
 Public API: Read-only reference document, addressed by its retained
             headings. The QA regressions curator heading and its
@@ -18,14 +19,15 @@ Public API: Read-only reference document, addressed by its retained
             and Phase 11 headings below are parents of the moved text
             only.
 
-Upstream deps: none (prose reference only; no code, no runtime execution).
-               Assumes content/references/qa-regression-obligation.md and
-               the Phase 6b, Phase 9, and Phase 11 sections of
+Upstream deps: bin/ds-qa-evidence-publish (Phase 8.5). Assumes
+               content/references/qa-regression-obligation.md and the
+               Phase 6b, Phase 9, and Phase 11 sections of
                content/commands/ds-implement-ticket.md are in context.
 
 Downstream consumers: content/commands/ds-implement-ticket.md (three
                       pointer lines; Phase 9 reads `QA_EVIDENCE_URLS`
-                      set here).
+                      set here); bin/tests/test_worktree_lifecycle_spec.sh
+                      (pins the Phase 8.5 call and its flags).
 
 Failure modes: Prose reference; does not auto-execute. A conductor that
                skips a pointer publishes no QA evidence, writes no
@@ -56,149 +58,14 @@ At Phase 6b clean exit, if any iteration of this Phase 6b loop involved a QA FAI
 - `TICKET_SLUG`: `$TICKET_ID` lowercased, non-alphanum replaced with hyphens (e.g. `eng-123`)
 - `BRANCH_SLUG`: `$BRANCH_NAME` with leading `feature/`, `fix/`, `chore/` stripped; remaining slashes replaced with hyphens
 
-**Copy screenshots to a stable temp directory:**
+Run `$REPO_DIR/bin/ds-qa-evidence-publish`, passing each `QA_SCREENSHOT_PATHS` entry (a JSON object) as its own argument after `--`:
 
 ```bash
-SCREENSHOTS_SRC="/tmp/qa-evidence-$$"
-mkdir -p "$SCREENSHOTS_SRC"
-# Copy each path from QA_SCREENSHOT_PATHS into $SCREENSHOTS_SRC
-# (QA_SCREENSHOT_PATHS is a bash array; entries are JSON objects from Phase 6b parse)
-for entry in "${QA_SCREENSHOT_PATHS[@]}"; do
-  SRC_PATH=$(echo "$entry" | jq -r '.path')
-  cp "$SRC_PATH" "$SCREENSHOTS_SRC/" 2>/dev/null || true
-done
-# If nothing copied, treat as skip
-[ "$(ls -A "$SCREENSHOTS_SRC")" ] || { QA_EVIDENCE_URLS=(); rmdir "$SCREENSHOTS_SRC"; proceed to Phase 9; }
+"$REPO_DIR/bin/ds-qa-evidence-publish" --repo "$REPO" --ticket "$TICKET_ID" \
+  --branch "$BRANCH_NAME" --gh-repo "$GH_REPO" -- "${QA_SCREENSHOT_PATHS[@]}"
 ```
 
-**Check whether `qa-evidence` branch already exists on remote:**
-
-```bash
-REMOTE_EXISTS=$(git -C "$REPO" ls-remote --heads origin qa-evidence | wc -l)
-```
-
-**First-create path (branch does not exist on remote):**
-
-Create a scratch clone in `/tmp` to bootstrap the orphan branch. `$SCREENSHOTS_SRC` lives in `/tmp` (outside the clone) so `reset --hard` never destroys the source.
-
-```bash
-TEMP_CLONE="/tmp/qa-evidence-clone-$$"
-git clone --depth=1 "$REPO" "$TEMP_CLONE"
-git -C "$TEMP_CLONE" checkout --orphan qa-evidence
-git -C "$TEMP_CLONE" rm -rf . 2>/dev/null || true
-mkdir -p "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"
-cp -r "$SCREENSHOTS_SRC"/. "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"
-git -C "$TEMP_CLONE" add .
-git -C "$TEMP_CLONE" commit -m "qa: ${TICKET_SLUG}/${BRANCH_SLUG} PASS evidence"
-
-# RACE RECOVERY LOOP: handles concurrent first-creators racing on the orphan root
-PUSH_SUCCEEDED_FIRST_CREATE=false
-for i in 1 2 3; do
-  if git -C "$TEMP_CLONE" push origin qa-evidence; then
-    PUSH_SUCCEEDED_FIRST_CREATE=true
-    break
-  fi
-  # push rejected - a concurrent creator won; adopt the landed history
-  git -C "$TEMP_CLONE" fetch origin qa-evidence
-  git -C "$TEMP_CLONE" reset --hard origin/qa-evidence   # adopts remote history; wipes worktree
-  mkdir -p "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"      # recreate dest dir destroyed by reset
-  cp -r "$SCREENSHOTS_SRC"/. "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"
-  git -C "$TEMP_CLONE" add .
-  git -C "$TEMP_CLONE" commit -m "qa: ${TICKET_SLUG}/${BRANCH_SLUG} PASS evidence"
-done
-
-find "$TEMP_CLONE" -delete 2>/dev/null || true
-```
-
-After temp-clone push succeeds, fetch the updated remote-tracking ref into the main repo:
-
-```bash
-git -C "$REPO" fetch origin qa-evidence
-```
-
-**Steady-state path (branch already exists on remote):**
-
-Add a detached-HEAD worktree pointing at `origin/qa-evidence`, copy files, and push using the `HEAD:qa-evidence` refspec (mandatory because the worktree is on a detached HEAD - `push origin qa-evidence` would be a no-op in this state).
-
-```bash
-WORKTREE_PATH="$REPO/.agentic/worktrees/qa-evidence-$$"
-git -C "$REPO" fetch origin qa-evidence
-git -C "$REPO" worktree add "$WORKTREE_PATH" origin/qa-evidence   # detached HEAD
-
-mkdir -p "$WORKTREE_PATH/$TICKET_SLUG/$BRANCH_SLUG/"
-cp -r "$SCREENSHOTS_SRC"/. "$WORKTREE_PATH/$TICKET_SLUG/$BRANCH_SLUG/"
-git -C "$WORKTREE_PATH" add .
-git -C "$WORKTREE_PATH" commit -m "qa: ${TICKET_SLUG}/${BRANCH_SLUG} PASS evidence"
-
-# CRITICAL: worktree is on a detached HEAD; must use HEAD:qa-evidence refspec
-PUSH_SUCCEEDED_STEADY=false
-for i in 1 2 3; do
-  if git -C "$WORKTREE_PATH" push origin HEAD:qa-evidence; then
-    PUSH_SUCCEEDED_STEADY=true
-    break
-  fi
-  git -C "$WORKTREE_PATH" fetch origin qa-evidence
-  git -C "$WORKTREE_PATH" rebase origin/qa-evidence
-done
-
-if [ -x "$REPO_DIR/bin/ds-retire-carrier" ]; then "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$WORKTREE_PATH" \
-  || echo "WARNING: QA evidence worktree $WORKTREE_PATH not retired (exit $?); see the HELD line above or ds-retire-carrier --list-holds" >&2
-else echo "WARNING: $REPO_DIR/bin/ds-retire-carrier missing; QA evidence worktree $WORKTREE_PATH left in place" >&2; fi
-git -C "$REPO" worktree prune 2>/dev/null || true
-```
-
-**Build `QA_EVIDENCE_URLS` (only after push succeeds):**
-
-Build `QA_EVIDENCE_URLS` only when the push in the active path succeeded. `$GH_REPO` is the repo slug resolved at Phase 0 setup (e.g. `org/repo-name`, same variable used throughout the command). Use `jq -n --arg` to safely interpolate description strings that may contain quotes or special characters.
-
-```bash
-# PUSH_SUCCEEDED is true only if the first-create or steady-state push loop above exited with success
-PUSH_SUCCEEDED="${PUSH_SUCCEEDED_FIRST_CREATE:-${PUSH_SUCCEEDED_STEADY:-false}}"
-
-QA_EVIDENCE_URLS=()
-if [ "$PUSH_SUCCEEDED" = "true" ]; then
-  OWNER=$(echo "$GH_REPO" | cut -d/ -f1)
-  REPO_NAME=$(echo "$GH_REPO" | cut -d/ -f2)
-  for entry in "${QA_SCREENSHOT_PATHS[@]}"; do
-    FNAME=$(basename "$(echo "$entry" | jq -r '.path')")
-    CRITERION=$(echo "$entry" | jq -r '.criterion_id')
-    DESC=$(echo "$entry" | jq -r '.description')
-    RESULT=$(echo "$entry" | jq -r '.result')
-    URL="https://github.com/${OWNER}/${REPO_NAME}/blob/qa-evidence/${TICKET_SLUG}/${BRANCH_SLUG}/${FNAME}"
-    # Use jq --arg to safely encode description (handles quotes and special chars)
-    ENTRY_JSON=$(jq -n --arg url "$URL" --arg cid "$CRITERION" --arg d "$DESC" --arg r "$RESULT" \
-      '{"url":$url,"criterion_id":$cid,"description":$d,"result":$r}')
-    QA_EVIDENCE_URLS+=("$ENTRY_JSON")
-  done
-fi
-```
-
-If any step in the above sequence fails (push fails after 3 retries, worktree creation fails, copy fails), `QA_EVIDENCE_URLS` remains `()` (empty) and the phase continues. Phase 8.5 is always soft-fail - do not block Phase 9.
-
-Clean up temp dir:
-
-```bash
-find "$SCREENSHOTS_SRC" -delete 2>/dev/null || true
-```
-
-Clean up the original `/tmp/qa_*` source files that were consumed. Run this unconditionally after the copy loop and temp-dir cleanup, but only when `QA_SCREENSHOT_PATHS` is non-empty. Use the parsed paths so only copied files are deleted. Guard with `|| true` so Phase 8.5 remains soft-fail.
-
-```bash
-if [ "${#QA_SCREENSHOT_PATHS[@]}" -gt 0 ]; then
-  for entry in "${QA_SCREENSHOT_PATHS[@]}"; do
-    SRC_PATH=$(echo "$entry" | jq -r '.path')
-    rm -f "$SRC_PATH" 2>/dev/null || true
-  done
-fi
-```
-
-Also delete `/tmp/qa_devserver.log` if it exists. Run this unconditionally at the end of Phase 8.5, regardless of whether screenshots were consumed:
-
-```bash
-rm -f /tmp/qa_devserver.log 2>/dev/null || true
-```
-
-Emit breadcrumb: `[phase: qa-evidence | screenshots=<N> | urls=<M> | branch=qa-evidence]`
+The script commits the screenshots to `qa-evidence` and pushes it, deletes the consumed screenshot files and `/tmp/qa_devserver.log`, and prints the `[phase: qa-evidence | screenshots=<N> | urls=<M> | branch=qa-evidence]` breadcrumb on stderr. Its stdout is one JSON object `{url, criterion_id, description, result}` per published screenshot: set `QA_EVIDENCE_URLS` to those lines, one entry each. Stdout is empty when the push did not succeed; Phase 8.5 is always soft-fail - do not block Phase 9. Exit 2 is a usage error; 127 means the script is missing at `$REPO_DIR/bin/`.
 
 ## Phase 11: Post to tracker
 

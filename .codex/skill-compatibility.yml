@@ -3135,27 +3135,7 @@
       "expected_target": ".agentic/loop-state-",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
       "kind": "operational",
-      "occurrence_hash": "0030a2136e44d3825ffad512366579f68daa3ba6844555252629d320e44f8ddc",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/loop-state-"
-    },
-    {
-      "expected_target": ".agentic/loop-state-",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
-      "kind": "operational",
       "occurrence_hash": "00e46fbfaa42ef5d7dc48aa965be7c3ed0436b5fcd77a906552a23e4ce95415b",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/loop-state-"
-    },
-    {
-      "expected_target": ".agentic/loop-state-",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
-      "kind": "operational",
-      "occurrence_hash": "01617a211312e71902d96b019ecd4917361c8fd7057012ff5c0fb3ae9f689767",
       "resolution_mode": "invoked-project-path",
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
@@ -3542,16 +3522,6 @@
       "source_token": "`/ds-init-project`"
     },
     {
-      "expected_target": ".agentic/loop-state-",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
-      "kind": "operational",
-      "occurrence_hash": "0fe7545bc3bb469e5cfc15bc13e2a29a1a0ab7090d7843d3c470a2d6c4c8f5db",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/loop-state-"
-    },
-    {
       "expected_target": "content/commands/ds-ticket-status-sync.md",
       "generated_token": "$AE_REPO_DIR/content/commands/ds-ticket-status-sync.md",
       "kind": "operational",
@@ -3642,16 +3612,6 @@
       "source_token": "content/references/qa-gate.md"
     },
     {
-      "expected_target": "if",
-      "generated_token": "if",
-      "kind": "operational",
-      "occurrence_hash": "134eaa0a7680c1f17c5366607b95b3b86b2dc2198ca60dd42733943c0242bcea",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "if"
-    },
-    {
       "expected_target": "export",
       "generated_token": "export",
       "kind": "operational",
@@ -3690,6 +3650,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "EVIDENCE_WRITTEN_TO_BODY"
+    },
+    {
+      "expected_target": "apply_patch",
+      "generated_token": "Write",
+      "kind": "semantic-reference",
+      "occurrence_hash": "1546a1d2c2f6cfaf38932ea2cb59bcf03c9c3859a433d94df31c7956c1cb0fcc",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "Write"
     },
     {
       "expected_target": "dinostack-codex-implement-ticket",
@@ -3912,16 +3882,6 @@
       "source_token": "content/references/tracker-writeback.md"
     },
     {
-      "expected_target": "then",
-      "generated_token": "then",
-      "kind": "operational",
-      "occurrence_hash": "1c3d6c9c856d5702f094c83dc728fba5a6761fe87fe762e3374b1d568aca2822",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "then"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "CRITERION",
       "kind": "display-only",
@@ -3960,16 +3920,6 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/dev"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "no-checks-configured",
-      "kind": "display-only",
-      "occurrence_hash": "1ce078e27fea2d864de63065325524723acbe6fc21652a27ceac66ff85594ee5",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "no-checks-configured"
     },
     {
       "expected_target": "tail",
@@ -4252,16 +4202,6 @@
       "source_token": "--"
     },
     {
-      "expected_target": "for",
-      "generated_token": "for",
-      "kind": "operational",
-      "occurrence_hash": "247f7dbe11be58270e672a46ca38578a62e437801b0e4bb18c0b78c421498d39",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "for"
-    },
-    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -4392,6 +4332,16 @@
       "source_token": "content/rules/conventions.md"
     },
     {
+      "expected_target": "content/references/conventions-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "28e4e6b6dcadb707484a60bf593528cb0a16a6584ead69496052a5b753b077ba",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/conventions-detail.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/browse",
       "kind": "display-only",
@@ -4510,6 +4460,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "done"
+    },
+    {
+      "expected_target": "apply_patch",
+      "generated_token": "Write",
+      "kind": "semantic-reference",
+      "occurrence_hash": "2e2d4d312f72bf2d164fa745debac411c9298c2de7c542814382aaa319e17522",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "Write"
     },
     {
       "expected_target": ".agentic/loop-state-",
@@ -4713,16 +4673,6 @@
     },
     {
       "expected_target": "hashed-source-occurrence",
-      "generated_token": "/dev",
-      "kind": "display-only",
-      "occurrence_hash": "34107fd6eced6af78ff056f8f968b2a1d7132c899850c0e18b73b525e34a6241",
-      "resolution_mode": "display-only",
-      "scope": "display-only",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/dev"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
       "generated_token": "W1_REASON",
       "kind": "display-only",
       "occurrence_hash": "341dea30c5075b7c795f2c94df43a45f42916d30a0e116fe126e3ba7a1d19028",
@@ -4860,6 +4810,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "bin/ds-resolve-worktree"
+    },
+    {
+      "expected_target": ".agentic/loop-state-",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
+      "kind": "operational",
+      "occurrence_hash": "3890cd61e1ed3f390cd28f3b663532210fc641163bf77f1d1ba5d3705355345a",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/loop-state-"
     },
     {
       "expected_target": "filesystem read",
@@ -5260,26 +5220,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/loop-state-"
-    },
-    {
-      "expected_target": "break",
-      "generated_token": "break",
-      "kind": "operational",
-      "occurrence_hash": "46d261039a37fa4b4abb7c21813a443483dfd0613b8c3cc2d66fc51aa66c4d89",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "break"
-    },
-    {
-      "expected_target": "break",
-      "generated_token": "break",
-      "kind": "operational",
-      "occurrence_hash": "46d261039a37fa4b4abb7c21813a443483dfd0613b8c3cc2d66fc51aa66c4d89",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "break"
     },
     {
       "expected_target": ".agentic/qa.md.snapshot-<ticket_id>",
@@ -5822,6 +5762,16 @@
       "source_token": ".agentic/*"
     },
     {
+      "expected_target": ".agentic/loop-state-",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
+      "kind": "operational",
+      "occurrence_hash": "5bdfa71aeed388136cfc1228661baeec6ac2776de0e1feaf4ce28b24fd9ebe7f",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/loop-state-"
+    },
+    {
       "expected_target": ".agentic/loop-state-session-*.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-session-*.json",
       "kind": "operational",
@@ -5870,16 +5820,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "BASE_REF"
-    },
-    {
-      "expected_target": "apply_patch",
-      "generated_token": "Write",
-      "kind": "semantic-reference",
-      "occurrence_hash": "5e07196d17b7c802839c285118a7d23e482afde54cf71627c5a6f39e3c2a7e95",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "Write"
     },
     {
       "expected_target": ".agentic/loop-state.json",
@@ -6200,26 +6140,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "rm"
-    },
-    {
-      "expected_target": "fi",
-      "generated_token": "fi",
-      "kind": "operational",
-      "occurrence_hash": "69bb8539fdbb41a344e12f98314aa103b0d5333008ba35c1e2f6ec5fff41bfff",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "fi"
-    },
-    {
-      "expected_target": "fi",
-      "generated_token": "fi",
-      "kind": "operational",
-      "occurrence_hash": "69bb8539fdbb41a344e12f98314aa103b0d5333008ba35c1e2f6ec5fff41bfff",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "fi"
     },
     {
       "expected_target": "fi",
@@ -6642,16 +6562,6 @@
       "source_token": "content/references/tracker-writeback.md"
     },
     {
-      "expected_target": "gh",
-      "generated_token": "gh",
-      "kind": "operational",
-      "occurrence_hash": "761eb5cbcda648b4218a5376975091f44f3db616aa1ffffce2262f765b4bf557",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "gh"
-    },
-    {
       "expected_target": ".agentic/loop-state-",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
       "kind": "operational",
@@ -6660,26 +6570,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/loop-state-"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "select",
-      "kind": "display-only",
-      "occurrence_hash": "7659565889e1320dcb6fe3e8016fac3fa1a8eef71ebf5c35ecb88cef6280259b",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "select"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "length",
-      "kind": "display-only",
-      "occurrence_hash": "765cca573f5ab78f3347354fda7ecdd2859c164ffa871f374281d6aadd1ad8a2",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "length"
     },
     {
       "expected_target": "content/commands/ds-ticket-triage.md",
@@ -6700,16 +6590,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/loop-state-"
-    },
-    {
-      "expected_target": "apply_patch",
-      "generated_token": "Write",
-      "kind": "semantic-reference",
-      "occurrence_hash": "77421db8bf2e5272352c689325c5ed7e6f6a662ab6efbe0c07b1c183a487bca5",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "Write"
     },
     {
       "expected_target": ".agentic/loop-state-",
@@ -6892,16 +6772,6 @@
       "source_token": "`/ds-init-project`"
     },
     {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "PR_NUMBER",
-      "kind": "display-only",
-      "occurrence_hash": "7fe64b163a56ee05b0dfe20cd3b6a86ee7a1294766268d3a103c5782af7baf1d",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "PR_NUMBER"
-    },
-    {
       "expected_target": ".agentic/tracker.yml",
       "generated_token": "$AE_PROJECT_DIR/.agentic/tracker.yml",
       "kind": "operational",
@@ -6962,16 +6832,6 @@
       "source_token": "node"
     },
     {
-      "expected_target": "sleep",
-      "generated_token": "sleep",
-      "kind": "operational",
-      "occurrence_hash": "846bbefd9e25c655d007742fc9ea1113223cc3f522a5224059ef5ea0990ff293",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "sleep"
-    },
-    {
       "expected_target": "bin/ds-emit",
       "generated_token": "ds-emit",
       "kind": "operational",
@@ -7002,16 +6862,6 @@
       "source_token": "/null"
     },
     {
-      "expected_target": "done",
-      "generated_token": "done",
-      "kind": "operational",
-      "occurrence_hash": "855972db6aaa6cb0ddc707c0b296c943e3f2a38935320fdf3db605edb2a95cf8",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "done"
-    },
-    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -7030,6 +6880,16 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/operators"
+    },
+    {
+      "expected_target": ".agentic/loop-state-",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
+      "kind": "operational",
+      "occurrence_hash": "868a0abc3cbce07beb9968259fbde3ccdff8d4c673f8f41f5274a4c200b351ff",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/loop-state-"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -7083,16 +6943,6 @@
     },
     {
       "expected_target": "hashed-source-occurrence",
-      "generated_token": "PENDING",
-      "kind": "display-only",
-      "occurrence_hash": "88de9956e26c2a83794e21527d78e158776f08404eb081ce91944f3b5f9f7836",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "PENDING"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
       "occurrence_hash": "8a2035b6c58398f2fb637c69dba470e1934d1311630b0c0f1733df3dee5af8ee",
@@ -7130,16 +6980,6 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/dev"
-    },
-    {
-      "expected_target": "echo",
-      "generated_token": "echo",
-      "kind": "operational",
-      "occurrence_hash": "8acf344a014e79bab0496476e8690ce6d41b4bf057c6b7422289669b2846c20f",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "echo"
     },
     {
       "expected_target": "jq",
@@ -7682,16 +7522,6 @@
       "source_token": ".agentic/"
     },
     {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "status",
-      "kind": "display-only",
-      "occurrence_hash": "9c04f0cba755a29e9da2f3110566b4fbd5636508808991c322dfee3541fb0c5b",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "status"
-    },
-    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -7760,16 +7590,6 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "`/ds-ticket-status-sync`"
-    },
-    {
-      "expected_target": "jq",
-      "generated_token": "jq",
-      "kind": "operational",
-      "occurrence_hash": "9ec9bb33f17e15437e49aab593131d12afe54acab89a35ba102a226c7b9313f9",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "jq"
     },
     {
       "expected_target": "dinostack-codex-wrap",
@@ -8072,16 +7892,6 @@
       "source_token": "content/references/tracker-writeback.md"
     },
     {
-      "expected_target": "echo",
-      "generated_token": "echo",
-      "kind": "operational",
-      "occurrence_hash": "a67e2f3aeaf20db7a2167b7fddaceb7ebe67809913cee282cc53c5bfc7a185f4",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "echo"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/pull",
       "kind": "display-only",
@@ -8312,16 +8122,6 @@
       "source_token": "--body-file"
     },
     {
-      "expected_target": "content/references/conventions-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "adc6be5de7cc85bc709427934f9ae2a6bd2bfcc198f78169eff61deba959baf0",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/conventions-detail.md"
-    },
-    {
       "expected_target": "content/references/trigger-catalog.md",
       "generated_token": "$AE_REPO_DIR/content/references/trigger-catalog.md",
       "kind": "operational",
@@ -8340,16 +8140,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "elif"
-    },
-    {
-      "expected_target": "echo",
-      "generated_token": "echo",
-      "kind": "operational",
-      "occurrence_hash": "af0fd023b5de13ed5d200b57b647e2c1ebe18379b89c4653b5f0eb7a23273cf4",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "echo"
     },
     {
       "expected_target": "dinostack-codex-wrap",
@@ -8410,16 +8200,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/delegation-detail.md"
-    },
-    {
-      "expected_target": "if",
-      "generated_token": "if",
-      "kind": "operational",
-      "occurrence_hash": "b19462d9b588262ae7a5d23fcb460d1a9c5206ecf5f2c9e43ae2b7fb6c058127",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "if"
     },
     {
       "expected_target": "hooks/lib/state-mark.js",
@@ -8800,16 +8580,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/qa-gate.md"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "/dev",
-      "kind": "display-only",
-      "occurrence_hash": "be8dbcc569e59b7320c8b4300f237c6986e6a4418c6941c2dff3086ada2d14cd",
-      "resolution_mode": "display-only",
-      "scope": "display-only",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/dev"
     },
     {
       "expected_target": "content/references/ticket-rework.md",
@@ -9240,16 +9010,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "hooks/lib/state-mark.js"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "pr",
-      "kind": "display-only",
-      "occurrence_hash": "cc24b350bfabb24eaf437feada686f1fc8cff28a779e21b95f9111908b04e347",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "pr"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -9732,16 +9492,6 @@
       "source_token": "cd"
     },
     {
-      "expected_target": "do",
-      "generated_token": "do",
-      "kind": "operational",
-      "occurrence_hash": "dc4a6302ecf3bd457ca207164b3ec24779abaa9f400ab4c508c8161123fb1a63",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "do"
-    },
-    {
       "expected_target": "echo",
       "generated_token": "echo",
       "kind": "operational",
@@ -9820,16 +9570,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "then"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "POLL_INTERVAL",
-      "kind": "display-only",
-      "occurrence_hash": "deca282021f6f31461554676dc7c45581458a510854e40c222579f2d3cef366d",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "POLL_INTERVAL"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -9942,16 +9682,6 @@
       "source_token": "content/references/subagent-protocol.md"
     },
     {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "length",
-      "kind": "display-only",
-      "occurrence_hash": "e2f832dbd6618941196210ed1e5617296280c7e5adf5fd66cea9c116356389c7",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "length"
-    },
-    {
       "expected_target": "content/references/conductor-operating-rules.md",
       "generated_token": "$AE_REPO_DIR/content/references/conductor-operating-rules.md",
       "kind": "operational",
@@ -9980,16 +9710,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "jq"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "pr",
-      "kind": "display-only",
-      "occurrence_hash": "e34af5048d039a653a8db4708bdfc08e922f898b09e148483fa12eddc5750345",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "pr"
     },
     {
       "expected_target": "hooks/session-end-wrap.js",
@@ -10072,16 +9792,6 @@
       "source_token": "export"
     },
     {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "all-checks-complete",
-      "kind": "display-only",
-      "occurrence_hash": "e4db4993eee1459eb1a9bd3d9edbf64aaab0a9fb0541208a2334809d30f76faa",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "all-checks-complete"
-    },
-    {
       "expected_target": ".agentic/tracker.yml",
       "generated_token": "$AE_PROJECT_DIR/.agentic/tracker.yml",
       "kind": "operational",
@@ -10162,16 +9872,6 @@
       "source_token": "METHODOLOGY.md"
     },
     {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "select",
-      "kind": "display-only",
-      "occurrence_hash": "e773e0f25a817f02f9c2bda45e281196882c9983a033563e592af9915105df0a",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "select"
-    },
-    {
       "expected_target": "bin/ds-emit",
       "generated_token": "ds-emit",
       "kind": "operational",
@@ -10220,16 +9920,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/config.json"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "/dev",
-      "kind": "display-only",
-      "occurrence_hash": "e8c0823f4539ce26ddbbad663c70767e2f4580c7da0ca513066f2383ed7ddbad",
-      "resolution_mode": "display-only",
-      "scope": "display-only",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/dev"
     },
     {
       "expected_target": "filesystem read",
@@ -10330,16 +10020,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "REPO_DIR"
-    },
-    {
-      "expected_target": "then",
-      "generated_token": "then",
-      "kind": "operational",
-      "occurrence_hash": "ea99e13419765d782ef26d14854e5aefd44285b90d4d19db1e28014ce94f4fef",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "then"
     },
     {
       "expected_target": "done",
@@ -11000,16 +10680,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "echo"
-    },
-    {
-      "expected_target": "jq",
-      "generated_token": "jq",
-      "kind": "operational",
-      "occurrence_hash": "fbb8f97cb340846011676beffbd0813fcda25948e478c3091d097fa5b7eef814",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "jq"
     },
     {
       "expected_target": "dinostack-codex-wrap",

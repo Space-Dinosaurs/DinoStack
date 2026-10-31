@@ -145,6 +145,7 @@ hooks/stop-context.js::const markerPath = path.join(resolveAgenticCwd(cwd), '.ag
 hooks/stop-context.js::healthPath = path.join(resolveAgenticCwd(cwd), '.agentic', '.telemetry-health.json');
 hooks/subagent-stop-spawn-emit.js::const cwdAgenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
 hooks/wrap-daemon.js::const cfgPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');
+bin/ds-qa-evidence-publish::WORKTREE_PATH="$REPO/.agentic/worktrees/qa-evidence-$$"
 bin/ds-ticket-commit::SESSION_LOG_SRC="$REPO/.agentic/session-log/${DEVELOPER}.jsonl"
 bin/ds-ticket-commit::cfg = json.load(open('$REPO/.agentic/config.json'))
 bin/ds-ticket-commit::cp "$SESSION_LOG_SRC" "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" 2>/dev/null || true
