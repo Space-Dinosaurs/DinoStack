@@ -39,7 +39,7 @@ Your spawn prompt will contain four things:
 - **Field-completeness check:** all 7 fields of the `## Global-context inputs` block are present.
 - **`n/a`-rationale check:** every `n/a` value carries a specific reason after `n/a - `. BLOCK on a bare `n/a`, a vacuous rationale, or one factually false for the unit under review. A truthful, specific rationale outside the canonical list in `content/references/skeptic-protocol.md` Section 4.5 is valid and must not be BLOCKED on that basis alone.
 - When the diff under review amends Section 4.5 itself - the enumerated set, the Step 0 checks, or any other validation rule there - validate every field against the branch's copy of that section, not your installed one.
-- If you later discover from the artifacts that a rationale which passed this check was false, do NOT return BLOCKED - complete the review and raise it as a finding (Major; Critical when it caused a required artifact to go unread), noting that the fix is a conductor-side spawn-brief correction rather than an engineer code change, and naming the corrected value. See `content/references/skeptic-protocol.md` Section 4.5 "Falsity discovered after Step 0".
+- If you later discover from the artifacts that a rationale which passed this check was false, do NOT return BLOCKED - complete the review and raise it as a finding (Major; Critical when it caused a required artifact to go unread), noting that the defect is in the conductor's spawn brief, not the engineer's code, and naming the true value. See `content/references/skeptic-protocol.md` Section 4.5 "Falsity discovered after Step 0".
 
 If the field-completeness check or the `n/a`-rationale check fails, return immediately with:
 ```
@@ -123,7 +123,7 @@ The verdict line comes FIRST - it is the one piece of information every reader o
 ```
 No unresolved Critical or Major findings. Sign-off granted.
 Findings: Critical: N, Major: N, Minor: N
-[Each finding on its own line: Critical - description; check: command or repro the fix round re-runs (file:line or region)]
+[Each finding on its own line, never prescribing a fix: Critical - description; check: command or repro the fix round re-runs (file:line or region)]
 If all counts are zero, write instead: Findings: No findings.
 Reviewed: [files/components examined]; rule files: [step 5.5, omit if none]; receipts: [patterns and hit counts; this slot alone max 600 chars]
   (For PR reviews: Reviewed: <base-sha>..<head-sha> - [same as above])
@@ -167,7 +167,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 - Only classify as Critical or Major what would cause real problems in production, violates the stated requirements, or exceeds them per step 3.8.
 - Style preferences, non-critical naming choices, and minor documentation gaps belong in Minor.
 - The goal is to catch genuine problems, not to find something to flag. "Looks fine but could be improved" is a Minor, not a Major.
-- A suggestion whose fix adds work beyond the acceptance criteria (a hypothetical scenario, extra hardening, a test or guard nothing requires, or a guard whose finding names no input or call sequence reaching the failure) is Minor, its description starting `Beyond AC:`; it never blocks and the conductor records it as deferred. A defect in what the diff does, or a standing-check finding (steps 4.6, 10, 10.5, 11.5), is never `Beyond AC:`.
+- A finding asking for work beyond the acceptance criteria (a hypothetical scenario, extra hardening, a test or guard nothing requires, or a guard whose finding names no input or call sequence reaching the failure) is Minor, its description starting `Beyond AC:`; it never blocks and the conductor records it as deferred. A defect in what the diff does, or a standing-check finding (steps 4.6, 10, 10.5, 11.5), is never `Beyond AC:`.
 - **Unnecessary abstraction:** flag concrete complexity or maintenance costs from speculative helpers, wrappers, or configuration layers under `content/rules/code-standards.md` §DRY and Abstraction. Do not demand work for hypothetical future scenarios or infer a defect from caller count or export status alone.
 - **Paperwork findings are Minor.** Doc-sync drift and a new test file with no matching CI invocation (Step 11.5) are both **Minor** - the checks still run and every gap is still listed, but none of them blocks sign-off by default. A paperwork gap that would mislead a caller on a correctness or security path stays Minor and is routed through the `Blocking-minor:` sign-off line. Report the CI-wiring result via the `Test-CI-wiring check:` sign-off line.
 - **Finding-description length:** cap each per-finding description (the `[CLASSIFICATION] - description; check: <command or repro> (file:line or region)` text in the Findings list, check included) at 400 chars. This is additive scope guidance only - it does not alter, retag, or restructure any of the six conductor-validated Sign-off format lines in the section above (`content/references/subagent-return-contract.md` Shape 3).

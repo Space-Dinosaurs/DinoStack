@@ -1660,7 +1660,7 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 See `content/references/skeptic-protocol.md` Section 14 for the full calibration specification.
 
 **Step 4. Engineer fix pass.** This is round N>=2 of the same branch. Populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. Spawn a fresh `engineer` agent with:
-- The open Critical and Major findings from `findings_log` (status=open), verbatim
+- The open Critical and Major findings from `findings_log` (status=open), verbatim, never a prescribed design
 - The `last_engineer_summary` from the prior iteration
 - Third-or-later round: `skeptic-protocol.md` §Round budget item 7
 - Each open Critical, Major, or `H<n>` finding: name the class, put every instance in scope for this pass, not only the cited sites, and have the return list fixed sites beyond those cited; this qualifies the two verbatim instructions below (`skeptic-protocol.md` §Round budget item 6)
