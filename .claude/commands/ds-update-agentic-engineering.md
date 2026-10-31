@@ -160,7 +160,7 @@ If `HOOK_CHANGES` is empty, skip silently.
 Spawn a Worker subagent with instructions (every section of this spawn prompt that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"):
 1. Read the current file(s) to be changed.
 2. Apply the edit using the Edit tool.
-3. If editing `content/rules/`, `content/references/`, or `content/agents/`: edit only the `content/` path. The corresponding `.claude/skills/dinostack/` and `.claude/agents/` paths are symlinks pointing into `content/` - but because the Worker runs in an isolation worktree, the edit lives in the worktree branch and is NOT live in the conductor's checkout until Step 2.5 cherry-picks it in. (On the permission-blocked in-place path where the conductor edits directly, the symlinks do make the change live immediately - but that is the exception, not the rule.) The other ten adapters are built artifacts, so the Step 3 build is still required before commit - the `adapter-sync` CI gate fails otherwise.
+3. If editing `content/rules/`, `content/references/`, or `content/agents/`: edit only the `content/` path. The corresponding `.claude/skills/dinostack/` and `.claude/agents/` paths are symlinks pointing into `content/` - but because the Worker runs in an isolation worktree, the edit lives in the worktree branch and is NOT live in the conductor's checkout until Step 2.5 cherry-picks it in. (On the permission-blocked in-place path where the conductor edits directly, the symlinks do make the change live immediately - but that is the exception, not the rule.) `.claude/skills/dinostack/SKILL.md` embeds the rules and is a built artifact, so the Step 3 build is still required before commit - the `adapter-sync` CI gate fails otherwise.
 4. If editing `content/commands/`: edit only the `content/commands/` path. The `.claude/commands/*.md` copies are build artifacts - `build.sh` prepends the `/dinostack` prerequisite blockquote and writes the result to `.claude/commands/`. The build must be run after approval for the change to take effect.
 5. Commit the edit to the isolation worktree branch with `git commit -s` and a short message describing the change.
 6. Return the full diff, the commit SHA (full 40-character), and the worktree branch name.
@@ -234,17 +234,13 @@ Otherwise (normal isolation-worktree path), after the user approves in Step 2:
 
 ## Step 3 - Run the build
 
-After approval, if the diff touches ANY file under `content/`, rebuild every adapter so the committed adapter artifacts stay in sync. The `adapter-sync` CI gate rebuilds all of them and fails on any drift, so a partial build - or skipping the build for a rules/references/agents edit - makes the push fail. Run from `$AE_REPO_DIR`:
+After approval, if the diff touches ANY file under `content/`, rebuild the Claude Code adapter so its committed artifacts stay in sync. The `adapter-sync` CI gate rebuilds `.claude/` and fails on any drift there. The other adapters are not rebuilt here: they catch up in a separate on-demand chore PR (DinoStack's `CONTRIBUTING.md`, "Non-Claude harnesses"). Run from `$AE_REPO_DIR`:
 
 ```bash
-cd "$AE_REPO_DIR" && \
-bash .claude/build.sh && bash .cursor/build.sh && bash .codex/build.sh && \
-bash .gemini/build.sh && bash .kimi/build.sh && bash .opencode/build.sh && \
-bash .omp/build.sh && bash .pi/build.sh && bash .hermes/build.sh && bash .openclaw/build.sh && \
-bash .copilot/build.sh
+cd "$AE_REPO_DIR" && bash scripts/stamp-agent-fragments.sh && bash .claude/build.sh
 ```
 
-Then run `git status --porcelain` and confirm the only changes are the `content/` source file(s) plus their regenerated adapter copies. If any unrelated source file shows as modified, STOP and show the user - a build script can silently revert an out-of-date source file (the adapter-rebuild revert hazard).
+Then run `git status --porcelain` and confirm the only changes are the `content/` source file(s) plus their regenerated `.claude/` copies. If any unrelated source file shows as modified, STOP and show the user - a build script can silently revert an out-of-date source file (the adapter-rebuild revert hazard).
 
 If the diff touches `content/sections/`, also regenerate the methodology baseline in the same commit: `scripts/.methodology-baseline.sha256` is a per-file SHA256 manifest of content/sections/ and must be updated in the same commit as any section change (see `scripts/check-methodology-drift.sh`). This is a separate CI gate from `adapter-sync`. Regenerate it with:
 
@@ -252,7 +248,7 @@ If the diff touches `content/sections/`, also regenerate the methodology baselin
 bash scripts/check-methodology-drift.sh --regenerate
 ```
 
-Note: `.claude/skills/dinostack/` and `.claude/agents/` are symlinks into `content/`, so `content/rules/`, `content/references/`, and `content/agents/` edits are immediately live in your own Claude session with no build. The build above is still required so the other ten adapters' committed artifacts match `content/`.
+Note: `.claude/skills/dinostack/` and `.claude/agents/` are symlinks into `content/`, so `content/rules/`, `content/references/`, and `content/agents/` edits are immediately live in your own Claude session with no build. The build above is still required so `.claude/commands/` and the embedded `.claude/skills/dinostack/SKILL.md` match `content/`.
 
 ## Step 3.5 - Docs update check
 

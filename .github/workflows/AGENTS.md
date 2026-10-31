@@ -129,7 +129,7 @@ prose goldens.
 Jobs: `merged-adapter-sync` (incl. the DS-57 codex-hooks and DS-104
 symlinks-relative guards, which audit a landed SHA), `merged-methodology-drift`,
 `merged-agent-fragment-sync`, `merged-slides-sync` (incl. the advisory overflow
-check), `merged-codex-skill-sync`, `merged-budget-gates` (all 7),
+check), `merged-codex-skill-sync` (only with `all_harnesses`), `merged-budget-gates` (all 7),
 `merged-content-guards`, `merged-wrap-lock-tests`, `merged-hooks-js-tests`,
 `merged-hooks-sh-tests`.
 
@@ -210,16 +210,27 @@ loops are *not* consolidated (see `merged-hooks-js-tests`).
 
 ## Related conventions
 
-- The 16-path adapter pathspec and the 18-entry existence loop are duplicated
-  verbatim between `adapter-sync.yml` and `verify-merged-tree.yml`. This is
+- **Claude Code first** (root `AGENTS.md`). The adapter drift check is split
+  in two: `-- .claude` always runs, and the 16-path non-Claude pathspec (with
+  its builds and existence loop) runs only when `DS_ALL_HARNESSES` is `1`.
+  `adapter-sync.yml` and `bin-tests.yml` set it for a PR whose branch starts
+  with `chore/adapter-catch-up` (the on-demand catch-up chore);
+  `verify-merged-tree.yml` sets it from its `all_harnesses` dispatch input,
+  which also gates `merged-codex-skill-sync`. `codex-skill-sync.yml` is
+  advisory (off the required set) and its job runs only on that branch or a
+  workflow_dispatch: a job-level `if:` skip, not a `paths:` filter, per the
+  rule above.
+- Both adapter pathspecs and both existence loops are duplicated verbatim
+  between `adapter-sync.yml` and `verify-merged-tree.yml`. This is
   **not** extracted into a composite action: `scripts/gate-provenance.sh`'s D1
   rule only scans `.github/workflows/*.yml`, so moving the assertion out of a
   workflow file would stop `.claude`/`.codex`/... classifying as DERIVED and
   break `bin/tests/test_gate_provenance.sh`. Instead the duplication is
   **mechanically guarded**: `merged-adapter-sync`'s first step fails the build
-  if the two pathspec lines are not byte-identical. Root `AGENTS.md`'s rule
-  ("copy it verbatim from `Fail on adapter drift` in `adapter-sync.yml`") now
-  has two in-repo consumers.
+  unless each pathspec (`-- .claude`, and the one starting `-- .codex .cursor`)
+  appears exactly once per file, byte-identical. Root `AGENTS.md`'s rule
+  ("copy it verbatim from the drift steps in `adapter-sync.yml`") now has two
+  in-repo consumers.
 - `verify-merged-tree.yml`'s "Verify public build is clean" step is scoped
   `-- .codex`, unlike `codex-skill-sync.yml`'s bare `git diff --exit-code`.
   `gate-provenance.sh`'s D4 rule takes the FIRST bare, no-pathspec assertion
@@ -234,7 +245,8 @@ loops are *not* consolidated (see `merged-hooks-js-tests`).
   are a backstop set above the sum of that job's own step bounds; network and
   execution steps carry their own).
   `verify-merged-tree.yml` follows it.
-- `bin-tests.yml`'s `bin-sh-tests` job builds the adapters once, then runs the
+- `bin-tests.yml`'s `bin-sh-tests` job builds `.claude` once (plus `.cursor`
+  under `DS_ALL_HARNESSES`), then runs the
   shell tests with `AE_INSTALL_SKIP_BUILD=1`, as `scripts/check-local.sh` does,
   so `.claude/install.sh` calls in those tests skip their rebuild. Measured
   locally on 2026-10-13 by running that step's loop over the same 81 files both
