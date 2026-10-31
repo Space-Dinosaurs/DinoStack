@@ -25,8 +25,7 @@
 #                 re-run once Phase 0 resolves a ticket the first call
 #                 could not parse; it never yields a loop_key or resume,
 #                 so the first call's key is never re-derived.
-#     --session-id  SESSION_ID for the loop key; default $CLAUDE_CODE_SESSION_ID,
-#                 else $AE_SESSION_ID (Codex).
+#     --session-id  SESSION_ID for the loop key; default $CLAUDE_CODE_SESSION_ID.
 #     --repo      the ticket's project checkout; default the cwd's git
 #                 toplevel, else the cwd.
 #   stdout line 1 is the JSON (plus `ticket_id`: the parsed or --ticket
@@ -368,7 +367,7 @@ _ts_main() {
   local self_root
   self_root="$(cd -P "$(dirname "$src")/.." && pwd)"
 
-  local session_id="${CLAUDE_CODE_SESSION_ID:-${AE_SESSION_ID-}}" repo="" ticket_arg="" has_ticket=false
+  local session_id="${CLAUDE_CODE_SESSION_ID-}" repo="" ticket_arg="" has_ticket=false
   local from_stdin=false rework_only=false
   while [ $# -gt 0 ]; do
     case "$1" in

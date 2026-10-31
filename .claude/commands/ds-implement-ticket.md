@@ -230,7 +230,7 @@ The terminal interrupted-mark now lives on `hooks/session-end-wrap.js` (the Sess
 
 ## Setup call (runs first)
 
-Run once, before anything else, from `$REPO`. The session id comes from `$CLAUDE_CODE_SESSION_ID`, else `$AE_SESSION_ID`; unless one is exported in the shell running the call, add `--session-id <SESSION_ID>`. Put `<input>` verbatim inside the quoted heredoc only, so no shell expands it; if it has a line reading `DS_INPUT`, pick another delimiter.
+Run once, before anything else, from `$REPO`. On a harness without `$CLAUDE_CODE_SESSION_ID`, add `--session-id <SESSION_ID>`. Put `<input>` verbatim inside the quoted heredoc only, so no shell expands it; if it has a line reading `DS_INPUT`, pick another delimiter.
 
 ```bash
 # Setup call: ds-ticket-setup

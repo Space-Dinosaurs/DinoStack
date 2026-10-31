@@ -157,18 +157,6 @@ printf '{"status":"interrupted"}' > "$BRES/.agentic/loop-state-session-sid.json"
 _eq "a batch with a recommended file is still batch" \
   "$(_field "$BRES" 'd["mode"] + " " + str(d["resume"]["recommended"])' DS-1 DS-2)" "batch .agentic/loop-state-session-sid.json"
 
-echo "--- session id sources ---"
-_sid_key() { # _sid_key <env...> -> loop_key for a freeform input
-  (cd "$PLAIN" && env -u CLAUDE_CODE_SESSION_ID -u AE_SESSION_ID "$@" "$SCRIPT" --repo "$PLAIN" -- freeform text 2>/dev/null) \
-    | head -1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["loop_key"])'
-}
-_eq "AE_SESSION_ID (Codex) is read when CLAUDE_CODE_SESSION_ID is unset" "$(_sid_key AE_SESSION_ID=codexsid)" "session-codexsid"
-_eq "CLAUDE_CODE_SESSION_ID wins over AE_SESSION_ID" \
-  "$(_sid_key CLAUDE_CODE_SESSION_ID=claudesid AE_SESSION_ID=codexsid)" "session-claudesid"
-_eq "--session-id wins over both" \
-  "$( (cd "$PLAIN" && CLAUDE_CODE_SESSION_ID=a AE_SESSION_ID=b "$SCRIPT" --repo "$PLAIN" --session-id c -- freeform 2>/dev/null) \
-      | head -1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["loop_key"])')" "session-c"
-
 echo "--- oversized input is classified, never silently single ---"
 BIG="$TMP_ROOT/big.txt"
 python3 -c 'import sys; sys.stdout.write("x " * 1300000 + "DS-1 DS-2\n")' > "$BIG"

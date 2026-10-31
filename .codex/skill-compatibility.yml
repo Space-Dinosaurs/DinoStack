@@ -4252,16 +4252,6 @@
       "source_token": "for"
     },
     {
-      "expected_target": "bin/ds-codex-session-id",
-      "generated_token": "$AE_SESSION_ID",
-      "kind": "operational",
-      "occurrence_hash": "248eb833f12f45f895e9d7d2c1edb124ac23c979baab8e2135592daabae09caa",
-      "resolution_mode": "runtime-helper",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "$CLAUDE_CODE_SESSION_ID"
-    },
-    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -8100,6 +8090,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "`/ds-init-project`"
+    },
+    {
+      "expected_target": "bin/ds-codex-session-id",
+      "generated_token": "$AE_SESSION_ID",
+      "kind": "operational",
+      "occurrence_hash": "a798d31e4180671a305c4145207e91cdcbe61f80ba9233d5f083e133454354d6",
+      "resolution_mode": "runtime-helper",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "$CLAUDE_CODE_SESSION_ID"
     },
     {
       "expected_target": "hashed-source-occurrence",
