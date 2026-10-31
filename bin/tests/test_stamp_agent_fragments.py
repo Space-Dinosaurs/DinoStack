@@ -9,8 +9,9 @@ byte-identical to its `<!-- FRAGMENT: -->` source" on the already-required
 `bin-tests` CI check, and proves the two failure-mode guards actually fire
 rather than silently no-op'ing on a corrupted span. Also pins the exact
 consumer sets of the untrusted-content-is-data (UNTRUSTED_CONTENT_FILES,
-DS-238), shell-portability (SHELL_PORTABILITY_FILES), and worker-shell
-(WORKER_SHELL_FILES) spans, mirroring LEARNINGS_RETRIEVAL_FILES.
+DS-238), shell-portability (SHELL_PORTABILITY_FILES), worker-shell
+(WORKER_SHELL_FILES), and resource-teardown (RESOURCE_TEARDOWN_FILES) spans,
+mirroring LEARNINGS_RETRIEVAL_FILES.
 """
 
 import importlib.util
@@ -105,8 +106,12 @@ class TestFragmentBodyRejectsMarkerLikeStrings(unittest.TestCase):
 # update this map in the same commit as any deliberate span addition or
 # removal.
 EXPECTED_SPAN_IDS = {
-    "architect.md": frozenset({"learnings-retrieval", "shell-portability"}),
-    "debugger.md": frozenset({"learnings-retrieval", "untrusted-content-is-data"}),
+    "architect.md": frozenset(
+        {"learnings-retrieval", "resource-teardown", "shell-portability"}
+    ),
+    "debugger.md": frozenset(
+        {"learnings-retrieval", "resource-teardown", "untrusted-content-is-data"}
+    ),
     "engineer.md": frozenset(
         {
             "async-primitive-list",
@@ -114,16 +119,27 @@ EXPECTED_SPAN_IDS = {
             "identifier-type-list",
             "learnings-retrieval",
             "rename-exemption-clause",
+            "resource-teardown",
             "shell-portability",
             "test-file-glob-list",
             "worker-shell",
         }
     ),
     "investigator.md": frozenset(
-        {"learnings-retrieval", "shell-portability", "untrusted-content-is-data"}
+        {
+            "learnings-retrieval",
+            "resource-teardown",
+            "shell-portability",
+            "untrusted-content-is-data",
+        }
     ),
     "qa-engineer.md": frozenset(
-        {"shell-portability", "untrusted-content-is-data", "worker-shell"}
+        {
+            "resource-teardown",
+            "shell-portability",
+            "untrusted-content-is-data",
+            "worker-shell",
+        }
     ),
     # skeptic.md deliberately carries NO learnings-retrieval span: wiring
     # retrieval into the Skeptic was cut on independence grounds (DS-223
@@ -134,6 +150,7 @@ EXPECTED_SPAN_IDS = {
             "identifier-rename-trigger",
             "identifier-type-list",
             "rename-exemption-clause",
+            "resource-teardown",
             "shell-portability",
             "test-file-glob-list",
         }
@@ -155,13 +172,23 @@ UNTRUSTED_CONTENT_FILES = frozenset(
     {"debugger.md", "investigator.md", "qa-engineer.md"}
 )
 
-# The exact sets of agent files that must carry the shell-portability and
-# worker-shell spans. Pinned separately from EXPECTED_SPAN_IDS for the same
+# The exact sets of agent files that must carry the shell-portability,
+# worker-shell, and resource-teardown spans. Pinned separately from EXPECTED_SPAN_IDS for the same
 # leak-visibility reason as LEARNINGS_RETRIEVAL_FILES above.
 SHELL_PORTABILITY_FILES = frozenset(
     {"architect.md", "engineer.md", "investigator.md", "qa-engineer.md", "skeptic.md"}
 )
 WORKER_SHELL_FILES = frozenset({"engineer.md", "qa-engineer.md"})
+RESOURCE_TEARDOWN_FILES = frozenset(
+    {
+        "architect.md",
+        "debugger.md",
+        "engineer.md",
+        "investigator.md",
+        "qa-engineer.md",
+        "skeptic.md",
+    }
+)
 
 
 class TestLiveTreeIsStamped(unittest.TestCase):
@@ -280,6 +307,9 @@ class TestLiveTreeIsStamped(unittest.TestCase):
 
     def test_worker_shell_span_file_set_over_full_glob(self):
         self._assert_span_file_set("worker-shell", WORKER_SHELL_FILES)
+
+    def test_resource_teardown_span_file_set_over_full_glob(self):
+        self._assert_span_file_set("resource-teardown", RESOURCE_TEARDOWN_FILES)
 
     def test_learnings_retrieval_fragment_preserves_silent_degradation(self):
         """The retrieval instruction must stay a silent no-op when there is
