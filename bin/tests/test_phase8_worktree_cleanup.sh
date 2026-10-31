@@ -387,6 +387,34 @@ assert $? "scenario 11: feature commit reported as nothing to commit"
 assert $? "scenario 11: engineer worktree retired"
 
 # --------------------------------------------------------------------------
+# Scenarios 12-13: sequential path ($REPO on the PR branch) with a pathspec
+# typo -> the add aborts, so the change must not be silently dropped: exit 3,
+# origin unchanged, never push=verified.
+# --------------------------------------------------------------------------
+for CASE in "12:a.txtt" "13:a.txt typo.txt"; do
+  N="${CASE%%:*}"
+  FILES="${CASE#*:}"
+  echo ""
+  echo "== Scenario $N: sequential path, pathspec typo ($FILES) -> exit 3 =="
+  REPON="$(build_repo "scenario$N")"
+  BRANCHN="feature/scenario-$N"
+  git -C "$REPON" checkout -q -b "$BRANCHN"
+  git -C "$REPON" push -q -u origin "$BRANCHN"
+  ORIGINN_TIP="$(git -C "$REPON" rev-parse "origin/$BRANCHN")"
+  echo change > "$REPON/a.txt"
+  read -r -a FILEARR <<< "$FILES"
+  OUTN="$(run_block "$REPON" "$BRANCHN" --message "feat: add a" -- "${FILEARR[@]}" 2>&1)"
+  RCN=$?
+  [ "$RCN" -eq 3 ]
+  assert $? "scenario $N: CLI exits 3, got $RCN"
+  echo "$OUTN" | grep -q "push=verified"
+  [ $? -ne 0 ]
+  assert $? "scenario $N: never reports push=verified"
+  [ "$(git ls-remote "$SCRATCH/scenario$N-origin.git" "refs/heads/$BRANCHN" | cut -f1)" = "$ORIGINN_TIP" ]
+  assert $? "scenario $N: origin branch unchanged"
+done
+
+# --------------------------------------------------------------------------
 # Summary
 # --------------------------------------------------------------------------
 echo ""

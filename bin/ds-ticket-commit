@@ -7,17 +7,28 @@
 #          worktree. The `@harness:phase8-commit-and-telemetry` region below
 #          is the block that used to sit in
 #          content/commands/ds-implement-ticket.md, moved so it runs as code
-#          instead of being retyped by the conductor. It differs from that
-#          block in four places: files and message arrive as arguments
-#          instead of template placeholders, a feature commit that fails with
-#          changes staged stops the run, the push is verified, and an
-#          unverified push holds the worktree instead of retiring it.
+#          instead of being retyped by the conductor. Differences from that
+#          block:
+#          - files and message arrive as arguments, not template placeholders;
+#          - no files, or files that stage nothing while the commit checkout
+#            is off the PR branch, skip the feature commit with a breadcrumb;
+#          - a failed `git add` on the PR branch, or a commit that fails with
+#            changes staged, stops the run before telemetry, push and cleanup;
+#          - the telemetry commit is skipped when the feature commit failed;
+#          - the push is verified (origin holds the local tip);
+#          - an unverified push holds a carrier worktree explicitly instead of
+#            retiring it, and a hold that cannot be recorded prints an ERROR;
+#          - the sequential path (branch checked out in R) prints a
+#            `[phase: worktree-cleanup | none | ...]` breadcrumb;
+#          - a missing bin/ds-resolve-worktree prints a WARNING, and an
+#            unverified push with no worktree found prints "no BLOCKED hold
+#            recorded".
 #          Catches: conductors skipping Phase 8 steps (2026-10 reach: telemetry
 #          commit 0% of real sessions). Retires: per the lean plan the script
 #          stays even if the lean command is reverted; drop it only if the
-#          post-adoption reach audit of the first 20 lean sessions shows the
-#          scripted steps still unreached (base sync below 90%), i.e. the
-#          script does not get them run.
+#          post-adoption reach audit of the first 20 lean sessions shows its
+#          own steps still unreached - telemetry commits and verified pushes
+#          absent from those sessions - i.e. the script does not get them run.
 #
 # Public API:
 #   ds-ticket-commit --repo R --branch B [--worktree-path W]
@@ -29,19 +40,21 @@
 #     M  commit subject and body; the script appends the Developer and
 #        Signed-off-by trailers. Required when FILEs are given.
 #     FILE  paths to stage for the feature commit (never `-A`), passed only
-#        on the sequential path where the conductor commits in R. With none,
-#        or when they stage nothing (the engineer already committed in its
-#        own worktree), the feature commit is skipped and telemetry, push and
-#        cleanup run.
+#        where the conductor commits on the PR branch (sequential path in R,
+#        parallel fixups in I). With none, or when the commit checkout is off
+#        the PR branch and they stage nothing (the engineer already committed
+#        in its own worktree), the feature commit is skipped and telemetry,
+#        push and cleanup run.
 #   Inputs come only from flags: same-named environment variables are
 #   unset first and never read.
 #   Exit codes: 0 pushed and verified (origin holds the local tip);
 #   1 push failed or unverified (a carrier worktree gets an explicit
 #   "BLOCKED: unpushed commit" hold; on the sequential path the branch is
 #   checked out in R itself and no hold is recorded); 2 usage error or R
-#   not enterable; 3 feature commit failed with changes staged (a
-#   rejecting hook, missing identity, or a git error) - nothing pushed,
-#   nothing retired, the change left staged in the commit checkout.
+#   not enterable; 3 feature commit failed - `git add` failed with the
+#   commit checkout on the PR branch (an unmatched pathspec aborts the
+#   whole add), or the commit failed with changes staged (a rejecting hook,
+#   missing identity, or a git error) - nothing pushed, nothing retired.
 #   A worktree that ds-retire-carrier holds (its exit 3) prints a
 #   `[phase: worktree-cleanup | HELD | ...]` line and never changes the
 #   exit code.
@@ -128,6 +141,12 @@ SO_EMAIL=$(git -C "$COMMIT_CHECKOUT" config user.email 2>/dev/null || git config
 
 if [ "$#" -eq 0 ]; then
   echo "[phase: commit | feature-commit=skipped | reason=no files given]"
+elif [ "$FEATURE_ADD_RC" -ne 0 ] \
+     && [ "$(git -C "$COMMIT_CHECKOUT" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH_NAME" ]; then
+  # The checkout is on the PR branch, so these files were meant to be committed
+  # here; one unmatched pathspec aborts the whole add and would drop the change.
+  echo "ERROR: git add failed (exit $FEATURE_ADD_RC) on $BRANCH_NAME for pathspec(s): $* - feature commit not made."
+  FEATURE_COMMIT_FAILED=true
 elif git -C "$COMMIT_CHECKOUT" diff --cached --quiet; then
   # Nothing staged: the work is already committed (often in the engineer's own
   # worktree, where these paths do not exist in $COMMIT_CHECKOUT). Not a failure.
