@@ -8189,7 +8189,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 5. **Primary agent spawns a new Worker** with:
    - The original task
-   - The Skeptic's findings
+   - The Skeptic's findings, verbatim, never a prescribed design
    - The prior Worker's output (for context)
    - The session context
 
@@ -8382,7 +8382,7 @@ A Skeptic comparing a PR against a base branch MUST work from a live, synchroniz
 
 **Required approach:** Use `gh pr diff <n>` or `gh pr view <n> --json files,headRefName,baseRefName` to obtain the canonical PR diff. If using local git, run `git fetch origin <base> <head>` first and diff fully-qualified remote refs (`origin/<base>..origin/<head>`) - never `main..HEAD` or `FETCH_HEAD` unless you have just fetched and confirmed the ref resolves to the expected commit.
 
-**Commit-SHA attestation (when reviewing a PR against a base branch):** When the Skeptic is reviewing a PR diff - not an inline/non-PR worktree diff - it MUST state the head commit SHA and base commit SHA it reviewed. Unified format: `Reviewed: <base-sha>..<head-sha> - [files/components examined]`. The conductor confirms these match the live PR before acting on the findings. A Skeptic output that omits the SHA range on a PR review is treated as unverified and the conductor re-spawns with explicit instructions to include it. For inline/non-PR reviews (the common `/ds-implement-ticket` worktree case), the standard `Reviewed: [files/components examined]` form is used; the Skeptic MAY optionally include the commit SHA(s) under review.
+**Commit-SHA attestation (when reviewing a PR against a base branch):** When the Skeptic is reviewing a PR diff - not an inline/non-PR worktree diff - it MUST state the head commit SHA and base commit SHA it reviewed. Unified format: `Reviewed: <base-sha>..<head-sha> - ` followed by the Section 11 `Reviewed:` slots. The conductor confirms these match the live PR before acting on the findings. A Skeptic output that omits the SHA range on a PR review is treated as unverified and the conductor re-spawns with explicit instructions to include it. For inline/non-PR reviews (the common `/ds-implement-ticket` worktree case), the Section 11 `Reviewed:` form is used; the Skeptic MAY optionally include the commit SHA(s) under review.
 
 ### Skeptic Step 0 - Input validation (BLOCKED on incomplete inputs)
 
@@ -8401,7 +8401,7 @@ BLOCKED - Global-context input set incomplete: <missing or invalid fields listed
 
 No review content follows the BLOCKED line. The Skeptic does NOT produce findings, a "Reviewed:" line, or a sign-off.
 
-**Falsity discovered after Step 0.** Step 0's checks run at spawn-brief validation time, before any artifact is read. If a rationale passes Step 0 and the Skeptic later discovers, from the diff or the plan, that it was factually false for the unit under review, the disposition is a **finding, never a retroactive BLOCKED** - BLOCKED carries no findings and would discard review work already completed. Complete the review, then raise it: **Major** by default, and **Critical** when the false rationale caused a required artifact to go unread (e.g. field 1 carried `n/a` so the architect plan was never read, making the step-3 API/interface compliance check unperformable - that check is then not merely failed but unattempted). Withhold sign-off, and in the resolution list name the corrected field value the conductor must supply on re-spawn. State explicitly in the finding that the corrective action is a **conductor-side spawn-brief correction, not an engineer code change** - routing this finding to an engineer cannot resolve it, because the false value lives in the spawn prompt and not in the diff.
+**Falsity discovered after Step 0.** Step 0's checks run at spawn-brief validation time, before any artifact is read. If a rationale passes Step 0 and the Skeptic later discovers, from the diff or the plan, that it was factually false for the unit under review, the disposition is a **finding, never a retroactive BLOCKED** - BLOCKED carries no findings and would discard review work already completed. Complete the review, then raise it: **Major** by default, and **Critical** when the false rationale caused a required artifact to go unread (e.g. field 1 carried `n/a` so the architect plan was never read, making the step-3 API/interface compliance check unperformable - that check is then not merely failed but unattempted). Withhold sign-off, and in the resolution list name the field's true value. State explicitly in the finding that the defect lives in the **spawn prompt, not the diff** - routing it to an engineer cannot resolve it.
 
 **BLOCKED return semantics for the conductor:**
 
@@ -8540,7 +8540,7 @@ The number of permitted Skeptic rounds scales with task complexity:
 
 **5. Self-inflicted-round rule.** Nothing distinguishes, by default, a round that found a pre-existing defect from a round whose finding is a direct consequence of the immediately-prior round's own fix diff - a self-inflicted round. A single session ran three of these back to back: a cosmetic guard added to satisfy round N's finding created a new Critical in round N+1; a docstring guarantee shipped in round N was falsified by the Skeptic's own re-read in round N+1; a fabricated explanation for an observed failure shipped in round N and was corrected in round N+1. All three were pure loss - cost spent repairing damage the loop itself introduced, not verifying pre-existing risk. Before spawning round N+1, the conductor states explicitly whether the round's finding is self-inflicted (a direct consequence of round N's fix diff) or pre-existing (present before round N's fix). **Two consecutive self-inflicted rounds is an automatic escalate** - not another spend, and not counted against the round-budget cap as a normal round: it is diagnostic evidence that the fix approach itself is unstable and needs human arbitration, exactly as a convergence failure (`content/sections/05-qa-gate.md` §Convergence failure) does.
 
-**6. Continue-vs-reshape signal.** Before spawning round N+1, compare round N's findings to round N-1's by severity and site, not by count alone. Falling severity across rounds at novel sites is convergence and justifies continuing under item 1's normal per-round accounting. Constant severity with the same defect class relocating - the same kind of finding reappearing at a different site rather than resolving - means the artifact itself needs reshaping: stop spending rounds on another pass of the same review shape and change what is being reviewed (the plan, the test, the enforcement mechanism itself), not who reviews it. When neither pattern clearly holds - severity is mixed, or too few rounds exist to compare - default to convergence (continue), and let item 1's round cap and ship-or-escalate branch be the backstop if the ambiguity persists to the cap. When round N's Major is the same defect class as a round N-1 Major at a new site, or a human reviewer requests changes (each comment a class; "there might be more" makes the sweep whole-diff), the next fix-pass brief names the class and directs the engineer to find every instance (a grep, or a test exercising the class; on a third-or-later round item 7 applies, so remove the surface rather than add a test) and fix them all. Uncited instances are in scope for that pass, and the engineer's return lists the ones it fixed.
+**6. Continue-vs-reshape signal.** Before spawning round N+1, compare round N's findings to round N-1's by severity and site, not by count alone. Falling severity across rounds at novel sites is convergence and justifies continuing under item 1's normal per-round accounting. Constant severity with the same defect class relocating - the same kind of finding reappearing at a different site rather than resolving - means the artifact itself needs reshaping: stop spending rounds on another pass of the same review shape and change what is being reviewed (the plan, the test, the enforcement mechanism itself), not who reviews it. When neither pattern clearly holds - severity is mixed, or too few rounds exist to compare - default to convergence (continue), and let item 1's round cap and ship-or-escalate branch be the backstop if the ambiguity persists to the cap. Each Skeptic Critical or Major description states the invariant it breaks and a `check:` command or repro (Section 11). For every Critical or Major, and whenever a human reviewer requests changes (each comment a class; "there might be more" makes the sweep whole-diff), the next fix-pass brief passes the findings verbatim, never a prescribed design, names the class, and directs the engineer to find every instance (a grep, or a test exercising the class; on a third-or-later round item 7 applies, so remove the surface rather than add a test) and fix them all. Uncited instances are in scope for that pass; the engineer's return lists the ones it fixed and reports each finding's re-run check as exit status and a one-line result (`content/agents/engineer.md` §Rules, Fix passes).
 
 **7. Subtract surface on a third-or-later fix round.** When a fix round is the third or later on the same unit, the fix-round brief instructs the engineer to REMOVE redundant surface rather than add coverage for it. Four consecutive rounds on one unit each added surface that became the next round's defect site until subtraction broke the pattern (KNW-20260827-016). Fix-round briefs point here; they do not restate this rule. Under the default cap of 3 in item 1, a fourth-or-later round is reached only via an operator grant at the cap (item 1), never by continuing the loop.
 
@@ -8552,7 +8552,7 @@ When a round's only unresolved finding is a `Blocking-minor:`-routed prose-only 
 
 **Precedence with the cognitive-surrender audit note (§Cognitive surrender check below):** in a scoped round, the audit note's "independently re-read end-to-end" requirement applies to the scoped unit (the changed prose lines plus the enclosing comment block/section/header), not the whole diff. If the rubber-stamp trigger (two-iteration clean agreement) fires while a scoped round is active, the full-pass obligation wins - the Skeptic runs a full adversarial pass, not a second scoped one.
 
-**Recurrence rule.** On the second occurrence of a count/enumeration-staleness finding against the same file, the recommended fix is deleting or de-numeralizing the claim rather than re-correcting the number - a narrower restatement of a stale claim re-asserts the same drift-prone shape, while deletion ends the class. This is the default expectation for both the engineer and the Skeptic, not a hard mandate.
+**Recurrence rule.** On the second occurrence of a count/enumeration-staleness finding against the same file, the engineer's default fix is deleting or de-numeralizing the claim rather than re-correcting the number - a narrower restatement re-asserts the same drift-prone shape, while deletion ends the class.
 
 ### Worker decomposition rule
 
@@ -8806,11 +8806,11 @@ The verdict line comes FIRST (see `content/agents/skeptic.md` §Sign-off format,
 ```
 No unresolved Critical or Major findings. Sign-off granted.
 Findings: Critical: N, Major: N, Minor: N
-[Each finding on its own line: Critical - description (file:line or region)]
+[Each finding on its own line, never prescribing a fix: Critical - description; check: command or repro the fix round re-runs (file:line or region)]
 If all counts are zero, write instead: Findings: No findings.
 [If any Minor finding is a spec-deviation downgrade, include the three-criterion "Spec deviation downgrade justification" block here - see format below]
-Reviewed: [files/components examined]
-  (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
+Reviewed: [files/components examined]; rule files: [step 5.5, omit if none]; receipts: [patterns and hit counts; this slot alone max 600 chars]
+  (For PR reviews: Reviewed: <base-sha>..<head-sha> - [same as above])
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 Neutrality check: [pass | N steer(s) found (listed above)]
@@ -10143,7 +10143,7 @@ summary:
 - **Shape 3** (fixed literal-line template): `skeptic.md` and
   `goal-condition-evaluator.md` are both fully compliant. `skeptic.md`:
   Unit 1 added one narrow, additive cap declaration on finding-description
-  length (300 chars) to the Calibration section, without altering,
+  length (now 400 chars) to the Calibration section, without altering,
   retagging, or restructuring any of its six conductor-validated Sign-off
   format lines. `goal-condition-evaluator.md` (final unit): its second
   template's Evidence value is now `"evaluator-error: <one-line reason>"`
@@ -13203,6 +13203,8 @@ Schema (YAML shown; equivalent JSON is acceptable):
 ```yaml
 status: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
 task_id: <id, or null>                # echoed from execution contract; null on single-unit
+fix_pass: |                           # fix passes only, else omit; max 1200 chars, check results first
+  <per finding: check exit status and one-line result; then the Fix passes rule's sweep, protection, wiring>
 files_modified:
   - path: <repo-relative path>
     change: created | modified | deleted | renamed
@@ -13233,6 +13235,7 @@ JSON-Schema fragment (informative; the conductor uses this to validate):
   "properties": {
     "status": { "enum": ["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"] },
     "task_id": { "type": ["string", "null"] },
+    "fix_pass": { "type": "string", "maxLength": 1200 },
     "files_modified": {
       "type": "array",
       "items": {
@@ -13294,6 +13297,7 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
 - **Regression discipline.** Two symmetric obligations apply when fixing a flagged failure mode:
   - When fixing a Critical or Major behavior-defect Skeptic finding: add a regression test that fails without the fix, per `~/DinoStack/.claude/skills/dinostack/references/regression-test-obligation.md`. The test is the claim - do not narrate it.
   - When fixing a qa-engineer FAIL: see `~/DinoStack/.claude/skills/dinostack/references/qa-regression-obligation.md` for the symmetric obligation, including the documented-exception path via `.agentic/qa-regressions.md` when a regression test is genuinely infeasible.
+- **Fix passes.** When fixing review findings, design the fix yourself from each finding, its invariant, and its check, preferring the fix that deletes or narrows; a fix that adds a rule or mechanism states why deletion would not work. In the `fix_pass` field: for each finding that carries a `check:`, its re-run exit status and a one-line result; then, for each fix, every consumer and sibling site of the changed identifier or rule (grep pattern and hit count); what the replaced code or text protected and how the fix still protects it; and each procedure, test, or doc that must reference any rule the fix adds (wired, or not needed and why).
 - **Capture learnings in flight.** The shard CLI is your capture path - `engineer` is one of the four roles the reference names, and your contract permits mutating commands: record each learning the moment it occurs via `ds-learning-shard append`, and also populate `learnings_candidate[]` in your return digest. What counts as a learning, the exact invocation, the field shape, the cap, and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. You do not pre-filter for importance; the conductor routes entries through the guardrail-first gate before forwarding to `learnings-agent`.
 - <!-- shared:shell-portability -->Your shell may be zsh: quote any argument that starts with `=` (`echo '==='`) or contains a glob meant for the command rather than the shell (`--include='*.ts'`), and do not define shell functions (a short name can collide with an alias).<!-- /shared -->
 - <!-- shared:resource-teardown -->Before returning, on every exit path, close what you opened: each `agent-browser` session you opened with a unique `--session <name>`, closed by that name only (never `close --all`, never the default session), each chrome-devtools page you created (`close_page`; never one you did not open), each background process you started (save `$!` at launch, kill that pid), each temp dir (`d=$(mktemp -d)`, then `find "${d:?}" -depth -delete`; a `trap` fires at the end of that one Bash call, so use it only for single-command dirs). Shell variables do not survive between Bash calls, so print each temp dir path and pid when you create it and use those literal values in the teardown call. Keep what a later step reads and name it in your return. See worktree-lifecycle.md §Agent-spawned process lifetime ownership.<!-- /shared -->
@@ -16043,7 +16047,7 @@ Your spawn prompt will contain four things:
 - **Field-completeness check:** all 7 fields of the `## Global-context inputs` block are present.
 - **`n/a`-rationale check:** every `n/a` value carries a specific reason after `n/a - `. BLOCK on a bare `n/a`, a vacuous rationale, or one factually false for the unit under review. A truthful, specific rationale outside the canonical list in `content/references/skeptic-protocol.md` Section 4.5 is valid and must not be BLOCKED on that basis alone.
 - When the diff under review amends Section 4.5 itself - the enumerated set, the Step 0 checks, or any other validation rule there - validate every field against the branch's copy of that section, not your installed one.
-- If you later discover from the artifacts that a rationale which passed this check was false, do NOT return BLOCKED - complete the review and raise it as a finding (Major; Critical when it caused a required artifact to go unread), noting that the fix is a conductor-side spawn-brief correction rather than an engineer code change, and naming the corrected value. See `content/references/skeptic-protocol.md` Section 4.5 "Falsity discovered after Step 0".
+- If you later discover from the artifacts that a rationale which passed this check was false, do NOT return BLOCKED - complete the review and raise it as a finding (Major; Critical when it caused a required artifact to go unread), noting that the defect is in the conductor's spawn brief, not the engineer's code, and naming the true value. See `content/references/skeptic-protocol.md` Section 4.5 "Falsity discovered after Step 0".
 
 If the field-completeness check or the `n/a`-rationale check fails, return immediately with:
 ```
@@ -16092,6 +16096,7 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
 4.5. **Cross-file reference-consistency check.** When the diff <!-- shared:identifier-rename-trigger -->renames, removes, or reshapes an identifier that other parts of the repository could reference by name<!-- /shared --> - <!-- shared:identifier-type-list -->a config key, environment variable, exported symbol, database column, API field, or route name<!-- /shared --> - do not conclude the change is complete because the calling code compiles or the colocated test passes. Actively search the full repository (not just the files in the diff) for the OLD identifier: shipped config/fixture files (YAML/TOML/JSON/env), IaC/deploy manifests (Helm values, Terraform, Docker Compose), and documentation that names the identifier. A remaining reference to the old name in a file the diff did not touch is a **Critical** finding when it causes a runtime failure reachable from a normal code path (e.g. a KeyError/undefined lookup at startup or on the hot path), and a **Major** finding when it causes silent drift without an immediate crash (stale docs, a config override that no longer applies). Do not rely on the Worker's own output to enumerate which other files reference the identifier - the Worker's self-report is not evidence of completeness; verify independently. This does not apply to <!-- shared:rename-exemption-clause -->purely local variable or parameter renames that nothing outside the function can reference<!-- /shared --> - those are style, not a consistency risk.
 4.6. **Async error-handling check.** For any diff that invokes <!-- shared:async-primitive-list -->an async function, Promise, goroutine, or background task without the caller awaiting or otherwise observing its outcome<!-- /shared --> ("fire-and-forget"), verify there is an explicit failure path: a `.catch()`/`try-catch` attached at the call site, or a documented supervisor/queue that owns the task's lifecycle and surfaces its errors (log, metric, error reporter). A fire-and-forget call with no attached error handler is a **Major** finding regardless of whether the existing test suite and typecheck pass - unhandled rejections are invisible to `tsc`/`mypy` and to unit tests that only assert the happy path. Do not accept the presence of an unrelated global error handler (a process-level `unhandledRejection` listener, a generic framework error middleware, a top-level Sentry init) as sufficient unless the Worker's output demonstrates that specific call site is wired into it - a global catch-all that merely logs and continues is observability, not resolution, and does not by itself downgrade the finding.
 5. Search broadly for other Critical or Major issues beyond what the brief explicitly names.
+5.5. **Sweep receipts.** Read any `AGENTS.md` or `CLAUDE.md` not already loaded in a touched directory or its ancestors below the repo root (never the root's own or above it), and name them on the `Reviewed:` line when there are any. Its receipts slot (at most 600 chars) backs any claim to have checked every site, form, or caller with the search patterns and hit counts. Check each changed function or procedure step against every caller path and input class it can receive; report only paths with a problem, as findings. Each Critical or Major description names the invariant it breaks and its `check:` (format below; Minors may omit it), and the whole diff is swept for that class (`content/references/skeptic-protocol.md` §Round budget item 6).
 6. **Brief coverage check** - re-read the adversarial brief one more time, concern by concern. For each specific failure mode the brief names, confirm you have either raised a finding for it or can explicitly state you checked and found no issue. Do not let a named concern go unaddressed.
 7. **Per-consumer impact check** - if the per-consumer impact table (field 4) is present and not `n/a`, verify that each consumer row's `new_behavior` is reflected in the diff. A consumer row whose `new_behavior` is not addressed by the Worker is a **Major** finding unless the architect plan explicitly defers it. Do not accept the table's row count as complete: before applying this check, independently re-derive the consumer set (Grep/Glob for the changed symbol, utility, or shared path) and diff it against the table. A table that omits a real consumer is itself a **Minor** finding (undercounted per-consumer impact table - a plan-artifact defect), in addition to any unaddressed row.
 8. **Prose-scoped re-check (verification-cost lever, not a severity change).** When a round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale code comment, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the NEXT verification is a prose-scoped re-check rather than a full fresh adversarial pass: verify only (a) the changed prose lines against the live tree facts they assert, and (b) that the fix introduced no new false claim anywhere in the enclosing unit - the full comment block for a comment fix, the full containing section or document header for a doc-sync fix - read that unit end to end, not only the changed lines and their immediate context. The reviewer establishes this trigger itself by diffing the fix commit(s) since the last reviewed SHA - engineer self-classification is not evidence. Any hunk that is parsed, executed, or byte-pinned by a test or hook (embedded command, grep pattern, frontmatter, hook-read docstring, golden-pinned block) counts as a behavior change and disqualifies the lever. The reviewer may always elect a full pass. A code, test, or behavior finding newly discovered during this narrower pass is classified and escalated normally - it is not suppressed by the narrower scope. This does not apply while any code/test/behavior finding remains unresolved. See `content/references/skeptic-protocol.md` §Prose-scoped re-check for the round-loop mechanics, invocation contract, and required sign-off `Scope:` line this modifies.
@@ -16114,7 +16119,7 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
     - **Test file path or test function name:** if it does not appear anywhere in the diff and does not exist in the repository, this is **fabricated evidence**, not merely an unverifiable claim. Raise exactly ONE finding for it, and raise it as **Critical** - never Major, never Minor, and never as a second, separately-numbered finding restating the same fabrication: `Fabricated raw output - claimed test [file/name] does not exist in the diff or repository; the transcript describes an execution that could not have happened.` This is an integrity violation, not a missing-test gap - it supersedes and subsumes any missing-test-without-explanation concern (Step 9) for the same artifact, including Step 9's "Regression test unverified" Major - do not additionally raise Step 9's missing-regression-test Major or its "Regression test unverified" Major for the identical fabricated test. If sign-off is withheld, reference this Critical finding by name in the resolution list, retaining its `- Critical:` prefix there (the "Sign-off format" section's resolution list below requires the classification prefix on every entry) - do not re-emit it as a second, separately-numbered `Critical -`/`Major -`/`Minor -`-prefixed finding bullet earlier in the findings list.
     - **Specific assertion result or specific log line:** these are not independently cross-checkable against the diff or repository the way a named file or function is - a legitimate passing assertion or log line may appear nowhere else in the repo. Do not apply the fabrication rule to these. Instead, apply the internal-consistency rule: a raw output that is internally inconsistent with its own enum claim (e.g. `smoke_test: pass` but the pasted output shows a failure, a `pass` whose output shows zero files or tests checked or reports its inputs ignored, or a referenced assertion result or log line that contradicts the claimed outcome, or paths that don't correspond to anything in the diff) is at minimum a **Major** finding, and Critical if it masks a real failure.
     - This scrutiny is triggered by a specific, checkable artifact reference, not by the mere presence of prose - if nothing concrete is named, there is nothing to spot-check and no finding is warranted on this basis alone.
-13. Check the resolved issues preflight - determine from the diff whether each listed finding is now resolved, and when you re-raise one, say which prior finding it is rather than presenting it as new. An `H<n>` entry is resolved only when no instance of its concern remains anywhere in the diff; a remaining instance is at least **Major**, taking precedence over any Minor tier, Calibration included.
+13. Check the resolved issues preflight - determine from the diff whether each listed finding is now resolved, re-running its `check:` before marking it CLOSED, and when you re-raise one, say which prior finding it is rather than presenting it as new. An `H<n>` entry is resolved only when no instance of its concern remains anywhere in the diff; a remaining instance is at least **Major**, taking precedence over any Minor tier, Calibration included.
 14. Write your findings using the sign-off format below.
 
 ## Sign-off format
@@ -16126,10 +16131,10 @@ The verdict line comes FIRST - it is the one piece of information every reader o
 ```
 No unresolved Critical or Major findings. Sign-off granted.
 Findings: Critical: N, Major: N, Minor: N
-[Each finding on its own line: Critical - description (file:line or region)]
+[Each finding on its own line, never prescribing a fix: Critical - description; check: command or repro the fix round re-runs (file:line or region)]
 If all counts are zero, write instead: Findings: No findings.
-Reviewed: [files/components examined]
-  (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
+Reviewed: [files/components examined]; rule files: [step 5.5, omit if none]; receipts: [patterns and hit counts; this slot alone max 600 chars]
+  (For PR reviews: Reviewed: <base-sha>..<head-sha> - [same as above])
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 Neutrality check: [pass | N steer(s) found (listed above)]
@@ -16170,10 +16175,10 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 - Only classify as Critical or Major what would cause real problems in production, violates the stated requirements, or exceeds them per step 3.8.
 - Style preferences, non-critical naming choices, and minor documentation gaps belong in Minor.
 - The goal is to catch genuine problems, not to find something to flag. "Looks fine but could be improved" is a Minor, not a Major.
-- A suggestion whose fix adds work beyond the acceptance criteria (a hypothetical scenario, extra hardening, a test or guard nothing requires, or a guard whose finding names no input or call sequence reaching the failure) is Minor, its description starting `Beyond AC:`; it never blocks and the conductor records it as deferred. A defect in what the diff does, or a standing-check finding (steps 4.6, 10, 10.5, 11.5), is never `Beyond AC:`.
+- A finding asking for work beyond the acceptance criteria (a hypothetical scenario, extra hardening, a test or guard nothing requires, or a guard whose finding names no input or call sequence reaching the failure) is Minor, its description starting `Beyond AC:`; it never blocks and the conductor records it as deferred. A defect in what the diff does, or a standing-check finding (steps 4.6, 10, 10.5, 11.5), is never `Beyond AC:`.
 - **Unnecessary abstraction:** flag concrete complexity or maintenance costs from speculative helpers, wrappers, or configuration layers under `content/rules/code-standards.md` §DRY and Abstraction. Do not demand work for hypothetical future scenarios or infer a defect from caller count or export status alone.
 - **Paperwork findings are Minor.** Doc-sync drift and a new test file with no matching CI invocation (Step 11.5) are both **Minor** - the checks still run and every gap is still listed, but none of them blocks sign-off by default. A paperwork gap that would mislead a caller on a correctness or security path stays Minor and is routed through the `Blocking-minor:` sign-off line. Report the CI-wiring result via the `Test-CI-wiring check:` sign-off line.
-- **Finding-description length:** cap each per-finding description (the `[CLASSIFICATION] - description (file:line or region)` text in the Findings list) at 300 chars. This is additive scope guidance only - it does not alter, retag, or restructure any of the six conductor-validated Sign-off format lines in the section above (`content/references/subagent-return-contract.md` Shape 3).
+- **Finding-description length:** cap each per-finding description (the `[CLASSIFICATION] - description; check: <command or repro> (file:line or region)` text in the Findings list, check included) at 400 chars. This is additive scope guidance only - it does not alter, retag, or restructure any of the six conductor-validated Sign-off format lines in the section above (`content/references/subagent-return-contract.md` Shape 3).
 
 ## Rules
 
@@ -20662,7 +20667,7 @@ Emit the inline breadcrumb:
 
 **Loop entry (repeat until termination):**
 
-**Step 1.** Spawn `skeptic` with adversarial brief. When `findings_log` has open or addressed entries, put the "Prior iteration findings" block before the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`. Add the draft PR body free text (Summary bullets, North Star, Test plan - drafted on iteration 1, updated when a round changes what it describes) to the Worker output; Phase 9 uses it. Apply `Comment discipline:` findings whose span is in that draft yourself and mark them `closed`.
+**Step 1.** Spawn `skeptic` with adversarial brief. When `findings_log` has open or addressed entries, put the "Prior iteration findings" block before the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Add the `fix_pass` from `last_engineer_summary`; the Skeptic re-runs each `check:` before marking an entry CLOSED. Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`. Add the draft PR body free text (Summary bullets, North Star, Test plan - drafted on iteration 1, updated when a round changes what it describes) to the Worker output; Phase 9 uses it. Apply `Comment discipline:` findings whose span is in that draft yourself and mark them `closed`.
 
 **Telemetry emit (V1):** Bracket the Skeptic `Agent` tool call with:
 ```
@@ -20692,7 +20697,7 @@ The following findings were raised earlier or by a human review. For each:
 ```
 
 **Step 2.** Receive Skeptic output. Classify findings. Update `findings_log` (durable record - log every finding, every severity, including all-Minor/sign-off rounds):
-- Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `description`, `severity`, `first_raised: <iteration>`, `status: open`.
+- Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `description` (the finding line verbatim, `check:` included), `severity`, `first_raised: <iteration>`, `status: open`.
 - If a finding carries `[PREV: <id>]`, set `re_raised: true` on the matching `findings_log` entry; an entry the Skeptic marks CLOSED, `H<n>` included, becomes `closed`.
 - Minor findings: the conductor marks every `Beyond AC:` Minor `deferred` and may defer any other Minor whose scope exceeds the ticket, except a `Scope drift:` Minor (Step 3 removes those). Deferred Minors do not re-enter the loop and are documented in the PR description. Major findings may NOT be deferred on an Engineer's self-declared say-so; inside the loop, deferral requires either explicit human approval or the round-cap `ship` decision taken per Step 3 - the conductor escalates rather than accepting a self-declared deferral.
 - Overwrite `.agentic/loop-state-$LOOP_KEY.json` with the updated LOOP_STATE.
@@ -20765,10 +20770,10 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 See `content/references/skeptic-protocol.md` Section 14 for the full calibration specification.
 
 **Step 4. Engineer fix pass.** This is round N>=2 of the same branch. Populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. Spawn a fresh `engineer` agent with:
-- The open Critical and Major findings from `findings_log` (status=open), verbatim
+- The open Critical and Major findings from `findings_log` (status=open), verbatim, never a prescribed design
 - The `last_engineer_summary` from the prior iteration
 - Third-or-later round: `skeptic-protocol.md` §Round budget item 7
-- An `H<n>` finding, or a prior round's Major class at a new site: name the class, put every instance in scope for this pass, not only the cited sites, and have the return list fixed sites beyond those cited; this qualifies the two verbatim instructions below (`skeptic-protocol.md` §Round budget item 6)
+- Each open Critical, Major, or `H<n>` finding: name the class, put every instance in scope for this pass, not only the cited sites, and have the return list fixed sites beyond those cited; this qualifies the two verbatim instructions below (`skeptic-protocol.md` §Round budget item 6)
 - **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase, not "the prior engineer changed files X, Y, Z". Paste the prior return summary in full (or, when the prior output was committed code, paste the full diff or list the committed files plus their relevant excerpts). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a Skeptic finding listed below. Each edit you make must trace to a specific finding id."* Rationale: a fresh subagent has no session context, so a brief that says "address findings and return revised outputs" causes the Engineer to regenerate from scratch — producing output that diverges from the scoped change because it has no access to prior-iteration state. Anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes.
 - Instruction: "Address only the findings listed below. Do not expand scope. Do not refactor, rename, or clean up code outside the finding scope. For each finding, confirm in your summary what you changed and why it addresses the finding."
 - The branch name, repo path, and pushed head SHA; never deliver this pass to the prior engineer via `SendMessage` (`content/sections/02-delegation.md`, "Fix passes are fresh spawns")
@@ -20776,7 +20781,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 
 **Telemetry emit (V1):** Bracket the Engineer `Agent` tool call with `ds-emit spawn_start engineer <task_id> ...` before, and `ds-emit spawn_complete engineer <task_id> ...` after - using `ds-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
-**Step 5.** Receive Engineer output.
+**Step 5.** Receive Engineer output; `last_engineer_summary` starts with its `fix_pass`.
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply the missing context (from codebase, session context, or by asking the human) and re-spawn the Engineer with the same findings brief and the added context. Do NOT increment `iteration`. If the conductor cannot supply the context, escalate to the human with the Engineer's stated gap.
 - If `Status: DONE_WITH_CONCERNS`: proceed normally. The Engineer's stated concerns become additional context for the next Skeptic spawn (include them alongside the adversarial brief). Update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Update inline breadcrumb. Go to Step 1.
@@ -23600,6 +23605,8 @@ Spawn a **background general-purpose subagent via the `Agent` tool** with:
 Worker prompt:
 
 ---
+SESSION_KEY: [this session's key, per `content/references/subagent-protocol.md` §11]
+
 You are a Worker agent. Address the Skeptic findings below and return your revised output.
 
 **Original task:** $ARGUMENTS
@@ -23614,6 +23621,8 @@ You are a Worker agent. Address the Skeptic findings below and return your revis
 [Paste accumulated log]
 
 For each Critical or Major finding: fix it, or document a specific reason why it is not a real problem. Return your revised complete output.
+
+Find and fix every instance of each finding's class, re-run each finding's `check:`, and report its exit status plus a one-line result.
 ---
 
 Update the resolved issues preflight list with each addressed finding's identifier and description.

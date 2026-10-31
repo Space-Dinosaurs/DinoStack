@@ -1624,7 +1624,7 @@ Emit the inline breadcrumb:
 
 **Loop entry (repeat until termination):**
 
-**Step 1.** Spawn `skeptic` with adversarial brief. When `findings_log` has open or addressed entries, put the "Prior iteration findings" block before the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`. Add the draft PR body free text (Summary bullets, North Star, Test plan - drafted on iteration 1, updated when a round changes what it describes) to the Worker output; Phase 9 uses it. Apply `Comment discipline:` findings whose span is in that draft yourself and mark them `closed`.
+**Step 1.** Spawn `skeptic` with adversarial brief. When `findings_log` has open or addressed entries, put the "Prior iteration findings" block before the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Add the `fix_pass` from `last_engineer_summary`; the Skeptic re-runs each `check:` before marking an entry CLOSED. Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`. Add the draft PR body free text (Summary bullets, North Star, Test plan - drafted on iteration 1, updated when a round changes what it describes) to the Worker output; Phase 9 uses it. Apply `Comment discipline:` findings whose span is in that draft yourself and mark them `closed`.
 
 **Telemetry emit (V1):** Bracket the Skeptic `spawn_agent` tool call with:
 ```
@@ -1654,7 +1654,7 @@ The following findings were raised earlier or by a human review. For each:
 ```
 
 **Step 2.** Receive Skeptic output. Classify findings. Update `findings_log` (durable record - log every finding, every severity, including all-Minor/sign-off rounds):
-- Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `description`, `severity`, `first_raised: <iteration>`, `status: open`.
+- Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `description` (the finding line verbatim, `check:` included), `severity`, `first_raised: <iteration>`, `status: open`.
 - If a finding carries `[PREV: <id>]`, set `re_raised: true` on the matching `findings_log` entry; an entry the Skeptic marks CLOSED, `H<n>` included, becomes `closed`.
 - Minor findings: the conductor marks every `Beyond AC:` Minor `deferred` and may defer any other Minor whose scope exceeds the ticket, except a `Scope drift:` Minor (Step 3 removes those). Deferred Minors do not re-enter the loop and are documented in the PR description. Major findings may NOT be deferred on an Engineer's self-declared say-so; inside the loop, deferral requires either explicit human approval or the round-cap `ship` decision taken per Step 3 - the conductor escalates rather than accepting a self-declared deferral.
 - Overwrite `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` with the updated LOOP_STATE.
@@ -1727,10 +1727,10 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 See `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 14 for the full calibration specification.
 
 **Step 4. Engineer fix pass.** This is round N>=2 of the same branch. Populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. Spawn a fresh `engineer` agent with:
-- The open Critical and Major findings from `findings_log` (status=open), verbatim
+- The open Critical and Major findings from `findings_log` (status=open), verbatim, never a prescribed design
 - The `last_engineer_summary` from the prior iteration
 - Third-or-later round: `skeptic-protocol.md` §Round budget item 7
-- An `H<n>` finding, or a prior round's Major class at a new site: name the class, put every instance in scope for this pass, not only the cited sites, and have the return list fixed sites beyond those cited; this qualifies the two verbatim instructions below (`skeptic-protocol.md` §Round budget item 6)
+- Each open Critical, Major, or `H<n>` finding: name the class, put every instance in scope for this pass, not only the cited sites, and have the return list fixed sites beyond those cited; this qualifies the two verbatim instructions below (`skeptic-protocol.md` §Round budget item 6)
 - **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase, not "the prior engineer changed files X, Y, Z". Paste the prior return summary in full (or, when the prior output was committed code, paste the full diff or list the committed files plus their relevant excerpts). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a Skeptic finding listed below. Each edit you make must trace to a specific finding id."* Rationale: a fresh subagent has no session context, so a brief that says "address findings and return revised outputs" causes the Engineer to regenerate from scratch — producing output that diverges from the scoped change because it has no access to prior-iteration state. Anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes.
 - Instruction: "Address only the findings listed below. Do not expand scope. Do not refactor, rename, or clean up code outside the finding scope. For each finding, confirm in your summary what you changed and why it addresses the finding."
 - The branch name, repo path, and pushed head SHA; never deliver this pass to the prior engineer via `SendMessage` (`$AE_REPO_DIR/content/sections/02-delegation.md`, "Fix passes are fresh spawns")
@@ -1738,7 +1738,7 @@ See `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 14 for the ful
 
 **Telemetry emit (V1):** Bracket the Engineer `spawn_agent` tool call with `ds-emit spawn_start engineer <task_id> ...` before, and `ds-emit spawn_complete engineer <task_id> ...` after - using `ds-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
-**Step 5.** Receive Engineer output.
+**Step 5.** Receive Engineer output; `last_engineer_summary` starts with its `fix_pass`.
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply the missing context (from codebase, session context, or by asking the human) and re-spawn the Engineer with the same findings brief and the added context. Do NOT increment `iteration`. If the conductor cannot supply the context, escalate to the human with the Engineer's stated gap.
 - If `Status: DONE_WITH_CONCERNS`: proceed normally. The Engineer's stated concerns become additional context for the next Skeptic spawn (include them alongside the adversarial brief). Update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Update inline breadcrumb. Go to Step 1.

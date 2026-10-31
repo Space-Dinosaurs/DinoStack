@@ -97,6 +97,8 @@ Spawn a **background general-purpose subagent via the `Agent` tool** with:
 Worker prompt:
 
 ---
+SESSION_KEY: [this session's key, per `content/references/subagent-protocol.md` §11]
+
 You are a Worker agent. Address the Skeptic findings below and return your revised output.
 
 **Original task:** $ARGUMENTS
@@ -111,6 +113,8 @@ You are a Worker agent. Address the Skeptic findings below and return your revis
 [Paste accumulated log]
 
 For each Critical or Major finding: fix it, or document a specific reason why it is not a real problem. Return your revised complete output.
+
+Find and fix every instance of each finding's class, re-run each finding's `check:`, and report its exit status plus a one-line result.
 ---
 
 Update the resolved issues preflight list with each addressed finding's identifier and description.

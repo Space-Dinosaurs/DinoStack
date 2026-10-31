@@ -390,7 +390,7 @@ summary:
 - **Shape 3** (fixed literal-line template): `skeptic.md` and
   `goal-condition-evaluator.md` are both fully compliant. `skeptic.md`:
   Unit 1 added one narrow, additive cap declaration on finding-description
-  length (300 chars) to the Calibration section, without altering,
+  length (now 400 chars) to the Calibration section, without altering,
   retagging, or restructuring any of its six conductor-validated Sign-off
   format lines. `goal-condition-evaluator.md` (final unit): its second
   template's Evidence value is now `"evaluator-error: <one-line reason>"`
