@@ -213,8 +213,8 @@ loops are *not* consolidated (see `merged-hooks-js-tests`).
 - **Claude Code first** (root `AGENTS.md`). The adapter drift check is split
   in two: `-- .claude` always runs, and the 16-path non-Claude pathspec (with
   its builds and existence loop) runs only when `DS_ALL_HARNESSES` is `1`.
-  `adapter-sync.yml` and `bin-tests.yml` set it for a PR whose branch starts
-  with `chore/adapter-catch-up` (the on-demand catch-up chore);
+  `adapter-sync.yml`, `bin-tests.yml` and `hooks-tests.yml` set it for a PR
+  whose branch starts with `chore/adapter-catch-up` (the on-demand catch-up chore);
   `verify-merged-tree.yml` sets it from its `all_harnesses` dispatch input,
   which also gates `merged-codex-skill-sync`. `codex-skill-sync.yml` is
   advisory (off the required set) and its job runs only on that branch or a

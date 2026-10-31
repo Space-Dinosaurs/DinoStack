@@ -141,6 +141,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from harness_scope import ALL_HARNESSES
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 INVENTORY_PATH = REPO_ROOT / "hooks" / "tests" / "fixtures" / "agentic-write-sites.txt"
 
@@ -161,12 +163,16 @@ INVENTORY_PATH = REPO_ROOT / "hooks" / "tests" / "fixtures" / "agentic-write-sit
 # pre-picked list) and why each is scoped to its adapter's hand-authored
 # hooks/plugins/extension subdirectory, never the adapter's full top-level
 # tree.
+# `.github/hooks` is the one generated directory here (`.copilot/build.sh`
+# copies `.copilot/hooks` into it); it and its inventory entries are scanned
+# only under DS_ALL_HARNESSES=1. The other adapter dirs are hand-authored.
+GENERATED_SCAN_DIR = ".github/hooks"
 SCAN_DIRS = [
     "hooks",
     "bin",
     ".cursor/hooks",
     ".copilot/hooks",
-    ".github/hooks",
+    *([GENERATED_SCAN_DIR] if ALL_HARNESSES else []),
     ".gemini/hooks",
     ".kimi/hooks",
     ".opencode/plugins",
@@ -488,6 +494,8 @@ def _load_inventory() -> set[str]:
     for raw in INVENTORY_PATH.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
+            continue
+        if not ALL_HARNESSES and line.startswith(GENERATED_SCAN_DIR + "/"):
             continue
         entries.add(line)
     return entries

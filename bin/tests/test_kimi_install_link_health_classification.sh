@@ -80,6 +80,13 @@
 
 set -uo pipefail
 
+# Runs the real .kimi/install.sh, which rebuilds .kimi/ in the live
+# checkout: a non-Claude harness test, run only under DS_ALL_HARNESSES=1.
+if [ "${DS_ALL_HARNESSES:-}" != 1 ]; then
+  echo "SKIP: non-Claude harness test (set DS_ALL_HARNESSES=1 to run)"
+  exit 0
+fi
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../.." && pwd)"
 INSTALL_SH="$REPO_DIR/.kimi/install.sh"
 GATE_SCRIPT="$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh"

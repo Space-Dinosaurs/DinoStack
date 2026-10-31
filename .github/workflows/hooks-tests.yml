@@ -11,6 +11,11 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+# Claude Code first (root AGENTS.md): hook tests that exercise non-Claude
+# generated output run only under DS_ALL_HARNESSES=1, set on the on-demand
+# catch-up chore PR (branch `chore/adapter-catch-up*`) only.
+env:
+  DS_ALL_HARNESSES: ${{ startsWith(github.head_ref, 'chore/adapter-catch-up') && '1' || '' }}
 jobs:
   wrap-lock-tests:
     runs-on: ubuntu-latest

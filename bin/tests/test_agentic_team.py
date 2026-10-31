@@ -37,6 +37,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from harness_scope import non_claude
 
 # ---------------------------------------------------------------------------
 # Load agentic-team as a module (no .py extension)
@@ -1352,6 +1353,7 @@ def test_methodology_seven_other_harnesses_byte_identical_brief(tmp_path):
         )
 
 
+@non_claude
 def test_methodology_real_artifact_bounds_pointer_overhead(tmp_path):
     """(h) using the actual shipped .gemini/.kimi skill artifacts, the added
     pointer overhead is bounded - excluding the fixture brief's own bytes.

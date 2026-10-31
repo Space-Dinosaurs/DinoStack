@@ -43,6 +43,8 @@ import re
 import unittest
 from pathlib import Path
 
+from harness_scope import ALL_HARNESSES
+
 _REPO_DIR = Path(__file__).parent.parent.parent
 _SECTIONS_DIR = _REPO_DIR / "content" / "sections"
 _RULES_DIR = _REPO_DIR / "content" / "rules"
@@ -178,12 +180,21 @@ def _make_headings_present_test(adapter):
     return test
 
 
+_NON_CLAUDE = unittest.skipUnless(
+    ALL_HARNESSES, "reads non-Claude generated adapter output; set DS_ALL_HARNESSES=1"
+)
+
+
+def _artifact_test(adapter, test):
+    return test if adapter["name"] == "claude" else _NON_CLAUDE(test)
+
+
 for _adapter in _ADAPTERS:
     _n = _adapter["name"]
-    setattr(FullTextReachableTests, f"test_{_n}_sibling_exists_nonempty", _make_exists_nonempty_test(_adapter))
-    setattr(FullTextReachableTests, f"test_{_n}_sibling_zero_deferred", _make_zero_deferred_test(_adapter))
+    setattr(FullTextReachableTests, f"test_{_n}_sibling_exists_nonempty", _artifact_test(_adapter, _make_exists_nonempty_test(_adapter)))
+    setattr(FullTextReachableTests, f"test_{_n}_sibling_zero_deferred", _artifact_test(_adapter, _make_zero_deferred_test(_adapter)))
     setattr(FullTextReachableTests, f"test_{_n}_sibling_basename_matches_pointer", _make_basename_match_test(_adapter))
-    setattr(FullTextReachableTests, f"test_{_n}_sibling_headings_present", _make_headings_present_test(_adapter))
+    setattr(FullTextReachableTests, f"test_{_n}_sibling_headings_present", _artifact_test(_adapter, _make_headings_present_test(_adapter)))
 
 
 class KimiMethodologyMdTests(unittest.TestCase):
@@ -193,6 +204,7 @@ class KimiMethodologyMdTests(unittest.TestCase):
     hold-back); this class only confirms the sibling file itself is healthy
     since it still ships unconditionally."""
 
+    @_NON_CLAUDE
     def test_methodology_md_exists_nonempty(self):
         self.assertTrue(
             _KIMI_METHODOLOGY_MD.is_file(),
@@ -200,10 +212,12 @@ class KimiMethodologyMdTests(unittest.TestCase):
         )
         self.assertGreater(_KIMI_METHODOLOGY_MD.stat().st_size, 0)
 
+    @_NON_CLAUDE
     def test_methodology_md_zero_deferred(self):
         text = _KIMI_METHODOLOGY_MD.read_text(encoding="utf-8")
         self.assertEqual(text.count("Deferred at this corpus"), 0)
 
+    @_NON_CLAUDE
     def test_methodology_md_headings_present(self):
         text = _KIMI_METHODOLOGY_MD.read_text(encoding="utf-8")
         for section_file in sorted(_SECTIONS_DIR.glob("[0-9][0-9]-*.md")):
