@@ -227,24 +227,38 @@ The terminal interrupted-mark now lives on `hooks/session-end-wrap.js` (the Sess
 
 ## Setup call (runs first)
 
-Run once, before anything else, from `$REPO`. On a harness without `$CLAUDE_CODE_SESSION_ID`, add `--session-id <SESSION_ID>`.
+Run once, before anything else, from `$REPO`. On a harness without `$CLAUDE_CODE_SESSION_ID`, add `--session-id <SESSION_ID>`. The operator's `<input>` goes in verbatim between the quoted heredoc's two lines and nowhere else, so no shell expands it; if it contains a line reading exactly `DS_INPUT`, pick another delimiter.
 
 ```bash
 # Setup call: ds-ticket-setup
 REPO_DIR="$(jq -r '.repo_dir // empty' "$HOME/.agentic/agentic-engineering-config.json" 2>/dev/null)"
 [ -x "$REPO_DIR/bin/ds-ticket-setup" ] || REPO_DIR="$HOME/DinoStack"
-"$REPO_DIR/bin/ds-ticket-setup" -- "<input>"
+"$REPO_DIR/bin/ds-ticket-setup" --stdin <<'DS_INPUT'
+<input>
+DS_INPUT
 ```
+
+If the call exits non-zero or line 1 is not a JSON object with a non-empty `loop_key`, stop and report its stderr. Do not proceed without a `loop_key`.
 
 Line 1 of the output is one JSON object. Carry its keys for the rest of the run:
 
 - `repo_dir` is `REPO_DIR`, `base_branch` is `BASE_BRANCH`, and `tracker` is the `ds-tracker resolve --json` object Setup reads (null: apply Setup's prose chain).
+- `ticket_id` is the ticket id the script parsed from `<input>` (a bare id or an issue URL), or null when it found none.
 - `loop_key` is `LOOP_KEY` (see Loop-key derivation below).
 - `resume` holds the Candidate check's inputs: `keyed`, `legacy` and `others`, each `{path, verdict, status, last_phase, last_phase_action, last_updated, ...}` with `verdict` one of `resumable`, `live`, `clear`, `parse_error`, `unknown`, plus `recommended`, the one file the rules below recommend, or null. The script only reads; every prompt, deletion and adoption below stays the conductor's.
-- `mode` is `open_goal` (`goal_mode=open_goal`), `batch` (2+ ticket ids or issue URLs named), `resume` (`recommended` is set), else `single`.
-- `rework` is the Phase 1 ticket-rework detection result for this invocation's ticket.
+- `mode` is `open_goal` (`goal_mode=open_goal`), else `batch` (2+ ticket ids or issue URLs named), else `resume` (a single-ticket run whose `recommended` is set), else `single`. A batch or open-goal run keeps its mode when `recommended` is set.
+- `rework` is the Phase 1 ticket-rework detection result for `ticket_id`.
 
-When `mode` is `batch`, `open_goal` or `resume`, the output continues after a `--- procedure: <path> ---` line with that mode's procedure (`batch-mode.md`, `open-goal-loop.md`, `cross-session-loop-resume.md`): the Read its pointer below calls for, already done. A batch only Phase 0 can see (a search URL, a screenshot) still takes the pointer Read.
+When `mode` is `batch` or `open_goal`, the output continues after a `--- procedure: <path> ---` line with that mode's procedure (`batch-mode.md`, `open-goal-loop.md`): the Read its pointer below calls for, already done. A batch only Phase 0 can see (a search URL, a screenshot) still takes the pointer Read. When `mode` is `resume`, it continues with `cross-session-loop-resume.md`, the resume mechanics the Candidate check and the Resume entry point table below assume (which phases resume automatically, which restart, the Brief/Plan re-read).
+
+**Per-ticket re-run.** When Phase 0 resolves a single entry whose id differs from `ticket_id` (or `ticket_id` is null: a screenshot, a search URL, a project-local classifier, a lowercase id), and for each batch entry (Phase 0a-pre's pick, each Phase 1 entry), re-run with that id on stdin and use that output's `loop_key`, `resume` and `rework` for the ticket. No loop-state file is written before Phase 6, so this replaces the first call's key rather than re-deriving a recorded one. `--ticket` always yields `single` (or `resume`).
+
+```bash
+# Setup call: per-ticket re-run
+"$REPO_DIR/bin/ds-ticket-setup" --ticket - <<'DS_INPUT'
+<ticket id>
+DS_INPUT
+```
 
 ---
 
@@ -256,7 +270,7 @@ Loop state is stored **per ticket**, at `.agentic/loop-state-<LOOP_KEY>.json`, s
 
 Inputs are the invoked `TICKET_ID` (may be absent on a batch or open-goal invocation) and the current session's `SESSION_ID` (may be absent, or the 4-char string `null` on a harness whose `session_id` is a JSON null read through `jq -r`).
 
-The derivation is `ae_sanitize` and `ae_derive_loop_key` in `bin/ds-ticket-setup` (marker `# Resume check: loop-key derivation`); the Setup call's `loop_key` is `ae_derive_loop_key "$TICKET_ID" "$SESSION_ID"`. A Phase 0a-pre batch pick or a Phase 1 batch entry derives its own by `"$REPO_DIR/bin/ds-ticket-setup" --ticket "$TICKET_ID"`, which returns that ticket's `loop_key`, `resume` and `rework`.
+The derivation is `ae_sanitize` and `ae_derive_loop_key` in `bin/ds-ticket-setup` (marker `# Resume check: loop-key derivation`); the Setup call's `loop_key` is `ae_derive_loop_key "$TICKET_ID" "$SESSION_ID"`. A ticket Phase 0 resolved, or a batch entry, gets its own from the per-ticket re-run (Setup call above).
 
 `LOOP_STATE_FILE` is `.agentic/loop-state-$LOOP_KEY.json` and its staging path is `.agentic/loop-state-$LOOP_KEY.json.tmp` - a **flat sibling**, not a subdirectory, so `.tmp` files stay direct children of `.agentic/`. Before every write, assert the assembled path's dirname resolves to `.agentic/`.
 
@@ -815,7 +829,7 @@ Detection makes **zero tracker calls and zero network calls** - it is a single l
 3. Set `PRIOR_COMPLETED` to the deduped record set ordered by `opened_ts` ascending, `PRIOR_ATTEMPTS` to its size, and `IS_REWORK` to `PRIOR_ATTEMPTS >= 1`.
 4. **Soft-fail, per line.** If the ledger is absent or unreadable, resolve to `PRIOR_ATTEMPTS = 0`. If an individual line is malformed, **skip that line and keep going** - a single partial write must not disable detection for every other ticket in the file. A missing or corrupt ledger must never block the ticket it exists to help with.
 
-The read is `ae_rework_detect` in `bin/ds-ticket-setup` (marker `# Phase 1: ticket-rework detection`), with `REWORK_DETECTION` from `.agentic/config.json`. Its result is the Setup call's `rework` object: `rework_detection`, `prior_attempts` (`PRIOR_ATTEMPTS`), `is_rework` (`IS_REWORK`) and `prior_completed` (`PRIOR_COMPLETED`, most recent last). That object covers this invocation's own ticket; for each batch entry, run `"$REPO_DIR/bin/ds-ticket-setup" --ticket "$TICKET_ID"` and read its `rework`.
+The read is `ae_rework_detect` in `bin/ds-ticket-setup` (marker `# Phase 1: ticket-rework detection`), with `REWORK_DETECTION` from `.agentic/config.json`. Its result is the Setup call's `rework` object: `rework_detection`, `prior_attempts` (`PRIOR_ATTEMPTS`), `is_rework` (`IS_REWORK`) and `prior_completed` (`PRIOR_COMPLETED`, most recent last). That object covers the Setup call's `ticket_id`; for a ticket only Phase 0 resolved, and for each batch entry, read `rework` from the per-ticket re-run (Setup call above).
 
 `group_by | map(max_by(...))` is used in place of `unique_by(.pr_number)` deliberately: jq's `unique_by` is `group_by | map(.[0])` over a stable sort, so it keeps the *earliest* member of each duplicate group - the opposite of what a replay duplicate calls for.
 

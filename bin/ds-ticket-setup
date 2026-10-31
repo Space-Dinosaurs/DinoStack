@@ -13,14 +13,19 @@
 #          Retire the injection when a measured run shows the pointer Read.
 #
 # Public API:
-#   ds-ticket-setup [--session-id ID] [--repo PATH] [--ticket ID] [--] <input...>
+#   ds-ticket-setup [--session-id ID] [--repo PATH] [--ticket ID|-] [--stdin|-] [--] [<input...>]
 #     <input...>  the /ds-implement-ticket <input>, as one or more args.
+#     --stdin, -  read <input> from stdin instead. The command passes
+#                 operator text this way (a quoted heredoc), so no shell
+#                 ever expands it.
 #     --ticket    use ID verbatim as TICKET_ID (mode single) instead of
-#                 classifying <input>: the per-entry call for a batch entry.
+#                 classifying <input>; `--ticket -` reads ID from stdin.
+#                 The re-run once Phase 0 has resolved the ticket.
 #     --session-id  SESSION_ID for the loop key; default $CLAUDE_CODE_SESSION_ID.
 #     --repo      the ticket's project checkout; default the cwd's git
 #                 toplevel, else the cwd.
-#   stdout line 1 is the JSON; an injected body follows a
+#   stdout line 1 is the JSON (plus `ticket_id`: the parsed or --ticket
+#   id, null when none); an injected body follows a
 #   "--- procedure: <path> (mode=<mode>) ---" line. The sanitize-to-empty
 #   notice goes to stderr. Exit 0 on every resolution outcome; 2 on a usage
 #   error or a missing python3.
@@ -56,8 +61,8 @@ ae_sanitize() {
   #   printf 'x\ny' | sed -e 's/[^A-Za-z0-9._-]/-/g'   ->  x\ny   (newline SURVIVES)
   #   printf 'x\ny' | tr -c 'A-Za-z0-9._-' '-'          ->  x-y   (correct)
   # With sed, a newline-bearing ticket id yields a filename containing a raw
-  # newline, which fails the `^loop-state-.+\.json$` invariant the candidate
-  # enumeration below relies on, and a multi-line 200-char id defeats the
+  # newline, which fails the `^loop-state-.+\.json$` invariant the hooks'
+  # candidate enumeration relies on, and a multi-line 200-char id defeats the
   # 64-char cap entirely (measured: key length 129). `tr` is byte-oriented and
   # has no record concept, so it closes both.
   #
@@ -143,7 +148,7 @@ if [ "$PRIOR_ATTEMPTS" -ge 1 ]; then IS_REWORK=true; else IS_REWORK=false; fi
 }
 
 _ts_usage() {
-  echo "usage: ds-ticket-setup [--session-id ID] [--repo PATH] [--ticket ID] [--] <input...>" >&2
+  echo "usage: ds-ticket-setup [--session-id ID] [--repo PATH] [--ticket ID|-] [--stdin|-] [--] [<input...>]" >&2
 }
 
 # bash 3.2 misparses a heredoc inside $(...), so the python programs
@@ -277,7 +282,7 @@ def resume_state():
     recommended = None
     if keyed is not None and keyed["verdict"] == "resumable":
         recommended = keyed_path
-    elif keyed is None and not ticket:
+    elif not ticket:
         sessions = [o for o in others if o["verdict"] == "resumable"
                     and os.path.basename(o["path"]).startswith("loop-state-session-")]
         if len(sessions) == 1:
@@ -311,6 +316,7 @@ print(json.dumps({
     "repo_dir": env["TS_REPO_DIR"],
     "base_branch": base_branch(),
     "tracker": tracker,
+    "ticket_id": ticket or None,
     "loop_key": loop_key,
     "mode": mode,
     "resume": resume,
@@ -339,7 +345,7 @@ _ts_main() {
   local self_root
   self_root="$(cd -P "$(dirname "$src")/.." && pwd)"
 
-  local session_id="${CLAUDE_CODE_SESSION_ID-}" repo="" ticket_arg="" has_ticket=false
+  local session_id="${CLAUDE_CODE_SESSION_ID-}" repo="" ticket_arg="" has_ticket=false from_stdin=false
   while [ $# -gt 0 ]; do
     case "$1" in
       --session-id) [ $# -ge 2 ] || { _ts_usage; return 2; }; session_id="$2"; shift 2 ;;
@@ -348,12 +354,19 @@ _ts_main() {
       --repo=*) repo="${1#--repo=}"; shift ;;
       --ticket) [ $# -ge 2 ] || { _ts_usage; return 2; }; ticket_arg="$2"; has_ticket=true; shift 2 ;;
       --ticket=*) ticket_arg="${1#--ticket=}"; has_ticket=true; shift ;;
+      --stdin|-) from_stdin=true; shift ;;
       -h|--help) _ts_usage; return 0 ;;
       --) shift; break ;;
       *) break ;;
     esac
   done
   local raw_input="$*"
+  if [ "$has_ticket" = true ] && [ "$ticket_arg" = "-" ]; then
+    [ "$from_stdin" = false ] || { _ts_usage; return 2; }
+    ticket_arg="$(cat)"
+  elif [ "$from_stdin" = true ]; then
+    raw_input="$(cat)"
+  fi
 
   if ! command -v python3 >/dev/null 2>&1; then
     echo "ds-ticket-setup: python3 is required" >&2

@@ -44,8 +44,11 @@ PLAIN="$TMP_ROOT/plain"
 mkdir -p "$PLAIN"
 
 echo "--- JSON shape, outside any git repo, no tracker ---"
-_eq "exactly the seven keys" "$(_field "$PLAIN" '",".join(sorted(d))' DS-1)" \
-  "base_branch,loop_key,mode,repo_dir,resume,rework,tracker"
+_eq "exactly the eight keys" "$(_field "$PLAIN" '",".join(sorted(d))' DS-1)" \
+  "base_branch,loop_key,mode,repo_dir,resume,rework,ticket_id,tracker"
+_eq "a parsed id is ticket_id" "$(_field "$PLAIN" 'd["ticket_id"]' https://x.atlassian.net/browse/DS-7)" "DS-7"
+_eq "no parseable id gives ticket_id null" "$(_field "$PLAIN" 'd["ticket_id"]' see the attached screenshot)" "None"
+_eq "a lowercase id is not parsed (Phase 0 resolves it)" "$(_field "$PLAIN" 'd["ticket_id"]' aut-12)" "None"
 _eq "base_branch defaults to main" "$(_field "$PLAIN" 'd["base_branch"]' DS-1)" "main"
 _eq "no tracker config resolves TRACKER=none" "$(_field "$PLAIN" 'd["tracker"]["TRACKER"]' DS-1)" "none"
 
@@ -55,6 +58,8 @@ _eq "freeform text is single"      "$(_field "$PLAIN" 'd["mode"]' fix the login 
 _eq "two ids are batch"            "$(_field "$PLAIN" 'd["mode"]' 'DS-1, DS-2')" "batch"
 _eq "two issue URLs are batch"     "$(_field "$PLAIN" 'd["mode"]' https://x.atlassian.net/browse/DS-1 https://linear.app/w/issue/ENG-4/t)" "batch"
 _eq "a repeated id is still single" "$(_field "$PLAIN" 'd["mode"]' DS-1 DS-1)" "single"
+_eq "--ticket forces single over a batch input" "$(_field "$PLAIN" 'd["mode"]' --ticket DS-3 -- DS-1 DS-2)" "single"
+_eq "--ticket sets ticket_id" "$(_field "$PLAIN" 'd["ticket_id"]' --ticket DS-3 -- DS-1 DS-2)" "DS-3"
 _eq "goal_mode=open_goal wins over ids" "$(_field "$PLAIN" 'd["mode"]' DS-1 DS-2 goal_mode=open_goal max_iterations=3)" "open_goal"
 _eq "an issue URL keys the loop on its id" "$(_field "$PLAIN" 'd["loop_key"]' https://linear.app/w/issue/ENG-4/title)" "ENG-4"
 
@@ -122,6 +127,26 @@ printf '{"status":"interrupted","loop_key":"session-old2"}' > "$SES/.agentic/loo
 _eq "null ticket, two session candidates: none" \
   "$(_field "$SES" 'd["resume"]["recommended"]' 'just some freeform text')" "None"
 
+# Candidate check table, null-ticket rows: the session's own keyed file is
+# the exact-match row only when it is resumable; present but not resumable,
+# a single other resumable session-* file is still recommended.
+SES2="$TMP_ROOT/ses2"
+mkdir -p "$SES2/.agentic"
+printf '{"status":"complete"}' > "$SES2/.agentic/loop-state-session-sid.json"
+printf '{"status":"interrupted","loop_key":"session-old"}' > "$SES2/.agentic/loop-state-session-old.json"
+_eq "keyed session file not resumable, one other session candidate: recommended" \
+  "$(_field "$SES2" 'd["resume"]["recommended"]' 'just some freeform text')" ".agentic/loop-state-session-old.json"
+
+LEG="$TMP_ROOT/legacy"
+mkdir -p "$LEG/.agentic"
+printf '{"status":"interrupted","ticket_id":"DS-1"}' > "$LEG/.agentic/loop-state.json"
+_eq "no keyed file, resumable legacy file: recommended" \
+  "$(_field "$LEG" 'd["resume"]["recommended"]' DS-1)" ".agentic/loop-state.json"
+_eq "resumable legacy file sets mode resume" "$(_field "$LEG" 'd["mode"]' DS-1)" "resume"
+printf '{"status":"interrupted"}' > "$LEG/.agentic/loop-state-DS-1.json"
+_eq "keyed file beats a resumable legacy file" \
+  "$(_field "$LEG" 'd["resume"]["recommended"]' DS-1)" ".agentic/loop-state-DS-1.json"
+
 BEFORE="$(cd "$RES" && find . -type f | LC_ALL=C sort | xargs cat | cksum)"
 (cd "$RES" && "$SCRIPT" --repo "$RES" --session-id sid DS-4 >/dev/null 2>&1)
 AFTER="$(cd "$RES" && find . -type f | LC_ALL=C sort | xargs cat | cksum)"
@@ -144,6 +169,58 @@ git -C "$G" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
 _eq "origin/HEAD beats local develop" "$(_field "$G" 'd["base_branch"]' DS-1)" "trunk"
 printf '# x\n\nDeclaration: `BASE_BRANCH: release`.\n' > "$G/AGENTS.md"
 _eq "AGENTS.md declaration wins" "$(_field "$G" 'd["base_branch"]' DS-1)" "release"
+
+echo "--- operator text reaches the script verbatim and unexpanded ---"
+HOSTILE_DIR="$TMP_ROOT/hostile"
+mkdir -p "$HOSTILE_DIR/.agentic"
+printf '%s\n' '{"ticket_id":"aut-12","pr_number":7,"opened_ts":"2026-01-01T00:00:00Z"}' \
+  > "$HOSTILE_DIR/.agentic/ticket-ledger.jsonl"
+_eq "--ticket - reads a Phase-0-only id from stdin and returns its rework" \
+  "$(cd "$HOSTILE_DIR" && printf 'aut-12\n' | "$SCRIPT" --repo "$HOSTILE_DIR" --session-id sid --ticket - 2>/dev/null \
+     | head -1 | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["ticket_id"], d["loop_key"], d["rework"]["prior_attempts"])')" \
+  "aut-12 aut-12 1"
+
+# Run the command's own Setup-call and re-run fences, with hostile text in
+# place of the placeholder. Each payload would create a marker file if any
+# shell expanded it.
+FAKE_HOME="$TMP_ROOT/home"
+mkdir -p "$FAKE_HOME/.agentic"
+printf '{"repo_dir": "%s"}\n' "$REPO_DIR" > "$FAKE_HOME/.agentic/agentic-engineering-config.json"
+SPEC="$REPO_DIR/content/commands/ds-implement-ticket.md"
+_fence() { # _fence <marker> <placeholder> <replacement-file> <out>
+  python3 - "$SPEC" "$1" "$2" "$3" "$4" <<'PY'
+import sys
+spec, marker, placeholder, repl, out = sys.argv[1:]
+text = open(spec).read()
+i = text.index(marker)
+block = text[i:text.index("\n```", i)] + "\n"
+lines = block.split("\n")
+assert lines.count(placeholder) == 1, "placeholder line not found: " + placeholder
+lines[lines.index(placeholder)] = open(repl).read().rstrip("\n")
+open(out, "w").write("\n".join(lines))
+PY
+}
+M="$HOSTILE_DIR/pwned"
+printf '%s\n' "DS-9 \`touch $M-tick\` \$(touch $M-sub) \$HOME \"quoted\" goal_mode=x" > "$TMP_ROOT/input.txt"
+printf '%s\n' "ab\`touch $M-tick2\`\$(touch $M-sub2)\$HOME\"q\"" > "$TMP_ROOT/ticket.txt"
+if _fence '# Setup call: ds-ticket-setup' '<input>' "$TMP_ROOT/input.txt" "$TMP_ROOT/setup.sh" \
+   && _fence '# Setup call: per-ticket re-run' '<ticket id>' "$TMP_ROOT/ticket.txt" "$TMP_ROOT/rerun.sh"; then
+  _pass "extracted both Setup-call fences from the command"
+  OUT1="$(cd "$HOSTILE_DIR" && HOME="$FAKE_HOME" CLAUDE_CODE_SESSION_ID=sid bash "$TMP_ROOT/setup.sh" 2>/dev/null | head -1)"
+  OUT2="$(cd "$HOSTILE_DIR" && HOME="$FAKE_HOME" CLAUDE_CODE_SESSION_ID=sid REPO_DIR="$REPO_DIR" bash "$TMP_ROOT/rerun.sh" 2>/dev/null | head -1)"
+  _eq "Setup fence: the id inside hostile text is parsed" \
+    "$(printf '%s' "$OUT1" | python3 -c 'import json, sys; print(json.load(sys.stdin)["ticket_id"])')" "DS-9"
+  _eq "re-run fence: the id arrives verbatim" \
+    "$(printf '%s' "$OUT2" | python3 -c 'import json, sys; print(json.load(sys.stdin)["ticket_id"])')" \
+    "$(cat "$TMP_ROOT/ticket.txt")"
+  if ls "$HOSTILE_DIR" | grep -q pwned; then
+    _fail "a backtick or \$(...) payload executed: $(ls "$HOSTILE_DIR" | grep pwned | tr '\n' ' ')"
+  else
+    _pass "no backtick or \$(...) payload executed"
+  fi
+else
+  _fail "could not extract the Setup-call fences from the command"
+fi
 
 echo
 echo "Results: $PASS passed, $FAIL failed"
