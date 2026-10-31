@@ -149,9 +149,7 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # Lowered for the route-gated split (Phase 11e knowledge commit).
 # Lowered for the route-gated split (QA evidence publishing, Tracker Create Helper).
 # Lowered for the Phase 8/9/12 shell moved into bin/ds-ticket-commit and bin/ds-ticket-finish.
-# Set to file size + 246 for bin/ds-ticket-setup (Setup call, loop-key derivation,
-# rework detection); the file shrank 85 B but the base had only 24 B of headroom.
-THRESHOLD_BYTES=285543
+THRESHOLD_BYTES=285406
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

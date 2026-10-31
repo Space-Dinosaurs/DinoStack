@@ -14,7 +14,7 @@
 #
 # Failure modes: none beyond a failing assertion; no network.
 #
-# Performance: < 10 s (about 20 script runs).
+# Performance: one script run per assertion, plus one 2.6 MB input.
 
 set -uo pipefail
 
@@ -186,8 +186,10 @@ git -C "$G" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
 _eq "origin/HEAD beats local develop" "$(_field "$G" 'd["base_branch"]' DS-1)" "trunk"
 printf '# x\n\nDeclaration: `BASE_BRANCH: release`.\n' > "$G/AGENTS.md"
 _eq "AGENTS.md declaration wins" "$(_field "$G" 'd["base_branch"]' DS-1)" "release"
-printf '# x\n\nBASE_BRANCH: trunk2 - the branch every PR targets\n' > "$G/AGENTS.md"
-_eq "a declaration with trailing prose takes its first token" "$(_field "$G" 'd["base_branch"]' DS-1)" "trunk2"
+printf 'Some notes.\nBASE_BRANCH: resolution rules.\n' > "$G/AGENTS.md"
+_eq "a prose mention is not a declaration (resolution rules)" "$(_field "$G" 'd["base_branch"]' DS-1)" "trunk"
+printf 'Prose: BASE_BRANCH: is resolved by the tool\n' > "$G/AGENTS.md"
+_eq "a prose mention is not a declaration (is resolved)" "$(_field "$G" 'd["base_branch"]' DS-1)" "trunk"
 printf '# x\n\n```\nBASE_BRANCH: fenced\n```\n' > "$G/AGENTS.md"
 _eq "a fenced example is not a declaration" "$(_field "$G" 'd["base_branch"]' DS-1)" "trunk"
 

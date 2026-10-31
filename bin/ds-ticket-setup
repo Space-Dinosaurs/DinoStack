@@ -186,7 +186,7 @@ PY
 
 _ts_assemble_py() {
 cat <<'PY'
-import datetime, glob, importlib.util, json, os, re, subprocess
+import datetime, glob, importlib.util, json, os, subprocess
 
 env = os.environ
 mode = env["TS_MODE"]
@@ -209,19 +209,7 @@ def declared_base():
         lib = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(lib)
         text = open("AGENTS.md", encoding="utf-8", errors="replace").read()
-        strict = lib._parse_base_branch_declaration(text)
-        if strict:
-            return strict
-        # Setup's prose took a `BASE_BRANCH:` line's first token even with
-        # trailing prose after it; _lib's parser rejects that shape.
-        token = re.compile(r"`?BASE_BRANCH:\s*[`\"']?(?:refs/heads/|origin/)?"
-                           r"([A-Za-z0-9][A-Za-z0-9_./-]*)")
-        for line in lib._strip_fenced_and_indented_lines(text):
-            m = token.search(line)
-            if m:
-                value = m.group(1)
-                return value[:-1] if len(value) > 1 and value.endswith(".") else value
-        return None
+        return lib._parse_base_branch_declaration(text)
     except Exception:
         return None
 

@@ -238,13 +238,13 @@ DS_INPUT
 If the call exits non-zero or line 1 is not a JSON object with a non-empty `loop_key`, stop and report its stderr; never proceed without a `loop_key`. Carry line 1's keys for the rest of the run:
 
 - `repo_dir` is `REPO_DIR`, `base_branch` is `BASE_BRANCH`, and `tracker` is the `ds-tracker resolve --json` object Setup reads (null: apply Setup's prose chain).
-- `ticket_id` is the ticket id the script parsed from `<input>` (a bare id or an issue URL), or null when it found none.
+- `ticket_id` is the id parsed from `<input>` (a bare id or an issue URL), or null.
 - `loop_key` is `LOOP_KEY` (see Loop-key derivation below).
-- `resume` holds the Candidate check's inputs: `keyed`, `legacy` and `others`, each `{path, verdict, status, last_phase, last_phase_action, last_updated, ...}` with `verdict` one of `resumable`, `live`, `clear`, `parse_error`, `unknown`, plus `recommended`, the one file the rules below recommend, or null. The script only reads; every prompt, deletion and adoption below stays the conductor's.
+- `resume` holds the Candidate check's inputs: `keyed`, `legacy` and `others`, each `{path, verdict, status, last_phase, ...}` with `verdict` one of `resumable`, `live`, `clear`, `parse_error`, `unknown`, plus `recommended`, the one file the rules below recommend, or null. The script only reads; every prompt, deletion and adoption below stays the conductor's.
 - `mode` is `open_goal` (`goal_mode=open_goal`), else `batch` (2+ ticket ids or issue URLs named), else `resume` (a single-ticket run whose `recommended` is set), else `single`. A batch or open-goal run keeps its mode when `recommended` is set.
 - `rework` is the Phase 1 ticket-rework detection result for `ticket_id`.
 
-When `mode` is `batch` or `open_goal`, the output continues after a `--- procedure: <path> ---` line with that mode's procedure (`batch-mode.md`, `open-goal-loop.md`): the Read its pointer below calls for, already done. A batch only Phase 0 can see (a search URL, a screenshot) still takes the pointer Read. When `mode` is `resume`, it continues with `cross-session-loop-resume.md`, the resume mechanics the Candidate check and the Resume entry point table below assume (which phases resume automatically, which restart, the Brief/Plan re-read).
+When `mode` is `batch` or `open_goal`, the output continues after a `--- procedure: <path> ---` line with that mode's procedure (`batch-mode.md`, `open-goal-loop.md`): the Read its pointer below calls for, already done. A batch only Phase 0 can see (a search URL, a screenshot) still takes the pointer Read. When `mode` is `resume`, it continues with `cross-session-loop-resume.md`, the resume mechanics the Candidate check and the Resume entry point table below assume.
 
 **Rework re-run.** When Phase 0 resolves a single entry whose id differs from `ticket_id` (or `ticket_id` is null: a screenshot, a search URL, a project-local classifier, a lowercase id), and for each batch entry at Phase 1, re-run with that id on stdin and take that output's `rework`. Its only other key is `ticket_id`: the first call's `loop_key` and `resume` stand, and `LOOP_KEY` is never re-derived. If it exits non-zero or line 1 has no `rework`, stop and report its stderr.
 
@@ -257,7 +257,16 @@ REPO_DIR="$(jq -r '.repo_dir // empty' "$HOME/.agentic/agentic-engineering-confi
 DS_INPUT
 ```
 
-A batch entry's own `LOOP_KEY` (Phase 0a-pre's pick, or Phase 6 loop init for a later entry) comes from the same call without `--rework-only`: its `loop_key`, `resume` and `rework` are that ticket's, and its `mode` is `single` or `resume`.
+A batch entry's own `LOOP_KEY` (Phase 0a-pre's pick, or Phase 6 loop init for a later entry) comes from this call; its `loop_key`, `resume` and `rework` are that ticket's:
+
+```bash
+# Setup call: batch entry
+REPO_DIR="$(jq -r '.repo_dir // empty' "$HOME/.agentic/agentic-engineering-config.json" 2>/dev/null)"
+[ -x "$REPO_DIR/bin/ds-ticket-setup" ] || REPO_DIR="$HOME/DinoStack"
+"$REPO_DIR/bin/ds-ticket-setup" --ticket - <<'DS_INPUT'
+<ticket id>
+DS_INPUT
+```
 
 ---
 
