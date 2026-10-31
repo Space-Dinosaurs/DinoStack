@@ -1943,7 +1943,7 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
 
 **Parallel path:** All commits were already made and merged in Phase 5, inside `$INTEGRATION_WORKTREE`. Phase 8 handles only post-merge fixup files not captured in the sub-branch commits. Run `git -C "$INTEGRATION_WORKTREE" status --short` to check; if non-empty, stage and commit there; if empty, skip to push.
 
-**On the parallel path with an empty `status --short`, pass no files:** the feature commit is skipped; telemetry, push, and cleanup still run.
+**Which files to pass.** Pass `-- [specific files]` only on the sequential path, where the conductor itself commits in `$REPO`, and on the parallel path when `status --short` shows fixups. When the engineer already committed in its own worktree (the single-engineer and Trivial paths) or the parallel `status --short` is empty, drop `-- [specific files]` and `--message`: the feature commit is skipped and telemetry, push, and cleanup still run. Files that stage nothing are treated the same way, never as a failure.
 
 Run `$REPO_DIR/bin/ds-ticket-commit`. Stage specific files - never `git add -A` or `git add .`. Message: imperative, whole subject including prefix ≤ 50 chars (§Commit messages); no Co-Authored-By, Generated-with, or other AI-attribution trailer - the script appends the `Developer:` and `Signed-off-by:` trailers itself.
 
@@ -1961,7 +1961,7 @@ Exit codes - every non-zero one stops Phase 8; report BLOCKED with the script's 
 - **0**: pushed, and origin holds the local tip. The script then retires the worktree with `ds-retire-carrier` and deletes the local branch; a `[phase: worktree-cleanup | HELD | ...]` line means the checkout was kept (its hold record names why) and never fails Phase 8.
 - **1**: the push failed or could not be verified. A carrier worktree gets an explicit `BLOCKED: unpushed commit` hold (as in the engineer BLOCKED path); an `ERROR: BLOCKED hold NOT recorded` line means record it by hand. On the sequential path the branch is checked out in `$REPO` itself, so no hold is recorded and the unpushed commit stays on that branch.
 - **2**: usage error (missing `--repo`/`--branch`, files without `--message`) or `$REPO` not enterable; nothing ran.
-- **3**: the feature commit failed (`git add`, missing git identity, or a rejecting hook). Nothing was pushed or retired and the change stays staged; fix the cause and re-run.
+- **3**: the feature commit failed with changes staged (a rejecting hook, missing git identity, or a git error). Nothing was pushed or retired and the change stays staged; fix the cause and re-run.
 - **127**: the script is missing at `$REPO_DIR/bin/` - `$REPO_DIR` is wrong or the install predates this script.
 
 `Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).
@@ -2209,6 +2209,8 @@ Every row is cleared at the Phase 1 per-ticket reset and re-set on this ticket's
   --gh-repo "$GH_REPO" --loop-key "$LOOP_KEY" --rework-detection "$REWORK_DETECTION" \
   --risk-class "$RISK_CLASS" --skeptic-rounds "$SKEPTIC_ROUNDS" --qa-status "$QA_STATUS"
 ```
+
+If `ds-ticket-finish` exits 2 (usage error, or `$REPO` not enterable) or 127 (missing at `$REPO_DIR/bin/`), the step did not run: stop and report it; do not continue as if it ran.
 
 `.agentic/ticket-ledger.jsonl` is append-only and matches `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) (machine-local). It is never truncated or rewritten by this command, and Phase 12 cleanup does not remove it - the history is the point.
 
@@ -2568,6 +2570,8 @@ If the file does not exist (it was never written, e.g. loop never started), skip
   --auto-merge "$AUTO_MERGE_ON_CI_GREEN" --base-branch "$BASE_BRANCH"
 ```
 
+If `ds-ticket-finish` exits 2 (usage error, or `$REPO` not enterable) or 127 (missing at `$REPO_DIR/bin/`), the step did not run: stop and report it; do not continue as if it ran.
+
 It prints one of `[phase: auto-merged | pr=N]`, `[phase: auto-merge-queued | ...]`, `[phase: auto-merge-deferred | ...]`, `[phase: auto-merge-failed | ...]`, `[phase: auto-merge-skipped | ...]`, or (auto-merge off) the PR-open notice, then the `ds-base-sync` breadcrumb. After the sync it retires `.agentic/worktrees/<branch>` and `.agentic/worktrees/qa-<branch>` when present and re-evaluates this session's automatic `ds-retire-carrier` holds; explicit holds stay, and no hold changes the exit code.
 
 **Knowledge-commit branch (the `--auto` path).** When Phase 11e pushed a `chore(knowledge):` commit onto the PR tip, CI is re-running, so an immediate `gh pr merge` would fail on pending checks. That case instead queues GitHub's own auto-merge with `--auto`. Three consequences worth stating plainly:
@@ -2584,7 +2588,7 @@ A total `gh pr view` failure leaves `PR_STATE` empty, which fails the `IS_DRAFT`
 
 Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). If an agent merges this PR itself later, outside this auto-merge block, the dev-complete transition fires immediately at merge time under the **Merge-time tracker writeback** rule in `content/rules/conventions.md` §Git Workflow, and the deferred path described next does not apply. On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here - the dev-complete transition is pushed automatically by the session-start pending-merge sweep instead (see `content/rules/conventions.md` §Session Context and Memory) within one session boot of the merge. AE never fires the terminal `TRACKER_STATE_DONE` state automatically at any site; `TRACKER_STATE_DEV_COMPLETE` inherits the resolved `TRACKER_STATE_DONE` value when undeclared, so a project that declares no post-merge lane is unaffected. The sweep is driven by the ticket ledger, so when `rework_detection` is `false` there are no candidates and no automatic dev-complete transition **for a merge the agent did not perform itself, or where the ticket ID or PR number was unknown at merge time** - the merge-time rule above never consults the ledger and still fires regardless of `rework_detection`; run `/ds-ticket-status-sync <TICKET_ID>` after merge in that configuration. `/ds-ticket-status-sync <TICKET_ID>` also remains available to force the transition immediately.
 
-**Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - Phase 11e is skipped for the same reason (no PR branch to commit onto), and the "Conditional auto-merge" block is skipped entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only).
+**Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - Phase 11e is skipped for the same reason (no PR branch to commit onto), and the "Conditional auto-merge" block is skipped entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only). `ds-ticket-finish merge` (called with an empty `--pr`) still runs the base sync and still retires `.agentic/worktrees/<branch>` and `.agentic/worktrees/qa-<branch>` when they are clean; the branch and its local, unpushed commits are kept, because `ds-retire-carrier` never deletes a branch and holds any checkout whose commits no ref would keep.
 
 **Post-merge local sync (unconditional).** Runs once at the end of every Phase 12, independent of `auto_merge_on_ci_green` and independent of whether this ticket's own PR merged - it also catches a *different* PR (this ticket's or any other) that merged asynchronously since the session started. See `content/references/base-branch-sync.md`. A non-zero exit never blocks Phase 12 completion - `status=skipped-dirty`/`diverged`/`refused-unknown`/`ref-locked-elsewhere`/`fetch-failed` are all operator-visible breadcrumbs/warnings, matching every other soft-fail convention in this phase (qa.md snapshot cleanup, tracker writeback).
 

@@ -15,7 +15,24 @@
 #                       auto-merge (`@harness:phase12-auto-merge`), the
 #                       unconditional post-merge base sync, and carrier
 #                       retirement.
-#          Each `@harness:` region is the moved block, unchanged.
+#          The code in each moved block is unchanged; only comments that
+#          described the markdown setting were rewritten. The auto-merge
+#          region matches main's fence exactly; the ledger region (2
+#          comments: where it is called from, where its inputs come from),
+#          the knowledge region (1 comment: why BRANCH_NAME is not
+#          exported) and the base-sync block (1 comment: where REPO_DIR and
+#          BASE_BRANCH come from) differ in comments only.
+#          Not moved: the Phase 12 loop-state `status: "complete"` write.
+#          It is a Contract A (per-write session_id gate) write with no shell
+#          implementation anywhere and an ambiguous step 3 for stale null
+#          session ids, so scripting it would be new behavior rather than a
+#          move; it stays conductor prose in ds-implement-ticket.md.
+#          Catches: conductors skipping the post-PR steps (2026-10 reach:
+#          base sync 1.8% of real sessions). Retires: per the lean plan the
+#          script stays even if the lean command is reverted; drop it only if
+#          the post-adoption reach audit of the first 20 lean sessions shows
+#          base sync still below 90%, i.e. the script does not get the steps
+#          run.
 #
 # Public API:
 #   ds-ticket-finish ledger --repo R --ticket T --branch B --gh-repo G

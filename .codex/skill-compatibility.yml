@@ -3412,6 +3412,16 @@
       "source_token": "rm"
     },
     {
+      "expected_target": ".agentic/worktrees/<branch>",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/worktrees/<branch>",
+      "kind": "operational",
+      "occurrence_hash": "0974fe9879d0e544f67d5e1dd4f90b9d7ee5cf41b1644c3cc87b24bb0bce3a1d",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/worktrees/<branch>"
+    },
+    {
       "expected_target": "jq",
       "generated_token": "jq",
       "kind": "operational",
@@ -11320,6 +11330,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "Write"
+    },
+    {
+      "expected_target": ".agentic/worktrees/qa-<branch>",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/worktrees/qa-<branch>",
+      "kind": "operational",
+      "occurrence_hash": "fa84dab2d26b22341482112009850a496bbb8ca026bacb8bc6649538da71c0a3",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/worktrees/qa-<branch>"
     },
     {
       "expected_target": ".agentic/batch-state.json",

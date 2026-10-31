@@ -7,7 +7,17 @@
 #          worktree. The `@harness:phase8-commit-and-telemetry` region below
 #          is the block that used to sit in
 #          content/commands/ds-implement-ticket.md, moved so it runs as code
-#          instead of being retyped by the conductor.
+#          instead of being retyped by the conductor. It differs from that
+#          block in four places: files and message arrive as arguments
+#          instead of template placeholders, a feature commit that fails with
+#          changes staged stops the run, the push is verified, and an
+#          unverified push holds the worktree instead of retiring it.
+#          Catches: conductors skipping Phase 8 steps (2026-10 reach: telemetry
+#          commit 0% of real sessions). Retires: per the lean plan the script
+#          stays even if the lean command is reverted; drop it only if the
+#          post-adoption reach audit of the first 20 lean sessions shows the
+#          scripted steps still unreached (base sync below 90%), i.e. the
+#          script does not get them run.
 #
 # Public API:
 #   ds-ticket-commit --repo R --branch B [--worktree-path W]
@@ -18,17 +28,20 @@
 #     I  the fan-out integration worktree ($INTEGRATION_WORKTREE).
 #     M  commit subject and body; the script appends the Developer and
 #        Signed-off-by trailers. Required when FILEs are given.
-#     FILE  paths to stage for the feature commit (never `-A`). With none,
-#        the feature commit is skipped and telemetry, push and cleanup run.
+#     FILE  paths to stage for the feature commit (never `-A`), passed only
+#        on the sequential path where the conductor commits in R. With none,
+#        or when they stage nothing (the engineer already committed in its
+#        own worktree), the feature commit is skipped and telemetry, push and
+#        cleanup run.
 #   Inputs come only from flags: same-named environment variables are
 #   unset first and never read.
 #   Exit codes: 0 pushed and verified (origin holds the local tip);
 #   1 push failed or unverified (a carrier worktree gets an explicit
 #   "BLOCKED: unpushed commit" hold; on the sequential path the branch is
 #   checked out in R itself and no hold is recorded); 2 usage error or R
-#   not enterable; 3 feature commit failed (git add, missing identity, or a
-#   rejecting hook) - nothing pushed, nothing retired, the change left
-#   staged in the commit checkout.
+#   not enterable; 3 feature commit failed with changes staged (a
+#   rejecting hook, missing identity, or a git error) - nothing pushed,
+#   nothing retired, the change left staged in the commit checkout.
 #   A worktree that ds-retire-carrier holds (its exit 3) prints a
 #   `[phase: worktree-cleanup | HELD | ...]` line and never changes the
 #   exit code.
@@ -99,7 +112,8 @@ export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" &
 if [ -n "$INTEGRATION_WORKTREE" ] && [ -d "$INTEGRATION_WORKTREE" ]; then COMMIT_CHECKOUT="$INTEGRATION_WORKTREE"; else COMMIT_CHECKOUT="$REPO"; fi
 
 FEATURE_COMMIT_FAILED=false
-[ "$#" -eq 0 ] || git -C "$COMMIT_CHECKOUT" add -- "$@" || FEATURE_COMMIT_FAILED=true
+FEATURE_ADD_RC=0
+[ "$#" -eq 0 ] || git -C "$COMMIT_CHECKOUT" add -- "$@" || FEATURE_ADD_RC=$?
 
 # Resolve developer identity for trailer (soft-fail throughout; ds-identity may not be installed).
 # Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
@@ -114,8 +128,13 @@ SO_EMAIL=$(git -C "$COMMIT_CHECKOUT" config user.email 2>/dev/null || git config
 
 if [ "$#" -eq 0 ]; then
   echo "[phase: commit | feature-commit=skipped | reason=no files given]"
-elif [ "$FEATURE_COMMIT_FAILED" = "true" ]; then
-  echo "ERROR: git add failed for the given files; feature commit not made."
+elif git -C "$COMMIT_CHECKOUT" diff --cached --quiet; then
+  # Nothing staged: the work is already committed (often in the engineer's own
+  # worktree, where these paths do not exist in $COMMIT_CHECKOUT). Not a failure.
+  echo "[phase: commit | feature-commit=skipped | reason=nothing to commit in $COMMIT_CHECKOUT]"
+elif [ "$FEATURE_ADD_RC" -ne 0 ]; then
+  echo "ERROR: git add failed (exit $FEATURE_ADD_RC) with changes staged; feature commit not made."
+  FEATURE_COMMIT_FAILED=true
 elif [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
   echo "WARNING: git user.name or user.email not set; skipping commit to avoid malformed DCO trailer."
   FEATURE_COMMIT_FAILED=true

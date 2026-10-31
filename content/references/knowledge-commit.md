@@ -115,6 +115,8 @@ The sweep, commit, and push run as `ds-ticket-finish knowledge`; its `@harness:p
 "$REPO_DIR/bin/ds-ticket-finish" knowledge --repo "$REPO" --branch "$BRANCH_NAME" --ticket "$TICKET_ID" --gh-repo "$GH_REPO"
 ```
 
+If `ds-ticket-finish` exits 2 (usage error, or `$REPO` not enterable) or 127 (missing at `$REPO_DIR/bin/`), the step did not run: stop and report it; do not continue as if it ran.
+
 `GIT_INDEX_FILE="$KC_IDX" git ...` is a **per-command assignment, not an export**, in both bash and zsh - the value is scoped to that one invocation and cannot reach `$REPO/.git/index`. Do not convert it to an `export ... ; unset ...` pair, and do not remove it from the `update-index` call.
 
 **CI interaction.** With `auto_merge_on_ci_green: false` (the default) there is no interaction to reason about: the PR stays open, CI re-runs against the new tip, and the human merges when it is green. With `auto_merge_on_ci_green: true`, Phase 12 re-derives the knowledge-commit condition from `gh` and queues GitHub's own auto-merge, which completes only once the checks are green.

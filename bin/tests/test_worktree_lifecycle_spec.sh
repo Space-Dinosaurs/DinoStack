@@ -1104,7 +1104,9 @@ for name, text, start, end, call, flags in SITES:
         print(f"SCRIPT-WIRING VIOLATION: {name} section not found", file=sys.stderr)
         bad = 1
         continue
-    fences = [b for b in re.findall(r"```bash\n(.*?)```", text[i:j], re.S) if call in b]
+    # Whole-word match: `ledgerx` or `merge-all` must not satisfy `ledger`/`merge`.
+    call_re = re.compile(re.escape(call) + r"(?![\w-])")
+    fences = [b for b in re.findall(r"```bash\n(.*?)```", text[i:j], re.S) if call_re.search(b)]
     if len(fences) != 1:
         print(f"SCRIPT-WIRING VIOLATION: {name} has {len(fences)} bash fence(s) calling {call} (expected 1)", file=sys.stderr)
         bad = 1

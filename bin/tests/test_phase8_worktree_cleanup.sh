@@ -361,6 +361,32 @@ echo "$ERR10" | grep -q "ERROR: BLOCKED hold NOT recorded for .*/wt10 "
 assert $? "scenario 10: unrecorded hold is reported on stderr"
 
 # --------------------------------------------------------------------------
+# Scenario 11: single-engineer path - the engineer already committed and
+# pushed in its own worktree, $REPO stays on main, and the call still names a
+# file -> nothing to commit, not a failure: exit 0, push verified, retired.
+# --------------------------------------------------------------------------
+echo ""
+echo "== Scenario 11: engineer already committed -> files stage nothing, exit 0 =="
+REPO11="$(build_repo scenario11)"
+BRANCH11="feature/scenario-11"
+git -C "$REPO11" worktree add -q "$REPO11/.claude/worktrees/wt11" -b "$BRANCH11"
+echo feature > "$REPO11/.claude/worktrees/wt11/feature.txt"
+git -C "$REPO11/.claude/worktrees/wt11" add feature.txt
+git -C "$REPO11/.claude/worktrees/wt11" -c user.email=spec@example.com -c user.name=spec commit -q -m "feat: add feature file"
+git -C "$REPO11/.claude/worktrees/wt11" push -q -u origin "$BRANCH11"
+OUT11="$(run_block "$REPO11" "$BRANCH11" --worktree-path "$REPO11/.claude/worktrees/wt11" \
+  --message "feat: add feature file" -- feature.txt 2>&1)"
+RC11=$?
+[ "$RC11" -eq 0 ]
+assert $? "scenario 11: CLI exits 0, got $RC11"
+echo "$OUT11" | grep -q "push=verified"
+assert $? "scenario 11: push verified"
+echo "$OUT11" | grep -q "feature-commit=skipped | reason=nothing to commit"
+assert $? "scenario 11: feature commit reported as nothing to commit"
+[ ! -d "$REPO11/.claude/worktrees/wt11" ]
+assert $? "scenario 11: engineer worktree retired"
+
+# --------------------------------------------------------------------------
 # Summary
 # --------------------------------------------------------------------------
 echo ""
