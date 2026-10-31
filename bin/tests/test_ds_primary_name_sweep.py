@@ -220,6 +220,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from harness_scope import non_claude
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 BIN_DIR = REPO_ROOT / "bin"
 CONTENT_DIR = REPO_ROOT / "content"
@@ -340,6 +342,7 @@ def test_codex_literal_rules_replacements_never_contain_old_names() -> None:
     )
 
 
+@non_claude
 def test_codex_generated_identity_commands_use_ds_identity() -> None:
     # DS-183 round 1: .codex/AGENTS.md became a minimal trigger-load stub
     # and stopped embedding the methodology body or content/rules/**, so it

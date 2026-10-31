@@ -9,6 +9,11 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+# Claude Code first (root AGENTS.md): tests that read or rebuild non-Claude
+# adapter output run only under DS_ALL_HARNESSES=1, which is set on the
+# on-demand catch-up chore PR (branch `chore/adapter-catch-up*`) only.
+env:
+  DS_ALL_HARNESSES: ${{ startsWith(github.head_ref, 'chore/adapter-catch-up') && '1' || '' }}
 # TIMEOUT POLICY (all three jobs below).
 #
 # A job's `started_at` is stamped at RUNNER ASSIGNMENT, not at first-step
@@ -240,11 +245,13 @@ jobs:
           sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
           gitleaks version
       - name: build the adapters once (install.sh's own build, skipped below)
-        # The two builds .claude/install.sh runs. Run once here so the shell
-        # tests' installs can skip them; adapter-sync.yml gates the build
-        # output itself.
+        # The builds .claude/install.sh runs (.cursor only under
+        # DS_ALL_HARNESSES=1). Run once here so the shell tests' installs can
+        # skip them; adapter-sync.yml gates the build output itself.
         timeout-minutes: 2
-        run: bash .claude/build.sh && bash .cursor/build.sh
+        run: |
+          bash .claude/build.sh
+          if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then bash .cursor/build.sh; fi
       - name: run shell bin tests
         # AE_INSTALL_SKIP_BUILD=1 makes every .claude/install.sh call in
         # these tests skip its adapter rebuild, as scripts/check-local.sh

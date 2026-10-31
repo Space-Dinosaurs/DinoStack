@@ -20,13 +20,45 @@ One command runs the locally-runnable part of CI's gate set, in CI's order:
 bash scripts/check-local.sh   # exit 0 = every covered gate passed, 1 = a gate failed, 2 = toolchain preflight failed
 ```
 
-**It does not run everything, and it tells you so.** Three gates are excluded on cost, not because they are optional, and every run ends with a `NOT RUN LOCALLY (run in CI)` block naming them with their exact commands: the full Codex skill suite (`codex-skill-sync`), the slide build and its overflow checks (`slides-sync`, described under [Editing content](#editing-content) below), and the gitleaks full-history scan. A green run means the covered set passed. It does not mean CI will be green. Run the excluded ones by hand when your change touches what they cover.
+**It does not run everything, and it tells you so.** Three gates are excluded on cost, not because they are optional, and every run ends with a `NOT RUN LOCALLY (run in CI)` block naming them with their exact commands: the full Codex skill suite (`codex-skill-sync`, part of the catch-up chore below), the slide build and its overflow checks (`slides-sync`, described under [Editing content](#editing-content) below), and the gitleaks full-history scan. A green run means the covered set passed. It does not mean CI will be green. Run the excluded ones by hand when your change touches what they cover.
 
-Everything else CI runs is covered, including the gates that are easy to forget: the adapter and agent-fragment drift diffs and the pathspec-existence step that keeps them honest, the `no-planning-docs` guard, the collected-count floors, `check-codex-skill-sync.sh`, the seven budget gates, the `wrap-lock-tests` pair that lives outside the main hooks-JS loop, and `check-npm-audit.sh`.
+Everything else CI runs on a methodology PR is covered, including the gates that are easy to forget: the `.claude` adapter and agent-fragment drift diffs and the pathspec-existence step that keeps them honest, the `no-planning-docs` guard, the collected-count floors, the three Claude-side budget gates (all seven under `DS_ALL_HARNESSES=1`), the `wrap-lock-tests` pair that lives outside the main hooks-JS loop, and `check-npm-audit.sh`.
 
 `check-npm-audit.sh` is the one covered gate that needs the network: it asks the npm advisory endpoint whether either lockfile carries an advisory with a non-breaking fix available. Offline, it prints a `SKIPPED` block and does not fail the run, so you are never blocked by a gate that structurally cannot run - **which also means a green local run is not proof the audit happened; read that gate's own output to see which of the two you got.** The preflight can require `npm`, and does, but it cannot require a reachable registry. The same condition is a hard failure under `CI`, so the gate can never pass in CI without actually auditing. It deliberately does NOT fail on advisories whose only fix is a breaking change: `scripts/` carries four such high-severity advisories today with no patched version published, and a gate that is permanently red is a gate everybody learns to ignore. Run `npm audit --prefix scripts` yourself if you want the full picture including those.
 
 Each run exports a fresh `TMPDIR` under `/tmp` and deletes it on exit, so temp files the gates leave behind do not accumulate in yours.
+
+### Non-Claude harnesses (catch-up chore)
+
+Claude Code is the primary harness. A methodology PR regenerates and checks only `.claude/` (`bash .claude/build.sh`); the other 10 adapters (`.codex`, `.cursor`, `.gemini`, `.kimi`, `.opencode`, `.omp`, `.pi`, `.hermes`, `.openclaw`, `.copilot`, plus the `.github/*` Copilot surfaces) are left stale and catch up later in one on-demand chore PR. Everything that builds or checks them is off by default and comes back with one switch, `DS_ALL_HARNESSES=1`: the pre-commit hook's builds, staging and Codex skill-sync gate, `scripts/check-local.sh`'s build, drift and Codex gates, `.claude/install.sh`'s `.cursor` build, and the tests that read or rebuild non-Claude output. In CI the switch is on for any PR whose branch starts with `chore/adapter-catch-up`.
+
+To run the catch-up:
+
+```bash
+git fetch origin && git switch -c chore/adapter-catch-up-$(date +%Y%m%d) origin/main
+python3 scripts/codex-skills.py inventory --repo . > /tmp/skill-compatibility.yml \
+  && mv /tmp/skill-compatibility.yml .codex/skill-compatibility.yml
+bash scripts/build-all.sh
+git add -A -- .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot \
+  .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills
+git commit -s -m "chore(adapters): catch up non-Claude harnesses"
+DS_ALL_HARNESSES=1 bash scripts/check-local.sh
+python3 scripts/test/test_codex_skills.py
+```
+
+Then open the PR from that branch. Its body needs a filled `## North Star alignment` section (the `check-vision-alignment` check reads it, since the diff touches adapter install and build paths).
+
+**Between catch-ups (the trade-off).** `main` carries non-Claude generated files that lag `content/`. Outside `DS_ALL_HARNESSES=1` the non-Claude installers do not run their build: they install the committed files, so the checkout stays clean and `ds-update` keeps working (the Kimi installer still builds its gitignored per-command skills, which are never committed). What those users get is a mix: files the adapters symlink straight into `content/` are current, generated files are as old as the last catch-up, and a link to a `content/` file that was renamed or deleted since then dangles until the next catch-up. `.codex/install.sh` warns that its source is stale and installs the committed files. To build and install a non-Claude adapter from current `content/`, run its installer with `DS_ALL_HARNESSES=1` (this dirties the checkout until the catch-up merges).
+
+**Recovery.** If `ds-update` stops with `working tree has uncommitted changes` and lists only paths under the non-Claude adapter directories (for example after an older installer, a manual `bash .gemini/build.sh`, or an install with `DS_ALL_HARNESSES=1`), those are rebuilt artifacts. Check that none of them are your own edits, then discard them and re-run:
+
+```bash
+git -C <checkout> checkout -- .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot \
+  .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills
+git -C <checkout> clean -n -- .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot \
+  .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills   # review, then -f
+ds-update
+```
 
 Exit 2 is deliberately distinct from exit 1: it means no gate ran, so it says nothing about your change. The preflight prints the exact install command for whatever is missing. What it requires:
 
@@ -96,7 +128,7 @@ Build scripts regenerate adapter files from `content/`:
 - `.claude/build.sh` - rebuilds `.claude/commands/*.md` by prepending the `/dinostack` prerequisite blockquote to each `content/commands/*.md` source. Rules, references, and agents need no copy step - `.claude/skills/dinostack/rules`, `.claude/skills/dinostack/references`, and `.claude/agents/` are all symlinks pointing directly into `content/`.
 - `.cursor/build.sh` - combines frontmatter sidecars with rules to produce .mdc files, copies references and commands
 
-The pre-commit hook runs `scripts/stamp-agent-fragments.sh` (see below) then all adapter build scripts automatically when `content/` files are staged. If you bypass the hook, run `bash scripts/stamp-agent-fragments.sh` and the build scripts manually before committing.
+The pre-commit hook runs `scripts/stamp-agent-fragments.sh` (see below) then `.claude/build.sh` automatically when `content/` files are staged (every adapter build under `DS_ALL_HARNESSES=1`, see [Non-Claude harnesses](#non-claude-harnesses-catch-up-chore)). If you bypass the hook, run `bash scripts/stamp-agent-fragments.sh` and `bash .claude/build.sh` manually before committing.
 
 **Shared agent-check fragments.** Some wording is stated in more than one `content/agents/*.md` file (e.g. a mechanical check `engineer.md`'s pre-submit self-check and `skeptic.md`'s numbered steps both describe). Instead of two hand-synced copies, that wording is hand-edited exactly once in `content/fragments/pre-submit-check-kernels.md`, inside a `<!-- FRAGMENT:<id> -->...<!-- /FRAGMENT -->` block, and transcluded into every `<!-- shared:<id> -->...<!-- /shared -->` span across `content/agents/*.md` by `bash scripts/stamp-agent-fragments.sh` (also run by `scripts/build-all.sh` and the pre-commit hook). **The interior of a `shared:` span is a generated artifact - never hand-edit it.** The next stamp run silently overwrites a hand-edit, and if you skip the stamp step entirely, the `agent-fragment-sync` CI gate re-stamps in CI and fails the build on any drift - but that gate is advisory-only (not on the `main` ruleset's required-check list); the actual blocking coverage for a stale or corrupted span comes from `bin/tests/test_stamp_agent_fragments.py`, which runs under the required `python-bin-tests` check.
 
@@ -110,7 +142,7 @@ A third build script, `scripts/build-slides.sh`, regenerates `docs/slides/*.html
 
 **Command arg-substitution gate (advisory, DS-192).** `scripts/check-command-arg-substitution.py` fails when a bare `$0`-`$9`/`$ARGUMENTS` token reappears inside an executable (bare/```bash/```sh/```shell/```zsh) fence anywhere under `content/commands/**` - Claude Code's slash-command argument substitution textually replaces those tokens in the delivered instruction BEFORE the model reads it, silently corrupting awk field-selector syntax (e.g. `$0=="branch "b`) at any site relying on it. Runs as a non-required CI job (`command-arg-substitution.yml`); a passing gate is scan-only and never regenerates or diffs `content/commands/ds-implement-ticket.md` against itself, since doing so would flip that file's provenance classification under `scripts/gate-provenance.sh`. `bin/tests/test_check_command_arg_substitution.sh` exercises the six named reddening mutations (a reverted fixed site, a freshly injected bare token, a yaml-fence decoy that must NOT trip the gate, an empty discovery set, an unrecognized fence line, and an unterminated fence block); `bin/tests/test_arg_substitution_field_rewrites.sh` proves each rewritten awk idiom (`$NF`, `-v idx=N '{print $(idx)}'`) produces output byte-identical to its pre-rewrite bare-`$N` form.
 
-**Codex skill budget (advisory).** `scripts/check-codex-skill-budget.sh` guards the Codex adapter's trigger-loaded methodology (DS-183): a FLOOR on `.codex/skills/dinostack-codex/METHODOLOGY.md`'s byte size and a CEILING on `.codex/AGENTS.md`'s byte size (the stub is expected to stay small; the methodology body it points at is expected to stay complete), an embed-completeness check (via the same `budget_check_embedded_set` helper `check-skill-embed-budget.sh` uses) pinning the section and rules file counts embedded there, and a rules-reachability check specific to the Codex build. Same axes and degrade behavior as the resident-budget and skill-embed gates above (informational burn line, no hard delta axis - `METHODOLOGY.md` is a generated artifact). Registered in `bin/ds-evaluate`'s `BUDGET_SCRIPTS`, deliberately not on the `main` ruleset's required-checks list. If it fails, see its own script header for remediation.
+**Codex skill budget (advisory; with the Copilot, Gemini and Kimi skill budgets, runs only under `DS_ALL_HARNESSES=1`).** `scripts/check-codex-skill-budget.sh` guards the Codex adapter's trigger-loaded methodology (DS-183): a FLOOR on `.codex/skills/dinostack-codex/METHODOLOGY.md`'s byte size and a CEILING on `.codex/AGENTS.md`'s byte size (the stub is expected to stay small; the methodology body it points at is expected to stay complete), an embed-completeness check (via the same `budget_check_embedded_set` helper `check-skill-embed-budget.sh` uses) pinning the section and rules file counts embedded there, and a rules-reachability check specific to the Codex build. Same axes and degrade behavior as the resident-budget and skill-embed gates above (informational burn line, no hard delta axis - `METHODOLOGY.md` is a generated artifact). Registered in `bin/ds-evaluate`'s `BUDGET_SCRIPTS`, deliberately not on the `main` ruleset's required-checks list. If it fails, see its own script header for remediation.
 
 **Frontmatter sidecars.** Cursor rules require YAML frontmatter. This metadata lives in `.cursor/rules/frontmatter/*.yaml` (one file per rule). The cursor build script combines the sidecar with the rule content to produce the `.mdc` file. Edit the sidecar to change frontmatter; edit `content/rules/` to change rule content.
 
@@ -157,7 +189,7 @@ When contributing a new feature, pick the right home for each artifact:
 | Audience | Where it lives |
 |---|---|
 | Code reader | The code itself, with a comment only for what the code cannot show - see `content/rules/code-standards.md` §Code Comments. `bin/` and `hooks/` scripts keep the header docstring their own `AGENTS.md` documents. |
-| End user of the feature | `content/commands/<command>.md` or `content/references/<ref>.md`. Note: editing `content/**` requires rebuilding adapters in the same PR, or CI (`check-adapter-sync` / `methodology-drift`) fails. |
+| End user of the feature | `content/commands/<command>.md` or `content/references/<ref>.md`. Note: editing `content/**` requires rebuilding the Claude Code adapter (`bash .claude/build.sh`) in the same PR, or CI (`check-adapter-sync` / `methodology-drift`) fails. |
 | Operator / maintainer of a non-trivial feature | A committed feature README co-located with the code (e.g. `hooks/<feature>.README.md`). Include: how to enable/configure it, what state it owns, how to stop/reset it, the security model, and the rollback procedure. This is the committed home for content that would otherwise be stranded in `docs/planning/`. |
 | Durable facts and decisions | `MEMORY.md` and `decisions.md`, where the project tracks them as committed files - in DinoStack itself both are gitignored local scratch (DS-129), so use the relevant `AGENTS.md` (agent-facing conventions) instead. |
 | Contributors / reviewers (North Star alignment) | `docs/overview/vision.md` - the product-intent lens every PR is measured against. Read it before opening a change that affects operator attention, autonomy, or verifiability. |
@@ -168,7 +200,7 @@ Before opening a PR for a new feature:
 
 - [ ] Keep planning artifacts in `docs/planning/` local - do not commit them.
 - [ ] Migrate durable rationale (risk register, rollback plan, security model, operator runbook) out of local planning docs into a committed home (a feature README).
-- [ ] Add or update the user-facing command/reference doc if the feature is user-invokable, and rebuild adapters (the pre-commit hook does this automatically on `content/` changes; to rebuild manually, run each adapter's `build.sh` - `check-adapter-sync` CI verifies all of them).
+- [ ] Add or update the user-facing command/reference doc if the feature is user-invokable, and rebuild the Claude Code adapter (the pre-commit hook does this automatically on `content/` changes; to rebuild manually, run `bash .claude/build.sh` - `check-adapter-sync` CI verifies it). The other adapters catch up in the [catch-up chore](#non-claude-harnesses-catch-up-chore).
 - [ ] Sign every commit with `git commit -s` - the DCO check is required.
 
 ## Style

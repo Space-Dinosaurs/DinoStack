@@ -41,7 +41,12 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      all_harnesses:
+        description: Also run the non-Claude adapter checks (DS_ALL_HARNESSES=1)
+        type: boolean
+        default: false
 
 # Keyed on the pushed commit, NOT on the ref: each merge is its own subject
 # and must be evaluated on its own. `cancel-in-progress` is deliberately
@@ -54,6 +59,12 @@ concurrency:
 permissions:
   contents: read
   pull-requests: read
+
+# Claude Code first (root AGENTS.md): `main` carries a current `.claude` and
+# lets the other adapters lag until the on-demand catch-up chore. Their checks
+# run here only on a workflow_dispatch with all_harnesses set.
+env:
+  DS_ALL_HARNESSES: ${{ inputs.all_harnesses && '1' || '' }}
 
 # TIMEOUT POLICY - see bin-tests.yml's header for the full rationale. A job's
 # `started_at` is stamped at runner assignment, so job-level `timeout-minutes`
@@ -72,7 +83,9 @@ jobs:
   #   - inside the script: any inability to resolve the PR, fetch its head, or
   #     read either tree yields run_full=true;
   #   - at the job boundary: every suite job below guards on
-  #     `${{ !cancelled() && (needs.needs-full-run.result != 'success' || ...) }}`,
+  #     `${{ !cancelled() && (needs.needs-full-run.result != 'success' || ...) }}`
+  #     (merged-codex-skill-sync adds `inputs.all_harnesses &&` after
+  #     `!cancelled()`, so it runs only on an all_harnesses dispatch),
   #     so a gate job that FAILS or times out runs the suite rather than
   #     skipping it. Without a status-check function GitHub applies the
   #     implicit `success()` and a failed gate would skip everything - the
@@ -177,8 +190,8 @@ jobs:
           # `git add CHANGELOG.md docs/changelog.html`, commits
           # "chore(changelog): regenerate from merged PRs" with no `(#N)`
           # suffix, and pushes straight to main. Without this branch that bot
-          # commit fires the entire suite - merged-codex-skill-sync alone is
-          # budgeted 45 minutes - every single day, and makes the Pillar 8
+          # commit fires the entire suite - merged-codex-skill-sync alone was
+          # budgeted 45 minutes before it became dispatch-only - every single day, and makes the Pillar 8
           # retirement condition unsatisfiable by construction.
           #
           # The allowlist is deliberately two entries. Verified by
@@ -284,7 +297,8 @@ jobs:
           python-version: '3.11'
       - run: pip install pyyaml
         timeout-minutes: 5
-      # The 16-path pathspec below is duplicated from adapter-sync.yml, as
+      # Both drift pathspecs below (the `.claude` one and the 16-path
+      # non-Claude one) are duplicated from adapter-sync.yml, as
       # root AGENTS.md requires of any adapter-drift check. It is NOT
       # extracted into a composite action: gate-provenance.sh's D1 rule only
       # scans .github/workflows/*.yml, so moving the assertion out of a
@@ -296,29 +310,50 @@ jobs:
         timeout-minutes: 2
         run: |
           set -euo pipefail
-          # The `[.]claude` character class is deliberate: it matches the two
-          # real assertion lines while ensuring this grep's own pattern text
-          # does not match itself (a literal `.claude` here would make the
-          # guard count its own line and fail on a correct tree - observed).
-          pat='git diff --exit-code -- [.]claude'
-          lines="$(grep -hE "$pat" \
-                     .github/workflows/adapter-sync.yml \
-                     .github/workflows/verify-merged-tree.yml \
-                   | sed 's/^[[:space:]]*//; s/^if ! //; s/; then$//')"
-          found="$(printf '%s\n' "$lines" | grep -c . || true)"
-          uniq_count="$(printf '%s\n' "$lines" | sort -u | grep -c . || true)"
-          if [ "$found" != "2" ]; then
-            echo "::error::expected exactly 2 adapter drift pathspec lines (one per workflow), found $found - the guard is no longer measuring what it claims." >&2
+          # The `[.]claude` / `[.]codex` character classes are deliberate:
+          # they match the real assertion lines while ensuring this grep's
+          # own pattern text does not match itself (a literal `.claude` here
+          # would make the guard count its own line and fail on a correct
+          # tree - observed).
+          for pat in 'git diff --exit-code -- [.]claude' 'git diff --exit-code -- [.]codex [.]cursor'; do
+            lines="$(grep -hE "$pat" \
+                       .github/workflows/adapter-sync.yml \
+                       .github/workflows/verify-merged-tree.yml \
+                     | sed 's/^[[:space:]]*//; s/^if ! //; s/; then$//')"
+            found="$(printf '%s\n' "$lines" | grep -c . || true)"
+            uniq_count="$(printf '%s\n' "$lines" | sort -u | grep -c . || true)"
+            if [ "$found" != "2" ]; then
+              echo "::error::expected exactly 2 adapter drift pathspec lines matching '$pat' (one per workflow), found $found - the guard is no longer measuring what it claims." >&2
+              exit 1
+            fi
+            if [ "$uniq_count" != "1" ]; then
+              echo "::error::the adapter drift pathspec matching '$pat' has diverged between adapter-sync.yml and verify-merged-tree.yml ($uniq_count distinct forms). Copy it verbatim from the matching drift step in adapter-sync.yml." >&2
+              exit 1
+            fi
+          done
+      - name: Rebuild the Claude Code adapter
+        timeout-minutes: 5
+        run: bash .claude/build.sh
+      - name: Verify adapter-sync pathspec entries exist
+        timeout-minutes: 5
+        run: |
+          for p in .claude; do
+            if [[ ! -e "$p" ]]; then
+              echo "::error::adapter-sync pathspec entry missing: $p (drift check would silently pass on this)" >&2
+              exit 1
+            fi
+          done
+      - name: Fail on adapter drift
+        timeout-minutes: 5
+        run: |
+          if ! git diff --exit-code -- .claude; then
+            echo "::error::Claude Code adapter output is out of sync with content/ on the merged tree. Open a PR that runs bash .claude/build.sh and commits the regenerated files." >&2
             exit 1
           fi
-          if [ "$uniq_count" != "1" ]; then
-            echo "::error::the adapter drift pathspec has diverged between adapter-sync.yml and verify-merged-tree.yml ($uniq_count distinct forms). Copy it verbatim from 'Fail on adapter drift' in adapter-sync.yml." >&2
-            exit 1
-          fi
-      - name: Rebuild all adapters
+      - name: Rebuild the non-Claude adapters
+        if: env.DS_ALL_HARNESSES == '1'
         timeout-minutes: 10
         run: |
-          bash .claude/build.sh
           bash .cursor/build.sh
           bash .codex/build.sh
           bash .gemini/build.sh
@@ -329,21 +364,23 @@ jobs:
           bash .hermes/build.sh
           bash .openclaw/build.sh
           bash .copilot/build.sh
-      - name: Verify adapter-sync pathspec entries exist
+      - name: Verify non-Claude adapter-sync pathspec entries exist
+        if: env.DS_ALL_HARNESSES == '1'
         timeout-minutes: 5
         run: |
-          for p in .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot \
+          for p in .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot \
                    .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills; do
             if [[ ! -e "$p" ]]; then
               echo "::error::adapter-sync pathspec entry missing: $p (drift check would silently pass on this)" >&2
               exit 1
             fi
           done
-      - name: Fail on adapter drift
+      - name: Fail on non-Claude adapter drift
+        if: env.DS_ALL_HARNESSES == '1'
         timeout-minutes: 5
         run: |
-          if ! git diff --exit-code -- .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills; then
-            echo "::error::Adapter output is out of sync with content/ on the merged tree. Open a PR that runs the build scripts and commits the regenerated adapter files." >&2
+          if ! git diff --exit-code -- .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills; then
+            echo "::error::Non-Claude adapter output is out of sync with content/ on the merged tree. Open the catch-up chore PR (bash scripts/build-all.sh)." >&2
             exit 1
           fi
       - name: Verify Codex hook commands resolve (DS-57 regression guard)
@@ -460,7 +497,10 @@ jobs:
       - run: bash scripts/check-slide-overflow-live-selftest.sh
         timeout-minutes: 10
 
-  # Mirrors codex-skill-sync.yml's check-codex-skill-sync job.
+  # Mirrors codex-skill-sync.yml's check-codex-skill-sync job, and like it
+  # runs only with DS_ALL_HARNESSES (here: a workflow_dispatch with
+  # all_harnesses set), since `main` lets the Codex mirror lag until the
+  # catch-up chore.
   merged-codex-skill-sync:
     needs: needs-full-run
     # The `!cancelled() &&` prefix is load-bearing: without a status-check
@@ -473,7 +513,7 @@ jobs:
     # all 10 suite jobs.
     # Wrapped in `${{ }}` because a bare `!` opens a YAML tag - `if: !cancelled()`
     # is a YAML scanner error, not merely a style choice.
-    if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}
+    if: ${{ !cancelled() && inputs.all_harnesses && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -545,15 +585,19 @@ jobs:
         timeout-minutes: 2
         run: bash scripts/check-command-file-budget.sh
       - name: Run Codex skill budget check
+        if: env.DS_ALL_HARNESSES == '1'
         timeout-minutes: 2
         run: bash scripts/check-codex-skill-budget.sh
       - name: Run Copilot skill budget check
+        if: env.DS_ALL_HARNESSES == '1'
         timeout-minutes: 2
         run: bash scripts/check-copilot-skill-budget.sh
       - name: Run Gemini skill budget check
+        if: env.DS_ALL_HARNESSES == '1'
         timeout-minutes: 2
         run: bash scripts/check-gemini-skill-budget.sh
       - name: Run Kimi skill embed budget check
+        if: env.DS_ALL_HARNESSES == '1'
         timeout-minutes: 2
         run: bash scripts/check-kimi-skill-embed-budget.sh
 

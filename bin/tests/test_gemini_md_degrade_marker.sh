@@ -124,6 +124,15 @@
 
 set -uo pipefail
 
+# Asserts on what the .gemini build produces from current content/; outside
+# DS_ALL_HARNESSES=1 the installer skips that build and installs the
+# committed (possibly lagging) files, so this runs only under
+# DS_ALL_HARNESSES=1.
+if [ "${DS_ALL_HARNESSES:-}" != 1 ]; then
+  echo "SKIP: non-Claude harness test (set DS_ALL_HARNESSES=1 to run)"
+  exit 0
+fi
+
 # -P is required: scenarios 6a and 7a compare REPO_DIR against a
 # `readlink -f` result, so a logical path containing a symlink component
 # (e.g. macOS's /tmp) would fail here on plain `pwd`. CI runs from an
@@ -696,7 +705,7 @@ fi
 # paths from hooks/pre-commit's git add block.
 # ---------------------------------------------------------------------------
 PRECOMMIT="$REPO_DIR/hooks/pre-commit"
-GIT_ADD_BLOCK="$(awk '/^  git add \\$/{f=1; print; next} f{print; if ($0 !~ /\\$/) exit}' "$PRECOMMIT")"
+GIT_ADD_BLOCK="$(awk '/^ *git add \\$/{f=1; print; next} f{print; if ($0 !~ /\\$/) f=0}' "$PRECOMMIT")"
 for p in \
   '.gemini/GEMINI.md' \
   '.gemini/skills/dinostack/SKILL.md' \

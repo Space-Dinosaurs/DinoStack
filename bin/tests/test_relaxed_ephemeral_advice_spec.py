@@ -16,6 +16,8 @@ Performance: static reads of tracked text files and machinery trees.
 
 from pathlib import Path
 
+from harness_scope import ALL_HARNESSES, scoped
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -148,7 +150,7 @@ def test_skill_surfaces_relaxed_pre_read_gate_before_general_guidance() -> None:
         "otherwise classify Elevated before reading",
         "explicit user request for unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated and delegated before any project-content read",
     )
-    for path in (CANONICAL_SKILL, CODEX_SKILL):
+    for path in scoped(REPO_ROOT, [CANONICAL_SKILL, CODEX_SKILL]):
         text = _read(path)
         compact = " ".join(text.split())
         for expected in required:
@@ -159,9 +161,10 @@ def test_skill_surfaces_relaxed_pre_read_gate_before_general_guidance() -> None:
         assert gate < text.find("**Conductor default: act, don't ask.**")
         assert gate < text.find("## Rules (read these files)")
 
-    methodology = _read(CODEX_METHODOLOGY)
-    _assert_in_order(methodology, PREDICATES, "generated Codex predicate scope")
-    _assert_in_order(methodology, CARRIERS, "generated Codex carrier scope")
+    if ALL_HARNESSES:
+        methodology = _read(CODEX_METHODOLOGY)
+        _assert_in_order(methodology, PREDICATES, "generated Codex predicate scope")
+        _assert_in_order(methodology, CARRIERS, "generated Codex carrier scope")
 
 
 def test_broad_relaxed_prompt_does_not_imply_investigation() -> None:
@@ -173,7 +176,7 @@ def test_broad_relaxed_prompt_does_not_imply_investigation() -> None:
         "do not explore the project merely to improve specificity",
         "An explicit user request for unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated and delegated before any project-content read",
     )
-    for path in (RISK, CANONICAL_SKILL, CODEX_SKILL):
+    for path in scoped(REPO_ROOT, [RISK, CANONICAL_SKILL, CODEX_SKILL]):
         compact = " ".join(_read(path).split())
         for expected in required:
             assert expected in compact, (
@@ -190,7 +193,7 @@ def test_explicit_investigation_rule_preserves_the_remaining_signal_safety_floor
         "state-changing",
         "protocol or infrastructure",
     )
-    for path in (RISK, CANONICAL_SKILL, CODEX_SKILL):
+    for path in scoped(REPO_ROOT, [RISK, CANONICAL_SKILL, CODEX_SKILL]):
         compact = " ".join(_read(path).split())
         for expected in required:
             assert expected in compact, (
@@ -207,7 +210,7 @@ def test_delegation_failure_never_falls_back_to_direct_project_investigation() -
         "does not perform the requested investigation",
         "never fall back to conductor multi-file or project exploration",
     )
-    for path in (RISK, CANONICAL_SKILL, CODEX_SKILL):
+    for path in scoped(REPO_ROOT, [RISK, CANONICAL_SKILL, CODEX_SKILL]):
         compact = " ".join(_read(path).split())
         for expected in required:
             assert expected in compact, (
@@ -276,7 +279,7 @@ def test_relaxed_implementation_routes_before_existing_branch_inspection() -> No
 
 
 def test_early_gate_is_scoped_to_relaxed_after_all_predicates() -> None:
-    for path in (CANONICAL_SKILL, CODEX_SKILL):
+    for path in scoped(REPO_ROOT, [CANONICAL_SKILL, CODEX_SKILL]):
         compact = " ".join(_read(path).split())
         guard = "only after activation resolves `profile=relaxed` and all four canonical predicates pass"
         exclusion = "If profile is `default` or `strict`, this gate does not apply"

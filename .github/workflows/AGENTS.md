@@ -65,7 +65,9 @@ merged trees had never been evaluated by any run**:
   1. *Inside the script* - any inability to resolve the PR, fetch
      `refs/pull/N/head`, or read either tree yields `run_full=true`.
   2. *At the job boundary* - every suite job guards on
-     `if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}`.
+     `if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}`
+     (`merged-codex-skill-sync` adds `inputs.all_harnesses &&` after
+     `!cancelled()`, so it runs only on an `all_harnesses` dispatch).
      The status-check function is load-bearing. A bare
      `if: needs.needs-full-run.outputs.run_full == 'true'` carries none, so
      GitHub applies the implicit `success()` and a **failed** gate job (step
@@ -94,8 +96,8 @@ merged trees had never been evaluated by any run**:
   `main` with a PAT (`CHANGELOG_PUSH_TOKEN`) - and a PAT *does* trigger
   workflows. Its commit subject (`chore(changelog): regenerate from merged
   PRs`) has no `(#N)` and no PR, so it hits the gate's no-PR path. Left alone
-  that fires the entire suite - `merged-codex-skill-sync` alone is budgeted 45
-  minutes - every single day on a two-file bot commit, and makes the retirement
+  that fires the entire suite - `merged-codex-skill-sync` alone was budgeted 45
+  minutes before it became dispatch-only - every single day on a two-file bot commit, and makes the retirement
   condition below unsatisfiable by construction.
 
   The gate therefore has a **second `run_full=false` path**: when no PR
@@ -129,7 +131,7 @@ prose goldens.
 Jobs: `merged-adapter-sync` (incl. the DS-57 codex-hooks and DS-104
 symlinks-relative guards, which audit a landed SHA), `merged-methodology-drift`,
 `merged-agent-fragment-sync`, `merged-slides-sync` (incl. the advisory overflow
-check), `merged-codex-skill-sync`, `merged-budget-gates` (all 7),
+check), `merged-codex-skill-sync` (only with `all_harnesses`), `merged-budget-gates` (all 7; the 4 non-Claude ones only with `all_harnesses`),
 `merged-content-guards`, `merged-wrap-lock-tests`, `merged-hooks-js-tests`,
 `merged-hooks-sh-tests`.
 
@@ -210,16 +212,29 @@ loops are *not* consolidated (see `merged-hooks-js-tests`).
 
 ## Related conventions
 
-- The 16-path adapter pathspec and the 18-entry existence loop are duplicated
-  verbatim between `adapter-sync.yml` and `verify-merged-tree.yml`. This is
+- **Claude Code first** (root `AGENTS.md`). The adapter drift check is split
+  in two: `-- .claude` always runs, and the 16-path non-Claude pathspec (with
+  its builds and existence loop) runs only when `DS_ALL_HARNESSES` is `1`.
+  `adapter-sync.yml`, `bin-tests.yml` and `hooks-tests.yml` set it for a PR
+  whose branch starts with `chore/adapter-catch-up` (the on-demand catch-up chore);
+  `verify-merged-tree.yml` sets it from its `all_harnesses` dispatch input,
+  which also gates `merged-codex-skill-sync`. `codex-skill-sync.yml` is
+  advisory (off the required set) and path-triggered on the Codex skill
+  pipeline (`.codex/**` and its generator scripts) plus workflow_dispatch; a
+  `paths:` filter is safe here only because the check is not required. The
+  four non-Claude `*-skill-budget.yml` jobs run only on the catch-up branch
+  or a workflow_dispatch (job-level `if:` skip).
+- Both adapter pathspecs and both existence loops are duplicated verbatim
+  between `adapter-sync.yml` and `verify-merged-tree.yml`. This is
   **not** extracted into a composite action: `scripts/gate-provenance.sh`'s D1
   rule only scans `.github/workflows/*.yml`, so moving the assertion out of a
   workflow file would stop `.claude`/`.codex`/... classifying as DERIVED and
   break `bin/tests/test_gate_provenance.sh`. Instead the duplication is
   **mechanically guarded**: `merged-adapter-sync`'s first step fails the build
-  if the two pathspec lines are not byte-identical. Root `AGENTS.md`'s rule
-  ("copy it verbatim from `Fail on adapter drift` in `adapter-sync.yml`") now
-  has two in-repo consumers.
+  unless each pathspec (`-- .claude`, and the one starting `-- .codex .cursor`)
+  appears exactly once per file, byte-identical. Root `AGENTS.md`'s rule
+  ("copy it verbatim from the drift steps in `adapter-sync.yml`") now has two
+  in-repo consumers.
 - `verify-merged-tree.yml`'s "Verify public build is clean" step is scoped
   `-- .codex`, unlike `codex-skill-sync.yml`'s bare `git diff --exit-code`.
   `gate-provenance.sh`'s D4 rule takes the FIRST bare, no-pathspec assertion
@@ -234,7 +249,8 @@ loops are *not* consolidated (see `merged-hooks-js-tests`).
   are a backstop set above the sum of that job's own step bounds; network and
   execution steps carry their own).
   `verify-merged-tree.yml` follows it.
-- `bin-tests.yml`'s `bin-sh-tests` job builds the adapters once, then runs the
+- `bin-tests.yml`'s `bin-sh-tests` job builds `.claude` once (plus `.cursor`
+  under `DS_ALL_HARNESSES`), then runs the
   shell tests with `AE_INSTALL_SKIP_BUILD=1`, as `scripts/check-local.sh` does,
   so `.claude/install.sh` calls in those tests skip their rebuild. Measured
   locally on 2026-10-13 by running that step's loop over the same 81 files both

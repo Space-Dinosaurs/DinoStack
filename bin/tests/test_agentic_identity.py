@@ -47,6 +47,8 @@ import time
 from contextlib import redirect_stderr
 from pathlib import Path
 
+from harness_scope import scoped
+
 # ---------------------------------------------------------------------------
 # Load agentic-identity as a module (no .py extension)
 # ---------------------------------------------------------------------------
@@ -4219,6 +4221,7 @@ def test_activation_preflight_uses_one_bounded_identity_resolver():
         repo / ".opencode/skills/dinostack/METHODOLOGY.md",
         repo / ".pi/skills/dinostack/METHODOLOGY.md",
     ]
+    paths = scoped(repo, paths)
     stale_claims = (
         "Keep it to three file reads",
         "three file reads with no subagent spawn",

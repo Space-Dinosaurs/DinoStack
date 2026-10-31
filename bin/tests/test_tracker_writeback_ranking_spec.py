@@ -111,6 +111,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from harness_scope import non_claude, scoped
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -466,11 +467,12 @@ def test_invocation_contract_forward_only_guard_covers_every_writeback_caller(ca
 # ---------------------------------------------------------------------------
 
 def test_block_byte_identical_across_adapters(canonical_block):
-    missing = [p for p in ADAPTER_PATHS if not p.exists()]
+    paths = scoped(REPO_ROOT, ADAPTER_PATHS)
+    missing = [p for p in paths if not p.exists()]
     assert not missing, f"expected adapter files missing: {missing}"
 
     mismatches = []
-    for path in ADAPTER_PATHS:
+    for path in paths:
         text = path.read_text(encoding="utf-8")
         block = _extract_block(text)
         if block != canonical_block:
@@ -492,12 +494,13 @@ def test_command_mirrors_carry_pointer_to_helper_reference():
     structurally cannot - that the pointer (the literal path string, not
     just prose naming the helper) actually propagated to every entry in
     COMMAND_MIRROR_PATHS."""
-    missing = [p for p in COMMAND_MIRROR_PATHS if not p.exists()]
+    paths = scoped(REPO_ROOT, COMMAND_MIRROR_PATHS)
+    missing = [p for p in paths if not p.exists()]
     assert not missing, f"expected command mirror files missing: {missing}"
 
     without_pointer = [
         str(p.relative_to(REPO_ROOT))
-        for p in COMMAND_MIRROR_PATHS
+        for p in paths
         if POINTER_TEXT not in p.read_text(encoding="utf-8")
     ]
     assert not without_pointer, (
@@ -505,6 +508,7 @@ def test_command_mirrors_carry_pointer_to_helper_reference():
     )
 
 
+@non_claude
 def test_helper_block_survives_in_hermes_aggregate(canonical_block):
     """`.hermes/SKILL.md` re-embeds every content/references/*.md file, each
     wrapped in `### <name>` (`.hermes/build.sh:100-107`), NOT `## `.

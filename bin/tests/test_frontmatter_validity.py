@@ -117,6 +117,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from harness_scope import ALL_HARNESSES, in_current_harness_rel
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -182,6 +183,14 @@ _ROOT_ENTRY_SKILL_LABELS: frozenset[str] = frozenset(
         ".gemini/skills/dinostack",
     }
 )
+
+
+# The specs whose files the content checks below parse: every spec under
+# DS_ALL_HARNESSES=1, otherwise canonical sources and `.claude` only.
+CONTENT_SPECS: list[DiscoverySpec] = [
+    spec for spec in DISCOVERY_SPECS
+    if ALL_HARNESSES or in_current_harness_rel(spec.glob)
+]
 
 
 def _resolve_spec(spec: DiscoverySpec) -> list[Path]:
@@ -345,7 +354,7 @@ def test_discovery_globs_are_nonempty():
 def test_all_frontmatter_parses():
     """Catches F1: an unquoted 'description: ...: ...' breaks the parser
     with a raised error rather than silently misparsing."""
-    for spec in DISCOVERY_SPECS:
+    for spec in CONTENT_SPECS:
         for path in _resolve_spec(spec):
             rel = path.relative_to(_REPO_ROOT)
             try:
@@ -367,7 +376,7 @@ def test_description_nonempty_and_reasonable():
     .gemini/build.sh). This is a coarse length heuristic; the byte-for-byte
     mechanism for F2 (mid-value truncation at an unquoted '#') is asserted
     precisely by test_no_unquoted_hash_in_plain_scalar_description below."""
-    for spec in DISCOVERY_SPECS:
+    for spec in CONTENT_SPECS:
         for path in _resolve_spec(spec):
             rel = path.relative_to(_REPO_ROOT)
             parsed = (
@@ -456,7 +465,7 @@ def test_no_unquoted_hash_in_plain_scalar_description():
     continuation line - is unconditionally a YAML comment start - "quote the
     description or don't use a hash" is the fix, never "the hash is fine
     here"."""
-    for spec in DISCOVERY_SPECS:
+    for spec in CONTENT_SPECS:
         if spec.kind != "yaml":
             continue  # TOML basic strings have no implicit '#' comment risk
         for path in _resolve_spec(spec):

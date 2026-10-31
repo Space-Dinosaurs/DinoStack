@@ -1,12 +1,18 @@
 name: codex-skill-sync
 
 on:
-  # PR-only. The post-merge run is not deleted, it is consolidated into
-  # verify-merged-tree.yml, which re-runs this check on `main` only when an
-  # `--admin` merge bypassed the ruleset's up-to-date requirement and landed
-  # a tree no PR run tested. Measurement, policy and retirement (the only
-  # site carrying the figures): .github/workflows/AGENTS.md
+  # Advisory. Runs on any PR that touches the Codex skill pipeline (the paths
+  # below; the catch-up chore's PR touches them whenever Codex output
+  # changes), and on workflow_dispatch. Its post-merge counterpart in
+  # verify-merged-tree.yml runs only on a workflow_dispatch with
+  # all_harnesses set. Policy: .github/workflows/AGENTS.md
   pull_request:
+    paths:
+      - '.codex/**'
+      - 'scripts/codex-skills.py'
+      - 'scripts/check-codex-skill-sync.sh'
+      - 'scripts/test/test_codex_skills.py'
+      - '.github/workflows/codex-skill-sync.yml'
   workflow_dispatch: {}
 
 concurrency:
@@ -17,14 +23,21 @@ permissions:
   contents: read
 
 jobs:
-  # Required PR/push status check (context: "check-codex-skill-sync", pinned
-  # in the `main` branch ruleset). Ubuntu-only - this job MUST NOT carry a
-  # strategy.matrix key. GitHub Actions appends " (<matrix value>)" to the
-  # reported check name for ANY job with a matrix block, even a single-value
-  # one - verified against a real public job (materialyzeai/maml's
-  # .github/workflows/lint.yml `build` job, `matrix: { python-version:
-  # [3.11] }`) whose actual run reported as "build (3.11)", not "build". A
-  # matrix here would make the required context unsatisfiable again.
+  # Advisory, not required (removed from the `main` ruleset 2026-10-31). Claude
+  # Code first (root AGENTS.md): a methodology PR regenerates only `.claude`,
+  # so the Codex mirror may lag `main` until the on-demand catch-up chore.
+  # The `paths:` filter keeps this job off those PRs while still checking any
+  # PR that edits the Codex pipeline by hand. Such a PR can go red on lag it
+  # did not cause; the fix is to run the catch-up in the same PR
+  # (CONTRIBUTING.md, "Non-Claude harnesses").
+  #
+  # Ubuntu-only - this job MUST NOT carry a strategy.matrix key. GitHub
+  # Actions appends " (<matrix value>)" to the reported check name for ANY
+  # job with a matrix block, even a single-value one - verified against a
+  # real public job (materialyzeai/maml's .github/workflows/lint.yml `build`
+  # job, `matrix: { python-version: [3.11] }`) whose actual run reported as
+  # "build (3.11)", not "build". A matrix here would rename the
+  # "check-codex-skill-sync" context.
   #
   # No secondary-platform leg: across all 1,534 historical runs of this
   # workflow, the (now-removed) non-Linux job never caught a cross-platform
@@ -36,6 +49,8 @@ jobs:
   check-codex-skill-sync:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      DS_ALL_HARNESSES: '1'
     steps:
       # Step-level timeouts below are per the bin-tests.yml TIMEOUT POLICY:
       # job-level timeout-minutes is a BACKSTOP ONLY, not a substitute for

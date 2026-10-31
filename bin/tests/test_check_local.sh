@@ -114,9 +114,11 @@ if [ -z "$REAL_BASH5" ]; then
   exit 0
 fi
 
-# The 17 pathspec entries adapter-sync.yml's existence step requires. Read out
-# of check-local.sh itself so the fixture cannot go stale against the gate.
-ADAPTER_PATHS="$(sed -n '/^for p in \.claude \.codex/,/^done/p' "$GATE" \
+# The 17 pathspec entries adapter-sync.yml's two existence steps require
+# (.claude, plus the 16 non-Claude entries checked under DS_ALL_HARNESSES=1).
+# Read out of check-local.sh itself so the fixture cannot go stale against the
+# gate.
+ADAPTER_PATHS="$(sed -n '/^for p in \./,/^done/p' "$GATE" \
   | tr ' \\' '\n\n' | sed 's/;$//' | grep -E '^(\.[a-z]|\.github/)' )"
 ADAPTER_PATH_COUNT="$(printf '%s\n' "$ADAPTER_PATHS" | grep -c .)"
 if [ "$ADAPTER_PATH_COUNT" -eq 17 ]; then
@@ -124,6 +126,56 @@ if [ "$ADAPTER_PATH_COUNT" -eq 17 ]; then
 else
   _fail "expected 17 adapter-sync pathspec entries, extracted $ADAPTER_PATH_COUNT - the fixture would be built against the wrong set:
 $ADAPTER_PATHS"
+fi
+
+# Every copy of the adapter pathspecs must match adapter-sync.yml's, which is
+# the canonical one: its two drift lines, its two existence loops, and the
+# non-Claude pathspec in CONTRIBUTING.md's catch-up and recovery commands.
+_join_continuations() { sed -e ':a' -e '/\\$/N; s/\\\n[[:space:]]*/ /; ta' "$1" | tr -s ' '; }
+_drift_specs() {
+  _join_continuations "$1" | grep -oE 'git diff --exit-code -- \.[a-z][^;]*' \
+    | sed 's/^git diff --exit-code -- //; s/[[:space:]]*$//' | LC_ALL=C sort -u
+}
+_loop_specs() {
+  _join_continuations "$1" | grep -oE 'for p in \.[^;]*; do' \
+    | sed 's/^for p in //; s/; do$//; s/[[:space:]]*$//' | LC_ALL=C sort -u
+}
+CANON_WF="$REPO_ROOT/.github/workflows/adapter-sync.yml"
+CANON_DRIFT="$(_drift_specs "$CANON_WF")"
+CANON_LOOPS="$(_loop_specs "$CANON_WF")"
+CANON_NON_CLAUDE="$(printf '%s\n' "$CANON_DRIFT" | grep -v '^\.claude$')"
+if [ "$(printf '%s\n' "$CANON_DRIFT" | grep -c .)" -eq 2 ] && [ "$(printf '%s\n' "$CANON_LOOPS" | grep -c .)" -eq 2 ]; then
+  _pass "adapter-sync.yml carries 2 drift pathspecs and 2 existence loops"
+else
+  _fail "expected 2 drift pathspecs and 2 existence loops in adapter-sync.yml, got:
+$CANON_DRIFT
+$CANON_LOOPS"
+fi
+if [ "$(printf '%s\n' "$CANON_NON_CLAUDE" | tr ' ' '\n')" = "$(printf '%s\n' "$CANON_LOOPS" | grep -v '^\.claude$' | tr ' ' '\n')" ]; then
+  _pass "adapter-sync.yml's non-Claude drift pathspec and existence loop list the same entries"
+else
+  _fail "adapter-sync.yml's non-Claude drift pathspec and existence loop differ"
+fi
+for copy in "$GATE" "$REPO_ROOT/.github/workflows/verify-merged-tree.yml"; do
+  # verify-merged-tree's merged-codex-skill-sync also runs a scoped
+  # `git diff --exit-code -- .codex` after its Codex build; that is not an
+  # adapter-sync copy.
+  if [ "$(_drift_specs "$copy" | grep -vx '\.codex')" = "$CANON_DRIFT" ] && [ "$(_loop_specs "$copy")" = "$CANON_LOOPS" ]; then
+    _pass "${copy#"$REPO_ROOT"/}: drift pathspecs and existence loops match adapter-sync.yml"
+  else
+    _fail "${copy#"$REPO_ROOT"/}: drift pathspecs or existence loops differ from adapter-sync.yml:
+$(_drift_specs "$copy")
+$(_loop_specs "$copy")"
+  fi
+done
+DOC_SPECS="$(_join_continuations "$REPO_ROOT/CONTRIBUTING.md" | grep -E -- ' -- \.codex \.cursor ' \
+  | sed 's/^.* -- \(\.codex .*\)$/\1/; s/[[:space:]]*#.*$//; s/[[:space:]]*$//')"
+DOC_COUNT="$(printf '%s\n' "$DOC_SPECS" | grep -c .)"
+if [ "$DOC_COUNT" -eq 3 ] && [ "$(printf '%s\n' "$DOC_SPECS" | LC_ALL=C sort -u)" = "$CANON_NON_CLAUDE" ]; then
+  _pass "CONTRIBUTING.md's 3 non-Claude pathspec commands match adapter-sync.yml"
+else
+  _fail "CONTRIBUTING.md's non-Claude pathspec commands (expected 3) differ from adapter-sync.yml:
+$DOC_SPECS"
 fi
 
 # ---------------------------------------------------------------------------
@@ -160,6 +212,8 @@ EOF
 
   # Stub gates. Each is trivially green unless a scenario rewrites it.
   local s
+  printf '#!/usr/bin/env bash\necho "stub .claude/build.sh ok"\nexit 0\n' > "$d/.claude/build.sh"
+  chmod +x "$d/.claude/build.sh"
   for s in build-all.sh check-symlinks-relative.sh check-methodology-drift.sh \
            check-no-false-umbrella-claims.sh stamp-agent-fragments.sh \
            check-codex-skill-sync.sh check-npm-audit.sh; do
@@ -228,9 +282,15 @@ WF
 
 run_fixture() {
   # run_fixture <dir> [args...] - prints output, returns the gate's exit code.
+  # Always the default (Claude-only) scope, whatever the caller's environment.
   local d="$1"
   shift
-  ( cd "$d" && "$REAL_BASH5" scripts/check-local.sh "$@" ) 2>&1
+  ( cd "$d" && env -u DS_ALL_HARNESSES "$REAL_BASH5" scripts/check-local.sh "$@" ) 2>&1
+}
+
+run_fixture_all() {
+  # run_fixture_all <dir> - run_fixture with DS_ALL_HARNESSES=1.
+  ( cd "$1" && DS_ALL_HARNESSES=1 "$REAL_BASH5" scripts/check-local.sh ) 2>&1
 }
 
 # ---------------------------------------------------------------------------
@@ -269,7 +329,7 @@ fi
 
 FX="$TMPROOT/failgate"
 build_fixture "$FX"
-printf '#!/usr/bin/env bash\necho "deliberate build-all failure"\nexit 1\n' > "$FX/scripts/build-all.sh"
+printf '#!/usr/bin/env bash\necho "deliberate build failure"\nexit 1\n' > "$FX/.claude/build.sh"
 out="$(run_fixture "$FX")"
 rc=$?
 if [ "$rc" -eq 1 ]; then
@@ -278,10 +338,10 @@ else
   _fail "a failing gate expected exit 1, got $rc:
 $out"
 fi
-if printf '%s' "$out" | grep -q "build-all.sh"; then
+if printf '%s' "$out" | grep -q -- "- .claude/build.sh"; then
   _pass "the failure summary names the gate that failed"
 else
-  _fail "the failure summary did not name build-all.sh:
+  _fail "the failure summary did not name .claude/build.sh:
 $out"
 fi
 if printf '%s' "$out" | grep -q "NOT RUN LOCALLY (run in CI):"; then
@@ -350,17 +410,87 @@ else
 $out"
 fi
 
+# The default scope builds .claude/ only; build-all.sh runs only under
+# DS_ALL_HARNESSES=1.
+FX="$TMPROOT/failbuildall"
+build_fixture "$FX"
+printf '#!/usr/bin/env bash\necho "deliberate build-all failure"\nexit 1\n' > "$FX/scripts/build-all.sh"
+out="$(run_fixture "$FX")"
+rc=$?
+if [ "$rc" -eq 0 ]; then
+  _pass "the default scope does not run build-all.sh"
+else
+  _fail "the default scope ran build-all.sh (expected exit 0, got $rc):
+$out"
+fi
+out="$(run_fixture_all "$FX")"
+rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q -- "- scripts/build-all.sh"; then
+  _pass "DS_ALL_HARNESSES=1 runs build-all.sh and names it on failure"
+else
+  _fail "expected exit 1 naming scripts/build-all.sh under DS_ALL_HARNESSES=1, got $rc:
+$out"
+fi
+
+# A non-Claude adapter budget gate is discovered like any other, but runs only
+# under DS_ALL_HARNESSES=1.
+FX="$TMPROOT/nonclaudebudget"
+build_fixture "$FX"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'source "$(dirname "${BASH_SOURCE[0]}")/lib/budget-gate.sh"\n'
+  printf 'echo "deliberate codex budget failure"\nexit 1\n'
+} > "$FX/scripts/check-codex-skill-budget.sh"
+chmod +x "$FX/scripts/check-codex-skill-budget.sh"
+out="$(run_fixture "$FX")"
+rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q "budget gates (1 files)"; then
+  _pass "the default scope skips the non-Claude adapter budget gates"
+else
+  _fail "the default scope ran a non-Claude budget gate (expected exit 0 and 'budget gates (1 files)', got $rc):
+$out"
+fi
+out="$(run_fixture_all "$FX")"
+rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "budget gates (1/2 files)"; then
+  _pass "DS_ALL_HARNESSES=1 runs the non-Claude adapter budget gates"
+else
+  _fail "expected exit 1 naming 'budget gates (1/2 files)' under DS_ALL_HARNESSES=1, got $rc:
+$out"
+fi
+
 # A missing adapter-sync pathspec entry must fail: git diff exits 0 on a
 # nonexistent pathspec, so without this step the drift check asserts nothing.
+FX="$TMPROOT/pathspec_claude"
+build_fixture "$FX"
+rm -rf "$FX/.claude"
+out="$(run_fixture "$FX")"
+rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "pathspec entry missing: .claude"; then
+  _pass "a missing .claude pathspec entry fails the run"
+else
+  _fail "expected exit 1 naming the .claude pathspec check, got $rc:
+$out"
+fi
+
+# A non-Claude entry is checked only under DS_ALL_HARNESSES=1.
 FX="$TMPROOT/pathspec"
 build_fixture "$FX"
 rm -rf "$FX/.hermes"
 out="$(run_fixture "$FX")"
 rc=$?
-if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "pathspec entr"; then
-  _pass "a missing adapter-sync pathspec entry fails the run"
+if [ "$rc" -eq 0 ]; then
+  _pass "the default scope does not check non-Claude pathspec entries"
 else
-  _fail "expected exit 1 naming the pathspec check, got $rc:
+  _fail "the default scope checked a non-Claude pathspec entry (expected exit 0, got $rc):
+$out"
+fi
+out="$(run_fixture_all "$FX")"
+rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "pathspec entry missing: .hermes"; then
+  _pass "DS_ALL_HARNESSES=1 fails on a missing non-Claude pathspec entry"
+else
+  _fail "expected exit 1 naming the .hermes pathspec check under DS_ALL_HARNESSES=1, got $rc:
 $out"
 fi
 
@@ -422,8 +552,8 @@ assert_preflight_miss() {
   local label="$1" omit="$2" needle="$3"
   local fx="$TMPROOT/pf_${label// /_}"
   build_fixture "$fx"
-  # The stub build-all.sh leaves a marker; a preflight failure must run no gate.
-  printf '#!/usr/bin/env bash\ntouch "$(dirname "$0")/../GATE_RAN"\nexit 0\n' > "$fx/scripts/build-all.sh"
+  # The stub .claude/build.sh leaves a marker; a preflight failure must run no gate.
+  printf '#!/usr/bin/env bash\ntouch "$(dirname "$0")/../GATE_RAN"\nexit 0\n' > "$fx/.claude/build.sh"
   local sp="$TMPROOT/stubpath_${label// /_}"
   make_stub_path "$sp" "$omit"
   local out rc
@@ -469,7 +599,7 @@ assert_preflight_miss "npm missing"      npm      "fix: brew install node"
 # re-diagnosed independently in one session.
 FX="$TMPROOT/pf_espree"
 build_fixture "$FX"
-printf '#!/usr/bin/env bash\ntouch "$(dirname "$0")/../GATE_RAN"\nexit 0\n' > "$FX/scripts/build-all.sh"
+printf '#!/usr/bin/env bash\ntouch "$(dirname "$0")/../GATE_RAN"\nexit 0\n' > "$FX/.claude/build.sh"
 SP="$TMPROOT/stubpath_espree"
 make_stub_path "$SP" node
 printf '#!/bin/sh\nexit 1\n' > "$SP/node"
@@ -486,7 +616,7 @@ fi
 # python3 present but a module missing.
 FX="$TMPROOT/pf_pymod"
 build_fixture "$FX"
-printf '#!/usr/bin/env bash\ntouch "$(dirname "$0")/../GATE_RAN"\nexit 0\n' > "$FX/scripts/build-all.sh"
+printf '#!/usr/bin/env bash\ntouch "$(dirname "$0")/../GATE_RAN"\nexit 0\n' > "$FX/.claude/build.sh"
 SP="$TMPROOT/stubpath_pymod"
 make_stub_path "$SP" python3
 printf '#!/bin/sh\nexit 1\n' > "$SP/python3"
@@ -503,7 +633,7 @@ fi
 # gh present but below the 2.52 floor.
 FX="$TMPROOT/pf_gh"
 build_fixture "$FX"
-printf '#!/usr/bin/env bash\ntouch "$(dirname "$0")/../GATE_RAN"\nexit 0\n' > "$FX/scripts/build-all.sh"
+printf '#!/usr/bin/env bash\ntouch "$(dirname "$0")/../GATE_RAN"\nexit 0\n' > "$FX/.claude/build.sh"
 SP="$TMPROOT/stubpath_gh"
 make_stub_path "$SP" gh
 printf '#!/bin/sh\necho "gh version 2.40.1 (2024-01-01)"\n' > "$SP/gh"
@@ -537,7 +667,7 @@ fi
 # No bash >= 5 anywhere: not on PATH, and the candidate list points at nothing.
 FX="$TMPROOT/pf_bash"
 build_fixture "$FX"
-printf '#!/usr/bin/env bash\ntouch "$(dirname "$0")/../GATE_RAN"\nexit 0\n' > "$FX/scripts/build-all.sh"
+printf '#!/usr/bin/env bash\ntouch "$(dirname "$0")/../GATE_RAN"\nexit 0\n' > "$FX/.claude/build.sh"
 SP="$TMPROOT/stubpath_bash"
 make_stub_path "$SP" ""
 BASH5_CANDS="$TMPROOT/no-such-bash"

@@ -110,7 +110,8 @@
 #     with the canary and the registry-refresh restart notice must still fire
 #     on Run 2 - the exact steady-state `/ds-update` scenario the notice
 #     exists to cover. If the post-case adapter rebuild
-#     (scripts/build-all.sh) fails, a loud warning is printed naming the
+#     (.claude/build.sh, or scripts/build-all.sh under DS_ALL_HARNESSES=1)
+#     fails, a loud warning is printed naming the
 #     possible canary contamination instead of failing silently.
 #   - Case (o) (DS-143 follow-up): TWO well-formed managed blocks in one
 #     CLAUDE.md - migration detection scans every block (not just the
@@ -1090,19 +1091,25 @@ cp "$CONVENTIONS_PATH" "$CONVENTIONS_BACKUP"
 _case_n_restore() {
   cp "$CONVENTIONS_BACKUP" "$CONVENTIONS_PATH"
   rm -f "$CONVENTIONS_BACKUP"
+  # Rebuild what install.sh built: .claude only, unless DS_ALL_HARNESSES=1
+  # (then every adapter), so the other adapter dirs stay untouched.
+  local _n_rebuild_script=".claude/build.sh"
+  if [[ "${DS_ALL_HARNESSES:-}" == "1" ]]; then
+    _n_rebuild_script="scripts/build-all.sh"
+  fi
   local _n_rebuild_out
-  _n_rebuild_out="$(bash "$REPO_DIR/scripts/build-all.sh" 2>&1)"
+  _n_rebuild_out="$(bash "$REPO_DIR/$_n_rebuild_script" 2>&1)"
   local _n_rebuild_status=$?
   if [[ "$_n_rebuild_status" -ne 0 ]]; then
     echo "" >&2
     echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
-    echo "WARNING: case (n)'s adapter rebuild (scripts/build-all.sh) FAILED" >&2
+    echo "WARNING: case (n)'s adapter rebuild ($_n_rebuild_script) FAILED" >&2
     echo "(exit $_n_rebuild_status) after restoring content/rules/conventions.md." >&2
     echo "Tracked, shippable generated adapter files (SKILL.md, .cursor rules," >&2
     echo "etc.) may still contain the case-n-canary marker. Re-run" >&2
-    echo "\`bash scripts/build-all.sh\` and check \`git status\` before trusting" >&2
+    echo "\`bash $_n_rebuild_script\` and check \`git status\` before trusting" >&2
     echo "this checkout." >&2
-    echo "--- build-all.sh output (tail) ---" >&2
+    echo "--- $_n_rebuild_script output (tail) ---" >&2
     echo "$_n_rebuild_out" | tail -n 40 >&2
     echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
     echo "" >&2

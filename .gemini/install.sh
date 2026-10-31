@@ -428,7 +428,12 @@ GEMINI_HOOKS_DIR="$AE_HOOKS_ROOT/.gemini/hooks"
 # ---------------------------------------------------------------------------
 
 echo "Running build..."
-bash "$GEMINI_DIR/build.sh"
+# Claude Code first (root AGENTS.md): outside DS_ALL_HARNESSES=1 this installs
+# the committed files instead of rebuilding them from a content/ they may lag,
+# so the checkout stays clean for ds-update between catch-ups.
+if [[ "${DS_ALL_HARNESSES:-}" == "1" ]]; then
+  bash "$GEMINI_DIR/build.sh"
+fi
 
 # ---------------------------------------------------------------------------
 # Step 2: Create ~/.gemini/ if it does not exist

@@ -43,6 +43,15 @@
 
 set -uo pipefail
 
+# Asserts on what the .gemini build produces from current content/; outside
+# DS_ALL_HARNESSES=1 the installer skips that build and installs the
+# committed (possibly lagging) files, so this runs only under
+# DS_ALL_HARNESSES=1.
+if [ "${DS_ALL_HARNESSES:-}" != 1 ]; then
+  echo "SKIP: non-Claude harness test (set DS_ALL_HARNESSES=1 to run)"
+  exit 0
+fi
+
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # shellcheck source=bin/tests/lib/precommit-hook-guard.sh
