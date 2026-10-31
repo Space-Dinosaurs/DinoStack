@@ -156,7 +156,7 @@ _WRAPPER = (
 
 #: Command position, matched against the text BEFORE the token on its line.
 #: Deliberately narrow on `(`: a bare `(` counts only at line start (a
-#: subshell, the shape the session-start reap uses), never mid-line, because
+#: subshell), never mid-line, because
 #: a `(` inside a prose string is common and would fabricate invocations.
 CMD_PREFIX_RE = re.compile(
     r'(?:'

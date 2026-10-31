@@ -102,7 +102,7 @@ Gate order, first match wins, ALL must clear for REMOVE:
      turns". The tool relies on measured idleness (gate 6) for the signal
      it can read, and retains `--min-age-hours` as the caller's explicit
      floor. Every unattended caller supplies it (see the Callers note
-     below): the session-start reap, `/ds-wrap` Step 5, and
+     below): the SessionStart worktree sweep, `/ds-wrap` Step 5, and
      `--archive-unproven`.
      BOTH FAIL DIRECTIONS. (a) It applies when it need not: an entry is
      refused that later gates might have cleared. The cost is a delayed
@@ -257,7 +257,7 @@ anything) - the "branch content itself is the ONLY unresolved question"
 claim this paragraph used to make was therefore false as written. Round 6
 fixes this: `--archive-unproven` archives ONLY entries whose underlying
 disposition (preserved in the entry's own `reason` field, and visible via
-`--explain`) is exactly `SKIP_NOT_PUSHED` or `SKIP_AMBIGUOUS_NO_PR` -
+`--explain`) is exactly `SKIP_NOT_PUSHED`, `SKIP_AMBIGUOUS_NO_PR` or (a detached HEAD on no ref) `SKIP_UNREFERENCED_COMMIT` -
 `_ARCHIVABLE_UNPROVEN_DISPOSITIONS`, an explicit named whitelist so a new
 disposition added to `worktree_model.py` later is excluded by default,
 never swept in automatically. `SKIP_PR_OPEN` and `SKIP_LS_REMOTE_ERROR`
@@ -286,42 +286,53 @@ For every entry that clears the whitelist (already clean, unlocked, not
 self, past the age fallback - which `--archive-unproven` itself supplies,
 so this precondition holds on this path precisely because the flag implies
 it - idle past the activity window, not protected-content, past the
-gh-evidence refusal check - i.e. the ONLY thing blocking it is exactly one of the two
-whitelisted unprovable-branch-evidence dispositions): (1) `git bundle
-create <repo>/.agentic/worktree-archive/<branch>-<timestamp>.bundle
-<branch>` captures the FULL branch (every commit unique to it, not just
-its tip) - when the resolved base branch's objects can be excluded
-without producing an empty bundle, the exclusion is applied (DS-191),
-yielding a small bundle plus a recorded prerequisite commit rather than
-a full copy of history already present on the base. An explicit --base
-is only ever eligible for this exclusion when it resolves to the same
-commit this tool's own auto-resolution would have picked (round-N,
-MAJOR-2 fix - see `_archive_compaction_base`'s docstring); an arbitrary
-caller-supplied ref that verifies fine but isn't durable is never
-compacted against, full-history only; (2) the bundle is
-VERIFIED with `git bundle verify` BEFORE any removal - a create failure, a
-missing/empty bundle, or a failed verification leaves the entry
-`SKIP_UNPROVEN`, reported, worktree untouched (same discipline as the
-telemetry-salvage guard above: a failed archive must never become a
-silent deletion of the only copy of unproven work); (3) telemetry is then
-salvaged (see "Telemetry salvage" below - this loop runs the identical
-`_salvage_and_remove` sequence the plain REMOVE loop runs, never a second
-copy of it) and, only once salvage clears, the worktree is removed,
-reclassified to `ARCHIVED_AND_REMOVED` (its own reported bucket,
-`archived-and-removed=N`, keeping the bucket-sum-equals-entries invariant
-intact) and the exact restore command (`git fetch <bundle>
-"refs/heads/<branch>:refs/heads/<branch>"` - braced, per this repo's own
-documented zsh-mangling gotcha) is printed. A salvage failure at step (3)
-leaves the bundle from step (1)/(2) in place (already verified, already
-safe) but does NOT remove the worktree - the entry stays `SKIP_UNPROVEN`,
-reported. This tool NEVER deletes the branch itself, only the worktree -
-reclaiming the archived branch's own local ref remains
+gh-evidence refusal check - i.e. the ONLY thing blocking it is exactly one
+of the whitelisted unprovable-evidence dispositions): (1) `git bundle
+create ~/.agentic/worktree-archive/<repo>/<dir>__<branch>__<sha12>.bundle
+<branch>` (a detached worktree bundles `HEAD`, labelled `DETACHED`)
+captures every commit not already reachable from an origin base branch
+present locally (`_archive_exclude_refs`: `origin/HEAD`'s target,
+`origin/main|master|develop|development`, and the resolved base when it
+is an `origin/*` ref) - a prerequisite bundle, not full history. An
+explicit --base joins that set only when it resolves to the same commit
+this tool's own auto-resolution would have picked (round-N, MAJOR-2 fix -
+see `_archive_compaction_base`'s docstring); with no origin base branch to
+exclude, the bundle is full-history; (2) the bundle is VERIFIED with
+`git bundle verify`, and `git bundle list-heads` must record the requested
+tip, BEFORE any removal - a create failure, a missing/empty bundle, or a
+failed check leaves the entry `SKIP_UNPROVEN`, reported, worktree
+untouched (same discipline as the telemetry-salvage guard above: a failed
+archive must never become a silent deletion of the only copy of unproven
+work); (3) the gitignored non-build files are archived and telemetry is
+salvaged (see "Ignored-file archive" and "Telemetry salvage" below - this
+loop runs the identical `_salvage_and_remove` sequence the plain REMOVE
+loop runs, never a second copy of it) and, only once both clear, the
+worktree is removed, reclassified to `ARCHIVED_AND_REMOVED` (its own
+reported bucket, `archived-and-removed=N`, keeping the
+bucket-sum-equals-entries invariant intact), a row is appended to
+`~/.agentic/worktree-archive/<repo>/MANIFEST.tsv`, and the exact restore
+command (`git fetch <bundle> "refs/heads/<branch>:refs/heads/<branch>"`,
+or `"HEAD:refs/heads/restored-<dir>"` for a detached worktree - braced,
+per this repo's own documented zsh-mangling gotcha) is printed. A failure
+at step (3) leaves the bundle from step (1)/(2) in place (already
+verified, already safe) but does NOT remove the worktree - the entry stays
+`SKIP_UNPROVEN`, reported. This tool NEVER deletes the branch itself, only
+the worktree - reclaiming the archived branch's own local ref remains
 `bin/ds-branch-prune`'s job, same as it already is for every other path in
 this tool. `--dry-run` creates no bundle but reports the would-be count
-(computed against the SAME whitelist). `.agentic/worktree-archive/` needs
-no new `.gitignore` carve-out (same umbrella as
-`.agentic/reaped-telemetry/`) and grows unbounded - pruning it is the
-operator's own responsibility, exactly like `.agentic/branch-archive/`.
+(computed against the SAME whitelist). The archive directory lives outside
+the repo and grows unbounded - pruning it is the operator's own
+responsibility, exactly like `.agentic/branch-archive/`.
+
+Ignored-file archive: before EVERY removal (`_salvage_and_remove`, shared by
+the plain REMOVE loop, the archive loop and `bin/ds-retire-carrier`), the
+worktree's gitignored files, minus `_IGNORED_ARCHIVE_SKIP_DIR_NAMES` (build
+output, dependency trees, caches), are written to
+`~/.agentic/worktree-archive/<repo>/<dir>__<branch>__<sha12>.ignored.tgz`
+and read back; any failure skips that removal (`SKIP_PROTECTED_CONTENT`,
+offender `ignored-archive-failed: ...`). Not-protected gitignored content
+(e.g. an untracked `evals/` tree) would otherwise be deleted with the
+worktree.
 
 Public API (CLI):
   ds-cleanup-worktrees [--repo <path>]... [root ...] [--multi-repo] [--depth N]
@@ -683,35 +694,36 @@ Public API (CLI):
   --archive-unproven      OPT-IN, NEVER the default (see "Archiving
                           unproven branches" above for the full mechanism
                           and rationale). For every entry whose underlying
-                          disposition is exactly `SKIP_NOT_PUSHED` or
-                          `SKIP_AMBIGUOUS_NO_PR` (the explicit whitelist -
-                          NEVER `SKIP_PR_OPEN`, NEVER
-                          `SKIP_LS_REMOTE_ERROR`, and never any other
+                          disposition is exactly `SKIP_NOT_PUSHED`,
+                          `SKIP_AMBIGUOUS_NO_PR` or `SKIP_UNREFERENCED_COMMIT`
+                          (the explicit whitelist - NEVER `SKIP_PR_OPEN`,
+                          NEVER `SKIP_LS_REMOTE_ERROR`, and never any other
                           `SKIP_UNPROVEN`-bucketed disposition, even
                           though `--explain` reports all of them under the
-                          same `SKIP_UNPROVEN` outcome) - archives the full
-                          branch (every commit unique to it) into a
+                          same `SKIP_UNPROVEN` outcome) - archives the
+                          branch, or a detached worktree's HEAD, into a
                           verified `git bundle` under
-                          `.agentic/worktree-archive/`, excluding objects
-                          already on the resolved base branch when doing
-                          so still yields a non-empty bundle (a compact
-                          bundle then requires the recorded prerequisite
-                          commit - the fork-point with the base, not
-                          necessarily the base's own tip - to remain
+                          `~/.agentic/worktree-archive/<repo>/`, excluding
+                          every commit already on an origin base branch
+                          (a prerequisite bundle then requires its
+                          recorded prerequisite commit - the fork-point,
+                          not necessarily the base's own tip - to remain
                           present locally to restore; a NOTE is printed
-                          to stderr when compaction was not possible). An
-                          explicit `--base` is only compacted against
+                          to stderr when no exclusion was possible). An
+                          explicit `--base` joins the exclusion set only
                           when it resolves to the same commit
                           auto-resolution would have picked - an
                           unvalidated caller-supplied ref could otherwise
                           be deleted later, permanently orphaning the
-                          bundle's prerequisite. Then salvages telemetry,
-                          then removes the worktree.
+                          bundle's prerequisite. Then archives ignored
+                          files, salvages telemetry, removes the worktree
+                          and appends a MANIFEST.tsv row.
                           Removes WORKTREES ONLY, never branches
                           (`bin/ds-branch-prune` remains responsible for
                           branch deletion). A
-                          failed bundle create/verify, or a failed
-                          telemetry salvage, never removes anything - the
+                          failed bundle create/verify, ignored-file
+                          archive or telemetry salvage never removes
+                          anything - the
                           entry stays `SKIP_UNPROVEN`. REFUSES to run
                           (prints an error, exits 1, does no work) when gh
                           evidence is unavailable or degraded
@@ -741,11 +753,9 @@ Public API (CLI):
                           automatic caller (this tool has THREE real
                           automatic callers - `bin/ds-base-sync`, the
                           SessionStart nudge (`hooks/session-start-wrap.sh`),
-                          AND `content/references/worktree-lifecycle.md`'s
-                          session-start reap block - the mutating,
-                          backgrounded call site (see that
-                          file's own Downstream deps section) - all invoke
-                          this tool without it, pinned by
+                          AND the SessionStart worktree sweep in that same
+                          hook - the mutating, detached call site - all
+                          invoke this tool without it, pinned by
                           `test_measure_size_never_passed_by_automatic_callers`)
                           - DS-216. Measuring means a
                           recursive `du -sk` walk (see `_measure_size_kb`)
@@ -881,7 +891,7 @@ lifecycle event, when it is backgrounded or its output goes to a log, or
 when it is one step of a longer automated flow the human is not reading
 step by step. Ambiguity resolves to UNATTENDED. Every mutating unattended
 caller supplies the gate-5 age floor, by one of three routes: the
-session-start reap in `content/references/worktree-lifecycle.md` pins
+SessionStart worktree sweep in `hooks/session-start-wrap.sh` pins
 `--min-age-hours 24` at the invocation; `--archive-unproven` implies it in
 `_resolve_min_age_hours`; and `/ds-wrap` Step 5 SETS NOTHING - it reaches
 `content/commands/ds-cleanup-worktrees.md` Step 2, which applies the floor
@@ -999,14 +1009,12 @@ Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       --count-only nudge line when the non-root worktree
                       count exceeds a small threshold, pointing at
                       `/ds-cleanup-worktrees`; report-only, never removes
-                      anything from that call site);
-                      content/references/worktree-lifecycle.md's
-                      §Session-start prune script (DS-196, MUTATING - a
-                      SEPARATE call site from the hook above: a
-                      backgrounded `ds-cleanup-worktrees --repo <root>
-                      --min-age-hours 24` invocation with no
-                      `--count-only`/`--dry-run`, run once per
-                      session-start preflight; suppressible via
+                      anything from that call site), and the same hook's
+                      SessionStart worktree sweep (MUTATING - a SEPARATE
+                      call site from that nudge: a detached
+                      `--repo <main-checkout root> --min-age-hours 24`
+                      run with no `--count-only`/`--dry-run`, at most once
+                      per 6 h per repo; suppressible via
                       `AE_WORKTREE_REAP_DISABLE=1` - this IS the automatic
                       call site the Performance section above now refers
                       to. DS-245 made `--min-age-hours 24` load-bearing
@@ -1109,10 +1117,10 @@ Failure modes: SINGLE-REPO MODE (`--multi-repo` absent) - exits 0 on
                REPORTED about an entry, never whether it is removed.
 
 Performance: (DS-196 correction: full mode IS now the mode an automatic call
-             site uses - `content/references/worktree-lifecycle.md`'s
-             session-start reap block invokes plain `ds-cleanup-worktrees
-             --repo <root>` with no `--count-only`/`--dry-run`, backgrounded,
-             once per session start. Per-entry cost below is unchanged by
+             site uses - `hooks/session-start-wrap.sh`'s
+             SessionStart worktree sweep invokes plain `ds-cleanup-worktrees
+             --repo <root>` with no `--count-only`/`--dry-run`, detached,
+             at most once per 6 h per repo. Per-entry cost below is unchanged by
              that call site's own concurrency - see
              content/references/worktree-lifecycle.md's "Residual, named
              not fixed (round-2 Minor 4)" note, immediately after the
@@ -1156,9 +1164,9 @@ Performance: (DS-196 correction: full mode IS now the mode an automatic call
              worktree checkout (the network round-trip `--no-gh` failed to
              suppress) - fixed in this round.
              Full mode IS now the mode an automatic call site uses (see the
-             correction at the top of this section) - the backgrounded
-             session-start reap invokes it once per session-start
-             preflight, so this per-entry cost is no longer merely a
+             correction at the top of this section) - the detached
+             SessionStart worktree sweep invokes it at most once per 6 h
+             per repo, so this per-entry cost is no longer merely a
              manual-invocation concern.
              `--measure-size` (DS-216, round-2 Skeptic Major 3 fix - this
              cost was previously undocumented here): adds one `du -sk`
@@ -1175,7 +1183,7 @@ Performance: (DS-196 correction: full mode IS now the mode an automatic call
              This flag is OPT-IN and NEVER passed by an automatic caller
              (see the flag's own docstring for the enumerated callers this
              was verified against), so this added cost never touches the
-             session-start reap's own cost profile above.
+             SessionStart worktree sweep's own cost profile above.
 """
 
 from __future__ import annotations
@@ -1188,7 +1196,9 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
+import tarfile
 import time
 from collections import Counter
 from pathlib import Path
@@ -1394,8 +1404,24 @@ _ARCHIVABLE_UNPROVEN_DISPOSITIONS = frozenset(
     {
         Disposition.SKIP_NOT_PUSHED.value,
         Disposition.SKIP_AMBIGUOUS_NO_PR.value,
+        Disposition.SKIP_UNREFERENCED_COMMIT.value,
     }
 )
+
+#: Ignored directory names left out of a removed worktree's
+#: `<name>.ignored.tgz`: regenerable build output, dependency trees and caches.
+_IGNORED_ARCHIVE_SKIP_DIR_NAMES = frozenset(_IGNORED_ALLOWLIST_DIR_NAMES) | {
+    ".cache",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".turbo",
+    ".parcel-cache",
+}
+
+#: Remote-tracking base branches a `--archive-unproven` bundle is compacted
+#: against, besides `origin/HEAD`'s target and a resolved `origin/*` base.
+_ARCHIVE_ORIGIN_BASE_BRANCHES = ("main", "master", "develop", "development")
 
 
 # --------------------------------------------------------------------------
@@ -2211,20 +2237,24 @@ def _retire_carrier() -> Any:
     return _RETIRE_CARRIER["mod"]
 
 
-def _private_pin_hold(repo: str, path: str, head: Optional[str], allow_network: bool) -> Optional[str]:
+def _private_pin_hold(
+    repo: str, path: str, head: Optional[str], allow_network: bool, bundled: Tuple[str, ...] = ()
+) -> Optional[str]:
     """bin/ds-retire-carrier gate 7 without `--pin` or a fetch: the reason
     removing `path` would drop a commit that only its private gitdir (HEAD,
     `*_HEAD`, private refs, private reflogs) still names, or None. Offline
     runs stop at phase 1, so a commit only `origin` holds also holds here.
+    `bundled` commits (and their history) count as pinned: the only
+    removal path for them bundles them first.
     """
     retire = _retire_carrier()
     try:
         common = retire._common_dir(path)
         gitdir = retire._private_gitdir(path, common)
         if allow_network:
-            retire._pin_gate(path, repo, common, gitdir, head, False, True)
+            retire._pin_gate(path, repo, common, gitdir, head, False, True, bundled)
         else:
-            _candidates, _pins, unpinned = retire._local_pin_check(repo, common, gitdir, head)
+            _candidates, _pins, unpinned = retire._local_pin_check(repo, common, gitdir, head, bundled)
             if unpinned:
                 sample = ", ".join(sha[:8] for sha in unpinned[:5])
                 return f"{len(unpinned)} unpinned commit(s) ({sample}); offline, origin not consulted"
@@ -2750,7 +2780,155 @@ def _salvage_telemetry(repo: str, worktree_path: str, branch: Optional[str]) -> 
     return True, f"salvaged to {dest}"
 
 
-def _salvage_and_remove(repo: str, worktree_path: str, branch: Optional[str]) -> Dict:
+def _worktree_archive_dir(repo: str) -> Path:
+    """`~/.agentic/worktree-archive/<repo-basename>/` - outside the repo, so
+    an archive survives the repo checkout itself being deleted."""
+    return Path.home() / ".agentic" / "worktree-archive" / Path(repo).name
+
+
+def _archive_stem(worktree_path: str, label: str, sha: str) -> str:
+    return f"{Path(worktree_path).name}__{_BRANCH_SAFE_CHARS_RE.sub('_', label)}__{sha[:12]}"
+
+
+def _unused_archive_path(archive_dir: Path, stem: str, suffix: str) -> Path:
+    """Never overwrites an earlier archive of the same worktree/commit."""
+    candidate = archive_dir / f"{stem}{suffix}"
+    if not candidate.exists():
+        return candidate
+    timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    n = 0
+    while True:
+        candidate = archive_dir / f"{stem}-{timestamp}{'-' + str(n) if n else ''}{suffix}"
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
+def _head_sha(worktree_path: str) -> Optional[str]:
+    proc = _run(["git", "-C", worktree_path, "rev-parse", "--verify", "--quiet", "HEAD"])
+    sha = proc.stdout.strip()
+    return sha if proc.returncode == 0 and sha else None
+
+
+def _ignored_archive_members(worktree_path: str) -> Tuple[Optional[List[str]], str]:
+    """Relative paths of the worktree's gitignored regular files and
+    symlinks, minus `_IGNORED_ARCHIVE_SKIP_DIR_NAMES` at any depth. Returns
+    `(None, reason)` when the listing or a directory walk fails."""
+    proc = _run(
+        ["git", "-C", worktree_path, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"]
+    )
+    if proc.returncode != 0:
+        return None, f"git ls-files failed: {proc.stderr.strip()}"
+    root = Path(worktree_path)
+    members: List[str] = []
+
+    def _keep(rel: str) -> None:
+        mode = os.lstat(root / rel).st_mode
+        if stat.S_ISREG(mode) or stat.S_ISLNK(mode):
+            members.append(rel)
+
+    def _raise(exc: OSError) -> None:
+        raise exc
+
+    try:
+        for raw in proc.stdout.split("\0"):
+            rel = raw.rstrip("/")
+            if not rel or any(part in _IGNORED_ARCHIVE_SKIP_DIR_NAMES for part in rel.split("/")):
+                continue
+            abs_path = root / rel
+            if abs_path.is_dir() and not abs_path.is_symlink():
+                for dirpath, dirnames, filenames in os.walk(abs_path, onerror=_raise):
+                    rel_dir = os.path.relpath(dirpath, root)
+                    linked = [d for d in dirnames if os.path.islink(os.path.join(dirpath, d))]
+                    dirnames[:] = [
+                        d for d in dirnames if d not in _IGNORED_ARCHIVE_SKIP_DIR_NAMES and d not in linked
+                    ]
+                    for name in sorted(filenames) + sorted(linked):
+                        _keep(os.path.join(rel_dir, name))
+            else:
+                _keep(rel)
+    except OSError as exc:
+        return None, f"could not list ignored files: {exc}"
+    return members, ""
+
+
+def _archive_ignored_files(repo: str, worktree_path: str, label: str, sha: str) -> Tuple[bool, str, Optional[str]]:
+    """Saves the worktree's gitignored non-build files to
+    `~/.agentic/worktree-archive/<repo>/<name>.ignored.tgz` before a
+    removal. Returns `(ok, detail, tgz_path)`; `ok=False` means the caller
+    must not remove the worktree. Nothing to save is `ok=True` with no path.
+    The archive is re-read and every member checked before it counts."""
+    members, error = _ignored_archive_members(worktree_path)
+    if members is None:
+        return False, error, None
+    if not members:
+        return True, "no ignored files to archive", None
+    archive_dir = _worktree_archive_dir(repo)
+    try:
+        archive_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return False, f"could not create archive directory {archive_dir}: {exc}", None
+    dest = _unused_archive_path(archive_dir, _archive_stem(worktree_path, label, sha), ".ignored.tgz")
+    tmp = dest.with_name(f"{dest.name}.tmp-{os.getpid()}")
+    try:
+        with tarfile.open(tmp, "w:gz") as tar:
+            for rel in members:
+                tar.add(os.path.join(worktree_path, rel), arcname=rel, recursive=False)
+        with tarfile.open(tmp, "r:gz") as tar:
+            stored = set(tar.getnames())
+        missing = [rel for rel in members if rel not in stored]
+        if missing:
+            raise OSError(f"{len(missing)} member(s) missing after write, e.g. {missing[0]}")
+        os.replace(tmp, dest)
+    except (OSError, tarfile.TarError) as exc:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return False, f"ignored-file archive {dest} failed: {exc}", None
+    return True, f"archived {len(members)} ignored file(s) to {dest}", str(dest)
+
+
+def _append_archive_manifest(
+    repo: str,
+    worktree_path: str,
+    label: str,
+    sha: str,
+    bundle: Optional[str],
+    size_kb: Optional[int],
+    tgz: Optional[str],
+    note: Optional[str],
+) -> None:
+    """One TSV row per removed worktree that left an archive behind:
+    time, path, branch|DETACHED, sha, bundle, size, ignored tgz, restore."""
+    fields = [
+        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        worktree_path,
+        label,
+        sha,
+        bundle or "-",
+        f"{size_kb}KB" if size_kb is not None else "-",
+        tgz or "-",
+        note or "-",
+    ]
+    manifest = _worktree_archive_dir(repo) / "MANIFEST.tsv"
+    try:
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        with open(manifest, "a", encoding="utf-8") as handle:
+            handle.write("\t".join(f.replace("\t", " ").replace("\n", " ") for f in fields) + "\n")
+    except OSError as exc:
+        print(f"WARNING: could not append to {manifest}: {exc}", file=sys.stderr)
+
+
+def _salvage_and_remove(
+    repo: str,
+    worktree_path: str,
+    branch: Optional[str],
+    *,
+    bundle: Optional[str] = None,
+    restore_note: Optional[str] = None,
+    size_kb: Optional[int] = None,
+) -> Dict:
     """Round-6 requirement (Skeptic Major 1): the SINGLE salvage-then-remove
     sequence both the plain REMOVE loop and the `--archive-unproven`
     archive loop call - round 5 shipped the archive loop calling
@@ -2761,7 +2939,14 @@ def _salvage_and_remove(repo: str, worktree_path: str, branch: Optional[str]) ->
     `git worktree remove` on a REMOVE/ARCHIVED_AND_REMOVED-bound entry
     except through here.
 
+    Before anything else it saves the worktree's gitignored non-build files
+    (`_archive_ignored_files`); after a successful removal that left an
+    archive (that tgz or the caller's `bundle`) it appends a MANIFEST.tsv row.
+
     Returns a dict with keys:
+      `ignored_archive_failed` - True when `_archive_ignored_files` failed;
+                          nothing else ran and `git worktree remove` was
+                          NEVER invoked.
       `salvage_failed` - True when `_salvage_telemetry` returned `ok=False`.
                           `removed` and `salvaged` are both False/irrelevant
                           when this is True - `git worktree remove` is
@@ -2784,7 +2969,9 @@ def _salvage_and_remove(repo: str, worktree_path: str, branch: Optional[str]) ->
                           unregistered-with-content by the time this
                           returns) as well as on every path where content
                           was never left behind in the first place.
-      `detail`          - the salvage failure detail (when `salvage_failed`),
+      `detail`          - the archive failure detail (when
+                          `ignored_archive_failed`), the salvage failure
+                          detail (when `salvage_failed`),
                           the `git worktree remove` stderr (when
                           `not removed and not already_unregistered`), the
                           repair outcome text (when `already_unregistered`),
@@ -2806,6 +2993,23 @@ def _salvage_and_remove(repo: str, worktree_path: str, branch: Optional[str]) ->
     path, and adding a heavier guard was judged disproportionate to that
     narrow a window.
     """
+    label = branch or "DETACHED"
+    sha = _head_sha(worktree_path) or "unknown"
+    ignored_ok, ignored_detail, tgz = _archive_ignored_files(repo, worktree_path, label, sha)
+    if not ignored_ok:
+        return {"ignored_archive_failed": True, "salvage_failed": False, "salvaged": False,
+                "removed": False, "already_unregistered": False, "detail": ignored_detail}
+    outcome = _salvage_then_git_remove(repo, worktree_path, branch)
+    outcome["ignored_archive_failed"] = False
+    outcome["ignored_archive"] = tgz
+    if outcome["removed"] and (tgz or bundle):
+        _append_archive_manifest(repo, worktree_path, label, sha, bundle, size_kb, tgz, restore_note)
+    return outcome
+
+
+def _salvage_then_git_remove(repo: str, worktree_path: str, branch: Optional[str]) -> Dict:
+    """`_salvage_and_remove`'s body after the ignored-file archive; see its
+    docstring for the returned keys."""
     salvage_ok, salvage_detail = _salvage_telemetry(repo, worktree_path, branch)
     if not salvage_ok:
         return {"salvage_failed": True, "salvaged": False, "removed": False,
@@ -2865,7 +3069,7 @@ def _salvage_and_remove(repo: str, worktree_path: str, branch: Optional[str]) ->
             "already_unregistered": False, "detail": proc.stderr.strip()}
 
 
-def _restore_command(bundle_path: str, branch: str) -> str:
+def _restore_command(bundle_path: str, branch: str, worktree_path: Optional[str] = None) -> str:
     """The exact restore command for a bundle archived by
     `_archive_branch_bundle` below. Per this repo's own documented
     gotcha (AGENTS.md: "Brace any shell expansion followed by a literal
@@ -2880,8 +3084,35 @@ def _restore_command(bundle_path: str, branch: str) -> str:
     the base branch could still invalidate an already-archived compact
     bundle. A full-history bundle (no exclusion applied) has no such
     dependency and is self-contained.
+
+    A detached-HEAD bundle records `HEAD`; it restores to a new branch named
+    `restored-<worktree dir>`.
     """
+    if branch == "HEAD":
+        return f'git fetch {bundle_path} "HEAD:refs/heads/restored-{Path(worktree_path or bundle_path).name}"'
     return f'git fetch {bundle_path} "refs/heads/{branch}:refs/heads/{branch}"'
+
+
+def _archive_exclude_refs(repo: str, compaction_base: Optional[str]) -> List[str]:
+    """The origin base branches present locally (`origin/HEAD`'s target,
+    `_ARCHIVE_ORIGIN_BASE_BRANCHES`, and `compaction_base` when it is an
+    `origin/*` ref), as full refnames. A bundle compacted against these
+    carries only commits no origin base branch already holds."""
+    candidates: List[str] = []
+    if compaction_base and compaction_base.startswith("origin/"):
+        candidates.append(compaction_base[len("origin/"):])
+    head = _run(["git", "-C", repo, "symbolic-ref", "-q", "refs/remotes/origin/HEAD"])
+    if head.returncode == 0 and head.stdout.strip().startswith("refs/remotes/origin/"):
+        candidates.append(head.stdout.strip()[len("refs/remotes/origin/"):])
+    candidates.extend(_ARCHIVE_ORIGIN_BASE_BRANCHES)
+    refs: List[str] = []
+    for name in candidates:
+        ref = f"refs/remotes/origin/{name}"
+        if ref in refs:
+            continue
+        if _run(["git", "-C", repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"]).returncode == 0:
+            refs.append(ref)
+    return refs
 
 
 def _archive_compaction_base(
@@ -2946,13 +3177,18 @@ def _archive_compaction_base(
 
 
 def _archive_branch_bundle(
-    repo: str, branch: str, exclude_ref: Optional[str]
+    repo: str,
+    branch: str,
+    exclude_ref: Optional[Any],
+    worktree_path: Optional[str] = None,
 ) -> Tuple[bool, str, Optional[str], bool]:
     """Round-5 requirement, DS-191 compaction rework: archives the FULL
     branch `branch` (every commit unique to it, not just its tip) into
-    `<repo>/.agentic/worktree-archive/<branch>-<timestamp>.bundle` via
+    `~/.agentic/worktree-archive/<repo>/<dir>__<branch>__<sha12>.bundle`
+    (`_worktree_archive_dir`, outside the repo) via
     `git bundle create`, then VERIFIES the bundle with `git bundle
-    verify` BEFORE the caller may remove anything - same discipline as
+    verify`, and checks `git bundle list-heads` records the tip it was
+    asked for, BEFORE the caller may remove anything - same discipline as
     `_salvage_telemetry`'s own guard: this tool proves subsumption is
     unprovable (`SKIP_UNPROVEN`) for these branches, so the archive,
     combined with this repo's own retained base objects, is the only
@@ -2964,8 +3200,11 @@ def _archive_branch_bundle(
     this tool (that tool does not itself bundle branches - see the
     module docstring's DS-153 correction).
 
-    `exclude_ref` is the caller's already-resolved base ref (e.g.
-    `resolve_base_branch`'s `resolved_ref`, "origin/main") - a ref this
+    `branch == "HEAD"` archives a detached worktree's HEAD: every git call
+    then runs in `worktree_path`, and the bundle records `HEAD`.
+
+    `exclude_ref` is one ref or a list of refs; the production caller
+    passes `_archive_exclude_refs` (the origin base branches) - refs this
     repo's own gh-pr-merge --delete-branch convention never routinely
     deletes (unlike a feature branch's own origin/* ref). When objects
     reachable from `exclude_ref` are excluded from the bundle, the
@@ -2974,21 +3213,10 @@ def _archive_branch_bundle(
     restoring it requires that prerequisite commit to still be present
     in this repo's object store (see `_restore_command`'s docstring).
 
-    UNREACHABLE-AT-PRODUCTION-CALL-SITE NOTE: because the caller passes
-    the SAME ref used for merge-evidence ancestor testing, any branch
-    fully contained in `exclude_ref` (`unique_count == 0` below) already
-    resolved to ELIGIBLE->REMOVE before the archive loop runs, and never
-    reaches this function through the real CLI - the `unique_count == 0`
-    fallback below is DEFENSIVE-ONLY, exercised only by a direct
-    unit-level call that bypasses disposition routing.
-
-    `exclude_ref is None` is NO LONGER dead at the production call site
-    (round-N, DS-191 MAJOR-2 fix): the caller now routes `resolved_base`
-    through `_archive_compaction_base` first, which returns `None`
-    whenever an explicit `--base` does not resolve to the same commit
-    this tool's own auto-resolution would have picked - see that
-    function's docstring for why. That is a REAL, reachable production
-    path, not merely a defensive one.
+    `unique_count == 0` below (the tip already on an excluded ref) is
+    defensive: such an entry normally resolved ELIGIBLE before the archive
+    loop runs. An empty exclusion list (no origin base branch present
+    locally) produces a full-history bundle.
 
     Before creating the bundle, measures `unique_count = git rev-list
     --count <branch> --not <exclude_ref>` and `total_count = git
@@ -3021,18 +3249,23 @@ def _archive_branch_bundle(
     on success - the compact/non-compact fact is carried by `compact`
     alone, printed by the caller.
 
-    `.agentic/worktree-archive/` needs no new `.gitignore` carve-out for
-    the same reason `.agentic/reaped-telemetry/` does not (see
-    `_salvage_telemetry`'s docstring): the existing `/.agentic/*`
-    umbrella already covers any new top-level entry under `.agentic/`.
-    This directory grows unbounded - pruning it is the operator's own
-    responsibility, exactly like `.agentic/branch-archive/`
+    The archive directory grows unbounded - pruning it is the operator's
+    own responsibility, exactly like `.agentic/branch-archive/`
     (`bin/ds-branch-prune`'s own precedent for this exact pattern).
     """
-    archive_dir = Path(repo) / ".agentic" / "worktree-archive"
-    branch_safe = _BRANCH_SAFE_CHARS_RE.sub("_", branch)
-    timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    bundle_path = archive_dir / f"{branch_safe}-{timestamp}.bundle"
+    if isinstance(exclude_ref, str):
+        exclude_refs = [exclude_ref]
+    else:
+        exclude_refs = list(exclude_ref or [])
+    git_dir = worktree_path if branch == "HEAD" and worktree_path else repo
+    tip_proc = _run(["git", "-C", git_dir, "rev-parse", "--verify", "--quiet", f"{branch}^{{commit}}"])
+    tip = tip_proc.stdout.strip()
+    if tip_proc.returncode != 0 or not tip:
+        return False, f"could not resolve {branch} in {git_dir}", None, False
+
+    archive_dir = _worktree_archive_dir(repo)
+    label = "DETACHED" if branch == "HEAD" else branch
+    bundle_path = _unused_archive_path(archive_dir, _archive_stem(worktree_path or repo, label, tip), ".bundle")
 
     try:
         archive_dir.mkdir(parents=True, exist_ok=True)
@@ -3041,31 +3274,33 @@ def _archive_branch_bundle(
 
     compact = False
     used_exclusion = False
-    argv = ["git", "-C", repo, "bundle", "create", str(bundle_path), branch]
-    if exclude_ref:
-        exclude_verify = _run(["git", "-C", repo, "rev-parse", "--verify", "--quiet", exclude_ref])
-        if exclude_verify.returncode == 0:
-            unique_proc = _run(["git", "-C", repo, "rev-list", "--count", branch, "--not", exclude_ref])
-            total_proc = _run(["git", "-C", repo, "rev-list", "--count", branch])
-            if unique_proc.returncode == 0 and total_proc.returncode == 0:
-                try:
-                    unique_count = int(unique_proc.stdout.strip())
-                    total_count = int(total_proc.stdout.strip())
-                except ValueError:
-                    unique_count = total_count = None
-                if unique_count is not None and total_count is not None and 0 < unique_count < total_count:
-                    argv += ["--not", exclude_ref]
-                    compact = True
-                    used_exclusion = True
+    argv = ["git", "-C", git_dir, "bundle", "create", str(bundle_path), branch]
+    verified_excludes = [
+        ref for ref in exclude_refs
+        if _run(["git", "-C", git_dir, "rev-parse", "--verify", "--quiet", ref]).returncode == 0
+    ]
+    if verified_excludes:
+        unique_proc = _run(["git", "-C", git_dir, "rev-list", "--count", branch, "--not", *verified_excludes])
+        total_proc = _run(["git", "-C", git_dir, "rev-list", "--count", branch])
+        if unique_proc.returncode == 0 and total_proc.returncode == 0:
+            try:
+                unique_count = int(unique_proc.stdout.strip())
+                total_count = int(total_proc.stdout.strip())
+            except ValueError:
+                unique_count = total_count = None
+            if unique_count is not None and total_count is not None and 0 < unique_count < total_count:
+                argv += ["--not", *verified_excludes]
+                compact = True
+                used_exclusion = True
 
     proc = _run(argv)
     if proc.returncode != 0:
         if used_exclusion and proc.returncode == 128 and "Refusing to create empty bundle" in proc.stderr:
-            # TOCTOU: exclude_ref advanced past the branch tip between the
+            # TOCTOU: an excluded ref advanced past the tip between the
             # rev-list measurement above and this call - retry once without
             # exclusion (always non-empty), never leave the worktree stuck.
             compact = False
-            retry_argv = ["git", "-C", repo, "bundle", "create", str(bundle_path), branch]
+            retry_argv = ["git", "-C", git_dir, "bundle", "create", str(bundle_path), branch]
             proc = _run(retry_argv)
             if proc.returncode != 0:
                 return False, f"git bundle create failed (after retry): {proc.stderr.strip()}", None, False
@@ -3078,9 +3313,14 @@ def _archive_branch_bundle(
     except OSError as exc:
         return False, f"could not stat {bundle_path}: {exc}", None, False
 
-    verify_proc = _run(["git", "-C", repo, "bundle", "verify", str(bundle_path)])
+    verify_proc = _run(["git", "-C", git_dir, "bundle", "verify", str(bundle_path)])
     if verify_proc.returncode != 0:
         return False, f"git bundle verify failed: {verify_proc.stderr.strip()}", None, False
+
+    expected_ref = "HEAD" if branch == "HEAD" else f"refs/heads/{branch}"
+    heads_proc = _run(["git", "-C", git_dir, "bundle", "list-heads", str(bundle_path)])
+    if heads_proc.returncode != 0 or f"{tip} {expected_ref}" not in heads_proc.stdout.splitlines():
+        return False, f"bundle {bundle_path} does not record {expected_ref} at {tip}", None, False
 
     return True, "archived and verified", str(bundle_path), compact
 
@@ -3334,12 +3574,15 @@ def evaluate_entry(
             "reason": f"gh pr query failed (would-be {disposition.value})",
         }
     if disposition is Disposition.ELIGIBLE or disposition.value in _ARCHIVABLE_UNPROVEN_DISPOSITIONS:
-        pinned = _private_pin_hold(repo, entry.path, entry.head, allow_network)
+        # A detached HEAD on no ref is removable only by --archive-unproven,
+        # which bundles that exact HEAD first, so its history counts as pinned.
+        bundled = (entry.head,) if disposition is Disposition.SKIP_UNREFERENCED_COMMIT and entry.head else ()
+        pinned = _private_pin_hold(repo, entry.path, entry.head, allow_network, bundled)
         if pinned is not None:
             return {**base, "outcome": "SKIP_UNPROVEN", "reason": f"private pin: {pinned}"}
     if disposition is Disposition.ELIGIBLE:
         return {**base, "outcome": "REMOVE", "reason": _display_reason(facts)}
-    return {**base, "outcome": "SKIP_UNPROVEN", "reason": disposition.value}
+    return {**base, "outcome": "SKIP_UNPROVEN", "reason": disposition.value, "head": entry.head}
 
 
 def _evaluate_entries(
@@ -4344,7 +4587,16 @@ def _run_repo(
             # loop below - see that function's docstring for why (round 5
             # shipped the archive loop bypassing salvage entirely by
             # calling `git worktree remove` directly).
-            outcome = _salvage_and_remove(repo, path, r.get("branch"))
+            outcome = _salvage_and_remove(repo, path, r.get("branch"), size_kb=size_kb)
+            if outcome["ignored_archive_failed"]:
+                print(
+                    f"WARNING: ignored-file archive failed for {path} (branch={r.get('branch')}): "
+                    f"{outcome['detail']} - worktree NOT removed",
+                    file=sys.stderr,
+                )
+                r["outcome"] = "SKIP_PROTECTED_CONTENT"
+                r["offenders"] = [f"ignored-archive-failed: {outcome['detail']}"]
+                continue
             if outcome["salvage_failed"]:
                 print(
                     f"WARNING: telemetry salvage failed for {path} (branch={r.get('branch')}): "
@@ -4407,9 +4659,10 @@ def _run_repo(
     # transient failure), neither of which this flag may ever archive - by
     # evaluate_entry's own gate order, a whitelisted entry already passed
     # self/age/dirty/locked/protected-content and only failed the
-    # branch-evidence gate: archive the FULL branch (compacted against
-    # resolved_base when doing so still yields a non-empty bundle, DS-191)
-    # into a verified git bundle, THEN salvage telemetry, and only THEN
+    # branch-evidence gate: archive the FULL branch, or a detached HEAD
+    # (compacted against the origin base branches when doing so still
+    # yields a non-empty bundle) into a verified git bundle, THEN save
+    # ignored files and salvage telemetry, and only THEN
     # remove the worktree
     # (via the SAME `_salvage_and_remove` the plain REMOVE loop above uses -
     # round 5 called `git worktree remove` directly here, bypassing salvage
@@ -4434,114 +4687,67 @@ def _run_repo(
             if r["outcome"] == "SKIP_UNPROVEN" and r.get("reason") in _ARCHIVABLE_UNPROVEN_DISPOSITIONS
         ]
         if not args.dry_run:
+            exclude_refs = _archive_exclude_refs(
+                repo, _archive_compaction_base(repo, resolved_base, base_source)
+            )
+            exclude_names = ", ".join(ref[len("refs/remotes/"):] for ref in exclude_refs) or "none"
             for r in unproven_results:
                 path = r["path"]
                 branch = r.get("branch")
-                if not branch:
-                    # No branch to bundle (detached HEAD) - nothing this
-                    # leg can do; stays SKIP_UNPROVEN, already reported.
+                ref = branch or "HEAD"
+                label = branch or "DETACHED"
+                if not branch and _head_sha(path) != r.get("head"):
+                    print(
+                        f"WARNING: {path} HEAD moved since it was evaluated - worktree NOT archived or removed",
+                        file=sys.stderr,
+                    )
                     continue
-                # Round-N (DS-191 MAJOR-2 fix): an explicit --base is
-                # unvalidated by resolve_base_branch - route it through
-                # _archive_compaction_base first so an arbitrary
-                # caller-supplied ref is only compacted against when it
-                # happens to coincide with the durable auto-resolved base
-                # (see that function's docstring). `compaction_base is
-                # None` here is the caller-side signal that compaction was
-                # refused BEFORE even attempting exclusion - distinct from
-                # `compact=False` below, which _archive_branch_bundle can
-                # also return for its own internal reasons.
-                compaction_base = _archive_compaction_base(repo, resolved_base, base_source)
-                explicit_base_refused = base_source == "explicit" and compaction_base is None
-                # MINOR-2 fix (round-3 review): `explicit_base_refused`
-                # collapses two distinct causes that need different
-                # remediation advice. Re-derive which one applies here
-                # (read-only, does not affect `compaction_base` above) so
-                # the NOTE below never tells an operator to omit --base
-                # when doing so would make this tool print "base could
-                # not be resolved - reap skipped this run" and do nothing
-                # at all, rather than restoring compaction.
-                auto_base_unresolvable = False
-                if explicit_base_refused:
-                    _auto_check, _auto_source_check, _auto_diag_check = resolve_base_branch(repo, None)
-                    auto_base_unresolvable = _auto_check is None
                 archive_ok, archive_detail, bundle_path, compact = _archive_branch_bundle(
-                    repo, branch, compaction_base
+                    repo, ref, exclude_refs, worktree_path=path
                 )
                 if not archive_ok:
                     print(
-                        f"WARNING: archive failed for {path} (branch={branch}): "
+                        f"WARNING: archive failed for {path} (branch={label}): "
                         f"{archive_detail} - worktree NOT removed",
                         file=sys.stderr,
                     )
                     continue
                 if not compact:
-                    # Round-N (DS-191, corrected): every reachable
-                    # not-compact cause at this call site is now covered
-                    # below, not just two. `explicit_base_refused` is known
-                    # for certain by the caller (computed above, before
-                    # _archive_branch_bundle even runs) and gets its own,
-                    # more specific message; every other cause funnels
-                    # through _archive_branch_bundle's own return, which
-                    # collapses several distinct internal reasons (base
-                    # unverifiable, branch shares no history with it, the
-                    # TOCTOU concurrent-fetch retry path, or a rev-list
-                    # count that failed to parse) into the single `compact`
-                    # boolean - see content/references/worktree-lifecycle.md.
-                    if explicit_base_refused and auto_base_unresolvable:
-                        print(
-                            f"NOTE: archived {path} (branch={branch}) as a full-history bundle "
-                            f"(base '{resolved_base}' was supplied explicitly via --base, but this "
-                            "tool's own auto-resolution could not resolve ANY durable base for this "
-                            "repo either, so there is nothing to compact against - full-history is "
-                            "the only safe option right now; omitting --base would NOT restore "
-                            "compaction here, it would make this tool skip the run entirely with "
-                            "'base could not be resolved' - a durable base ref (e.g. origin/HEAD, "
-                            "main, or a declared default branch) must exist first) - see "
-                            f"content/references/worktree-lifecycle.md; bundle={bundle_path}",
-                            file=sys.stderr,
-                        )
-                    elif explicit_base_refused:
-                        print(
-                            f"NOTE: archived {path} (branch={branch}) as a full-history bundle "
-                            f"(base '{resolved_base}' was supplied explicitly via --base and does "
-                            "not resolve to the same commit this tool's own auto-resolution would "
-                            "have picked, so it is not guaranteed durable - compaction was skipped; "
-                            "omit --base to let auto-resolution pick a durable base and restore "
-                            "compaction) - see content/references/worktree-lifecycle.md; "
-                            f"bundle={bundle_path}",
-                            file=sys.stderr,
-                        )
-                    else:
-                        print(
-                            f"NOTE: archived {path} (branch={branch}) as a full-history bundle "
-                            f"(base '{resolved_base}' could not be excluded - it may be "
-                            f"unverifiable, share no history with '{branch}', have been advanced "
-                            "past the branch tip by a concurrent fetch during archival, or its "
-                            "rev-list count could not be measured) - see "
-                            f"content/references/worktree-lifecycle.md; bundle={bundle_path}",
-                            file=sys.stderr,
-                        )
+                    print(
+                        f"NOTE: archived {path} (branch={label}) as a full-history bundle "
+                        f"(no origin base branch could be excluded - present locally: {exclude_names}; "
+                        "the tip may share no history with them, be already contained in them, "
+                        "or have been overtaken by a concurrent fetch during archival) - see "
+                        f"content/references/worktree-lifecycle.md; bundle={bundle_path}",
+                        file=sys.stderr,
+                    )
+                restore = _restore_command(bundle_path, ref, path)
+                prereq = f"prereq={exclude_names}" if compact else "prereq=none"
                 # Round-2 Skeptic Major 1 fix: measure BEFORE removal, same
                 # discipline as the plain REMOVE loop above (there is
-                # nothing left to measure once `_salvage_and_remove` has run)
-                # - this was the missing 6th `_measure_into` call site the
-                # Major-4 duplication cleanup above exposed. A `None` result
-                # is recorded as size_unknown and excluded from
-                # `reclaimed_kb`'s sum, never defaulted to 0.
+                # nothing left to measure once `_salvage_and_remove` has run).
+                # A `None` result is recorded as size_unknown and excluded
+                # from `reclaimed_kb`'s sum, never defaulted to 0.
                 # Round-3 Skeptic Minor 2 fix: `size_unknown_count` is NOT
-                # bumped here - a salvage or removal failure below (the two
-                # `continue`/`SKIP_REMOVE_FAILED` exits) reclassifies this
-                # entry away from `ARCHIVED_AND_REMOVED`, the only outcome
-                # `reclaimed_kb` sums over for archived entries; bumping on
-                # a failed exit falsely fired the FLOOR note for an entry
-                # that was never going to be part of any total either way
-                # (see `_bump_if_unknown`'s own docstring).
+                # bumped here - a failure exit below reclassifies this entry
+                # away from `ARCHIVED_AND_REMOVED`, the only outcome
+                # `reclaimed_kb` sums over for archived entries (see
+                # `_bump_if_unknown`'s own docstring).
                 size_kb = _measure_into(r) if args.measure_size else None
-                outcome = _salvage_and_remove(repo, path, branch)
+                outcome = _salvage_and_remove(
+                    repo, path, branch, bundle=bundle_path, restore_note=f"{prereq}; {restore}", size_kb=size_kb
+                )
+                if outcome["ignored_archive_failed"]:
+                    print(
+                        f"WARNING: ignored-file archive failed for {path} (branch={label}) after "
+                        f"successful bundle archive (bundle={bundle_path}): {outcome['detail']} - "
+                        "worktree NOT removed",
+                        file=sys.stderr,
+                    )
+                    continue
                 if outcome["salvage_failed"]:
                     print(
-                        f"WARNING: telemetry salvage failed for {path} (branch={branch}) after "
+                        f"WARNING: telemetry salvage failed for {path} (branch={label}) after "
                         f"successful archive (bundle={bundle_path}): {outcome['detail']} - "
                         "worktree NOT removed",
                         file=sys.stderr,
@@ -4557,21 +4763,26 @@ def _run_repo(
                     r["reason"] = f"archived to {bundle_path}"
                     restore_parenthetical = (
                         " (requires the commit git bundle actually recorded as this bundle's "
-                        f"prerequisite - the boundary/fork-point commit between '{branch}' and "
-                        f"'{resolved_base}' at archive time, NOT necessarily that ref's own tip - "
-                        "to still be present in this repo's object store; run `git bundle verify "
-                        "<bundle>` to see exactly which commit(s))"
+                        f"prerequisite - the boundary/fork-point commit between '{label}' and "
+                        f"the origin base branches ({exclude_names}) at archive time, NOT necessarily "
+                        "that ref's own tip - to still be present in this repo's object store; run "
+                        "`git bundle verify <bundle>` to see exactly which commit(s))"
                         if compact
                         else ""
                     )
+                    ignored_note = (
+                        f"; ignored files saved to {outcome['ignored_archive']}"
+                        if outcome.get("ignored_archive")
+                        else ""
+                    )
                     print(
-                        f"ARCHIVED+REMOVED {path} (branch={branch}) - restore with: "
-                        f"{_restore_command(bundle_path, branch)}{restore_parenthetical}"
+                        f"ARCHIVED+REMOVED {path} (branch={label}) - restore with: "
+                        f"{restore}{restore_parenthetical}{ignored_note}"
                     )
                 elif outcome["already_unregistered"]:
                     print(
                         f"WARNING: {path} is now UNREGISTERED (git already removed it from the "
-                        f"worktree list) after successful archive (branch={branch}, "
+                        f"worktree list) after successful archive (branch={label}, "
                         f"bundle={bundle_path}) but content remains on disk: {outcome['detail']}",
                         file=sys.stderr,
                     )
@@ -4579,7 +4790,7 @@ def _run_repo(
                 else:
                     print(
                         f"WARNING: failed to remove {path} after successful archive "
-                        f"(branch={branch}, bundle={bundle_path}): {outcome['detail']}",
+                        f"(branch={label}, bundle={bundle_path}): {outcome['detail']}",
                         file=sys.stderr,
                     )
                     r["outcome"] = "SKIP_REMOVE_FAILED"
@@ -4590,7 +4801,7 @@ def _run_repo(
             outcome_counts = Counter(r["outcome"] for r in results)
         else:
             # --dry-run: create nothing, report the would-be count only.
-            archive_would = sum(1 for r in unproven_results if r.get("branch"))
+            archive_would = len(unproven_results)
             # Minor fix: `salvage_would` above was computed ONLY over
             # `remove_results` (the plain REMOVE bucket), before this
             # archive-unproven block even runs - so telemetry sitting in an
@@ -4608,14 +4819,8 @@ def _run_repo(
             # `size_unknown_count` stayed 0 - a false certificate of
             # exactness on the exact number an operator reads to decide
             # whether to authorize a real `--archive-unproven` sweep.
-            # Entries without a branch (detached HEAD) are excluded, same
-            # as `archive_would` above and the live loop's own `if not
-            # branch: continue` - there is nothing this run could archive
-            # for them either way.
             if args.measure_size:
                 for r in unproven_results:
-                    if not r.get("branch"):
-                        continue
                     size_kb = _measure_into(r)
                     if size_kb is None:
                         size_unknown_count += 1
@@ -4832,9 +5037,9 @@ def _run_repo(
 
     if args.archive_unproven and args.dry_run and archive_would:
         print(
-            f"NOTE: {archive_would} unproven branch(es) would be archived to "
-            ".agentic/worktree-archive/ (as a verified git bundle) and their worktrees "
-            "removed if this were a live run with --archive-unproven."
+            f"NOTE: {archive_would} unproven worktree(s) would be archived to "
+            f"{_worktree_archive_dir(repo)}/ (as a verified git bundle) and removed "
+            "if this were a live run with --archive-unproven."
         )
 
     if args.explain:

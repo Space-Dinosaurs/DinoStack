@@ -162,6 +162,16 @@
       "source_token": "content/references/planning-artifacts.md"
     },
     {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "12c87a14f5f260184f0681e8bcaf3ce9caf5f111fea76b3ba34312dc2fb75d3a",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/rules/conventions.md"
+    },
+    {
       "expected_target": "content/sections/04-risk-classification.md",
       "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
@@ -240,6 +250,16 @@
       "scope": "codex-config-directory",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "ds-identity resolve-hook --cwd <cwd>"
+    },
+    {
+      "expected_target": "bin/ds-branch-prune",
+      "generated_token": "$AE_REPO_DIR/bin/ds-branch-prune",
+      "kind": "operational",
+      "occurrence_hash": "194ab50526052dc80705ef54b74212b626c04f0250b3baa34e47561adde1ed1e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "bin/ds-branch-prune"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
@@ -352,16 +372,6 @@
       "source_token": ".gitignore"
     },
     {
-      "expected_target": "content/references/worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
-      "kind": "operational",
-      "occurrence_hash": "22764a7484866a1f0ceee7caf6d55ff7dc9e46237b707593eb18935e07046697",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
       "expected_target": "content/references/conductor-operating-rules.md",
       "generated_token": "$AE_REPO_DIR/content/references/conductor-operating-rules.md",
       "kind": "operational",
@@ -380,16 +390,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "AskUserQuestion"
-    },
-    {
-      "expected_target": "bin/ds-branch-prune",
-      "generated_token": "$AE_REPO_DIR/bin/ds-branch-prune",
-      "kind": "operational",
-      "occurrence_hash": "27b993162621facfed0eda15d26f2f335bf6d040885009bc095d4665d1d0e370",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "bin/ds-branch-prune"
     },
     {
       "expected_target": ".agentic/worktrees/*",
@@ -772,16 +772,6 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "4e61b7f1b8ac493b0af8ff55bd7f14a1cbac1f37e7755075f4a7138e6be7bcd1",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/rules/conventions.md"
-    },
-    {
       "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
@@ -850,6 +840,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
+    },
+    {
+      "expected_target": "hooks/session-start-wrap.sh",
+      "generated_token": "$AE_REPO_DIR/hooks/session-start-wrap.sh",
+      "kind": "operational",
+      "occurrence_hash": "57c86b31ee498eea0803a8512712d860e5dd61ca1a667a856f6515633cb51a94",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "hooks/session-start-wrap.sh"
     },
     {
       "expected_target": "one bounded direct question after default derivation",
@@ -1360,6 +1360,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "`/ds-update-agentic-engineering`"
+    },
+    {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "930bf37fbcb5b4b43d025f48da4226056d1e077bbd872f2f29f8e8e9fb051c35",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": "content/sections/11-worktree-lifecycle.md",

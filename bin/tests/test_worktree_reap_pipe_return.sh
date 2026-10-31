@@ -1,174 +1,137 @@
 #!/usr/bin/env bash
-# Purpose: Regression guard for the DS-196 session-start reap pipe-inheritance
-#          fix. Extracts the ACTUAL fenced bash block from
-#          content/references/worktree-lifecycle.md's "## Session-start
-#          prune script" section (never a hand-retyped reimplementation, per
-#          the fence-extraction pattern established at
-#          bin/tests/test_ticket_triage_inflight.sh:151:
-#          `awk '/^```/{f=!f; next} f'` against a pre-sliced section body)
-#          and executes it in a disposable scratch git repo with a stub
-#          `ds-cleanup-worktrees` (sleeps ~2s, exits 0, records a call count,
-#          and echoes a fixed sentinel `STUB_REAP_RAN` to its own stdout) and
-#          a no-op stub `ds-branch-prune`, both placed first on PATH. Closes
-#          the measured defect: the backgrounded subshell inherited the
-#          caller's stdout pipe, so `&` never decoupled it and a harness
-#          Bash-tool call blocked for the reap's full duration.
+# Purpose: Regression guard for the SessionStart worktree sweep launched by
+#          hooks/session-start-wrap.sh. Runs the real hook against a scratch
+#          git repo with a stub `ds-cleanup-worktrees` (a Python script, since
+#          the hook invokes `python3 "$DS_CLEANUP_BIN"`) that answers
+#          `--count-only` at once and otherwise sleeps ~4s, records a call
+#          count, and prints a sentinel `STUB_REAP_RAN`. Asserts the hook
+#          never waits on the sweep (the DS-196 pipe-inheritance defect: a
+#          backgrounded child holding the caller's stdout pipe blocks the
+#          caller for the sweep's full duration), that the sweep appends to
+#          its per-repo log, and that a second launch within 6 h is skipped.
+#          The AE_WORKTREE_REAP_DISABLE kill switch is covered by
+#          hooks/tests/test-session-start-wrap-worktree-nudge.js (W19).
 #
 # Public API: ./bin/tests/test_worktree_reap_pipe_return.sh
 #             Exits 0 on all pass, 1 on any failure.
 #             Auto-wired into CI by the bin/tests/test_*.sh glob in
-#             .github/workflows/bin-tests.yml:232 - no orphans entry needed.
+#             .github/workflows/bin-tests.yml - no orphans entry needed.
 #
-# Upstream deps: bash, git, awk, sed, grep, date. Reads
-#                content/references/worktree-lifecycle.md from the checkout.
-#                No jq, no python3, no network (the scratch `origin` remote
-#                is a local bare repo, never a real network fetch).
+# Upstream deps: bash, git, python3, grep. Runs hooks/session-start-wrap.sh
+#                from the checkout. No network.
 #
 # Downstream consumers: developer running locally before commit; CI
 #                       (.github/workflows/bin-tests.yml).
 #
-# Failure modes: a failing assertion below; all git/file state is created
-#                under `mktemp -d` and never touches the real checkout's
-#                own `.agentic/worktree-reap.log`.
+# Failure modes: a failing assertion below; all state lives under
+#                `mktemp -d` with a scratch HOME, never the real
+#                ~/.agentic/worktree-reap/.
 #
-# Performance: ~2-4s wall time (dominated by the stub's ~2s sleep, run twice).
+# Performance: ~15s wall time (three stub runs of ~4s, polled).
 
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-DOC="$REPO_DIR/content/references/worktree-lifecycle.md"
+HOOK="$REPO_DIR/hooks/session-start-wrap.sh"
 
 PASS=0
 FAIL=0
 _pass() { echo "PASS: $1"; PASS=$((PASS + 1)); }
 _fail() { echo "FAIL: $1" >&2; FAIL=$((FAIL + 1)); }
 
-if [[ ! -f "$DOC" ]]; then
-  echo "FAIL: $DOC not found" >&2
+if [[ ! -f "$HOOK" ]]; then
+  echo "FAIL: $HOOK not found" >&2
   exit 1
 fi
 
-# Section body, extracted once - scoped to the Session-start prune script
-# section only, so this test never sees an unrelated fenced block elsewhere
-# in the file.
-START_LINE="$(grep -n '^## Session-start prune script' "$DOC" | head -1 | cut -d: -f1)"
-END_LINE="$(grep -n '^## Ad-hoc (non-`/ds-implement-ticket`) worktree cleanup obligation' "$DOC" | head -1 | cut -d: -f1)"
-if [[ -z "$START_LINE" || -z "$END_LINE" ]]; then
-  echo "FAIL: could not locate the Session-start prune script section boundaries" >&2
-  exit 1
-fi
-SECTION_BODY="$(sed -n "${START_LINE},${END_LINE}p" "$DOC")"
+SCRATCH="$(mktemp -d)"
+trap 'find "$SCRATCH" -depth -delete 2>/dev/null || true' EXIT
+FAKE_HOME="$SCRATCH/home"
+MOCK_REPO="$SCRATCH/mock-dinostack"
+PROJECT="$SCRATCH/project"
+CALL_COUNT_FILE="$SCRATCH/call-count"
+mkdir -p "$FAKE_HOME/.agentic" "$MOCK_REPO/bin"
 
-FENCE="$(printf '%s\n' "$SECTION_BODY" | awk '/^```/{f=!f; next} f')"
-if [[ -z "$FENCE" ]]; then
-  echo "FAIL: Session-start prune script fence extracted empty - heading mismatch or missing code fence" >&2
-  exit 1
-fi
-
-BLOCK_FILE="$(mktemp)"
-printf '%s\n' "$FENCE" > "$BLOCK_FILE"
-trap 'rm -f "$BLOCK_FILE"' EXIT
-
-# --- Stub bin/, placed first on PATH ---------------------------------------
-STUB_BIN_DIR="$(mktemp -d)"
-cat > "$STUB_BIN_DIR/ds-cleanup-worktrees" <<'STUB_EOF'
-#!/usr/bin/env bash
-if [[ -n "${STUB_CALL_COUNT_FILE:-}" ]]; then
-  count=0
-  [[ -f "$STUB_CALL_COUNT_FILE" ]] && count="$(cat "$STUB_CALL_COUNT_FILE")"
-  echo $((count + 1)) > "$STUB_CALL_COUNT_FILE"
-fi
-sleep 2
-echo "STUB_REAP_RAN"
-exit 0
+# resolve_repo_dir only accepts a repo_dir that is a git repo.
+git init -q "$MOCK_REPO"
+printf '{"repo_dir": "%s"}\n' "$MOCK_REPO" > "$FAKE_HOME/.agentic/agentic-engineering-config.json"
+cat > "$MOCK_REPO/bin/ds-cleanup-worktrees" <<STUB_EOF
+import sys, time
+if '--count-only' in sys.argv:
+    print('ds-cleanup-worktrees: mode=count-only entries=2')
+    sys.exit(0)
+path = '$CALL_COUNT_FILE'
+try:
+    count = int(open(path).read())
+except (OSError, ValueError):
+    count = 0
+open(path, 'w').write(str(count + 1))
+time.sleep(4)
+print('STUB_REAP_RAN')
 STUB_EOF
-chmod +x "$STUB_BIN_DIR/ds-cleanup-worktrees"
-cat > "$STUB_BIN_DIR/ds-branch-prune" <<'STUB_EOF'
-#!/usr/bin/env bash
-exit 0
-STUB_EOF
-chmod +x "$STUB_BIN_DIR/ds-branch-prune"
+chmod +x "$MOCK_REPO/bin/ds-cleanup-worktrees"
 
-# --- Disposable scratch repo, with a local bare `origin` so `git fetch
-# origin` (the block's first line) succeeds without any real network call.
-WORK_DIR="$(mktemp -d)"
-ORIGIN_DIR="$(mktemp -d)/origin.git"
-git init -q --bare "$ORIGIN_DIR"
-git init -q "$WORK_DIR"
-git -C "$WORK_DIR" remote add origin "$ORIGIN_DIR"
+git init -q "$PROJECT"
+PROJECT_ROOT="$(cd "$PROJECT" && pwd -P)"
+REAP_ID="$(python3 -c 'import hashlib, sys; print(hashlib.sha1(sys.argv[1].encode()).hexdigest()[:8])' "$PROJECT_ROOT")"
+LOG_FILE="$FAKE_HOME/.agentic/worktree-reap/project-${REAP_ID}.log"
 
-CLEANUP_DIRS=("$STUB_BIN_DIR" "$WORK_DIR" "$(dirname "$ORIGIN_DIR")")
-_cleanup_all() {
-  rm -f "$BLOCK_FILE" 2>/dev/null || true
-  for d in "${CLEANUP_DIRS[@]}"; do
-    rm -rf "$d" 2>/dev/null || true
-  done
+now_ms() { python3 -c 'import time; print(int(time.time() * 1000))'; }
+call_count() { cat "$CALL_COUNT_FILE" 2>/dev/null || echo 0; }
+run_hook() {
+  printf '{"cwd": "%s", "source": "startup"}' "$PROJECT" \
+    | env -u AE_WORKTREE_REAP_DISABLE HOME="$FAKE_HOME" AGENTIC_WRAP_DAEMON=1 bash "$HOOK" | cat >/dev/null
 }
-trap _cleanup_all EXIT
-
-REPO_ROOT_RESOLVED="$(cd "$WORK_DIR" && git rev-parse --show-toplevel)"
-LOG_FILE="$REPO_ROOT_RESOLVED/.agentic/worktree-reap.log"
+wait_for_sentinels() {
+  local want="$1"
+  for _ in $(seq 1 100); do
+    if [[ "$(grep -c 'STUB_REAP_RAN' "$LOG_FILE" 2>/dev/null)" -ge "$want" ]]; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
 
 echo ""
-echo "--- (a): the extracted block piped through | cat returns well under 1s, even though the stub sleeps ~2s ---"
-CALL_COUNT_FILE_A="$WORK_DIR/.call_count_a"
-rm -f "$CALL_COUNT_FILE_A"
-start_ns=$(date +%s%N)
-(
-  cd "$WORK_DIR" || exit 1
-  PATH="$STUB_BIN_DIR:$PATH" STUB_CALL_COUNT_FILE="$CALL_COUNT_FILE_A" bash "$BLOCK_FILE"
-) | cat >/dev/null
-end_ns=$(date +%s%N)
-elapsed_ms=$(( (end_ns - start_ns) / 1000000 ))
-if [[ "$elapsed_ms" -lt 1000 ]]; then
-  _pass "(a) piped call returned in ${elapsed_ms}ms (< 1000ms) despite the stub's ~2s sleep"
+echo "--- (a): the hook, piped through | cat, returns well before the ~4s sweep finishes ---"
+start_ms="$(now_ms)"
+run_hook
+elapsed_ms=$(( $(now_ms) - start_ms ))
+if [[ "$elapsed_ms" -lt 3000 ]]; then
+  _pass "(a) piped hook returned in ${elapsed_ms}ms (< 3000ms) despite the stub's ~4s sweep"
 else
-  _fail "(a) piped call took ${elapsed_ms}ms (>= 1000ms) - the subshell is still blocking the pipe"
+  _fail "(a) piped hook took ${elapsed_ms}ms (>= 3000ms) - the sweep is holding the hook's pipe"
 fi
 
 echo ""
-echo "--- (b): after a bounded poll (up to 5s), the reap log contains the header line and the stub's STUB_REAP_RAN sentinel exactly once ---"
-found=0
-for _ in $(seq 1 50); do
-  if [[ -f "$LOG_FILE" ]] && grep -q 'STUB_REAP_RAN' "$LOG_FILE" 2>/dev/null; then
-    found=1
-    break
-  fi
-  sleep 0.1
-done
-if [[ "$found" -eq 1 ]]; then
-  # `grep -c` always prints a count (0 or more) to its own stdout, even on
-  # zero matches - it only exits nonzero. `|| echo 0` here would therefore
-  # APPEND a second "0" line inside the same command substitution on a
-  # no-match run, producing a two-line value like "0\n0" that then fails
-  # the `-ge`/`-eq` integer comparisons below with a bad-math error instead
-  # of comparing. Trust grep's own printed count; no fallback needed.
-  header_count="$(grep -cE '^=== reap .* pid [0-9]+ ===$' "$LOG_FILE" 2>/dev/null)"
-  sentinel_count="$(grep -cF 'STUB_REAP_RAN' "$LOG_FILE" 2>/dev/null)"
-  if [[ "$header_count" -ge 1 && "$sentinel_count" -eq 1 ]]; then
-    _pass "(b) log contains the header line and exactly one STUB_REAP_RAN sentinel"
+echo "--- (b): the sweep appends a header and its own output to the per-repo log ---"
+if wait_for_sentinels 1; then
+  header_count="$(grep -cE "^=== reap .* pid [0-9]+ root ${PROJECT_ROOT} ===$" "$LOG_FILE")"
+  if [[ "$header_count" -eq 1 ]] && [[ "$(call_count)" -eq 1 ]]; then
+    _pass "(b) $LOG_FILE holds one header and the stub's output"
   else
-    _fail "(b) log present but wrong shape (header_count=$header_count, sentinel_count=$sentinel_count)"
+    _fail "(b) log present but wrong shape (header_count=$header_count, calls=$(call_count))"
   fi
 else
-  _fail "(b) log at $LOG_FILE never contained STUB_REAP_RAN within the 5s poll window"
+  _fail "(b) $LOG_FILE never contained STUB_REAP_RAN within the poll window"
 fi
 
 echo ""
-echo "--- (c): with AE_WORKTREE_REAP_DISABLE=1, the stub is never invoked (checked after the same poll window) ---"
-CALL_COUNT_FILE_C="$WORK_DIR/.call_count_c"
-rm -f "$CALL_COUNT_FILE_C"
-(
-  cd "$WORK_DIR" || exit 1
-  PATH="$STUB_BIN_DIR:$PATH" STUB_CALL_COUNT_FILE="$CALL_COUNT_FILE_C" AE_WORKTREE_REAP_DISABLE=1 bash "$BLOCK_FILE"
-) | cat >/dev/null
+echo "--- (c): a second session within 6 h launches nothing; a log older than 6 h launches again ---"
+run_hook
 sleep 5
-if [[ ! -f "$CALL_COUNT_FILE_C" ]]; then
-  _pass "(c) stub call-count file absent - AE_WORKTREE_REAP_DISABLE=1 fully suppressed the reap invocation"
-elif [[ "$(cat "$CALL_COUNT_FILE_C")" == "0" ]]; then
-  _pass "(c) stub call-count file reads 0 - AE_WORKTREE_REAP_DISABLE=1 fully suppressed the reap invocation"
+if [[ "$(call_count)" -eq 1 ]]; then
+  _pass "(c) second launch within 6 h skipped (calls=1)"
 else
-  _fail "(c) stub was invoked ($(cat "$CALL_COUNT_FILE_C") call(s)) despite AE_WORKTREE_REAP_DISABLE=1"
+  _fail "(c) second launch within 6 h ran the sweep again (calls=$(call_count))"
+fi
+python3 -c 'import os, sys, time; t = time.time() - 7 * 3600; os.utime(sys.argv[1], (t, t))' "$LOG_FILE"
+run_hook
+if wait_for_sentinels 2 && [[ "$(call_count)" -eq 2 ]]; then
+  _pass "(c) a log older than 6 h lets the next session launch the sweep"
+else
+  _fail "(c) a stale log did not relaunch the sweep (calls=$(call_count))"
 fi
 
 echo ""
