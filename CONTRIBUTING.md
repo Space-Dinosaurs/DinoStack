@@ -26,7 +26,7 @@ Everything else CI runs is covered, including the gates that are easy to forget:
 
 `check-npm-audit.sh` is the one covered gate that needs the network: it asks the npm advisory endpoint whether either lockfile carries an advisory with a non-breaking fix available. Offline, it prints a `SKIPPED` block and does not fail the run, so you are never blocked by a gate that structurally cannot run - **which also means a green local run is not proof the audit happened; read that gate's own output to see which of the two you got.** The preflight can require `npm`, and does, but it cannot require a reachable registry. The same condition is a hard failure under `CI`, so the gate can never pass in CI without actually auditing. It deliberately does NOT fail on advisories whose only fix is a breaking change: `scripts/` carries four such high-severity advisories today with no patched version published, and a gate that is permanently red is a gate everybody learns to ignore. Run `npm audit --prefix scripts` yourself if you want the full picture including those.
 
-Each run exports its own `TMPDIR` and deletes it on exit, so temp files the gates leave behind do not accumulate in yours.
+Each run exports a fresh `TMPDIR` under `/tmp` and deletes it on exit, so temp files the gates leave behind do not accumulate in yours.
 
 Exit 2 is deliberately distinct from exit 1: it means no gate ran, so it says nothing about your change. The preflight prints the exact install command for whatever is missing. What it requires:
 

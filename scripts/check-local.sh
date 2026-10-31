@@ -200,8 +200,10 @@ fi
 # ---------------------------------------------------------------------------
 FAILED=""
 # Gates and tests leave test-* temp dirs behind; a per-run TMPDIR deleted on
-# exit keeps them out of the operator's own temp directory.
-CHECK_LOCAL_TMP="$(mktemp -d "${TMPDIR:-/tmp}/check-local.XXXXXX")" || exit 2
+# exit keeps them out of the operator's own temp directory. It lives under
+# /tmp, not the caller's TMPDIR: macOS's per-user TMPDIR is long enough that
+# test_agentic_identity.py's AF_UNIX socket paths exceed the 104-byte limit.
+CHECK_LOCAL_TMP="$(mktemp -d /tmp/check-local.XXXXXX)" || exit 2
 trap 'find "${CHECK_LOCAL_TMP:?}" -depth -delete' EXIT
 export TMPDIR="$CHECK_LOCAL_TMP"
 GATE_LOG="$CHECK_LOCAL_TMP/gate.log"
