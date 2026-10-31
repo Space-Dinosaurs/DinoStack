@@ -17,11 +17,11 @@
 #                content/commands/ds-cleanup-worktrees.md (grepped by
 #                check_prose_wiring, resolved relative to this script's
 #                repo root - not the caller's cwd);
-#                content/references/worktree-lifecycle.md (grepped by
+#                hooks/session-start-wrap.sh and content/references/worktree-lifecycle.md (grepped by
 #                check_reap_wiring, DS-196 round-2 Major 3 fix - the
-#                session-start reap block and its AE_WORKTREE_REAP_DISABLE
-#                guard are prose that nothing else executes or tests, so
-#                either could be deleted silently without this);
+#                SessionStart worktree sweep launch, its AE_WORKTREE_REAP_DISABLE
+#                guard and the doc pointer to it, so a silent deletion of
+#                any one is caught);
 #                bin/ds-cleanup-worktrees (CLEANUP_BIN, grepped by
 #                check_manifest_reconciliation and check_activity_window_prose
 #                for its NOTE text and module docstring);
@@ -56,7 +56,7 @@
 #                       runs (0, 1, 1)"; check_prose_wiring additionally
 #                       guards against a re-drift of DS-118 Critical 1;
 #                       check_reap_wiring guards against a silent deletion
-#                       of the DS-196 automatic session-start reap
+#                       of the SessionStart worktree sweep launch
 #                       invocation or its kill-switch guard (qa_criteria
 #                       scenario 5 / rubric R3); check_lock_caveat_pointers
 #                       guards the single-source lock-state caveat against
@@ -77,8 +77,8 @@
 #                worktrees.md missing a `classify_entry`/`disposition_for`
 #                reference, or re-introduces branch-name-based
 #                classification prose, OR if check_reap_wiring finds
-#                content/references/worktree-lifecycle.md missing the
-#                backgrounded `ds-cleanup-worktrees --repo "$REPO_ROOT"`
+#                hooks/session-start-wrap.sh missing the
+#                detached `python3 "$DS_CLEANUP_BIN" --repo "$reap_root"`
 #                invocation or the `AE_WORKTREE_REAP_DISABLE` guard, OR if
 #                check_manifest_reconciliation finds bin/ds-cleanup-worktrees
 #                or hooks/session-start-wrap.sh disagreeing with whether the
@@ -305,43 +305,41 @@ check_prose_wiring() {
   return "$ok"
 }
 
-# DS-196 round-2 Major 3 regression guard: content/references/worktree-lifecycle.md
-# must still contain the automatic, backgrounded session-start worktree reap
-# invocation AND its AE_WORKTREE_REAP_DISABLE kill-switch guard - this is
-# prose that nothing else executes, so a silent deletion of either would
-# otherwise pass every other gate in this repo unnoticed.
+# The SessionStart worktree sweep lives in hooks/session-start-wrap.sh: it
+# must still launch ds-cleanup-worktrees against the main checkout with the
+# 24h floor, detached with every fd redirected, behind the
+# AE_WORKTREE_REAP_DISABLE kill switch, and content/references/
+# worktree-lifecycle.md must still point at it. The launch behavior itself is
+# exercised by bin/tests/test_worktree_reap_pipe_return.sh and the hook's
+# W19 test; this guard catches a silent deletion of any one piece.
 #
-# Round-4 Minor 5: unlike check_manifest_reconciliation below (whose
-# assertions are DERIVED from whether the invocation exists, so a
-# legitimate future removal of the feature flips the expected claim
-# instead of reddening the suite), this guard is DELIBERATELY
-# unconditional - the entire point of "wiring" assertion is that the
-# auto-reap invocation and its kill-switch guard must exist, not merely
-# that other prose agree about whether they exist. A future, deliberate
-# removal of the DS-196 automatic session-start reap feature must edit
-# THIS function (delete or gate its `grep -qF` assertions - re-derive the
-# current count from the function body, don't hand-pin a number here) in
-# the same commit that removes the invocation from worktree-lifecycle.md -
-# that is the expected, correct failure mode, not a defect in this guard.
+# DELIBERATELY unconditional (unlike check_manifest_reconciliation below,
+# whose assertions are derived from whether the invocation exists): a
+# deliberate removal of the sweep must edit THIS function in the same commit.
 check_reap_wiring() {
-  local doc="$1"
+  local hook="$1"
+  local doc="$2"
   local ok=0
 
-  if [ ! -f "$doc" ]; then
-    echo "PROSE-WIRING VIOLATION: $doc not found" >&2
+  if [ ! -f "$hook" ] || [ ! -f "$doc" ]; then
+    echo "PROSE-WIRING VIOLATION: $hook or $doc not found" >&2
     return 1
   fi
 
-  if ! grep -qF 'ds-cleanup-worktrees --repo "$REPO_ROOT"' "$doc"; then
-    echo "PROSE-WIRING VIOLATION: $doc does not invoke the automatic session-start worktree reap (ds-cleanup-worktrees --repo \"\$REPO_ROOT\")" >&2
+  if ! grep -qF 'exec nohup python3 "$DS_CLEANUP_BIN" --repo "$reap_root" --min-age-hours 24 </dev/null >>"$reap_log" 2>&1' "$hook"; then
+    echo "PROSE-WIRING VIOLATION: $hook does not launch the SessionStart worktree sweep (python3 \"\$DS_CLEANUP_BIN\" --repo \"\$reap_root\" --min-age-hours 24, output to the log)" >&2
     ok=1
   fi
-  if ! grep -qF '>> "$REPO_ROOT/.agentic/worktree-reap.log" 2>&1 || true ) >>"$REPO_ROOT/.agentic/worktree-reap.log" 2>&1 &' "$doc"; then
-    echo "PROSE-WIRING VIOLATION: $doc's session-start reap invocation is not backgrounded with its own fds redirected to the log (missing the trailing ') >>\"\$REPO_ROOT/.agentic/worktree-reap.log\" 2>&1 &' subshell form)" >&2
+  if ! grep -qF ') </dev/null >/dev/null 2>&1 &' "$hook"; then
+    echo "PROSE-WIRING VIOLATION: $hook's sweep subshell is not detached with every fd redirected (missing ') </dev/null >/dev/null 2>&1 &')" >&2
     ok=1
   fi
-  if ! grep -qF 'AE_WORKTREE_REAP_DISABLE' "$doc"; then
-    echo "PROSE-WIRING VIOLATION: $doc does not reference the AE_WORKTREE_REAP_DISABLE guard for the automatic reap" >&2
+  if ! grep -qF 'if [[ -z "${AE_WORKTREE_REAP_DISABLE:-}" ]]' "$hook"; then
+    echo "PROSE-WIRING VIOLATION: $hook does not gate the sweep on the AE_WORKTREE_REAP_DISABLE kill switch" >&2
+    ok=1
+  fi
+  if ! grep -qF 'hooks/session-start-wrap.sh' "$doc"; then
+    echo "PROSE-WIRING VIOLATION: $doc no longer points at hooks/session-start-wrap.sh for the session-start worktree sweep" >&2
     ok=1
   fi
 
@@ -473,8 +471,8 @@ check_prose_wiring "$CLEANUP_DOC"
 r0=$?
 echo "prose-wiring exit=$r0"
 
-echo "== Reap-wiring check: $LIFECYCLE_DOC still invokes the backgrounded session-start reap and its AE_WORKTREE_REAP_DISABLE guard =="
-check_reap_wiring "$LIFECYCLE_DOC"
+echo "== Reap-wiring check: $SESSION_START_WRAP still launches the detached worktree sweep behind AE_WORKTREE_REAP_DISABLE =="
+check_reap_wiring "$SESSION_START_WRAP" "$LIFECYCLE_DOC"
 r0b=$?
 echo "reap-wiring exit=$r0b"
 
@@ -487,12 +485,12 @@ echo "process-lifetime-prose exit=$r0h"
 # back to the pre-fix (false) claims that full mode "is not the mode either
 # automatic call site uses" (Major 1) or that session-start-wrap.sh's
 # worktree nudge is unqualified report-only (Major 2) - both were false once
-# the DS-196 automatic session-start reap shipped.
+# the DS-196 automatic session-start reap shipped (now the SessionStart worktree sweep).
 #
 # Round-3 Minor 3 fix: the two positive claims below ("Full mode IS now the
 # mode an automatic call site uses" / "report-only for THIS --count-only
 # call site") are true only because the mutating, non---count-only auto-reap
-# invocation currently exists in $LIFECYCLE_DOC. Pinning them as unconditional
+# invocation currently exists in $SESSION_START_WRAP. Pinning them as unconditional
 # literals would compel a manifest to keep asserting a claim that a
 # legitimate FUTURE removal of that call site would make false, and would
 # fail a correct revert. Instead, derive ground truth from whether that exact
@@ -502,7 +500,7 @@ check_manifest_reconciliation() {
   local ok=0
 
   local auto_reap_exists=0
-  if grep -qF 'ds-cleanup-worktrees --repo "$REPO_ROOT"' "$LIFECYCLE_DOC" 2>/dev/null; then
+  if grep -qF 'python3 "$DS_CLEANUP_BIN" --repo "$reap_root" --min-age-hours 24' "$SESSION_START_WRAP" 2>/dev/null; then
     auto_reap_exists=1
   fi
 
@@ -513,12 +511,12 @@ check_manifest_reconciliation() {
 
   if [ "$auto_reap_exists" = "1" ]; then
     if ! grep -qF 'Full mode IS now the mode an automatic call site uses' "$CLEANUP_BIN"; then
-      echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN is missing the corrected DS-196 full-mode-is-automatic claim (the mutating auto-reap invocation exists in $LIFECYCLE_DOC, so the manifest must say so)" >&2
+      echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN is missing the corrected DS-196 full-mode-is-automatic claim (the mutating auto-reap invocation exists in $SESSION_START_WRAP, so the manifest must say so)" >&2
       ok=1
     fi
   else
     if grep -qF 'Full mode IS now the mode an automatic call site uses' "$CLEANUP_BIN"; then
-      echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN still claims an automatic call site uses full mode, but $LIFECYCLE_DOC no longer invokes the mutating auto-reap - this claim is now false and must be updated to reflect the removal" >&2
+      echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN still claims an automatic call site uses full mode, but $SESSION_START_WRAP no longer launches the mutating auto-reap - this claim is now false and must be updated to reflect the removal" >&2
       ok=1
     fi
   fi
@@ -697,8 +695,8 @@ echo "activity-window-prose exit=$r0d"
 #         giving it a floor. Its scope is exactly what `caller_scan` can
 #         see; that module states its residuals and `test_caller_scan.py`
 #         pins them.
-#   (iv)  the session-start reap's own continuation block carries
-#         `--min-age-hours 24`, and `/ds-cleanup-worktrees` Step 2's shell
+#   (iv)  the SessionStart worktree sweep's launch line in
+#         hooks/session-start-wrap.sh carries `--min-age-hours 24`, and `/ds-cleanup-worktrees` Step 2's shell
 #         block reads `DS_CLEANUP_MIN_AGE_HOURS`.
 #   (v)   `/ds-wrap` Step 5 both STATES that Step 2 derives the floor from
 #         the wrap lock, and SITS INSIDE the lock window - i.e. ahead of the
@@ -713,7 +711,7 @@ echo "activity-window-prose exit=$r0d"
 #         floor silently disappears from the one unattended mutating caller.
 #
 # Reddening mutations, all EXECUTED:
-#   - delete `--min-age-hours 24` from the reap block          -> fires (iv)
+#   - delete `--min-age-hours 24` from the hook's sweep launch -> fires (iv)
 #   - delete Step 5's wrap-lock derivation sentence            -> fires (v)
 #   - move `ds-wrap-release-lock` ahead of Step 5               -> fires (v)
 #   - add any new mutating invocation under the swept paths    -> fires (iii)
@@ -729,8 +727,8 @@ import caller_scan
 
 # (iii) The allowlist: the files that may carry a mutating invocation.
 ALLOWLIST = {
-    # Session-start reap: unattended, pins --min-age-hours 24 at the call.
-    "content/references/worktree-lifecycle.md",
+    # SessionStart worktree sweep: unattended, pins --min-age-hours 24 at the call.
+    "hooks/session-start-wrap.sh",
     # Step 2: attended when an operator types it directly, and ALSO the
     # conduit the unattended /ds-wrap Step 5 path reaches this tool through.
     # It is therefore not simply "the attended caller" - it is where the
@@ -763,11 +761,11 @@ for missing in sorted(ALLOWLIST - found):
         "from this check's ALLOWLIST in the same commit." % missing
     )
 
-# (iv) The reap's own continuation block, and Step 2's own shell block.
+# (iv) The SessionStart sweep launch line, and Step 2's own shell block.
 for path, lineno, raw in mutating:
     with open("%s/%s" % (repo_root, path), encoding="utf-8") as fh:
         text = fh.read().splitlines()
-    if path == "content/references/worktree-lifecycle.md":
+    if path == "hooks/session-start-wrap.sh":
         block = [raw]
         i = lineno
         while block[-1].rstrip().endswith("\\") and i < len(text):
@@ -775,9 +773,9 @@ for path, lineno, raw in mutating:
             i += 1
         if "--min-age-hours 24" not in "\n".join(block):
             violations.append(
-                "CALLER-ENUMERATION VIOLATION: the session-start reap invocation at "
-                "%s:%d does not pass `--min-age-hours 24`. That reap is UNATTENDED "
-                "(backgrounded, output to a log, 30-min idle re-fire) and the age "
+                "CALLER-ENUMERATION VIOLATION: the SessionStart worktree sweep at "
+                "%s:%d does not pass `--min-age-hours 24`. That sweep is UNATTENDED "
+                "(detached, output to a log, once per 6 h per repo) and the age "
                 "floor is off unless supplied, so dropping the flag widens what an "
                 "unattended destructive pass removes." % (path, lineno)
             )

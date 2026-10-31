@@ -120,7 +120,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 _BIN_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_BIN_DIR))
@@ -438,24 +438,25 @@ def _maximal(cwd: str, commits: List[str]) -> List[str]:
 
 
 def _local_pin_check(primary: str, common: str, gitdir: str,
-                     head: Optional[str]) -> Tuple[List[str], List[str], List[str]]:
+                     head: Optional[str], extra_pins: Sequence[str] = ()) -> Tuple[List[str], List[str], List[str]]:
     """Gate 7 phase 1 (local, no network). Returns (candidates, local pins,
     candidates no local pin reaches). bin/ds-cleanup-worktrees calls this
-    directly when it must stay offline."""
+    directly when it must stay offline. `extra_pins` are commits the caller
+    preserves another way (bin/ds-cleanup-worktrees: a verified bundle)."""
     storage = _git(["config", "--get", "extensions.refStorage"], primary)
     if storage.returncode == 0 and storage.stdout.strip() == "reftable":
         raise Hold("pin check unavailable: refStorage=reftable", REVISIT["unpinned"],
                    "extensions.refStorage=reftable; branch reflogs are not readable as files")
     candidates = _candidates(primary, gitdir, head)
-    pins = _local_pins(primary, common)
+    pins = _local_pins(primary, common) + list(extra_pins)
     return candidates, pins, _unpinned(primary, candidates, pins)
 
 
 def _pin_gate(path: str, primary: str, common: str, gitdir: str, head: Optional[str],
-              pin: bool, dry_run: bool) -> Tuple[List[str], List[str]]:
+              pin: bool, dry_run: bool, extra_pins: Sequence[str] = ()) -> Tuple[List[str], List[str]]:
     """Gate 7. Returns (carrier-pin refs created or that would be, the
     candidate commits it proved pinned)."""
-    candidates, pins, unpinned = _local_pin_check(primary, common, gitdir, head)
+    candidates, pins, unpinned = _local_pin_check(primary, common, gitdir, head, extra_pins)
     if not unpinned:
         return [], candidates
     network_hold: Optional[Hold] = None
@@ -774,7 +775,9 @@ def _retire(args: argparse.Namespace) -> int:
 
         outcome = _salvage_and_remove(primary, path, branch)
         detail = outcome.get("detail") or ""
-        if outcome.get("salvage_failed"):
+        if outcome.get("ignored_archive_failed"):
+            reason, revisit = "ignored-file archive failed", REVISIT["remove"]
+        elif outcome.get("salvage_failed"):
             reason, revisit = "telemetry salvage failed", REVISIT["remove"]
         elif outcome.get("removed"):
             reason = None

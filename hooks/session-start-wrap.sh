@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Purpose: Claude Code SessionStart wrapper for the deferred-wrap feature. It
-#          composes EIGHT concerns into a single fail-open SessionStart hook:
+#          composes NINE concerns into a single fail-open SessionStart hook:
 #          (a) the "newer version available" notice (delegated to the existing
 #          version-check wrapper); (b) a one-line auth-failed notice when the
 #          daemon previously could not authenticate; (c) a one-time migration of
@@ -17,15 +17,21 @@
 #          nudge (bin/ds-cleanup-worktrees --count-only) when the current
 #          project's non-root worktree count is at or above a small
 #          threshold - REPORT ONLY, this call site never removes a worktree;
-#          and (h, DS-189 Unit B) an OPT-IN machine-wide worst-project nudge
+#          (h, DS-189 Unit B) an OPT-IN machine-wide worst-project nudge
 #          (bin/ds-cleanup-worktrees --multi-repo --report --count-only
 #          --json --max-repos 20), gated on the presence of
 #          ~/.agentic/cleanup-worktrees.json, that names the single worst
 #          project for stale worktrees across every configured repo when it
-#          differs from the current one and clears the same threshold.
-#          Both worktree nudges (g, h) are skipped when the payload's
-#          `source` is `compact`, so compaction does not repeat them; a
-#          missing or unreadable `source` keeps them.
+#          differs from the current one and clears the same threshold;
+#          and (i) the SessionStart worktree sweep: a detached, rate-limited
+#          (once per 6 h per repo) `bin/ds-cleanup-worktrees --repo
+#          <main-checkout root> --min-age-hours 24` run that DOES remove
+#          worktrees its predicate proves removable, logged to
+#          ~/.agentic/worktree-reap/<repo>-<sha1(root)[:8]>.log and
+#          suppressed by AE_WORKTREE_REAP_DISABLE=1.
+#          Both worktree nudges (g, h) and the sweep (i) are skipped when the
+#          payload's `source` is `compact`, so compaction does not repeat
+#          them; a missing or unreadable `source` keeps them.
 #          It is the first of the two SessionStart registrations install.sh
 #          makes (the second is hooks/session-start-memory.py); the
 #          version-check script is no longer wired directly - it is invoked
@@ -59,16 +65,13 @@
 #                  optional - a missing/unresolvable binary just yields an
 #                  empty message piece via the `command -v ds-defer` fallback),
 #                bin/ds-cleanup-worktrees (worktree-count query for the nudge,
-#                  invoked --count-only; optional - a missing/
-#                  unresolvable binary just yields an empty message piece via
-#                  the `command -v ds-cleanup-worktrees` fallback), python3
-#                  (bin/ds-cleanup-worktrees is a Python CLI),
-#                <repo-root>/.agentic/worktree-reap.log (DS-196 round-4:
-#                  read-only existence check inside the worktree-accumulation
-#                  nudge above, gated on nonroot_count >= WORKTREE_NUDGE_THRESHOLD
-#                  AND AE_WORKTREE_REAP_DISABLE unset; repo-root resolved via
-#                  `git -C "$cwd" rev-parse --show-toplevel`, same idiom as the
-#                  version-check wrapper's own resolution).
+#                  invoked --count-only, and the detached sweep; optional - a
+#                  missing/unresolvable binary just yields an empty message
+#                  piece and no sweep via the `command -v ds-cleanup-worktrees`
+#                  fallback), python3 (bin/ds-cleanup-worktrees is a Python CLI;
+#                  also hashes the sweep log name),
+#                ~/.agentic/worktree-reap/<repo>-<sha1(root)[:8]>.log (the
+#                  sweep's append-only log; its mtime is the 6 h rate stamp).
 # Downstream consumers: Claude Code SessionStart hook, wired via
 #                       ~/.claude/settings.json by .claude/install.sh.
 # Failure modes: ALWAYS exits 0 (fail-open). A missing field, missing jq,
@@ -91,19 +94,13 @@
 #                report on). It surfaces a VISIBLE message naming the exit
 #                code ONLY when the binary IS resolved, `cwd` IS a git work
 #                tree, and the subprocess itself genuinely fails - that
-#                combination is an actionable signal, not noise. This call
-#                site NEVER removes a worktree regardless of the count
-#                (report-only for THIS --count-only call site; this is
-#                UNCHANGED by DS-196, which adds a SEPARATE, mutating,
-#                backgrounded session-start invocation of
-#                ds-cleanup-worktrees documented in
-#                content/references/worktree-lifecycle.md (§Session-start
-#                prune script) - a plain shell block in the conductor
-#                preflight prose, not a hook. THAT call site is invoked by
-#                the conductor's own preflight action (backgrounded, never
-#                blocks), and removal from it is suppressible via
-#                AE_WORKTREE_REAP_DISABLE=1; see the worktree-accumulation
-#                nudge comment below for the full cross-reference). The
+#                combination is an actionable signal, not noise. The
+#                --count-only call NEVER removes a worktree regardless of
+#                the count. The SessionStart worktree sweep is the one
+#                mutating call: it is detached with every fd redirected, so
+#                its failure or duration never reaches the session; any
+#                failure resolving the main-checkout root or the log name,
+#                or a log written in the last 6 h, launches nothing. The
 #                machine-wide worst-project nudge
 #                (DS-189 Unit B, opt-in) is fully fail-open on every path:
 #                absent ~/.agentic/cleanup-worktrees.json, unresolved
@@ -150,18 +147,12 @@
 #              wall-clock when coreutils timeout is available (degrades to
 #              the --max-repos bound alone, no wall-clock cap, on stock
 #              macOS without Homebrew) - and at most one detached daemon
-#              spawn that the hook never waits on. Plus (DS-196 round-4) at
-#              most one additional `git -C "$cwd" rev-parse --show-toplevel`
-#              subprocess for the reap-log-existence check, gated on the
-#              worktree-accumulation nudge already having fired
-#              (nonroot_count >= WORKTREE_NUDGE_THRESHOLD) AND
-#              AE_WORKTREE_REAP_DISABLE being unset - never runs on a session
-#              below the nudge threshold or with the reap disabled. Measured
-#              7ms per call (5 consecutive runs, all 7ms) against this repo's
-#              own checkout - negligible next to the `--count-only` call it
-#              is gated behind. When `source` is `compact`, none of the
+#              spawn that the hook never waits on. Plus at most one fork for
+#              the detached worktree sweep: the root/log resolution and the
+#              rate check all run after the fork, so the hook itself waits
+#              on none of it. When `source` is `compact`, none of the
 #              worktree subprocesses above (`--count-only`, the machine-wide
-#              `--multi-repo` call, the reap-log `rev-parse`) run at all.
+#              `--multi-repo` call, the sweep) run at all.
 
 set -euo pipefail
 
@@ -376,6 +367,72 @@ if [[ "${AGENTIC_WRAP_DAEMON:-}" != "1" ]] && daemon_enabled; then
   fi
 fi
 
+# shellcheck source=./lib/repo-dir-fallback.sh
+source "$SCRIPT_DIR/lib/repo-dir-fallback.sh"
+resolve_ae_repo_dir_with_fallback
+
+# --- Worktree count: one `ds-cleanup-worktrees --count-only` call, read by
+# the SessionStart worktree sweep right below and by the worktree-
+# accumulation nudge further down. Runs outside the AGENTIC_QUIET gate
+# because the sweep is an action, not output. Skipped on `compact`.
+# DS_CLEANUP_BIN resolves from AE_REPO_DIR first, PATH second; the deployed
+# hooks-snapshot layout does NOT include the rest of bin/, so it is often
+# absent there and everything below silently degrades. ---
+nonroot_count=""
+cleanup_rc=0
+cleanup_summary=""
+worktree_count_ran=0
+if [[ "$session_source" != "compact" ]]; then
+  if [[ -n "${AE_REPO_DIR:-}" ]] && [[ -x "$AE_REPO_DIR/bin/ds-cleanup-worktrees" ]]; then
+    DS_CLEANUP_BIN="$AE_REPO_DIR/bin/ds-cleanup-worktrees"
+  fi
+  if [[ -z "${DS_CLEANUP_BIN:-}" ]] && command -v ds-cleanup-worktrees >/dev/null 2>&1; then
+    DS_CLEANUP_BIN="$(command -v ds-cleanup-worktrees)"
+  fi
+  if [[ -n "${DS_CLEANUP_BIN:-}" ]] && git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    # `--count-only` (round-2 Skeptic Major 4): only the `entries=N` count
+    # is needed here (N includes the main worktree, so the non-root count
+    # is N-1) - zero network calls, zero per-entry `git` calls beyond the
+    # single `git worktree list --porcelain` --count-only itself needs.
+    worktree_count_ran=1
+    cleanup_summary="$(python3 "$DS_CLEANUP_BIN" --repo "$cwd" --count-only 2>/dev/null)" || cleanup_rc=$?
+    if [[ $cleanup_rc -eq 0 ]] && [[ "$cleanup_summary" =~ entries=([0-9]+) ]]; then
+      nonroot_count=$((BASH_REMATCH[1] - 1))
+    fi
+  fi
+fi
+
+# --- SessionStart worktree sweep: a detached `ds-cleanup-worktrees` run
+# against the main checkout, with `--min-age-hours 24` pinned (DS-245: the
+# age floor is off unless supplied, and nobody watches this run). Launched
+# only when not a compact, AE_WORKTREE_REAP_DISABLE is unset, there is at
+# least one non-root worktree, and this repo's sweep log
+# ~/.agentic/worktree-reap/<repo-basename>-<sha1(root)[:8]>.log is absent
+# or older than 6 h (its mtime is the rate-limit stamp, touched before the
+# launch). Everything after the fork - root and log resolution, the rate
+# check - runs in the detached subshell, so the hook pays one fork and
+# never waits; every fd is redirected, so no harness pipe is held open.
+# The inherited cwd is kept deliberately: the tool's SELF gate then also
+# protects the worktree this session started in. ---
+if [[ -z "${AE_WORKTREE_REAP_DISABLE:-}" ]] && [[ -n "$nonroot_count" ]] && [[ "$nonroot_count" -ge 1 ]]; then
+  (
+    trap '' HUP
+    common_dir="$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || exit 0
+    [[ "$common_dir" == */.git ]] || exit 0
+    reap_root="${common_dir%/.git}"
+    reap_id="$(python3 -c 'import hashlib, sys; print(hashlib.sha1(sys.argv[1].encode()).hexdigest()[:8])' "$reap_root" 2>/dev/null)" || exit 0
+    [[ -n "$reap_id" ]] || exit 0
+    reap_log="$HOME/.agentic/worktree-reap/$(basename "$reap_root")-${reap_id}.log"
+    if [[ -e "$reap_log" ]] && [[ -z "$(find "$reap_log" -mmin +360 2>/dev/null)" ]]; then
+      exit 0
+    fi
+    mkdir -p "$(dirname "$reap_log")" 2>/dev/null || exit 0
+    printf '=== reap %s pid %s root %s ===\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${BASHPID:-$$}" "$reap_root" >>"$reap_log" 2>/dev/null || exit 0
+    exec nohup python3 "$DS_CLEANUP_BIN" --repo "$reap_root" --min-age-hours 24 </dev/null >>"$reap_log" 2>&1
+  ) </dev/null >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+fi
+
 # --- Compose + emit a single JSON object ---
 # Join every non-empty message piece (version notice, auth-failed notice,
 # hooks-snapshot staleness nudge) with a blank line. When all pieces are
@@ -402,11 +459,8 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
   # AE_REPO_DIR in production, not a rare degraded path; the DS_DEFER_BIN
   # existence check right below is what handles ds-defer itself being
   # absent from the snapshot (falls through to the `command -v ds-defer`
-  # branch). ---
+  # branch). AE_REPO_DIR was resolved above, before the worktree count. ---
   defer_msg=""
-  # shellcheck source=./lib/repo-dir-fallback.sh
-  source "$SCRIPT_DIR/lib/repo-dir-fallback.sh"
-  resolve_ae_repo_dir_with_fallback
   if [[ -n "${AE_REPO_DIR:-}" ]] && [[ -x "$AE_REPO_DIR/bin/ds-defer" ]]; then
     DS_DEFER_BIN="$AE_REPO_DIR/bin/ds-defer"
   fi
@@ -420,30 +474,15 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
     fi
   fi
 
-  # --- Worktree-accumulation nudge (5th contributor). Report-only - this
-  # SessionStart call site NEVER removes anything, per the worktree-reaper
-  # ticket's explicit requirement (passive triggers report; only an
-  # explicit invocation of ds-cleanup-worktrees or /ds-cleanup-worktrees
-  # removes). This --count-only call site is UNCHANGED by DS-196, which adds
-  # a SEPARATE, mutating, backgrounded session-start invocation of
-  # ds-cleanup-worktrees documented in content/references/worktree-lifecycle.md
-  # (§Session-start prune script) - a plain shell block in the conductor
-  # preflight prose, not a hook. That invocation is suppressible via
-  # AE_WORKTREE_REAP_DISABLE=1; note this is a session-start-SCRIPT kill
-  # switch referenced from this hook's comment for cross-reference, not a
-  # hook-enforced guard itself - this SessionStart hook has no mutating
-  # behavior to gate in the first place. Resolved the same way as ds-defer above: AE_REPO_DIR (already
-  # resolved by resolve_ae_repo_dir_with_fallback for the defer nudge)
-  # first, PATH fallback second - the deployed hooks-snapshot layout does
-  # NOT include the rest of bin/, so DS_CLEANUP_BIN is very commonly absent
-  # there and this nudge silently degrades to empty, same as ds-defer's own
-  # `command -v ds-defer` fallback comment explains above.
+  # --- Worktree-accumulation nudge (5th contributor). Report-only: it reads
+  # the count computed above (report-only for THIS --count-only call site;
+  # the SessionStart worktree sweep above is the mutating one).
   #
   # DS-189 Unit B: two-failure-class handling, decided (do not deviate):
-  #   - DS_CLEANUP_BIN unresolved (the common case per the comment above,
-  #     since the deployed hooks-snapshot layout omits the rest of bin/) ->
-  #     SILENT. Not an error - it's the expected steady state on most
-  #     machines and install.sh never mentions this binary.
+  #   - DS_CLEANUP_BIN unresolved (the common case, since the deployed
+  #     hooks-snapshot layout omits the rest of bin/) -> SILENT. Not an
+  #     error - it's the expected steady state on most machines and
+  #     install.sh never mentions this binary.
   #   - $cwd is not inside a git work tree -> SILENT. Not an error either -
   #     nothing worktree-shaped exists to report on.
   #   - DS_CLEANUP_BIN resolved AND $cwd is a git work tree AND the
@@ -452,64 +491,13 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
   #     direct command to diagnose. This is the only branch that was
   #     silent before DS-189 and is now surfaced, since a resolved binary
   #     failing inside a real repo is an actionable signal, not noise.
-  #
-  # Every command substitution below follows `rc=0; out="$(cmd)" || rc=$?`
-  # rather than a bare `var="$(cmd)"` - this hook runs under `set -euo
-  # pipefail` (see the header contract near the top of this file) and is
-  # fail-open by design; a bare substitution would abort the whole hook on
-  # any nonzero exit, and a `$?` check on the FOLLOWING line is unreachable
-  # once `set -e` has already exited the script on the substitution itself.
   worktree_msg=""
-  if [[ "$session_source" != "compact" ]]; then
-    WORKTREE_NUDGE_THRESHOLD=5
-    if [[ -n "${AE_REPO_DIR:-}" ]] && [[ -x "$AE_REPO_DIR/bin/ds-cleanup-worktrees" ]]; then
-      DS_CLEANUP_BIN="$AE_REPO_DIR/bin/ds-cleanup-worktrees"
-    fi
-    if [[ -z "${DS_CLEANUP_BIN:-}" ]] && command -v ds-cleanup-worktrees >/dev/null 2>&1; then
-      DS_CLEANUP_BIN="$(command -v ds-cleanup-worktrees)"
-    fi
-    if [[ -n "${DS_CLEANUP_BIN:-}" ]]; then
-      if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        # `--count-only` (round-2 Skeptic Major 4): only the `entries=N` count
-        # is needed here (N includes the main worktree, so the non-root count
-        # is N-1) - zero network calls, zero per-entry `git` calls beyond the
-        # single `git worktree list --porcelain` --count-only itself needs.
-        # v1's `--dry-run --no-gh` full-mode invocation measured 14.94s against
-        # the live checkout because --no-gh suppressed `gh` but NOT `git
-        # ls-remote`, one network round-trip per entry - this call site never
-        # needed anything beyond a count, so it never needed that cost.
-        cleanup_rc=0
-        cleanup_summary="$(python3 "$DS_CLEANUP_BIN" --repo "$cwd" --count-only 2>/dev/null)" || cleanup_rc=$?
-        if [[ $cleanup_rc -ne 0 ]] || [[ ! "$cleanup_summary" =~ entries=([0-9]+) ]]; then
-          worktree_msg="worktree-count check failed unexpectedly (ds-cleanup-worktrees exited ${cleanup_rc}) - see \`ds-cleanup-worktrees --repo . --count-only\` directly to diagnose."
-        else
-          total_entries="${BASH_REMATCH[1]}"
-          nonroot_count=$((total_entries - 1))
-          if [[ "$nonroot_count" -ge "$WORKTREE_NUDGE_THRESHOLD" ]]; then
-            worktree_msg="${nonroot_count} non-root git worktrees in this project - consider running \`/ds-cleanup-worktrees\` (removes eligible worktrees by default; pass \`--dry-run --explain\` to \`ds-cleanup-worktrees\` first for a dry-run report)."
-            # Report-only observability signal (round-4 step 8): same repo-root
-            # idiom already proven above (`git -C "$cwd" rev-parse
-            # --show-toplevel`), scoped to THIS variable name so it cannot be
-            # confused with the worst-project block's own `cwd_toplevel`. Log
-            # existence only, not recency (see Deferred defaults) - and scoped
-            # to whichever worktree this preflight runs from, which is a known,
-            # self-clearing false-positive source when that differs from where
-            # the log actually lives (see Trade-offs in the DS-196 plan). This
-            # adds no removal logic - report-only, per the unchanged PR #707
-            # constraint. Suppressed entirely when AE_WORKTREE_REAP_DISABLE=1
-            # is set - otherwise an operator who has deliberately disabled the
-            # reap would see this message on every session forever, the one
-            # false-positive case among the three that never self-clears.
-            if [[ -z "${AE_WORKTREE_REAP_DISABLE:-}" ]]; then
-              nudge_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
-              if [[ ! -e "$nudge_root/.agentic/worktree-reap.log" ]]; then
-                worktree_msg="${worktree_msg} The session-start reap has apparently never produced a log entry in this repo."
-              fi
-            fi
-          fi
-        fi
-      fi
-      # else: cwd is not inside a git work tree - silently skip, not an error.
+  WORKTREE_NUDGE_THRESHOLD=5
+  if [[ "$worktree_count_ran" -eq 1 ]]; then
+    if [[ -z "$nonroot_count" ]]; then
+      worktree_msg="worktree-count check failed unexpectedly (ds-cleanup-worktrees exited ${cleanup_rc}) - see \`ds-cleanup-worktrees --repo . --count-only\` directly to diagnose."
+    elif [[ "$nonroot_count" -ge "$WORKTREE_NUDGE_THRESHOLD" ]]; then
+      worktree_msg="${nonroot_count} non-root git worktrees in this project - consider running \`/ds-cleanup-worktrees\` (removes eligible worktrees by default; pass \`--dry-run --explain\` to \`ds-cleanup-worktrees\` first for a dry-run report)."
     fi
   fi
 

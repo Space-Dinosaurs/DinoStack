@@ -52,6 +52,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 from pathlib import Path
@@ -75,6 +76,17 @@ import worktree_model  # noqa: E402 - DS-196: needed directly for the
 # in-process mutation scenarios below (monkeypatching _EVIDENCE_CHECKS_LENIENT
 # entries and building WorktreeEntry literals), which the module-level
 # `ds_cleanup_worktrees` re-export set above does not carry.
+
+
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path_factory, monkeypatch):
+    """Archives and the manifest live under ~/.agentic/worktree-archive/;
+    every test, in-process or subprocess, gets a scratch HOME."""
+    monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home")))
+
+
+def archive_dir_for(repo: Path) -> Path:
+    return Path(os.environ["HOME"]) / ".agentic" / "worktree-archive" / Path(repo).name
 
 
 # --------------------------------------------------------------------------
@@ -1286,7 +1298,7 @@ def test_archive_unproven_is_opt_in_default_behavior_unchanged(tmp_path):
     result = outcomes(proc.stdout)
     assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_AMBIGUOUS_NO_PR)"
     assert str(wt) in worktree_paths(repo)
-    assert not (repo / ".agentic" / "worktree-archive").exists()
+    assert not (archive_dir_for(repo)).exists()
 
 
 # --------------------------------------------------------------------------
@@ -1310,8 +1322,8 @@ def test_archive_unproven_success_archives_and_removes(tmp_path):
     assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED")
     assert str(wt) not in worktree_paths(repo)
 
-    archive_dir = repo / ".agentic" / "worktree-archive"
-    bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+    archive_dir = archive_dir_for(repo)
+    bundles = sorted(archive_dir.glob("*.bundle"))
     assert len(bundles) == 1, f"expected exactly one bundle, found {bundles}"
     verify = subprocess.run(
         ["git", "-C", str(repo), "bundle", "verify", str(bundles[0])], capture_output=True, text=True
@@ -1364,8 +1376,8 @@ def test_archive_unproven_salvages_telemetry_before_removal(tmp_path):
     assert salvaged_files[0].read_text() == payload
     assert "salvaged=1" in summary_line(proc.stdout)
 
-    archive_dir = repo / ".agentic" / "worktree-archive"
-    bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+    archive_dir = archive_dir_for(repo)
+    bundles = sorted(archive_dir.glob("*.bundle"))
     assert len(bundles) == 1, f"expected exactly one bundle, found {bundles}"
 
 
@@ -1382,14 +1394,11 @@ def test_archive_unproven_salvage_failure_blocks_removal(tmp_path):
     (wt / ".agentic").mkdir()
     (wt / ".agentic" / "events.jsonl").write_text('{"event": "will-not-survive-a-bug"}\n')
 
-    # Pre-create the archive directory (so `git bundle create` still
-    # succeeds - `mkdir(parents=True, exist_ok=True)` on an already-existing
-    # directory needs no write permission on its parent), THEN lock down
-    # the primary repo's own .agentic/ so the LATER
-    # reaped-telemetry/ mkdir (which does not yet exist) fails - isolating
-    # the failure to salvage specifically, after a successful archive.
+    # Lock down the primary repo's own .agentic/ so the reaped-telemetry/
+    # mkdir fails - the archive lives under HOME, so the failure is
+    # isolated to salvage specifically, after a successful archive.
     primary_agentic = repo / ".agentic"
-    (primary_agentic / "worktree-archive").mkdir(parents=True, exist_ok=True)
+    primary_agentic.mkdir(exist_ok=True)
     os.chmod(primary_agentic, 0o555)
     try:
         proc = run_reap(
@@ -1434,7 +1443,7 @@ def test_archive_unproven_never_archives_open_pr_entry(tmp_path):
     assert str(wt) in worktree_paths(repo), (
         "an entry behind an OPEN PR must NEVER be archived, even with --archive-unproven set"
     )
-    assert not (repo / ".agentic" / "worktree-archive").exists()
+    assert not (archive_dir_for(repo)).exists()
     assert "archived-and-removed=0" in summary_line(proc.stdout)
 
 
@@ -1456,7 +1465,7 @@ def test_archive_unproven_refuses_in_degraded_gh_mode(tmp_path):
     proc = run_reap(repo, dry_run=False, no_gh=True, extra=["--archive-unproven"])
     assert proc.returncode == 1
     assert "--archive-unproven requires PR evidence" in proc.stderr
-    assert not (repo / ".agentic" / "worktree-archive").exists()
+    assert not (archive_dir_for(repo)).exists()
 
 
 def test_archive_unproven_refuses_in_degraded_gh_mode_even_under_dry_run(tmp_path):
@@ -1492,9 +1501,9 @@ def test_archive_unproven_dry_run_creates_no_bundle(tmp_path):
     # only, not a behavior change.
     assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_NOT_PUSHED)"
     assert str(wt) in worktree_paths(repo)
-    assert not (repo / ".agentic" / "worktree-archive").exists()
+    assert not (archive_dir_for(repo)).exists()
     assert "archived-and-removed=0" in summary_line(proc.stdout)
-    assert "1 unproven branch(es) would be archived" in proc.stdout
+    assert "1 unproven worktree(s) would be archived" in proc.stdout
 
 
 # --------------------------------------------------------------------------
@@ -1581,7 +1590,7 @@ def test_archive_directory_uncreatable_blocks_removal_end_to_end(tmp_path):
     branch = "worktree-agent-archive-fail"
     wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-archive-fail", branch)
 
-    primary_agentic = repo / ".agentic"
+    primary_agentic = Path(os.environ["HOME"]) / ".agentic"
     primary_agentic.mkdir(exist_ok=True)
     os.chmod(primary_agentic, 0o555)
     try:
@@ -1631,8 +1640,8 @@ def test_archive_restore_path_recovers_the_exact_original_sha(tmp_path):
     )
     assert branch_gone.returncode != 0, "precondition: branch must be genuinely gone before restoring"
 
-    archive_dir = repo / ".agentic" / "worktree-archive"
-    bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+    archive_dir = archive_dir_for(repo)
+    bundles = sorted(archive_dir.glob("*.bundle"))
     assert len(bundles) == 1
     bundle_path = str(bundles[0])
 
@@ -1646,6 +1655,155 @@ def test_archive_restore_path_recovers_the_exact_original_sha(tmp_path):
         f"restored SHA {restored_sha} does not match the original {original_sha} - "
         "a bundle file merely existing is not proof of a working restore path"
     )
+
+
+def test_ignored_file_archive_failure_blocks_removal(tmp_path):
+    """Every removal first saves the worktree's gitignored non-build files;
+    when that archive cannot be written the worktree stays. The gitignored
+    `evals/` file here is not protected content, so nothing else stops the
+    removal. The second run shows the archive holds it and skips
+    node_modules."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, "evals/\nnode_modules/\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-ignored", "worktree-agent-ignored")
+    (wt / "evals").mkdir()
+    (wt / "evals" / "harness.py").write_text("sole copy\n")
+    (wt / "node_modules" / "pkg").mkdir(parents=True)
+    (wt / "node_modules" / "pkg" / "index.js").write_text("regenerable\n")
+
+    home_agentic = Path(os.environ["HOME"]) / ".agentic"
+    home_agentic.mkdir()
+    os.chmod(home_agentic, 0o555)
+    try:
+        proc = run_reap(repo, dry_run=False)
+    finally:
+        os.chmod(home_agentic, 0o755)
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(wt)].startswith("SKIP_PROTECTED_CONTENT"), proc.stdout
+    assert (wt / "evals" / "harness.py").is_file()
+    assert "ignored-file archive failed" in proc.stderr
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(wt)].startswith("REMOVE"), proc.stdout
+    assert not wt.exists()
+    (tgz,) = archive_dir_for(repo).glob("*.ignored.tgz")
+    with tarfile.open(tgz) as tar:
+        assert tar.getnames() == ["evals/harness.py"]
+        assert tar.extractfile("evals/harness.py").read() == b"sole copy\n"
+
+
+def test_archive_unproven_bundle_holds_only_commits_off_origin_base_branches(tmp_path):
+    """A branch forked from origin/develop, with `--base main`: the bundle
+    must exclude develop's commits too, so its only prerequisite is
+    develop's tip, it verifies, and it records the branch tip."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "develop")
+    (repo / "develop.txt").write_text("develop work\n")
+    _git(repo, "add", "develop.txt")
+    _git(repo, "commit", "-q", "-m", "develop work")
+    _git(repo, "push", "-q", "-u", "origin", "develop")
+    develop_tip = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    branch = "worktree-agent-off-develop"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-off-develop", branch)
+    tip = _git(wt, "rev-parse", "HEAD").stdout.strip()
+    _git(repo, "checkout", "-q", "main")
+
+    proc = run_reap(
+        repo, dry_run=False, no_gh=False, extra=["--archive-unproven"], gh_dir=_fake_gh_dir(tmp_path)
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(wt)].startswith("ARCHIVED_AND_REMOVED"), proc.stdout
+
+    (bundle,) = archive_dir_for(repo).glob("*.bundle")
+    assert _git(repo, "bundle", "verify", str(bundle)).returncode == 0
+    prerequisites = [line[1:41].decode() for line in _bundle_header_lines(bundle) if line.startswith(b"-")]
+    assert prerequisites == [develop_tip], prerequisites
+    heads = _git(repo, "bundle", "list-heads", str(bundle)).stdout.splitlines()
+    assert heads == [f"{tip} refs/heads/{branch}"], heads
+
+
+def test_archive_unproven_archives_detached_head(tmp_path):
+    """A detached worktree whose HEAD is on no ref (SKIP_UNREFERENCED_COMMIT)
+    is bundled as HEAD, removed, and restorable with the printed command."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = repo / ".claude" / "worktrees" / "agent-detached"
+    wt.parent.mkdir(parents=True)
+    _git(repo, "worktree", "add", "-q", "--detach", str(wt))
+    (wt / "work.txt").write_text("unpushed detached work\n")
+    _git(wt, "add", "work.txt")
+    _git(wt, "commit", "-q", "-m", "detached work")
+    sha = _git(wt, "rev-parse", "HEAD").stdout.strip()
+
+    proc = run_reap(
+        repo, dry_run=False, no_gh=False, extra=["--archive-unproven"], gh_dir=_fake_gh_dir(tmp_path)
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(wt)].startswith("ARCHIVED_AND_REMOVED"), proc.stdout
+    assert not wt.exists()
+    assert '"HEAD:refs/heads/restored-agent-detached"' in proc.stdout
+
+    (bundle,) = archive_dir_for(repo).glob(f"agent-detached__DETACHED__{sha[:12]}.bundle")
+    _git(repo, "fetch", "-q", str(bundle), "HEAD:refs/heads/restored-agent-detached")
+    assert _git(repo, "rev-parse", "refs/heads/restored-agent-detached").stdout.strip() == sha
+    manifest = (archive_dir_for(repo) / "MANIFEST.tsv").read_text().splitlines()
+    assert [row.split("\t")[2:4] for row in manifest] == [["DETACHED", sha]]
+
+
+def test_archive_unproven_skips_detached_head_moved_after_bundling(tmp_path, monkeypatch, capsys):
+    """A detached HEAD that moves after it was bundled (here: inside the
+    telemetry salvage step, the last step before `git worktree remove`) must
+    not be removed - the bundle no longer holds its tip."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = repo / ".claude" / "worktrees" / "agent-moved"
+    wt.parent.mkdir(parents=True)
+    _git(repo, "worktree", "add", "-q", "--detach", str(wt))
+    (wt / "work.txt").write_text("first\n")
+    _git(wt, "add", "work.txt")
+    _git(wt, "commit", "-q", "-m", "first")
+
+    mod = _load_module_directly()
+    real_salvage = mod._salvage_telemetry
+
+    def salvage_then_commit(repo_arg, path, branch):
+        (wt / "work.txt").write_text("second\n")
+        _git(wt, "commit", "-q", "-am", "second")
+        return real_salvage(repo_arg, path, branch)
+
+    monkeypatch.setattr(mod, "_salvage_telemetry", salvage_then_commit)
+    monkeypatch.setenv("PATH", f"{_fake_gh_dir(tmp_path)}{os.pathsep}{os.environ['PATH']}")
+    rc = mod.main([
+        "--repo", str(repo), "--base", "main", "--explain", "--min-age-hours", "0",
+        "--activity-window-hours", "0", "--archive-unproven",
+    ])
+    out = capsys.readouterr()
+    assert rc == 0, out.err
+    assert wt.is_dir() and str(wt) in worktree_paths(repo), out.out
+    assert "HEAD moved after it was bundled" in out.err, out.err
+    assert "archived-and-removed=0" in summary_line(out.out), out.out
+
+
+def test_ignored_file_archive_is_reused_for_same_worktree_and_head(tmp_path):
+    """A second removal attempt for the same worktree and HEAD reuses the
+    earlier archive when it still matches; a changed file gets a new one."""
+    mod = _load_module_directly()
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, "evals/\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-reuse", "worktree-agent-reuse")
+    (wt / "evals").mkdir()
+    (wt / "evals" / "data.txt").write_text("v1\n")
+    sha = _git(wt, "rev-parse", "HEAD").stdout.strip()
+
+    first = mod._archive_ignored_files(str(repo), str(wt), "worktree-agent-reuse", sha)
+    second = mod._archive_ignored_files(str(repo), str(wt), "worktree-agent-reuse", sha)
+    assert first[0] and second[0], (first, second)
+    assert second[2] == first[2], (first, second)
+    assert len(list(archive_dir_for(repo).glob("*.ignored.tgz"))) == 1
+
+    (wt / "evals" / "data.txt").write_text("v2 longer\n")
+    third = mod._archive_ignored_files(str(repo), str(wt), "worktree-agent-reuse", sha)
+    assert third[0] and third[2] != first[2], third
+    assert len(list(archive_dir_for(repo).glob("*.ignored.tgz"))) == 2
 
 
 # --------------------------------------------------------------------------
@@ -1699,8 +1857,8 @@ def test_archive_bundle_excludes_already_on_base_objects(tmp_path):
     )
     assert "git bundle verify" in restore_line, restore_line
 
-    archive_dir = repo / ".agentic" / "worktree-archive"
-    bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+    archive_dir = archive_dir_for(repo)
+    bundles = sorted(archive_dir.glob("*.bundle"))
     assert len(bundles) == 1
     compact_bundle = bundles[0]
     header_lines = _bundle_header_lines(compact_bundle)
@@ -1765,9 +1923,9 @@ def test_archive_bundle_defensive_guard_skips_empty_exclusion(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# DS-191. A bogus explicit --base (unverifiable locally) produces a
-#     full-history bundle plus a trimmed NOTE on stderr, verified via the
-#     real CLI end-to-end - not a direct unit-level call.
+# DS-191. With no origin base branch present locally (and a bogus explicit
+#     --base), the bundle is full-history and a NOTE says so, verified via
+#     the real CLI end-to-end - not a direct unit-level call.
 # --------------------------------------------------------------------------
 
 
@@ -1775,6 +1933,7 @@ def test_archive_unproven_prints_full_history_note_for_unverifiable_base(tmp_pat
     repo, _origin = init_repo_with_origin(tmp_path)
     branch = "worktree-agent-bogus-base"
     wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-bogus-base", branch)
+    _git(repo, "update-ref", "-d", "refs/remotes/origin/main")
 
     proc = run_reap(
         repo,
@@ -1790,8 +1949,8 @@ def test_archive_unproven_prints_full_history_note_for_unverifiable_base(tmp_pat
     assert "NOTE:" in proc.stderr
     assert "full-history" in proc.stderr
 
-    archive_dir = repo / ".agentic" / "worktree-archive"
-    bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+    archive_dir = archive_dir_for(repo)
+    bundles = sorted(archive_dir.glob("*.bundle"))
     assert len(bundles) == 1
     header_lines = _bundle_header_lines(bundles[0])
     assert not any(line.startswith(b"-") for line in header_lines), (
@@ -1835,7 +1994,7 @@ def test_archive_unproven_never_archives_pr_query_error_entry(tmp_path):
     assert result[str(wt)].startswith("SKIP_PR_QUERY_ERROR"), result[str(wt)]
     # Never archived, never removed.
     assert str(wt) in worktree_paths(repo)
-    assert not (repo / ".agentic" / "worktree-archive").exists()
+    assert not (archive_dir_for(repo)).exists()
     counts = bucket_counts(summary_line(proc.stdout))
     assert counts.get("archived-and-removed", 0) == 0
     assert counts.get("removed", 0) == 0
@@ -1882,7 +2041,7 @@ def test_archive_unproven_never_archives_ls_remote_error_entry(tmp_path):
     result = outcomes(proc.stdout)
     assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_LS_REMOTE_ERROR)", result[str(wt)]
     assert str(wt) in worktree_paths(repo)
-    assert not (repo / ".agentic" / "worktree-archive").exists()
+    assert not (archive_dir_for(repo)).exists()
     counts = bucket_counts(summary_line(proc.stdout))
     assert counts.get("archived-and-removed", 0) == 0
 
@@ -1976,7 +2135,7 @@ def test_multi_pr_open_masked_by_closed_under_archive_unproven(tmp_path):
     result = outcomes(proc.stdout)
     assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_PR_OPEN)", result[str(wt)]
     assert str(wt) in worktree_paths(repo)
-    assert not (repo / ".agentic" / "worktree-archive").exists()
+    assert not (archive_dir_for(repo)).exists()
     counts = bucket_counts(summary_line(proc.stdout))
     assert counts.get("archived-and-removed", 0) == 0
 
@@ -2772,10 +2931,10 @@ def test_archive_unproven_explicit_base_mismatch_survives_base_deletion_end_to_e
     """End-to-end reproduction of the exact scenario the Skeptic
     demonstrated pre-fix: an explicit --base that verifies and shares
     history with the branch, but doesn't match auto-resolution, must
-    produce a full-history (self-contained) bundle - proven here by
-    deleting and gc'ing the explicit base branch AFTER archiving and
-    showing the restore still succeeds, which a compact bundle against
-    that base would NOT survive.
+    never become the bundle's prerequisite (compaction is only against
+    origin base branches) - proven here by deleting and gc'ing the
+    explicit base branch AFTER archiving and showing the restore still
+    succeeds, which a compact bundle against that base would NOT survive.
 
     The unproven branch is forked from feat-x's own tip (not from main),
     so feat-x's tip commit is genuinely the bundle's would-be prerequisite
@@ -2806,18 +2965,10 @@ def test_archive_unproven_explicit_base_mismatch_survives_base_deletion_end_to_e
     assert proc.returncode == 0, proc.stderr
     result = outcomes(proc.stdout)
     assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED")
-    assert "NOTE:" in proc.stderr
-    assert "explicitly via --base" in proc.stderr
-    assert "not guaranteed durable" in proc.stderr
 
-    archive_dir = repo / ".agentic" / "worktree-archive"
-    bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+    archive_dir = archive_dir_for(repo)
+    bundles = sorted(archive_dir.glob("*.bundle"))
     assert len(bundles) == 1
-    header_lines = _bundle_header_lines(bundles[0])
-    assert not any(line.startswith(b"-") for line in header_lines), (
-        f"expected NO prerequisite header line (full-history bundle) when the explicit "
-        f"base does not match auto-resolution, got: {header_lines!r}"
-    )
 
     # The archived branch ref ITSELF must also be deleted here (this tool
     # never deletes it as part of --archive-unproven, by design) - before
@@ -2827,8 +2978,8 @@ def test_archive_unproven_explicit_base_mismatch_survives_base_deletion_end_to_e
     _git(repo, "branch", "-D", branch)
     # Delete + gc the explicit base branch everywhere - the exact
     # permanent-loss trigger. A compact bundle against feat-x would now be
-    # unrestorable ("Repository lacks these prerequisite commits"); a
-    # full-history bundle has no such dependency.
+    # unrestorable ("Repository lacks these prerequisite commits"); one
+    # compacted against origin/main has no such dependency.
     _destroy_base_branch_and_gc_everywhere(repo, origin, "feat-x")
 
     restore_proc = subprocess.run(
@@ -2838,7 +2989,7 @@ def test_archive_unproven_explicit_base_mismatch_survives_base_deletion_end_to_e
     )
     assert restore_proc.returncode == 0, (
         f"restore must succeed even after the explicit base branch is deleted and gc'd, "
-        f"since compaction was correctly refused: {restore_proc.stderr}"
+        f"since feat-x was never compacted against: {restore_proc.stderr}"
     )
 
 
@@ -2846,8 +2997,7 @@ def test_archive_unproven_explicit_base_mismatch_survives_base_deletion_end_to_e
 # DS-191 follow-up (closes a regression-test gap in PR #797, `64e4e330`).
 #
 # The test above proves the guard (`_archive_compaction_base`'s
-# explicit-base-mismatch refusal) produces a full-history bundle that
-# SURVIVES the mismatched base being destroyed and gc'd. That refusal
+# explicit-base-mismatch refusal) produces a bundle that SURVIVES the mismatched base being destroyed and gc'd. That refusal
 # path is already covered by two existing tests (measured: mutating
 # `_archive_compaction_base` to a no-op that always returns
 # `resolved_base` unconditionally reddens both
@@ -3774,8 +3924,7 @@ def _invocation_lines(text: str, pattern: str) -> str:
     files, e.g. in a comment explaining why it is NOT passed, without
     anything ever actually invoking it that way). A matched line that ends
     in a shell line-continuation backslash pulls in its continuation
-    line(s) too, since `content/references/worktree-lifecycle.md`'s
-    session-start reap invocation spans two lines that way."""
+    line(s) too, so a wrapped invocation is read whole."""
     lines = text.splitlines()
     matched = []
     i = 0
@@ -3792,9 +3941,10 @@ def _invocation_lines(text: str, pattern: str) -> str:
 
 
 def test_measure_size_never_passed_by_automatic_callers():
-    """Mutation: add `--measure-size` to any of the THREE automatic callers'
-    own invocation of this tool -> the corresponding assertion below fails,
-    reddening this test.
+    """Mutation: add `--measure-size` to any automatic caller's own
+    invocation of this tool (`bin/ds-base-sync`, or either call in
+    `hooks/session-start-wrap.sh` - the count and the SessionStart sweep)
+    -> the corresponding assertion below fails, reddening this test.
 
     Round-3 Skeptic Minor 3 fix: scoped to each file's actual
     `ds-cleanup-worktrees` INVOCATION line(s) via `_invocation_lines`,
@@ -3805,15 +3955,13 @@ def test_measure_size_never_passed_by_automatic_callers():
     """
     session_start = (REPO_ROOT / "hooks" / "session-start-wrap.sh").read_text()
     base_sync = (REPO_ROOT / "bin" / "ds-base-sync").read_text()
-    worktree_lifecycle = (REPO_ROOT / "content" / "references" / "worktree-lifecycle.md").read_text()
 
     session_start_invocations = _invocation_lines(session_start, r'\$DS_CLEANUP_BIN"\s+--')
     base_sync_invocation = _invocation_lines(base_sync, r'\$_ds_cleanup_worktrees"\s+--')
-    worktree_lifecycle_invocation = _invocation_lines(worktree_lifecycle, r'^\s*ds-cleanup-worktrees --repo')
 
+    assert "--min-age-hours 24" in session_start_invocations, "precondition: the sweep launch line is scanned"
     assert "--measure-size" not in session_start_invocations
     assert "--measure-size" not in base_sync_invocation
-    assert "--measure-size" not in worktree_lifecycle_invocation
 
 
 # --------------------------------------------------------------------------
@@ -4306,8 +4454,8 @@ def test_archive_unproven_removes_out_of_tree_worktree(tmp_path):
     assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED"), result
     assert not wt.exists()
 
-    archive_dir = repo / ".agentic" / "worktree-archive"
-    bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+    archive_dir = archive_dir_for(repo)
+    bundles = sorted(archive_dir.glob("*.bundle"))
     assert len(bundles) == 1, f"expected exactly one bundle, found {bundles}"
 
 
@@ -4347,8 +4495,8 @@ def test_archive_unproven_repair_failure_reports_unregistered_accurately(tmp_pat
         result = outcomes(proc.stdout)
         assert result[str(wt)].startswith("SKIP_REMOVE_FAILED"), result
 
-        archive_dir = repo / ".agentic" / "worktree-archive"
-        bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+        archive_dir = archive_dir_for(repo)
+        bundles = sorted(archive_dir.glob("*.bundle"))
         assert len(bundles) == 1, f"expected exactly one bundle, found {bundles}"
     finally:
         # chmod 500 on the leftover blocks tmp_path's own teardown - restore
@@ -4451,7 +4599,7 @@ def test_archive_unproven_implies_age_floor(tmp_path):
     repo, _origin = init_repo_with_origin(tmp_path)
     branch = "worktree-agent-archive-implied-floor"
     wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-archive-implied-floor", branch)
-    archive_dir = repo / ".agentic" / "worktree-archive"
+    archive_dir = archive_dir_for(repo)
 
     # Leg 1: flag omitted -> the implied 24h fallback refuses the fresh
     # worktree at gate 5, before any archiving decision is made.
@@ -4467,7 +4615,7 @@ def test_archive_unproven_implies_age_floor(tmp_path):
     result = outcomes(proc.stdout)
     assert result[str(wt)] == "SKIP_TOO_YOUNG", result
     assert "archived-and-removed=0" in summary_line(proc.stdout)
-    assert not sorted(archive_dir.glob(f"{branch}-*.bundle")), "no bundle may be written"
+    assert not sorted(archive_dir.glob("*.bundle")), "no bundle may be written"
     assert str(wt) in worktree_paths(repo)
 
     # Leg 2: an explicit 0 overrides the implied fallback and the entry is
@@ -4484,7 +4632,7 @@ def test_archive_unproven_implies_age_floor(tmp_path):
     assert proc2.returncode == 0, proc2.stderr
     result2 = outcomes(proc2.stdout)
     assert result2[str(wt)].startswith("ARCHIVED_AND_REMOVED"), result2
-    assert len(sorted(archive_dir.glob(f"{branch}-*.bundle"))) == 1
+    assert len(sorted(archive_dir.glob("*.bundle"))) == 1
     assert str(wt) not in worktree_paths(repo)
 
 

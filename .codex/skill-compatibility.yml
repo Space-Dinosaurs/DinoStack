@@ -62,6 +62,16 @@
       "source_token": "METHODOLOGY.md"
     },
     {
+      "expected_target": "bin/ds-branch-prune",
+      "generated_token": "$AE_REPO_DIR/bin/ds-branch-prune",
+      "kind": "operational",
+      "occurrence_hash": "0d6a958e97481d78976ca7852cfea25f9a2cff52b1a2ac9b5530edf13250ac09",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "bin/ds-branch-prune"
+    },
+    {
       "expected_target": "content/references/worktree-lifecycle.md",
       "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
       "kind": "operational",
@@ -352,16 +362,6 @@
       "source_token": ".gitignore"
     },
     {
-      "expected_target": "content/references/worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
-      "kind": "operational",
-      "occurrence_hash": "22764a7484866a1f0ceee7caf6d55ff7dc9e46237b707593eb18935e07046697",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
       "expected_target": "content/references/conductor-operating-rules.md",
       "generated_token": "$AE_REPO_DIR/content/references/conductor-operating-rules.md",
       "kind": "operational",
@@ -380,16 +380,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "AskUserQuestion"
-    },
-    {
-      "expected_target": "bin/ds-branch-prune",
-      "generated_token": "$AE_REPO_DIR/bin/ds-branch-prune",
-      "kind": "operational",
-      "occurrence_hash": "27b993162621facfed0eda15d26f2f335bf6d040885009bc095d4665d1d0e370",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "bin/ds-branch-prune"
     },
     {
       "expected_target": ".agentic/worktrees/*",
@@ -582,6 +572,16 @@
       "source_token": "content/sections/04-risk-classification.md"
     },
     {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "3c1ef38cafe50ea0b4c51d2f5784978c8ae02d5be3b4c1eb17fd3943e76d078f",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/rules/conventions.md"
+    },
+    {
       "expected_target": "content/commands/ds-skeptic.md",
       "generated_token": "manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-skeptic`",
       "kind": "operational",
@@ -600,6 +600,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
+      "expected_target": "hooks/session-start-wrap.sh",
+      "generated_token": "$AE_REPO_DIR/hooks/session-start-wrap.sh",
+      "kind": "operational",
+      "occurrence_hash": "3f7df39a9554976d07135d1c9794e2c3bff97613791628d7c9e8e4b7e711a83f",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "hooks/session-start-wrap.sh"
     },
     {
       "expected_target": "one bounded direct question after default derivation",
@@ -772,16 +782,6 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "4e61b7f1b8ac493b0af8ff55bd7f14a1cbac1f37e7755075f4a7138e6be7bcd1",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/rules/conventions.md"
-    },
-    {
       "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
@@ -920,6 +920,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack"
+    },
+    {
+      "expected_target": "content/commands/ds-cleanup-worktrees.md",
+      "generated_token": "manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-cleanup-worktrees`",
+      "kind": "operational",
+      "occurrence_hash": "6152f2dad868d2829a1963b7d69a10a2fd727a0311dfcba512a84067b1b7b4c6",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "`/ds-cleanup-worktrees`"
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -2140,6 +2150,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "There is no in-place exception. The Trivial-path solo `engineer` spawn is also `isolation: \"worktree\"`: the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout."
+    },
+    {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "eb55054e52b7ffedd361e3708008206a5f20b77c3789780e913782277b75b4d7",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": "Task",

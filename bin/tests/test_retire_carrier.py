@@ -147,7 +147,9 @@ def assert_no_forbidden_git(log: Path) -> None:
 
 
 @pytest.fixture
-def fx(tmp_path: Path) -> Fixture:
+def fx(tmp_path: Path, monkeypatch) -> Fixture:
+    # Removal archives ignored files under ~/.agentic/worktree-archive/.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     return Fixture(tmp_path)
 
 

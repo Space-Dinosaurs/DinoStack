@@ -16,9 +16,6 @@
  *        AE_REPO_DIR and surface the nudge.
  *   W4 - below threshold (2 non-root worktrees, threshold is 5): composed
  *        message contains no worktree nudge line.
- *   W5 - report-only invariant: after W1 runs, every worktree the hook
- *        observed is STILL PRESENT on disk - the SessionStart call site
- *        must never remove anything regardless of the count.
  *   W6 - machine-wide nudge (DS-189 Unit B): populated config, current
  *        repo IS the machine-wide worst -> cwd_toplevel dedup means no
  *        machine-wide line (single-repo nudge still fires independently).
@@ -62,6 +59,10 @@
  *        and the nudge is skipped.
  *   W18 - jq stubbed to fail, `startup`, and an earlier `"event_source":
  *        "compact"` key -> the nudge is present.
+ *   W19 - SessionStart worktree sweep kill switch: AE_WORKTREE_REAP_DISABLE=1
+ *        launches nothing; the same fixture without it launches the sweep
+ *        with --min-age-hours 24. Every other case runs with the kill switch
+ *        set, so no sweep starts against its fixture.
  *
  * Run with: node hooks/tests/test-session-start-wrap-worktree-nudge.js
  */
@@ -240,7 +241,11 @@ function runHook(scriptPath, projectDir, fakeHome, pathOverride, extraEnv, sourc
   const env = Object.assign({}, process.env, {
     HOME: fakeHome,
     AGENTIC_WRAP_DAEMON: '1', // never spawn the real daemon from a test
+    AE_WORKTREE_REAP_DISABLE: '1', // nor the worktree sweep, unless a case unsets it
   }, extraEnv || {});
+  for (const key of Object.keys(env)) {
+    if (env[key] === undefined) delete env[key];
+  }
   delete env.AGENTIC_QUIET;
   if (pathOverride) {
     env.PATH = pathOverride;
@@ -299,9 +304,8 @@ if (!fs.existsSync(DS_CLEANUP)) {
 // (W1) normal PATH, repo-dir.sh present, 6 non-root worktrees -> nudge present
 // ---------------------------------------------------------------------------
 console.log('\n[W1] dev-checkout layout, normal PATH, 6 non-root worktrees (>= threshold 5)');
-let w1Fixture;
 {
-  w1Fixture = buildProjectWithWorktrees(6);
+  const w1Fixture = buildProjectWithWorktrees(6);
   const fakeHome = seedFakeHome(REPO_ROOT);
 
   const { code, systemMessage } = runHook(SCRIPT, w1Fixture.projectDir, fakeHome, null);
@@ -312,6 +316,7 @@ let w1Fixture;
     `W1: systemMessage points at /ds-cleanup-worktrees (got: ${JSON.stringify(systemMessage)})`);
 
   cleanup(fakeHome);
+  cleanup(w1Fixture.parent);
 }
 
 // ---------------------------------------------------------------------------
@@ -373,18 +378,6 @@ console.log('\n[W4] 2 non-root worktrees (below the 5-worktree threshold): no nu
 
   cleanup(fakeHome);
   cleanup(parent);
-}
-
-// ---------------------------------------------------------------------------
-// (W5) report-only invariant: W1's worktrees are all still on disk after
-// the hook ran - SessionStart must never remove anything.
-// ---------------------------------------------------------------------------
-console.log('\n[W5] report-only invariant: worktrees observed by W1 are still present');
-{
-  for (const wtPath of w1Fixture.worktreePaths) {
-    assert(fs.existsSync(wtPath), `W5: worktree still present: ${wtPath}`);
-  }
-  cleanup(w1Fixture.parent);
 }
 
 // ---------------------------------------------------------------------------
@@ -774,6 +767,44 @@ console.log('\n[W18] jq stubbed to fail, source=startup, decoy "event_source": "
   cleanup(fakeHome);
   cleanup(cwdRepo);
   cleanup(noJqDir);
+}
+
+// ---------------------------------------------------------------------------
+// (W19) AE_WORKTREE_REAP_DISABLE=1 launches no SessionStart worktree sweep;
+// the same fixture without it launches one, so the absence is the switch.
+// ---------------------------------------------------------------------------
+console.log('\n[W19] AE_WORKTREE_REAP_DISABLE=1 -> no sweep launched; unset -> sweep launched with --min-age-hours 24');
+{
+  const { projectDir, parent } = buildProjectWithWorktrees(1);
+  const mockRepoDir = makeTmp('ae-wt-nudge-w19-mock-');
+  const launchLog = path.join(mockRepoDir, 'launches.txt');
+  writeMockCleanupBin(mockRepoDir, `import sys
+if '--count-only' in sys.argv:
+    print('ds-cleanup-worktrees: mode=count-only entries=2')
+    sys.exit(0)
+with open(${JSON.stringify(launchLog)}, 'a') as handle:
+    handle.write(' '.join(sys.argv[1:]) + '\\n')
+`);
+  const fakeHome = seedFakeHome(mockRepoDir);
+  const sleepMs = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+  const disabled = runHook(SCRIPT, projectDir, fakeHome, null, { AE_WORKTREE_REAP_DISABLE: '1' });
+  assert(disabled.code === 0, 'W19: hook exits 0 with the kill switch set');
+  sleepMs(1500);
+  assert(!fs.existsSync(launchLog), 'W19: kill switch set -> the sweep was never launched');
+  assert(!fs.existsSync(path.join(fakeHome, '.agentic', 'worktree-reap')),
+    'W19: kill switch set -> no sweep log directory was created');
+
+  const enabled = runHook(SCRIPT, projectDir, fakeHome, null, { AE_WORKTREE_REAP_DISABLE: undefined });
+  assert(enabled.code === 0, 'W19: hook exits 0 with the kill switch unset');
+  for (let i = 0; i < 50 && !fs.existsSync(launchLog); i++) sleepMs(100);
+  const launched = fs.existsSync(launchLog) ? fs.readFileSync(launchLog, 'utf8') : '';
+  assert(launched.includes(`--repo ${projectDir} --min-age-hours 24`),
+    `W19: kill switch unset -> sweep launched against the main checkout (got: ${JSON.stringify(launched)})`);
+
+  cleanup(fakeHome);
+  cleanup(mockRepoDir);
+  cleanup(parent);
 }
 
 // ---------------------------------------------------------------------------

@@ -97,8 +97,9 @@ Classification (`classify()`, three layers, ANDed for a STRAY verdict -
 Archive placement: the archive lives at
     `<repo>/.agentic/stray-agentic-archive/<ts>-<sanitized-relpath>/` -
     UNDER `.agentic/`, per this repo's own precedent
-    (`.agentic/reaped-telemetry/`, `.agentic/worktree-archive/` in
-    bin/ds-cleanup-worktrees) so it needs no new `.gitignore` carve-out (the
+    (`.agentic/reaped-telemetry/` in bin/ds-cleanup-worktrees, whose
+    worktree archives now live under `~/.agentic/worktree-archive/<repo>/`
+    instead) so it needs no new `.gitignore` carve-out (the
     existing `/.agentic/*` umbrella already covers it). An EARLIER DESIGN
     archived to `<repo>/.agentic/.stray-agentic-archive/<ts>/<relpath>/`,
     preserving the stray's own relative path (including its own literal

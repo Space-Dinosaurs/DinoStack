@@ -133,7 +133,6 @@ REVIEWED_NOT_DISPOSABLE: Dict[str, str] = {
     ".claimed-*": "protected: inbox claimed by an interrupted bin/ds-memory-capture flush, re-read next run",
     "memory-capture.lock": "protected: flock file serializing bin/ds-memory-capture flush/repair",
     "worktrees": "protected: conductor-created worktree directory",
-    "worktree-archive": "protected: archive bundles, sole copy of some branches",
     "reaped-telemetry": "protected: telemetry salvaged from reaped worktrees",
     "stray-agentic-archive": "protected: archived stray .agentic trees",
     "teamrun": "protected: team run directories",
