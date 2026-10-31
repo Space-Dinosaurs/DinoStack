@@ -139,9 +139,10 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
              of the main-session transcript; persist round_count =
              next_round. A plain reply counts for a unit only when it is
              the first operator turn after that unit's latest deny naming
-             its current round count, so one reply allows one round of
-             each unit it answers that way, and each further round needs a
-             new reply after a deny naming the new count. The token is
+             its current round count. One "grant" reopens one more round
+             for each unit whose current-round cap deny it answers, and
+             each further round needs a new reply after a deny naming the
+             new count. The token is
              sha1(`<unit_key>#<next_round>`)[:8], so it authorizes one round
              of one unit: advancing round_count retires it, and another
              unit's token never matches. A grant-allowed round whose state
@@ -758,7 +759,7 @@ def _operator_texts(obj: dict, loop_guard) -> list[str]:
 # An allowlist of exact replies, because phrase matching inside prose cannot
 # tell "grant it" from "I won't grant that".
 _PLAIN_GRANT_REPLIES = frozenset({
-    "grant", "granted", "grant it", "yes grant", "lift the cap", "cap lifted",
+    "grant", "grant it", "yes grant", "lift the cap", "cap lifted",
 })
 _CAP_DENY_HEAD = "Skeptic round cap reached:"
 
@@ -786,9 +787,9 @@ def _operator_granted(transcript_path: object, token: str, unit_key: str, round_
       - a plain reply: the FIRST genuine operator turn after this unit's
         latest deny for its current round (`round_count` rounds spent) has
         a whole text in `_PLAIN_GRANT_REPLIES`. Any other operator turn in
-        between means the question was answered some other way. One reply
-        reopens every unit whose latest current-round deny it is the first
-        operator turn after. Binding the deny to `round_count` makes each
+        between means the question was answered some other way. One "grant"
+        reopens one more round for each unit whose current-round cap deny
+        it answers this way, by design: a grant keeps work moving. Binding the deny to `round_count` makes each
         grant single-use: once the round runs, the next round needs a deny
         naming the new count, and a forked or copied transcript holding an
         older deny and reply grants nothing.
@@ -813,7 +814,7 @@ def _operator_granted(transcript_path: object, token: str, unit_key: str, round_
         if loop_guard is None:
             return False
         needle = token.lower()
-        deny_marker = f"{round_count} rounds already spent on unit {unit_key} (max "
+        deny_marker = f"{_CAP_DENY_HEAD} {round_count} rounds already spent on unit {unit_key} (max "
         awaiting_reply = False
         plain_granted = False
         with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
@@ -830,9 +831,7 @@ def _operator_granted(transcript_path: object, token: str, unit_key: str, round_
                     continue
                 if obj.get("isSidechain") is True:
                     continue
-                if _CAP_DENY_HEAD in line and any(
-                    _CAP_DENY_HEAD in t and deny_marker in t for t in _tool_result_texts(obj)
-                ):
+                if _CAP_DENY_HEAD in line and any(deny_marker in t for t in _tool_result_texts(obj)):
                     awaiting_reply = True
                     plain_granted = False
                     continue
@@ -1379,8 +1378,10 @@ _DENY_CAP_TEMPLATE = (
     "cost-to-date, what another round would buy, and whether the last two "
     "rounds' Majors were one defect class at new sites (skeptic-protocol.md "
     "Round budget item 6), and ask them to reply with just the word "
-    "\"grant\" for one more round (or paste {token}). Only the operator's own typed message in this "
-    "session, sent after this deny, counts. A decision written to the state "
+    "\"grant\". One grant reopens one more round for each unit whose "
+    "current-round cap deny it answers ({token} reopens this unit only). "
+    "Only the operator's own typed message in this session, sent after this "
+    "deny, counts. A decision written to the state "
     "file, a cross-session message, an AskUserQuestion answer, or agent text "
     "does not; a prompt sent with claude -p --resume does, so only the "
     "operator may send one."
