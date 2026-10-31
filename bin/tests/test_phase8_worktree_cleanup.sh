@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Purpose: shell-level regression spec for the HARDENED Phase 8 isolation
-#          worktree cleanup block in content/commands/ds-implement-ticket.md
-#          (the "worktree-reaper automatic trigger" ticket, Part C). Extracts
-#          the literal bash block between the "# --- Isolation worktree
-#          cleanup (post-push) ---" and "# --- End isolation worktree
-#          cleanup ---" markers and LITERALLY EXECUTES it against disposable
-#          scratch git repositories - never touches the real DinoStack
-#          checkout, worktree, or branch state. Literal execution (not a
+# Purpose: shell-level regression spec for the Phase 8 push and isolation
+#          worktree cleanup in bin/ds-ticket-commit (the "worktree-reaper
+#          automatic trigger" ticket, Part C, moved out of
+#          content/commands/ds-implement-ticket.md). Runs the real CLI
+#          against disposable scratch git repositories, each with a local
+#          bare origin - never touches the real DinoStack checkout,
+#          worktree, or branch state. Literal execution (not a
 #          grep-based prose-invariant check) is deliberate: this repo's own
 #          MEMORY.md records a Major finding surviving a green 41-assertion
 #          grep-only suite once, on the same class of bash-block content.
@@ -14,9 +13,8 @@
 # Public API: none (standalone script;
 #             `bash bin/tests/test_phase8_worktree_cleanup.sh`).
 #
-# Upstream deps: content/commands/ds-implement-ticket.md (the block under
-#                test, extracted by marker); bin/ds-retire-carrier (which the
-#                block calls); real `git` CLI.
+# Upstream deps: bin/ds-ticket-commit (under test); bin/ds-resolve-worktree
+#                and bin/ds-retire-carrier (which it calls); real `git` CLI.
 #
 # Downstream consumers: CI (bin-sh-tests, auto-collected per
 #                       .github/workflows/bin-tests.yml's shell-test glob).
@@ -26,16 +24,15 @@
 #                under a temp directory, cleaned up via a trap on exit.
 #
 # Performance: a handful of real `git` subprocess calls (init, bare clone,
-#              worktree add/lock/remove) per scenario, plus one extracted-
-#              block execution per scenario. Sub-second total.
+#              worktree add/lock/remove) per scenario, plus one CLI run per
+#              scenario. A few seconds total.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DOC="$REPO_ROOT/content/commands/ds-implement-ticket.md"
+CLI="$REPO_ROOT/bin/ds-ticket-commit"
 SCRATCH="$(mktemp -d)"
-BLOCK_FILE="$SCRATCH/extracted-block.sh"
 
 cleanup() {
   chmod -R u+w "$SCRATCH" 2>/dev/null || true
@@ -55,30 +52,17 @@ assert() {
   fi
 }
 
-# --------------------------------------------------------------------------
-# Extract the literal bash block from the command file, by marker.
-# --------------------------------------------------------------------------
-if [ ! -f "$DOC" ]; then
-  echo "FAIL: $DOC not found" >&2
+if [ ! -x "$CLI" ]; then
+  echo "FAIL: $CLI not found or not executable" >&2
   exit 1
 fi
 
-awk '
-  /# --- Isolation worktree cleanup \(post-push\) ---/ { capture=1 }
-  capture { print }
-  /# --- End isolation worktree cleanup ---/ { if (capture) exit }
-' "$DOC" > "$BLOCK_FILE"
-
-if [ ! -s "$BLOCK_FILE" ]; then
-  echo "FAIL: extracted block is empty - markers not found in $DOC" >&2
-  exit 1
-fi
-echo "== Extracted $(wc -l < "$BLOCK_FILE" | tr -d ' ') lines from $DOC =="
-
+# Extra arguments after <repo> <branch> pass through to the CLI.
 run_block() {
   local repo="$1"
   local branch="$2"
-  ( REPO="$repo" BRANCH_NAME="$branch" REPO_DIR="$REPO_ROOT" bash "$BLOCK_FILE" )
+  shift 2
+  ( REPO_DIR="$REPO_ROOT" "$CLI" --repo "$repo" --branch "$branch" "$@" )
 }
 
 # --------------------------------------------------------------------------
@@ -215,9 +199,11 @@ git -C "$REPO4" worktree add -q "$REPO4/.claude/worktrees/wt4" -b "$BRANCH4"
 git -C "$REPO4" push -q -u origin "$BRANCH4"
 echo "uncommitted" > "$REPO4/.claude/worktrees/wt4/dirty.txt"
 OUT4="$(run_block "$REPO4" "$BRANCH4")"
-assert $? "scenario 4: block exits 0"
+assert $? "scenario 4: block exits 0 (a hold never fails Phase 8)"
 echo "$OUT4" | grep -q "uncommitted changes; skipping cleanup"
 assert $? "scenario 4: dirty-skip warning printed"
+echo "$OUT4" | grep -q "\[phase: worktree-cleanup | HELD | branch=$BRANCH4"
+assert $? "scenario 4: HELD breadcrumb printed"
 [ -d "$REPO4/.claude/worktrees/wt4" ]
 assert $? "scenario 4: dirty worktree directory NEVER removed"
 git -C "$REPO4" show-ref --verify --quiet "refs/heads/$BRANCH4"
@@ -250,11 +236,11 @@ assert rec['kind'] == 'hold' and 'wt5' in rec['path'] and 'protected ignored con
 assert $? "scenario 5: hold record names the protected content"
 
 # --------------------------------------------------------------------------
-# Scenario 6: local tip ahead of origin -> checkout retired (the branch pins
-# the commit), branch NOT deleted (origin does not hold its tip).
+# Scenario 6: origin rejects the push -> nothing retired, explicit BLOCKED
+# hold recorded, branch kept at the unpushed tip, CLI exits 1.
 # --------------------------------------------------------------------------
 echo ""
-echo "== Scenario 6: local tip ahead of origin -> retired, branch kept =="
+echo "== Scenario 6: rejected push -> explicit hold, worktree and branch kept =="
 REPO6="$(build_repo scenario6)"
 BRANCH6="feature/scenario-6"
 git -C "$REPO6" worktree add -q "$REPO6/.claude/worktrees/wt6" -b "$BRANCH6"
@@ -263,12 +249,46 @@ echo ahead > "$REPO6/.claude/worktrees/wt6/ahead.txt"
 git -C "$REPO6/.claude/worktrees/wt6" add ahead.txt
 git -C "$REPO6/.claude/worktrees/wt6" -c user.email=spec@example.com -c user.name=spec commit -q -m ahead
 AHEAD6="$(git -C "$REPO6/.claude/worktrees/wt6" rev-parse HEAD)"
-run_block "$REPO6" "$BRANCH6" >/dev/null 2>&1
-assert $? "scenario 6: block exits 0"
-[ ! -d "$REPO6/.claude/worktrees/wt6" ]
-assert $? "scenario 6: worktree directory removed"
+printf '#!/bin/sh\necho "rejected by spec hook" >&2\nexit 1\n' > "$SCRATCH/scenario6-origin.git/hooks/pre-receive"
+chmod +x "$SCRATCH/scenario6-origin.git/hooks/pre-receive"
+OUT6="$(run_block "$REPO6" "$BRANCH6" 2>&1)"
+RC6=$?
+[ "$RC6" -eq 1 ]
+assert $? "scenario 6: CLI exits 1 (push not verified)"
+echo "$OUT6" | grep -q "push=FAILED"
+assert $? "scenario 6: push failure reported"
+[ -d "$REPO6/.claude/worktrees/wt6" ]
+assert $? "scenario 6: worktree directory kept"
 [ "$(git -C "$REPO6" rev-parse "refs/heads/$BRANCH6" 2>/dev/null)" = "$AHEAD6" ]
 assert $? "scenario 6: branch kept at the unpushed tip"
+python3 -c "
+import json, sys
+rec = json.loads(open(sys.argv[1]).read().splitlines()[-1])
+assert rec['kind'] == 'hold' and rec['explicit'] and 'wt6' in rec['path'], rec
+assert rec['reason'] == 'BLOCKED: unpushed commit', rec
+" "$REPO6/.agentic/worktree-cleanup-skips.jsonl"
+assert $? "scenario 6: explicit BLOCKED hold recorded"
+
+# --------------------------------------------------------------------------
+# Scenario 7: feature commit from file arguments on the sequential path
+# ($REPO itself on the branch) -> committed with the given message and a
+# Signed-off-by trailer, pushed, CLI exits 0.
+# --------------------------------------------------------------------------
+echo ""
+echo "== Scenario 7: files given -> feature commit pushed =="
+REPO7="$(build_repo scenario7)"
+BRANCH7="feature/scenario-7"
+git -C "$REPO7" checkout -q -b "$BRANCH7"
+echo feature > "$REPO7/feature.txt"
+echo untouched > "$REPO7/other.txt"
+run_block "$REPO7" "$BRANCH7" --message "feat: add feature file" -- feature.txt >/dev/null 2>&1
+assert $? "scenario 7: CLI exits 0"
+[ "$(git -C "$REPO7" log -1 --format=%s "origin/$BRANCH7")" = "feat: add feature file" ]
+assert $? "scenario 7: origin tip carries the given subject"
+git -C "$REPO7" log -1 --format=%B "origin/$BRANCH7" | grep -qx "Signed-off-by: spec <spec@example.com>"
+assert $? "scenario 7: Signed-off-by trailer from repo-local git config"
+[ "$(git -C "$REPO7" show --name-only --format= "origin/$BRANCH7")" = "feature.txt" ]
+assert $? "scenario 7: only the named file was staged"
 
 # --------------------------------------------------------------------------
 # Summary

@@ -15,8 +15,8 @@
 #       path is not a DEFEATED negation right before a caller stages/commits
 #       it - no probe-guessing, the caller supplies the real path. See
 #       cmd_verify_commit_path's docstring for the full exit-code contract.
-#       Consumed by content/commands/ds-implement-ticket.md Phase 8
-#       (telemetry commit) and Phase 11e, and content/commands/ds-wrap.md
+#       Consumed by bin/ds-ticket-commit (/ds-implement-ticket Phase 8
+#       telemetry commit) and bin/ds-ticket-finish (Phase 11e), and content/commands/ds-wrap.md
 #       Part G (all three knowledge-file commit sites).
 # Upstream: content/project-scaffolding.yml (canonical) or adapter-replicated copy.
 #           Shared helpers: bin/_lib (atomic_write).

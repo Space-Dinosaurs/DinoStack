@@ -43,7 +43,7 @@
 #                content/agents/qa-engineer.md (the four points of use, each
 #                asserted to still carry a §section pointer at the canonical
 #                rule); the eleven CARRIER_WIRING_FILES plus one
-#                content/commands/ds-implement-ticket.md block, one
+#                bin/ds-ticket-commit block (Phase 8), one
 #                content/references/orchestration-units.md block, and one
 #                content/references/qa-evidence-publish.md block (grepped by
 #                check_carrier_wiring for `ds-retire-carrier`), and
@@ -1005,7 +1005,7 @@ content/references/qa-gate.md
 content/references/evidence-on-disk.md
 content/commands/ds-wrap.md
 scripts/codex-skills.py"
-IMPLEMENT_DOC="$REPO_ROOT/content/commands/ds-implement-ticket.md"
+COMMIT_SCRIPT="$REPO_ROOT/bin/ds-ticket-commit"
 ORCH_DOC="$REPO_ROOT/content/references/orchestration-units.md"
 QA_EVIDENCE_DOC="$REPO_ROOT/content/references/qa-evidence-publish.md"
 
@@ -1018,9 +1018,9 @@ check_carrier_wiring() {
     fi
   done <<< "$CARRIER_WIRING_FILES"
 
-  block=$(awk '/# --- Isolation worktree cleanup \(post-push\) ---/{c=1} c{print} /# --- End isolation worktree cleanup ---/{if(c)exit}' "$IMPLEMENT_DOC")
+  block=$(awk '/# --- Isolation worktree cleanup \(post-push\) ---/{c=1} c{print} /# --- End isolation worktree cleanup ---/{if(c)exit}' "$COMMIT_SCRIPT")
   if [ -z "$block" ] || ! printf '%s\n' "$block" | grep -qF 'ds-retire-carrier'; then
-    echo "CARRIER-WIRING VIOLATION: the Phase 8 isolation worktree cleanup block does not call ds-retire-carrier" >&2
+    echo "CARRIER-WIRING VIOLATION: the Phase 8 isolation worktree cleanup block in bin/ds-ticket-commit does not call ds-retire-carrier" >&2
     ok=1
   fi
   block=$(awk '/^\*\*Worktree cleanup\.\*\*/{c=1; next} c && /^```/{n++; if(n==2)exit; next} c && n==1{print}' "$ORCH_DOC")
@@ -1065,7 +1065,7 @@ PYEOF
   return "$ok"
 }
 
-echo "== Carrier wiring check: 11 files and 3 ds-implement-ticket blocks name ds-retire-carrier =="
+echo "== Carrier wiring check: 11 files and 3 ds-implement-ticket blocks (Phase 8 now in bin/ds-ticket-commit) name ds-retire-carrier =="
 check_carrier_wiring
 r0i=$?
 echo "carrier-wiring exit=$r0i"

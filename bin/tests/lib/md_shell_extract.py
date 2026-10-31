@@ -1,15 +1,17 @@
 """
 Purpose: Extracts and mutates fenced ```bash blocks out of a markdown file
-         (content/commands/ds-implement-ticket.md,
-         content/references/qa-gate.md, and test-local fixture markdown) so
-         their shell can be executed against real git fixtures in a pytest
-         suite, instead of only ever being read as prose. Originally built for
+         (content/references/qa-gate.md and test-local fixture markdown),
+         and `@harness:`-delimited regions out of shell scripts
+         (bin/ds-ticket-commit, bin/ds-ticket-finish), so their shell can be
+         executed against real git fixtures in a pytest suite, instead of
+         only ever being read as prose. Originally built for
          bin/tests/test_phase8_telemetry_shell.py (the Phase 8
          commit-and-telemetry block); now shared by every `@harness:`-marked
          block.
 
 Public API: extract_marked_block(md_path, marker) -> str
-            render(block_text) -> str          [Phase 8 ONLY - see below]
+            extract_script_block(script_path, marker) -> str
+            render(block_text) -> str          [Phase 8 placeholders - see below]
             apply_transform(block_text, anchor, transform_fn) -> str
             with_completion_marker(rendered_script) -> str
             with_shell_assignments(script, assignments) -> str
@@ -27,12 +29,18 @@ render() IS NOT GENERIC. PLACEHOLDER_WHITELIST is global, not per-marker, and
          call render(); use extract_marked_block() plus its own single-token
          substitution, then with_shell_assignments() /
          with_completion_marker(). Precedent:
-         bin/tests/test_qa_knowledge_capture_shell.py._script().
+         bin/tests/test_qa_knowledge_capture_shell.py._script(). No shipped
+         block carries the three placeholders any longer: the Phase 8 block
+         moved to bin/ds-ticket-commit, which takes its files and message as
+         arguments. render()'s remaining callers are the self-checks that
+         pin its fail-closed raise.
 
 Upstream deps: stdlib only (re, subprocess, tempfile, os).
 
-Downstream consumers: bin/tests/test_phase8_telemetry_shell.py (the only
-            render() caller), bin/tests/test_qa_knowledge_capture_shell.py,
+Downstream consumers: bin/tests/test_phase8_telemetry_shell.py,
+            bin/tests/test_phase11e_knowledge_commit_shell.py,
+            bin/tests/test_pr_delivery_record.py (extract_script_block),
+            bin/tests/test_qa_knowledge_capture_shell.py,
             bin/tests/test_knowledge_harness_smoke.py
 
 Failure modes: every extraction/render/transform step is fail-closed - 0 or
@@ -46,20 +54,6 @@ Failure modes: every extraction/render/transform step is fail-closed - 0 or
 
 Performance: standard; extraction/render/transform are pure string ops over
              a <5KB block. syntax_check() forks a subprocess per call.
-
-Known scope limitation: PLACEHOLDER_WHITELIST["[specific files]"] renders to
-             `.agentic/session-log/${DEVELOPER}.jsonl`, but that `git add`
-             line executes before `$DEVELOPER` is assigned a few lines later
-             in the rendered block. The feature-commit `git add` is therefore
-             a guaranteed `fatal: pathspec '.agentic/session-log/.jsonl' did
-             not match` under every fixture this harness builds, and no test
-             in bin/tests/test_phase8_telemetry_shell.py produces or asserts
-             a feature commit - only the telemetry-commit path (which
-             resolves $DEVELOPER first) is exercised. Extending coverage to
-             the feature commit requires a placeholder value that does not
-             depend on a later-assigned variable; this whitelist value was
-             deliberately left unchanged rather than papered over, to avoid
-             masking the render()-order defect it documents.
 """
 from __future__ import annotations
 
@@ -151,6 +145,27 @@ def extract_marked_block(md_path: str, marker: str) -> str:
             f"module that requested it."
         )
     return matches[0]
+
+
+def extract_script_block(script_path: str, marker: str) -> str:
+    """Return the lines strictly between `# @harness:<marker>` and
+    `# @harness-end:<marker>` in a shell script (the bin/ds-ticket-* scripts
+    keep each moved block between such a pair). Same fail-closed contract as
+    extract_marked_block(): each marker line must occur exactly once, start
+    before end."""
+    with open(script_path, "r", encoding="utf-8") as fh:
+        lines = fh.read().split("\n")
+    start_line, end_line = _marker_line(marker), f"# @harness-end:{marker}"
+    starts = [i for i, line in enumerate(lines) if line.strip() == start_line]
+    ends = [i for i, line in enumerate(lines) if line.strip() == end_line]
+    if len(starts) != 1 or len(ends) != 1 or ends[0] <= starts[0]:
+        raise HarnessExtractionError(
+            f"expected exactly one '{start_line}' followed by exactly one "
+            f"'{end_line}' in {script_path}; got {len(starts)} start and "
+            f"{len(ends)} end line(s). Remedy: restore the marker pair around "
+            f"the block, or update the marker in the test module."
+        )
+    return "\n".join(lines[starts[0] + 1 : ends[0]]) + "\n"
 
 
 def render(block_text: str) -> str:

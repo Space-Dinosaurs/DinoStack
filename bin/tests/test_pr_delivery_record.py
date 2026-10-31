@@ -1,6 +1,6 @@
 """Purpose: Exercise the publisher and calling Markdown against a persistent fake GitHub.
 Public API: pytest-discovered test cases and the github fixture.
-Upstream deps: pytest, Python stdlib, lib.md_shell_extract, publisher CLI and calling Markdown.
+Upstream deps: pytest, Python stdlib, lib.md_shell_extract, publisher CLI, calling Markdown and bin/ds-ticket-finish.
 Downstream consumers: bin-tests CI and local pytest runs.
 Failure modes: assertion failures or subprocess timeouts; GitHub state stays in temporary files.
 Performance: subprocess-backed cases; no network calls.
@@ -16,12 +16,12 @@ import sys
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.md_shell_extract import extract_marked_block
+from lib.md_shell_extract import extract_marked_block, extract_script_block
 
 ROOT = Path(__file__).resolve().parents[2]
 CLI = ROOT / "bin/ds-pr-delivery-record"
 REFERENCE = ROOT / "content/references/delivery-record.md"
-TICKET = ROOT / "content/commands/ds-implement-ticket.md"
+TICKET = ROOT / "bin/ds-ticket-finish"
 CONVENTIONS = ROOT / "content/references/conventions-detail.md"
 A, B, C = "a" * 40, "b" * 40, "c" * 40
 START = "<!-- ds-delivery-record:v1:start -->"
@@ -325,7 +325,8 @@ def test_delta_chain_preserves_execution_sha(github):
 
 
 def source(path, marker):
-    return extract_marked_block(str(path), marker)
+    extract = extract_script_block if path == TICKET else extract_marked_block
+    return extract(str(path), marker)
 
 
 def run_source(github, script, **assignments):

@@ -16,8 +16,8 @@ Purpose: Proves the knowledge-commit test harness works before any
          attempted; (4) `awk '{s += $2} END {print s+0}'` on an empty file
          emits "0", not nothing - equally true of the DS-192 harness-safe
          `awk -v idx=2 '{s += $(idx)} END {print s+0}'` idiom that replaced
-         the bare-`$2` form in production (content/commands/ds-implement-
-         ticket.md), which this smoke fixture's own bare form no longer
+         the bare-`$2` form in production (bin/ds-ticket-finish), which
+         this smoke fixture's own bare form no longer
          matches in shape but still matches in the zero-emission property
          under test.
 

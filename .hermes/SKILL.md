@@ -5387,8 +5387,9 @@ Purpose: Full procedure for Phase 11e of `/ds-implement-ticket` - the
          content/commands/ds-implement-ticket.md so a run that never
          reaches it does not carry it. Covers the purpose, design
          constraints, candidate set and per-file gating, event field
-         semantics, the step 0 shard rollup, both `@harness` shell
-         blocks, and the CI and delivery-refresh notes.
+         semantics, the step 0 shard rollup `@harness` block, the
+         `ds-ticket-finish knowledge` call, and the CI and delivery-refresh
+         notes.
 
 Public API: Read-only reference document, addressed by its retained
             `## Phase 11e: Knowledge commit onto the PR branch
@@ -5396,8 +5397,9 @@ Public API: Read-only reference document, addressed by its retained
             and the Trivial-skip paragraph stay inline in
             content/commands/ds-implement-ticket.md, followed by a
             one-line `**Procedure:**` pointer to this file.
-            bin/tests/test_phase11e_knowledge_commit_shell.py extracts the
-            `phase11e-knowledge-commit` harness block from this file.
+            The knowledge-commit block itself lives in bin/ds-ticket-finish
+            (`knowledge` step), where
+            bin/tests/test_phase11e_knowledge_commit_shell.py extracts it.
 
 Upstream deps: none (prose reference only; no code, no runtime execution).
                Assumes content/references/delivery-record.md and
@@ -5489,418 +5491,10 @@ fi
 
 The conductor then classifies each entry in that array per `content/references/capture-classification.md` and forwards the `Capture: MUST` ones to `learnings-agent` before running the sweep below. If the array is empty, there is nothing to classify and the sweep runs unchanged.
 
+The sweep, commit, and push run as `ds-ticket-finish knowledge`; its `@harness:phase11e-knowledge-commit` region in `bin/ds-ticket-finish` is the block this section describes:
+
 ```bash
-# @harness:phase11e-knowledge-commit
-# Phase 11e: commit this session's knowledge files onto the PR branch.
-# Checkout-free and worktree-free: builds the commit with a temporary index plus
-# commit-tree and pushes the SHA straight to the branch ref, so HEAD is never
-# touched and the Phase-8-removed isolation worktree is not needed.
-#
-# PORTABILITY (bash + zsh): zsh does not word-split unquoted expansions. Never
-# write `git add -- $KC_SURVIVORS`; never build a list with `echo $VAR | tr`;
-# never use awk ENVIRON[...] (BRANCH_NAME is substituted, not exported, so
-# ENVIRON resolves empty under BOTH shells) - pass it with -v. Never name a
-# variable `path` or `status` (zsh collisions). ALWAYS brace an expansion that
-# is followed by a literal `:` - zsh applies history-style modifiers to an
-# UNBRACED `$VAR:...` even inside double quotes, so "$KC_SHA:refs/heads/..."
-# silently becomes the `:r` (remove-extension) form of the SHA followed by
-# "efs/heads/...", and the push fails with a bogus "src refspec ... does not
-# match any". Measured, not theoretical.
-#
-# DIAGNOSTIC / FAIL-CLOSED: no `2>/dev/null` on check-ignore, read-tree,
-# update-index, add, push, diff-index, or ls-tree. Any guard failure or
-# unparseable guard result counts as RISK PRESENT, never as risk absent.
-#
-# INDEX: every index operation targets $KC_IDX. The real $REPO/.git/index is
-# never read for staging and never written - including by update-index.
-#
-# Soft-fail throughout - zero `exit` statements by contract.
-KC_STATUS="no-changes"
-KC_LIST=""          # comma-joined staged paths, for the commit subject
-KC_JSON_STAGED=""   # files_staged (staging time)
-KC_JSON_FILES=""    # files_committed (push success ONLY)
-KC_JSON_IGN=""      # files_skipped_ignored
-KC_SHA=""
-KC_DELETED=0
-KC_REVERT_RISK="no"
-KC_N=0
-KC_REVERT_SKIP_COUNT=0
-KC_REVERT_SKIP_DELETED=0
-KC_RESET_FAILED="no"  # set "yes" if a per-file temp-index reset (after a
-                      # revert-risk skip) cannot be verified safe; see the
-                      # fail-closed check before write-tree below.
-
-KC_ENABLED=$(python3 -c "
-import json
-try:
-  cfg = json.load(open('$REPO/.agentic/config.json'))
-  print('true' if cfg.get('knowledge_commit_on_pr', True) else 'false')
-except Exception: print('true')
-" 2>/dev/null || echo 'true')
-
-# Re-read here, NOT inherited: Phase 11e is a separate Bash invocation.
-KC_AUTOMERGE=$(python3 -c "
-import json
-try:
-  cfg = json.load(open('$REPO/.agentic/config.json'))
-  print('true' if cfg.get('auto_merge_on_ci_green', False) else 'false')
-except Exception: print('false')
-" 2>/dev/null || echo 'false')
-
-# A single multi-line string, never a bash array - see the Portability comment
-# above (zsh does not word-split unquoted expansions, so no list is ever built
-# by splitting a variable).
-KC_EXCLUDE_LIST=$(python3 -c "
-import json
-try:
-  cfg = json.load(open('$REPO/.agentic/config.json'))
-  exc = cfg.get('knowledge_commit_exclude', [])
-  if isinstance(exc, list):
-    print('\n'.join(str(x) for x in exc))
-except Exception: pass
-" 2>/dev/null || true)
-
-if [ "$KC_ENABLED" != "true" ]; then
-  KC_STATUS="disabled"
-  echo "[phase: knowledge-commit | status=disabled | knowledge_commit_on_pr=false]"
-else
-  # Fetch failure and ref-absence are SEPARATE conditions: a transient network
-  # failure must not be reported as "branch not found" when the ref exists
-  # locally and the push would have worked.
-  KC_FETCH_ERR=$(git -C "$REPO" fetch origin "$BRANCH_NAME" 2>&1 >/dev/null)
-  if [ $? -ne 0 ]; then
-    echo "WARNING: [phase: knowledge-commit] git fetch origin $BRANCH_NAME failed: $KC_FETCH_ERR - continuing against the local remote-tracking ref, which may be stale."
-  fi
-
-  if ! git -C "$REPO" rev-parse --verify -q "origin/$BRANCH_NAME" >/dev/null 2>&1; then
-    # DISTINCT from "no-changes": the WARNING below goes to stdout, which is not
-    # durable. Left at the "no-changes" initializer, events.jsonl could not tell
-    # "there was no PR branch to commit onto" from "nothing changed" - and that
-    # exact ambiguity is what let this phase's deleted predecessor ship zero
-    # commits for its entire lifetime without anyone noticing.
-    KC_STATUS="no-branch"
-    echo "WARNING: [phase: knowledge-commit] origin/$BRANCH_NAME does not resolve - no PR branch to commit onto; /ds-wrap Part G remains the fallback."
-  else
-    KC_GITDIR=$(git -C "$REPO" rev-parse --absolute-git-dir)
-    KC_IDX="$KC_GITDIR/knowledge-commit-index-$$"
-    KC_READ_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" read-tree "origin/$BRANCH_NAME" 2>&1 >/dev/null)
-    if [ $? -ne 0 ]; then
-      echo "WARNING: [phase: knowledge-commit] read-tree origin/$BRANCH_NAME failed: $KC_READ_ERR"
-      KC_STATUS="commit-failed"
-    else
-      # Single LITERAL-list loop: gate and stage in one pass (zsh-safe).
-      for KC_F in MEMORY.md decisions.md .agentic/learnings.md AGENTS.md .agentic/tracking.md; do
-        if [ -f "$REPO/$KC_F" ]; then
-          if [ -n "$KC_EXCLUDE_LIST" ] && printf '%s\n' "$KC_EXCLUDE_LIST" | grep -Fxq "$KC_F"; then
-            echo "[phase: knowledge-commit] $KC_F is excluded via knowledge_commit_exclude - not committed."
-            if [ -z "$KC_JSON_IGN" ]; then KC_JSON_IGN="\"$KC_F\""; else KC_JSON_IGN="$KC_JSON_IGN,\"$KC_F\""; fi
-            continue
-          fi
-          # Point-of-use defeated-negation check, BEFORE the ordinary
-          # check-ignore gate below. Exit 1 means a negation in the live
-          # .gitignore appears to target $KC_F but git still reports it
-          # ignored - a DEFEATED negation, distinct from a legitimate
-          # categorical exclusion with no negation attempted at all (e.g.
-          # DinoStack's own repo, which the ordinary gate below already
-          # handles as an intentional, audible skip). See
-          # bin/ds-migrate's cmd_verify_commit_path docstring. Never
-          # redirect this check's own stdout/stderr to /dev/null.
-          KC_DEFEAT_OUT=$(ds-migrate verify-commit-path "$KC_F" --project-root "$REPO" 2>&1)
-          KC_DEFEAT_RC=$?
-          if [ "$KC_DEFEAT_RC" -eq 1 ]; then
-            echo "ERROR: [phase: knowledge-commit] $KC_F has a negation in .gitignore that appears to target it, but git still reports it ignored (DEFEATED NEGATION) - not committed. Fix .gitignore by hand, then re-run \`ds-migrate apply\`. Detail: $KC_DEFEAT_OUT"
-            if [ -z "$KC_JSON_IGN" ]; then KC_JSON_IGN="\"$KC_F\""; else KC_JSON_IGN="$KC_JSON_IGN,\"$KC_F\""; fi
-          elif git -C "$REPO" check-ignore -q -- "$KC_F"; then
-            KC_RULE=$(git -C "$REPO" check-ignore -v -- "$KC_F")
-            echo "[phase: knowledge-commit] $KC_F is gitignored (rule: $KC_RULE) - not committed."
-            if [ -z "$KC_JSON_IGN" ]; then KC_JSON_IGN="\"$KC_F\""; else KC_JSON_IGN="$KC_JSON_IGN,\"$KC_F\""; fi
-          else
-            KC_SKIP_THIS="no"
-            if git -C "$REPO" cat-file -e "origin/${BRANCH_NAME}:${KC_F}" 2>/dev/null; then
-              # Refresh the TEMP index for this path before comparing. Without
-              # this, diff-index trusts stat data over content and a
-              # byte-identical file with a newer mtime is misclassified as
-              # changed. A non-zero exit here means "needs update" and is
-              # expected; stderr is left visible on purpose.
-              GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" update-index -q --refresh -- "$KC_F" >/dev/null || true
-              if GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" diff-index --quiet "origin/$BRANCH_NAME" -- "$KC_F"; then
-                KC_SKIP_THIS="yes"
-              fi
-            fi
-            if [ "$KC_SKIP_THIS" = "no" ]; then
-              # Per-file revert guard, run BEFORE staging (C1: unstaging an
-              # already-read-tree'd full-tip index with `git rm --cached`
-              # DELETES the path from the eventual commit rather than
-              # reverting it - so this check must never run after `git add`).
-              # Runs UNCONDITIONALLY, regardless of auto_merge_on_ci_green:
-              # under the shipped default (false) a candidate whose copy
-              # deletes lines relative to the branch tip is still skipped -
-              # the risk this guards against (an engineer's newer file on the
-              # branch getting silently overwritten by the conductor's stale
-              # local copy) is present on every green PR, not only the
-              # auto-merge path. This is ADDITIVE to the aggregate diff-index
-              # guard below (the "--- Revert guard: ONE diff-index run
-              # against the TEMP index ---" comment block), NOT a replacement
-              # for it (C2): the aggregate guard's own two fail-closed
-              # branches (an unevaluable diff-index, or a non-numeric awk
-              # result) cover a batch-level failure this per-file,
-              # working-tree-only check cannot see. The aggregate guard's own
-              # skip-on-revert-risk branch (its `KC_STATUS="revert-risk-skipped"`
-              # assignment, gated on `[ "$KC_REVERT_RISK" = "yes" ] && [
-              # "$KC_AUTOMERGE" = "true" ]`) remains gated on
-              # auto_merge_on_ci_green, since a green-but-not-auto-merging PR
-              # still gets human review before merge - the per-file gate
-              # above is the one that had no reviewer standing between a
-              # stale write and a merge. (Cited by anchor text, not line
-              # number - a line-number citation here has gone stale twice
-              # already across separate rounds.)
-              # GIT_INDEX_FILE is set here for consistency with this block's
-              # own invariant ("The real $REPO/.git/index is never read for
-              # staging and never written"). It is REQUIRED in general: a
-              # bare `git diff HEAD -- <path>`, a plain `git status`, or an
-              # argument-less `git diff` DOES rewrite $REPO/.git/index via
-              # diff.autoRefreshIndex whenever the real index's entry for a
-              # path is content-identical to the working file but stat-dirty
-              # (measured, git 2.55.0) - this is exactly the kind of write
-              # the block's invariant forbids, and dropping GIT_INDEX_FILE
-              # anywhere else in this block reproduces it (see
-              # test_real_index_is_never_read_or_written). For THIS
-              # particular call the hazard is provably unreachable rather
-              # than merely unobserved: this line only runs once $KC_SKIP_THIS
-              # is "no", which the check above it already established by
-              # finding that $KC_F's WORKING-TREE content differs from
-              # origin/$BRANCH_NAME's blob at this path (or that the path is
-              # absent from the tip). diff.autoRefreshIndex only rewrites an
-              # entry when refresh CONFIRMS the working file is unchanged
-              # relative to what is being diffed against - which this call's
-              # own precondition rules out for the treeish it actually uses
-              # (origin/$BRANCH_NAME, never HEAD or any tree that matches the
-              # real index at this path). Confirmed empirically across five
-              # independent fixture shapes, including one built specifically
-              # to force the raciness (DS-170 round 3;
-              # test_per_file_numstat_leaves_real_index_untouched_under_forced_raciness).
-              # Keeping the assignment costs nothing and holds the line
-              # uniform with every other index operation in this block.
-              KC_F_NUMSTAT_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" diff --numstat "origin/$BRANCH_NAME" -- "$KC_F" 2>&1 >"$KC_IDX.f-numstat")
-              if [ $? -ne 0 ]; then
-                echo "WARNING: [phase: knowledge-commit] diff --numstat failed for $KC_F: $KC_F_NUMSTAT_ERR - treating this file as REVERT RISK PRESENT (fail-closed)."
-                KC_F_DELETED=-1
-              else
-                KC_F_DELETED=$(awk -v idx=2 '{s += $(idx)} END {print s+0}' "$KC_IDX.f-numstat")
-              fi
-              # No `''|*[!0-9]*` arm mirroring the aggregate block's guard is
-              # needed for CORRECTNESS: $((0+"")) and $((0+abc)) both yield 0
-              # under bash 3.2 and zsh, and any garbage value still fails
-              # closed through the `!= "0"` test below (verified). Accepted
-              # residual: a garbage per-file result folded into
-              # KC_REVERT_SKIP_DELETED can make the deleted_lines telemetry
-              # read 0 while the file is still correctly skipped.
-              if [ "$KC_F_DELETED" != "0" ]; then
-                echo "WARNING: [phase: knowledge-commit] $KC_F has $KC_F_DELETED deleted line(s) vs origin/$BRANCH_NAME - skipping THIS FILE ONLY (revert risk: this candidate's copy would delete content the branch tip already has)."
-                if [ -z "$KC_JSON_IGN" ]; then KC_JSON_IGN="\"$KC_F\""; else KC_JSON_IGN="$KC_JSON_IGN,\"$KC_F\""; fi
-                KC_SKIP_THIS="yes"
-                # Undo the stat-refresh above: `git update-index -q --refresh`
-                # silently restages a genuinely-differing path's WORKING-TREE
-                # content into the temp index (measured, not documented -
-                # `-q` makes it "continue anyway" rather than merely suppress
-                # the "needs update" message), so by this point $KC_IDX may
-                # already carry this file's local content even though it is
-                # about to be skipped. Reset the temp index entry back to the
-                # origin tip's exact blob/mode so a file skipped here is
-                # PROVABLY untouched in $KC_IDX, not staged-then-never-added.
-                #
-                # DIAGNOSTIC / FAIL-CLOSED, same contract as the rest of this
-                # block: no `2>/dev/null` on ls-tree, and a failed
-                # update-index reset is never swallowed with `|| true`. If
-                # either step cannot be verified to have restored the tip's
-                # exact blob, $KC_IDX may still carry this file's stale
-                # working-tree content even though it is reported as
-                # SKIPPED - the round-1 Critical recurring silently. Treat
-                # that as RISK PRESENT for the WHOLE run: KC_RESET_FAILED
-                # forces the write-tree/commit-tree/push sequence below to be
-                # skipped entirely, so a corrupted temp index is discarded
-                # (by the unconditional `rm -f "$KC_IDX"` at the end of this
-                # block) rather than ever written or pushed.
-                KC_TIP_ENTRY=$(git -C "$REPO" ls-tree "origin/$BRANCH_NAME" -- "$KC_F")
-                KC_LSTREE_RC=$?
-                if [ "$KC_LSTREE_RC" -ne 0 ] || [ -z "$KC_TIP_ENTRY" ]; then
-                  echo "WARNING: [phase: knowledge-commit] ls-tree origin/$BRANCH_NAME -- $KC_F failed while resetting the temp index after a revert-risk skip - the temp index entry for $KC_F cannot be verified safe. Abandoning this knowledge-commit run rather than risk shipping stale content (fail-closed)."
-                  KC_RESET_FAILED="yes"
-                else
-                  KC_TIP_MODE=$(printf '%s' "$KC_TIP_ENTRY" | awk -v idx=1 '{print $(idx)}')
-                  KC_TIP_SHA=$(printf '%s' "$KC_TIP_ENTRY" | awk -v idx=3 '{print $(idx)}')
-                  KC_CACHEINFO_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" update-index --add --cacheinfo "$KC_TIP_MODE,$KC_TIP_SHA,$KC_F" 2>&1 >/dev/null)
-                  if [ $? -ne 0 ]; then
-                    echo "WARNING: [phase: knowledge-commit] update-index --add --cacheinfo failed while resetting $KC_F's temp index entry after a revert-risk skip: $KC_CACHEINFO_ERR - the temp index entry for $KC_F cannot be verified safe. Abandoning this knowledge-commit run rather than risk shipping stale content (fail-closed)."
-                    KC_RESET_FAILED="yes"
-                  fi
-                fi
-                # Track the all-candidates-skipped case so a KC_N == 0 run
-                # still reports revert-risk-skipped with the
-                # correct deleted_lines rather than falling through to
-                # no-changes/deleted_lines:0. The -1 fail-closed sentinel
-                # dominates the running total, as it does in the aggregate
-                # block below.
-                KC_REVERT_SKIP_COUNT=$((KC_REVERT_SKIP_COUNT + 1))
-                if [ "$KC_F_DELETED" = "-1" ] || [ "$KC_REVERT_SKIP_DELETED" = "-1" ]; then
-                  KC_REVERT_SKIP_DELETED=-1
-                else
-                  KC_REVERT_SKIP_DELETED=$((KC_REVERT_SKIP_DELETED + KC_F_DELETED))
-                fi
-              fi
-            fi
-            if [ "$KC_SKIP_THIS" = "no" ]; then
-              KC_ADD_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" add -- "$KC_F" 2>&1 >/dev/null)
-              if [ $? -ne 0 ]; then
-                echo "WARNING: [phase: knowledge-commit] git add $KC_F failed: $KC_ADD_ERR - this file is not included."
-              else
-                KC_N=$((KC_N + 1))
-                if [ -z "$KC_LIST" ]; then KC_LIST="$KC_F"; else KC_LIST="$KC_LIST,$KC_F"; fi
-                if [ -z "$KC_JSON_STAGED" ]; then KC_JSON_STAGED="\"$KC_F\""; else KC_JSON_STAGED="$KC_JSON_STAGED,\"$KC_F\""; fi
-              fi
-            fi
-          fi
-        fi
-      done
-      # Two-tier: ship new shards with MEMORY.md.
-      case ",$KC_LIST," in *,MEMORY.md,*)
-        KC_NEW=$(ds-memory-capture new-shards --dir "$REPO" --ref "origin/${BRANCH_NAME}" || true)
-        while IFS= read -r KC_S; do
-          [ -n "$KC_S" ] || continue
-          KC_ADD_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" add -- "$KC_S" 2>&1 >/dev/null)
-          if [ $? -ne 0 ]; then echo "WARNING: [phase: knowledge-commit] git add $KC_S failed: $KC_ADD_ERR"; continue; fi
-          KC_N=$((KC_N + 1)); KC_LIST="$KC_LIST,$KC_S"; KC_JSON_STAGED="$KC_JSON_STAGED,\"$KC_S\""
-        done <<< "$KC_NEW"
-      esac
-
-      if [ "$KC_RESET_FAILED" = "yes" ]; then
-        # Checked BEFORE the KC_N == 0 branch below, deliberately: KC_N == 0
-        # and KC_RESET_FAILED == "yes" can both be true at once (every
-        # candidate carried revert risk AND at least one of those per-file
-        # resets could not be verified restored) - the fail-closed integrity
-        # concern here is strictly worse than "nothing was staged" and must
-        # dominate regardless of KC_N, or that combination would report
-        # revert-risk-skipped and hide that $KC_IDX may still carry stale
-        # content that was never verified safe (telemetry-only either way,
-        # since KC_N == 0 means nothing gets written/pushed in this run, but
-        # the reported status must still name the more severe condition).
-        #
-        # Fail-closed per the per-file reset block above: at least one
-        # revert-risk-skipped file's temp-index entry could not be verified
-        # restored to the tip's exact blob, so $KC_IDX may still carry stale
-        # working-tree content for it. Abandon the WHOLE commit rather than
-        # write-tree/commit-tree/push a temp index that cannot be trusted.
-        echo "WARNING: [phase: knowledge-commit] a per-file temp-index reset could not be verified safe earlier in this run - abandoning the knowledge commit entirely rather than risk shipping stale content from a corrupted temp index (fail-closed)."
-        KC_STATUS="commit-failed"
-      elif [ "$KC_N" -eq 0 ]; then
-        if [ "$KC_REVERT_SKIP_COUNT" -gt 0 ]; then
-          echo "WARNING: [phase: knowledge-commit] no candidate could be staged - $KC_REVERT_SKIP_COUNT file(s) carried revert risk (deleted_lines=$KC_REVERT_SKIP_DELETED) - skipping. Run /ds-wrap so Part G ships this content on a reviewable branch."
-          KC_STATUS="revert-risk-skipped"
-          KC_DELETED=$KC_REVERT_SKIP_DELETED
-        else
-          echo "[phase: knowledge-commit | status=no-changes | branch=$BRANCH_NAME]"
-        fi
-      else
-        # --- Revert guard: ONE diff-index run against the TEMP index. Stdout to
-        #     a file (reused for the per-file warning), stderr to a variable.
-        #     FAILS CLOSED. This is the aggregate, batch-level backstop; the
-        #     per-file, pre-staging guard above now runs unconditionally for
-        #     every candidate, so this aggregate check typically has nothing
-        #     left to catch for content reasons - it remains the ONLY path
-        #     that fires when the guard itself cannot be evaluated (an
-        #     unevaluable diff-index, or a non-numeric awk result), which the
-        #     per-file check structurally cannot see. Its own skip-on-risk
-        #     branch below stays gated on auto_merge_on_ci_green: under the
-        #     default (false), a green PR still gets a human reading the diff
-        #     before merge, so an unevaluable-guard WARNING here is
-        #     sufficient - the human is the backstop this branch's own skip
-        #     is for under auto-merge, where no human reads the diff. ---
-        KC_NUMSTAT_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" diff-index --cached --numstat "origin/$BRANCH_NAME" 2>&1 >"$KC_IDX.numstat")
-        if [ $? -ne 0 ]; then
-          echo "WARNING: [phase: knowledge-commit] diff-index failed: $KC_NUMSTAT_ERR - treating as REVERT RISK PRESENT (fail-closed; the guard cannot be verified)."
-          KC_REVERT_RISK="yes"
-          KC_DELETED=-1
-        else
-          # awk emits 0 (not empty) for an empty input file under bash, zsh, and
-          # sh, so the '' arm below is reachable only if awk itself fails to run
-          # or the numstat file is unreadable. Keep it for exactly that case.
-          KC_DELETED=$(awk -v idx=2 '{s += $(idx)} END {print s+0}' "$KC_IDX.numstat")
-          case "$KC_DELETED" in
-            ''|*[!0-9]*)
-              echo "WARNING: [phase: knowledge-commit] deleted-line count is empty or non-numeric ('$KC_DELETED') - awk did not run or its output is unusable; treating as REVERT RISK PRESENT (fail-closed)."
-              KC_REVERT_RISK="yes"
-              KC_DELETED=-1
-              ;;
-            0) : ;;
-            *)
-              KC_REVERT_RISK="yes"
-              awk -v kc_branch="$BRANCH_NAME" -v idx2=2 -v idx3=3 '$(idx2) > 0 {printf "WARNING: [phase: knowledge-commit] %s has %s deleted line(s) vs origin/%s - this commit may revert content another session already merged. Review the PR diff before merging.\n", $(idx3), $(idx2), kc_branch}' "$KC_IDX.numstat"
-              ;;
-          esac
-        fi
-
-        KC_NAME=$(git -C "$REPO" config user.name 2>/dev/null || true)
-        KC_EMAIL=$(git -C "$REPO" config user.email 2>/dev/null || true)
-
-        if [ "$KC_REVERT_RISK" = "yes" ] && [ "$KC_AUTOMERGE" = "true" ]; then
-          echo "WARNING: [phase: knowledge-commit] auto_merge_on_ci_green is true and this commit carries revert risk (deleted_lines=$KC_DELETED) - skipping. No human would read the PR diff before merge. Run /ds-wrap so Part G ships this content on a reviewable branch."
-          KC_STATUS="revert-risk-skipped"
-        elif [ -z "$KC_NAME" ] || [ -z "$KC_EMAIL" ]; then
-          echo "WARNING: [phase: knowledge-commit] git user.name/user.email not configured - skipping knowledge commit to avoid a malformed DCO trailer."
-          KC_STATUS="failed"
-        else
-          KC_TREE=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" write-tree 2>/dev/null || true)
-          KC_BASE_TREE=$(git -C "$REPO" rev-parse "origin/$BRANCH_NAME^{tree}" 2>/dev/null || true)
-          if [ -z "$KC_TREE" ]; then
-            echo "WARNING: [phase: knowledge-commit] write-tree failed - skipping knowledge commit."
-            KC_STATUS="commit-failed"
-          elif [ "$KC_TREE" = "$KC_BASE_TREE" ]; then
-            echo "[phase: knowledge-commit | status=no-changes | tree-identical]"
-          else
-            KC_MSG=$(printf 'chore(knowledge): capture %s from ticket session\n\nSigned-off-by: %s <%s>' "$KC_LIST" "$KC_NAME" "$KC_EMAIL")
-            KC_SHA=$(git -C "$REPO" commit-tree "$KC_TREE" -p "origin/$BRANCH_NAME" -m "$KC_MSG" 2>/dev/null || true)
-            if [ -z "$KC_SHA" ]; then
-              echo "WARNING: [phase: knowledge-commit] commit-tree failed - skipping knowledge commit."
-              KC_STATUS="commit-failed"
-            else
-              KC_QUEUE=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json autoMergeRequest 2>/dev/null)
-              KC_CAN_PUSH=false
-              if printf '%s' "$KC_QUEUE" | jq -e 'has("autoMergeRequest")' >/dev/null 2>&1; then
-                if [ "$(printf '%s' "$KC_QUEUE" | jq -r '.autoMergeRequest == null')" = "true" ] || gh pr merge "$BRANCH_NAME" --repo "$GH_REPO" --disable-auto; then
-                  KC_CAN_PUSH=true
-                fi
-              fi
-              KC_PUSH_OK=false
-              if [ "$KC_CAN_PUSH" = "true" ]; then
-                KC_PUSH_ERR=$(git -C "$REPO" push origin "${KC_SHA}:refs/heads/${BRANCH_NAME}" 2>&1 >/dev/null) && KC_PUSH_OK=true
-              else
-                KC_PUSH_ERR="queue observation/suspension failed; head unchanged"
-              fi
-              if [ "$KC_PUSH_OK" = "true" ]; then
-                KC_STATUS="committed"
-                # files_committed is populated HERE and ONLY here.
-                KC_JSON_FILES="$KC_JSON_STAGED"
-                mkdir -p "$REPO/.agentic" 2>/dev/null || true
-                printf '{"branch":"%s","commit":"%s","files":[%s],"deleted_lines":%s,"ts":"%s"}\n' \
-                  "$BRANCH_NAME" "$KC_SHA" "$KC_JSON_FILES" "$KC_DELETED" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-                  > "$REPO/.agentic/knowledge-commit-state.json.tmp" 2>/dev/null &&
-                  mv "$REPO/.agentic/knowledge-commit-state.json.tmp" "$REPO/.agentic/knowledge-commit-state.json" 2>/dev/null || true
-                echo "[phase: knowledge-commit | status=committed | branch=$BRANCH_NAME | commit=$KC_SHA | files=$KC_LIST]"
-                echo "NOTE: [phase: knowledge-commit] CI is re-running against this new tip. Phase 10a cannot re-fire, so a red result on this commit needs manual attention."
-              else
-                echo "WARNING: [phase: knowledge-commit] push to $BRANCH_NAME rejected: $KC_PUSH_ERR - knowledge not shipped on this PR; /ds-wrap Part G remains the fallback."
-                KC_STATUS="push-failed"
-              fi
-            fi
-          fi
-        fi
-      fi
-    fi
-    rm -f "$KC_IDX" "$KC_IDX.numstat" "$KC_IDX.f-numstat" 2>/dev/null || true
-  fi
-fi
-
-ds-emit knowledge_commit - "${TICKET_ID:--}" "{\"site\":\"phase-11e\",\"status\":\"$KC_STATUS\",\"files_staged\":[$KC_JSON_STAGED],\"files_committed\":[$KC_JSON_FILES],\"files_skipped_ignored\":[$KC_JSON_IGN],\"branch\":\"$BRANCH_NAME\",\"commit\":\"$KC_SHA\",\"deleted_lines\":$KC_DELETED}" 2>/dev/null || true
+"$REPO_DIR/bin/ds-ticket-finish" knowledge --repo "$REPO" --branch "$BRANCH_NAME" --ticket "$TICKET_ID" --gh-repo "$GH_REPO"
 ```
 
 `GIT_INDEX_FILE="$KC_IDX" git ...` is a **per-command assignment, not an export**, in both bash and zsh - the value is scoped to that one invocation and cannot reach `$REPO/.git/index`. Do not convert it to an `export ... ; unset ...` pair, and do not remove it from the `update-index` call.
@@ -11350,7 +10944,7 @@ A carrier is any linked checkout created for one job. Its purpose, not its path,
 
 ## Isolation worktree cleanup commands
 
-Phase 8 of `content/commands/ds-implement-ticket.md` retires the engineer's checkout right after its push, through `ds-retire-carrier` (§Carrier lifecycle by purpose); outside that flow the conductor runs the same command at the carrier's completion.
+Phase 8 of `content/commands/ds-implement-ticket.md` (`bin/ds-ticket-commit`) retires the engineer's checkout right after a verified push, through `ds-retire-carrier` (§Carrier lifecycle by purpose); a push that fails or cannot be verified records an explicit `BLOCKED: unpushed commit` hold instead. Phase 12 (`bin/ds-ticket-finish merge`) retires the ticket's `.agentic/worktrees/<branch>` and `.agentic/worktrees/qa-<branch>` carriers and re-runs this session's automatic holds. Outside that flow the conductor runs the same command at the carrier's completion.
 
 If the worktree is still locked, `git worktree remove` will refuse. That
 is expected and safe - it is the correct, permanent outcome for a
@@ -21452,141 +21046,21 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
 
 **Parallel path:** All commits were already made and merged in Phase 5, inside `$INTEGRATION_WORKTREE`. Phase 8 handles only post-merge fixup files not captured in the sub-branch commits. Run `git -C "$INTEGRATION_WORKTREE" status --short` to check; if non-empty, stage and commit there; if empty, skip to push.
 
-**Only run the following commit block if `status --short` was non-empty (parallel path) or on the sequential path:**
+**On the parallel path with an empty `status --short`, pass no files:** the feature commit is skipped; telemetry, push, and cleanup still run.
 
-Stage specific files - never `git add -A` or `git add .`:
+Run `$REPO_DIR/bin/ds-ticket-commit`. Stage specific files - never `git add -A` or `git add .`. Message: imperative, whole subject including prefix ≤ 50 chars (§Commit messages); no Co-Authored-By, Generated-with, or other AI-attribution trailer - the script appends the `Developer:` and `Signed-off-by:` trailers itself.
 
 ```bash
-# @harness:phase8-commit-and-telemetry
-export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20
+"$REPO_DIR/bin/ds-ticket-commit" --repo "$REPO" --branch "$BRANCH_NAME" \
+  --worktree-path "$WORKTREE_PATH" --integration-worktree "$INTEGRATION_WORKTREE" \
+  --message "type(scope): short imperative description
 
-# Fan-out = $INTEGRATION_WORKTREE ($REPO's HEAD never switches). Sequential = $REPO.
-if [ -n "$INTEGRATION_WORKTREE" ] && [ -d "$INTEGRATION_WORKTREE" ]; then COMMIT_CHECKOUT="$INTEGRATION_WORKTREE"; else COMMIT_CHECKOUT="$REPO"; fi
-
-git -C "$COMMIT_CHECKOUT" add [specific files]
-
-# Resolve developer identity for trailer (soft-fail throughout; ds-identity may not be installed).
-# Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
-DEVELOPER=$(ds-identity show 2>/dev/null | awk '/^developer_id:/{print $NF}')
-# Clear if provisional (cmd_show emits multi-space "provisional:   true"; use flexible [[:space:]]+ match).
-if ds-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
-DEVTRAILER=${DEVELOPER:+"Developer: ${DEVELOPER}"}
-
-# Resolve DCO Signed-off-by fields (git config inherits from global; check project-local first).
-SO_NAME=$(git -C "$COMMIT_CHECKOUT" config user.name 2>/dev/null || git config --global user.name 2>/dev/null || true)
-SO_EMAIL=$(git -C "$COMMIT_CHECKOUT" config user.email 2>/dev/null || git config --global user.email 2>/dev/null || true)
-
-if [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
-  echo "WARNING: git user.name or user.email not set; skipping commit to avoid malformed DCO trailer."
-else
-  # NL assigned before the string (not inside a heredoc) so variable expansion works.
-  NL=$'
-'
-  # §Commit messages: imperative; whole subject incl. prefix ≤ 50 chars.
-  # Do not append any Co-Authored-By, Generated-with, or other AI-attribution trailer to the commit message - harness defaults that add one are overridden here.
-  COMMIT_MSG="type(scope): short imperative description${NL}${NL}More detail on what changed and why if needed.${NL}Closes [TICKET_PREFIX]-NNN${NL}${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>"
-  git -C "$COMMIT_CHECKOUT" commit -m "$COMMIT_MSG"
-fi
-
-# --- Telemetry commit (soft-fail throughout) ---
-COMMIT_TELEMETRY=$(python3 -c "
-import json, sys
-try:
-  cfg = json.load(open('$REPO/.agentic/config.json'))
-  print('true' if cfg.get('commit_telemetry', True) else 'false')
-except: print('true')
-" 2>/dev/null || echo 'true')
-
-if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
-  SESSION_LOG_SRC="$REPO/.agentic/session-log/${DEVELOPER}.jsonl"
-
-  # PR_CHECKOUT: fan-out reuses COMMIT_CHECKOUT; single-engineer uses WORKTREE_PATH.
-  if [ "$COMMIT_CHECKOUT" != "$REPO" ]; then
-    PR_CHECKOUT="$COMMIT_CHECKOUT"
-  elif [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH_NAME" ]; then
-    PR_CHECKOUT="$REPO"
-  elif [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
-    PR_CHECKOUT="$WORKTREE_PATH"
-  else
-    echo "WARNING: telemetry commit skipped - cannot resolve PR checkout for branch $BRANCH_NAME"
-    PR_CHECKOUT=""
-  fi
-
-  # Copy file into the worktree (git cannot stage outside the work tree).
-  if [ -n "$PR_CHECKOUT" ] && [ "$PR_CHECKOUT" != "$REPO" ]; then
-    mkdir -p "$PR_CHECKOUT/.agentic/session-log/"
-    cp "$SESSION_LOG_SRC" "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" 2>/dev/null || true
-  fi
-
-  # HEAD-branch guard (safety floor: never commit to the wrong branch).
-  if [ -n "$PR_CHECKOUT" ]; then
-    ACTUAL_HEAD=$(git -C "$PR_CHECKOUT" rev-parse --abbrev-ref HEAD 2>/dev/null)
-    if [ "$ACTUAL_HEAD" != "$BRANCH_NAME" ]; then
-      echo "WARNING: telemetry commit skipped - $PR_CHECKOUT is on '$ACTUAL_HEAD', expected '$BRANCH_NAME'"
-      PR_CHECKOUT=""
-    fi
-  fi
-
-  if [ -n "$PR_CHECKOUT" ] && [ -f "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" ]; then
-    # Point-of-use defeated-negation check (exact path, no probe-guessing -
-    # see bin/ds-migrate's cmd_verify_commit_path). Without this, `git add`
-    # on a defeated-negation path silently no-ops and the following
-    # `diff --cached --quiet` skips the commit with NO visible signal at
-    # all - this is the exact residual _compute_negations_defeated's
-    # probe-based sweep can miss for the 4 directory-form negations, closed
-    # here because the exact path is already known. Never redirect this
-    # check's own stdout/stderr to /dev/null.
-    TELEM_VERIFY_OUT=$(ds-migrate verify-commit-path ".agentic/session-log/${DEVELOPER}.jsonl" --project-root "$PR_CHECKOUT" 2>&1)
-    TELEM_VERIFY_RC=$?
-    if [ "$TELEM_VERIFY_RC" -eq 1 ]; then
-      echo "ERROR: [phase-8-telemetry] .agentic/session-log/${DEVELOPER}.jsonl has a negation in .gitignore that appears to target it, but git still reports it ignored (DEFEATED NEGATION) - telemetry commit skipped this run. Fix .gitignore by hand, then re-run \`ds-migrate apply\`. Detail: $TELEM_VERIFY_OUT"
-    else
-      git -C "$PR_CHECKOUT" add ".agentic/session-log/${DEVELOPER}.jsonl"
-      # Only commit if the index has a diff (avoids empty-commit on no new sessions).
-      if ! git -C "$PR_CHECKOUT" diff --cached --quiet; then
-        if [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
-          echo "WARNING: git user.name or user.email not set; skipping telemetry commit to avoid malformed DCO trailer."
-          git -C "$PR_CHECKOUT" restore --staged ".agentic/session-log/${DEVELOPER}.jsonl"
-        else
-          NL=$'
-'
-          TELEM_MSG="chore(telemetry): add session log for ${DEVELOPER}${NL}${NL}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}"
-          git -C "$PR_CHECKOUT" commit -m "$TELEM_MSG" ||           git -C "$PR_CHECKOUT" restore --staged ".agentic/session-log/${DEVELOPER}.jsonl"
-        fi
-      fi
-    fi
-    # Push here when PR_CHECKOUT != $REPO; sequential falls to the final push below.
-    if [ "$PR_CHECKOUT" != "$REPO" ]; then
-      git -C "$PR_CHECKOUT" push -u origin "$BRANCH_NAME" 2>/dev/null || true
-    fi
-  fi
-fi
-# --- End telemetry commit ---
-
-# $BRANCH_NAME is shared across all of $REPO's worktrees (only HEAD
-# differs), so this is correct even though fan-out never switches HEAD.
-git -C $REPO push -u origin [BRANCH_NAME]
-
-# --- Isolation worktree cleanup (post-push) ---
-# Retire the engineer's checkout (worktree-lifecycle.md §Carrier lifecycle by
-# purpose): ds-retire-carrier removes it only when clean, free of protected
-# ignored content, and pinning no commit that would lose its last ref; it never
-# forces, unlocks, or deletes a branch, and records a hold otherwise.
-git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
-WORKTREE_PATH=$("$REPO_DIR/bin/ds-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
-if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ] \
-   && "$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$WORKTREE_PATH"; then
-  # Separate step, own proof: delete the local ref only when origin holds its tip.
-  if git -C "$REPO" ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1 \
-     && git -C "$REPO" merge-base --is-ancestor "$BRANCH_NAME" "origin/$BRANCH_NAME"; then
-    git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
-  fi
-  echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
-fi
-# Soft-fail: this entire block never blocks Phase 8 regardless of outcome -
-# a remove failure is reported (stderr + its ledger record), never fatal.
-# --- End isolation worktree cleanup ---
+More detail on what changed and why if needed.
+Closes [TICKET_PREFIX]-NNN" \
+  -- [specific files]
 ```
+
+Exit 0: pushed, and origin holds the local tip. Exit 1: the push failed or could not be verified; the script recorded an explicit `BLOCKED: unpushed commit` hold on the worktree (as in the engineer BLOCKED path) - stop and report BLOCKED. After a verified push the script retires the worktree with `ds-retire-carrier` and deletes the local branch; a `[phase: worktree-cleanup | HELD | ...]` line means the checkout was kept (its hold record names why) and never fails Phase 8.
 
 `Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).
 
@@ -21829,71 +21303,9 @@ Every row is cleared at the Phase 1 per-ticket reset and re-set on this ticket's
 ```bash
 # Phase 9: ticket-rework ledger write (soft-fail; never blocks Phase 9 or anything downstream).
 # Anchored AFTER the Case A / Case B if/else above - fires for both branches, Trivial included.
-# REWORK_DETECTION / TICKET_ID / RISK_CLASS / SKEPTIC_ROUNDS / QA_STATUS are the shell-variable
-# form of the conductor's in-context state (definition sites in the table above).
-# QA_STATUS holds the QA result when QA ran, and "skipped:<qa_skip enum>" or
-# "skipped:Trivial path" / "skipped:Low path" / "skipped:single-review path" when it did not. It is empty ONLY in the degenerate
-# case where neither a result nor a rationale exists - every ordinary non-QA path carries one.
-if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
-  # pr_number derived live from the ticket currently in flight's own branch - never $PR_NUMBER.
-  TRL_PR_NUMBER=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number 2>/dev/null || true)
-
-  if [ -n "$TRL_PR_NUMBER" ]; then
-    # skeptic_rounds: prefer the value captured at Phase 6 clean exit. Empty on the Trivial
-    # path, which never reaches Phase 6 - that is a correct null, not a missing read.
-    TRL_ROUNDS="${SKEPTIC_ROUNDS:-}"
-
-    # Disk fallback for a resumed session that lost the in-context variable. TWO guards, both
-    # KEPT, for different reasons:
-    #   ticket_id  - now redundant BY CONSTRUCTION, because the file is keyed per ticket and
-    #                a wrong-ticket file is not at this path at all. Kept deliberately: it is
-    #                one jq clause, and a MIS-DERIVED $LOOP_KEY presents as exactly the
-    #                cross-ticket round-count leak this clause prevents (Trivial ticket 2
-    #                inheriting Elevated ticket 1's round count, telling the operator a
-    #                Trivial attempt got three rounds of review when it got none). Removing a
-    #                defence in the same change that introduces a new key-derivation
-    #                mechanism is the wrong direction.
-    #   phase      - Phase 6b overwrites the file with phase:qa, iteration:1. Without this
-    #                guard, an Elevated ticket that passed QA on the first try records 1
-    #                Skeptic round regardless of how many it actually took. Keying does NOT
-    #                fix this: same ticket, same key, same file.
-    if [ -z "$TRL_ROUNDS" ] && [ -f .agentic/loop-state-$LOOP_KEY.json ]; then
-      TRL_ROUNDS=$(jq -r --arg t "$TICKET_ID" '
-        select(.ticket_id == $t and .loop_state.phase == "skeptic")
-        | .loop_state.iteration // empty
-      ' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null) || TRL_ROUNDS=""
-    fi
-    case "$TRL_ROUNDS" in ''|*[!0-9]*) TRL_ROUNDS="" ;; esac
-
-    # unit_count: derived from tasks.jsonl; 1 when absent, unreadable, or no matching records.
-    # sort -u dedupes by task_id before counting - a multi-record task (e.g. pending
-    # then in_progress then done) must count once, not once per append.
-    TRL_UNITS=$(jq -r --arg t "$TICKET_ID" 'select(.ticket_id == $t) | .task_id' \
-      .agentic/tasks.jsonl 2>/dev/null | sort -u | grep -c . || true)
-    case "$TRL_UNITS" in ''|0|*[!0-9]*) TRL_UNITS=1 ;; esac
-
-    # Build the whole record first, then append it with ONE write. Do not split this append.
-    TRL_LINE=$(jq -cn \
-      --arg tid "$TICKET_ID" \
-      --argjson pr "$TRL_PR_NUMBER" \
-      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      --arg br "$BRANCH_NAME" \
-      --arg rc "$RISK_CLASS" \
-      --arg sr "${TRL_ROUNDS:-}" \
-      --arg qs "${QA_STATUS:-}" \
-      --argjson uc "$TRL_UNITS" \
-      '{ticket_id:$tid, pr_number:$pr, opened_ts:$ts, branch:$br,
-        risk_class:(if $rc == "" then null else $rc end),
-        skeptic_rounds:(if $sr == "" then null else ($sr|tonumber) end),
-        qa_status:(if $qs == "" then null else $qs end),
-        unit_count:$uc}' 2>/dev/null || true)
-
-    if [ -n "$TRL_LINE" ]; then
-      mkdir -p .agentic 2>/dev/null || true
-      printf '%s\n' "$TRL_LINE" >> .agentic/ticket-ledger.jsonl 2>/dev/null || true
-    fi
-  fi
-fi
+"$REPO_DIR/bin/ds-ticket-finish" ledger --repo "$REPO" --ticket "$TICKET_ID" --branch "$BRANCH_NAME" \
+  --gh-repo "$GH_REPO" --loop-key "$LOOP_KEY" --rework-detection "$REWORK_DETECTION" \
+  --risk-class "$RISK_CLASS" --skeptic-rounds "$SKEPTIC_ROUNDS" --qa-status "$QA_STATUS"
 ```
 
 `.agentic/ticket-ledger.jsonl` is append-only and matches `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) (machine-local). It is never truncated or rewritten by this command, and Phase 12 cleanup does not remove it - the history is the point.
@@ -22246,70 +21658,15 @@ If the file does not exist (it was never written, e.g. loop never started), skip
 
 **qa.md snapshot cleanup.** Remove `.agentic/qa.md.snapshot-<ticket_id>` if it exists (it was created at Phase 0b for Elevated tickets). Best-effort silent-fail; if the file is absent or removal fails, do not block Phase 12 completion.
 
-```bash
-rm -f .agentic/qa.md.snapshot-<ticket_id> 2>/dev/null || true
-```
-
-**Conditional auto-merge** (only when `auto_merge_on_ci_green: true` in `.agentic/config.json`):
+**Conditional auto-merge** (only when `auto_merge_on_ci_green: true` in `.agentic/config.json`) runs inside `ds-ticket-finish merge`, which Phase 12 always calls; the same call runs the qa.md snapshot cleanup above, the post-merge local sync below, and carrier retirement:
 
 ```bash
-# @harness:phase12-auto-merge
-if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
-  DELIVERY_PUBLISHED_SHA=""
-  if DELIVERY_PUBLICATION=$(ds-pr-delivery-record --repo "$GH_REPO" --pr "$PR_NUMBER" --input "$DELIVERY_RECORD_INPUT"); then
-    DELIVERY_PUBLISHED_SHA=$(printf '%s' "$DELIVERY_PUBLICATION" | jq -er '.published_sha | select(type == "string" and length == 40 and test("^[0-9a-f]{40}$"))') || DELIVERY_PUBLISHED_SHA=""
-  fi
-  PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json isDraft,mergeable,reviewDecision 2>/dev/null)
-  IS_DRAFT=$(echo "$PR_STATE" | jq -r '.isDraft')
-  MERGEABLE=$(echo "$PR_STATE" | jq -r '.mergeable')
-  REVIEW_DECISION=$(echo "$PR_STATE" | jq -r '.reviewDecision // "NONE"')
-
-  # Re-derived HERE, never inherited: Phase 11e ran in a SEPARATE Bash
-  # invocation and no shell state crosses that boundary. On any gh failure this
-  # yields false and the block behaves exactly as it did before Phase 11e existed.
-  KC_TIP=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json commits -q '.commits[-1].messageHeadline' 2>/dev/null || true)
-  case "$KC_TIP" in
-    "chore(knowledge):"*) KC_KNOWLEDGE_PUSHED=true ;;
-    *)                    KC_KNOWLEDGE_PUSHED=false ;;
-  esac
-
-  if [ -n "$DELIVERY_PUBLISHED_SHA" ] && [ "$IS_DRAFT" = "false" ] && [ "$MERGEABLE" = "MERGEABLE" ] && [ "$REVIEW_DECISION" != "CHANGES_REQUESTED" ]; then
-    if [ "$KC_KNOWLEDGE_PUSHED" = "true" ]; then
-      if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch --auto 2>/dev/null; then
-        echo "[phase: auto-merge-queued | pr=$PR_NUMBER | reason=knowledge-commit-ci-rerun]"
-        # W7 does NOT fire: --auto exiting 0 means QUEUED, not MERGED. The
-        # dev-complete transition is pushed by the session-start pending-merge
-        # sweep within one session boot of the actual merge - the same mechanism
-        # the default auto_merge_on_ci_green=false path relies on.
-      elif [ "$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
-        echo "[phase: auto-merged | pr=$PR_NUMBER]"
-        # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
-        # with target_state: $TRACKER_STATE_DEV_COMPLETE, forward_only_guard: true.
-        # Fire-and-forget. Fires ONLY when the PR is confirmed MERGED (this branch).
-        # [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DEV_COMPLETE | trigger: auto-merge-success]
-      else
-        echo "[phase: auto-merge-deferred | pr=$PR_NUMBER | reason=knowledge-commit-ci-rerun - merge when checks are green]"
-      fi
-    elif gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch 2>/dev/null; then
-      echo "[phase: auto-merged | pr=$PR_NUMBER]"
-      # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
-      # with target_state: $TRACKER_STATE_DEV_COMPLETE, forward_only_guard: true.
-      # Fire-and-forget. Fires ONLY when merge succeeded (this branch). No
-      # `gh pr view --json state` precondition is added here: on this path an
-      # exit-0 merge already means MERGED, and an extra gh call would add a
-      # silent-drop mode on transient failure.
-      # [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DEV_COMPLETE | trigger: auto-merge-success]
-    else
-      echo "[phase: auto-merge-failed | pr=$PR_NUMBER]"
-    fi
-  else
-    echo "[phase: auto-merge-skipped | isDraft=$IS_DRAFT mergeable=$MERGEABLE reviewDecision=$REVIEW_DECISION]"
-  fi
-else
-  echo "PR #$PR_NUMBER is open and ready for review: https://github.com/$GH_REPO/pull/$PR_NUMBER"
-  echo "Note: If an agent merges this PR itself later, outside this auto-merge block, the dev-complete transition fires immediately at merge time under the Merge-time tracker writeback rule in content/rules/conventions.md §Git Workflow - not on the deferred path described next. Otherwise, if auto-merge is off (default), the dev-complete transition is pushed automatically by the session-start pending-merge sweep within one session boot of the merge (see content/rules/conventions.md §Session Context and Memory). AE never fires the terminal Done state automatically; TRACKER_STATE_DEV_COMPLETE inherits the resolved TRACKER_STATE_DONE value when undeclared, so a project that declares no post-merge lane sees the same transition as before. When rework_detection is false there are no ledger candidates, and no automatic dev-complete transition for a merge the agent did not perform itself or where the ticket ID or PR number was unknown at merge time - the merge-time rule above never consults the ledger and still fires regardless of rework_detection; run \`/ds-ticket-status-sync TICKET_ID\` after merge in that configuration. \`/ds-ticket-status-sync TICKET_ID\` also remains available to force the transition immediately."
-fi
+"$REPO_DIR/bin/ds-ticket-finish" merge --repo "$REPO" --branch "$BRANCH_NAME" --ticket "$TICKET_ID" \
+  --gh-repo "$GH_REPO" --pr "$PR_NUMBER" --delivery-record-input "$DELIVERY_RECORD_INPUT" \
+  --auto-merge "$AUTO_MERGE_ON_CI_GREEN" --base-branch "$BASE_BRANCH"
 ```
+
+It prints one of `[phase: auto-merged | pr=N]`, `[phase: auto-merge-queued | ...]`, `[phase: auto-merge-deferred | ...]`, `[phase: auto-merge-failed | ...]`, `[phase: auto-merge-skipped | ...]`, or (auto-merge off) the PR-open notice, then the `ds-base-sync` breadcrumb. After the sync it retires `.agentic/worktrees/<branch>` and `.agentic/worktrees/qa-<branch>` when present and re-evaluates this session's automatic `ds-retire-carrier` holds; explicit holds stay, and no hold changes the exit code.
 
 **Knowledge-commit branch (the `--auto` path).** When Phase 11e pushed a `chore(knowledge):` commit onto the PR tip, CI is re-running, so an immediate `gh pr merge` would fail on pending checks. That case instead queues GitHub's own auto-merge with `--auto`. Three consequences worth stating plainly:
 
@@ -22329,20 +21686,7 @@ Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true
 
 **Post-merge local sync (unconditional).** Runs once at the end of every Phase 12, independent of `auto_merge_on_ci_green` and independent of whether this ticket's own PR merged - it also catches a *different* PR (this ticket's or any other) that merged asynchronously since the session started. See `content/references/base-branch-sync.md`. A non-zero exit never blocks Phase 12 completion - `status=skipped-dirty`/`diverged`/`refused-unknown`/`ref-locked-elsewhere`/`fetch-failed` are all operator-visible breadcrumbs/warnings, matching every other soft-fail convention in this phase (qa.md snapshot cleanup, tracker writeback).
 
-```bash
-# Post-merge local base-branch sync (unconditional - runs regardless of
-# auto_merge_on_ci_green, regardless of whether THIS session merged anything).
-# Fast-forward only; never merge/rebase/autostash. Repo-relative path (not PATH-
-# dependent) so it works without a re-install of bin/ onto PATH. $REPO_DIR and
-# $BASE_BRANCH are conductor-substituted values by the time Phase 12 runs (both
-# resolved in Setup) - never empty here in a correctly-running session, and the
-# tool independently validates non-empty args regardless (exit 3 on empty).
-if [ -x "$REPO_DIR/bin/ds-base-sync" ]; then
-  "$REPO_DIR/bin/ds-base-sync" "$REPO" "$BASE_BRANCH"
-else
-  echo "WARNING: ds-base-sync tool not found at $REPO_DIR/bin/ - skipping post-merge sync this run."
-fi
-```
+`ds-ticket-finish merge` runs `"$REPO_DIR/bin/ds-base-sync" "$REPO" "$BASE_BRANCH"` after the auto-merge block on every call, with or without `--pr`; when the tool is missing it prints a WARNING and skips the sync this run.
 
 ---
 

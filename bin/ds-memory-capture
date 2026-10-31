@@ -45,7 +45,8 @@ Upstream deps: Python 3 stdlib only; `git` on PATH; the project's own
   never through a shell.
 
 Downstream consumers: content/commands/ds-wrap.md Part B / Part G,
-  content/commands/ds-implement-ticket.md Phase 11b / Phase 11e,
+  content/commands/ds-implement-ticket.md Phase 11b, bin/ds-ticket-finish
+  (Phase 11e),
   content/commands/ds-memory-update.md (its Worker). wrap-ticket and
   learnings-agent only write the inbox; they never run this.
 

@@ -87,6 +87,8 @@ SW='sole.writer|sole writer|no lock protocol is needed'
 CANON1=content/references/task-state-file.md
 CANON2=content/sections/08-task-state-file.md
 DIT=content/commands/ds-implement-ticket.md
+# The Phase 9 ledger write (the unit_count reader) runs from this script.
+TFIN=bin/ds-ticket-finish
 ORCH=content/references/orchestration-units.md
 SS=content/commands/ds-ticket-status-sync.md
 TRW=content/references/ticket-rework.md
@@ -140,10 +142,10 @@ else _pass "G2: no surviving 'P1 design' / 'field-level merge algorithm' referen
 
 # G4 POSITIVE floor (0->1): if a reflow separates the path literal from the
 # dedupe, THIS fails loudly rather than the emptiness gate going silently vacuous.
-G4DEDUP="$(git grep -nE 'tasks\.jsonl' -- "$DIT" 2>/dev/null | grep -c 'sort -u' || true)"; [ -n "$G4DEDUP" ] || G4DEDUP=0
+G4DEDUP="$(git grep -nE 'tasks\.jsonl' -- "$DIT" "$TFIN" 2>/dev/null | grep -c 'sort -u' || true)"; [ -n "$G4DEDUP" ] || G4DEDUP=0
 if [ "$G4DEDUP" -ge 1 ]; then _pass "G4 positive floor: $G4DEDUP tasks.jsonl line(s) carry 'sort -u' (>= 1)"
 else _fail "FLOOR FAIL: no tasks.jsonl line carries 'sort -u' - the dedupe is absent, or a reflow split it from the path literal. Do NOT lower."; fi
-git grep -nE 'tasks\.jsonl' -- "$DIT" 2>/dev/null | grep -E 'grep -c' | grep -v 'sort -u' > "$TMP/g4" || true
+git grep -nE 'tasks\.jsonl' -- "$DIT" "$TFIN" 2>/dev/null | grep -E 'grep -c' | grep -v 'sort -u' > "$TMP/g4" || true
 if [ -s "$TMP/g4" ]; then _fail "G4 FAIL - counting reader of tasks.jsonl without 'sort -u' task_id dedupe:"; cat "$TMP/g4" >&2
 else _pass "G4: every counting reader of tasks.jsonl dedupes by task_id"; fi
 

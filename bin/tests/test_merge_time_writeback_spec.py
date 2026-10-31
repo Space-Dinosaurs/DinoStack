@@ -6,7 +6,8 @@ Purpose: Pin the shipped prose that makes an agent-performed `gh pr merge` fire 
          `/ds-ticket-status-sync`, the single canonical rule paragraph in
          `content/rules/conventions.md` § Git Workflow, the pointer-not-copy discipline
          in `content/references/conventions-detail.md`, and BOTH `/ds-implement-ticket`
-         Phase 12 sites (the bash echo and the prose Note).
+         Phase 12 sites (the bash echo, now in `bin/ds-ticket-finish`, and the
+         prose Note).
 
 Public API: pytest test module - auto-discovered by `pytest bin/tests/`.
 
@@ -14,6 +15,7 @@ Upstream deps: content/commands/ds-ticket-status-sync.md;
                content/rules/conventions.md;
                content/references/conventions-detail.md;
                content/commands/ds-implement-ticket.md;
+               bin/ds-ticket-finish (the Phase 12 echo site);
                bin/tests/lib/resident_rule_extract.py (shared
                resident-rule/detail-section extraction, round 7 - extracted
                here from byte-identical inline logic once duplicated with
@@ -40,6 +42,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 STATUS_SYNC_PATH = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
 IMPLEMENT_TICKET_PATH = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
+TICKET_FINISH_PATH = REPO_ROOT / "bin" / "ds-ticket-finish"
 CONVENTIONS_PATH = REPO_ROOT / "content" / "rules" / "conventions.md"
 CONVENTIONS_DETAIL_PATH = (
     REPO_ROOT / "content" / "references" / "conventions-detail.md"
@@ -448,6 +451,15 @@ _ECHO_MARKER = "the dev-complete transition is pushed automatically by the sessi
 _NOTE_MARKER = "the dev-complete transition is pushed automatically by the session-start pending-merge sweep instead"
 
 
+def _sites() -> tuple:
+    """(marker, name, text) for each site: the echo lives in the script the
+    command calls, the Note stays in the command."""
+    return (
+        (_ECHO_MARKER, "echo", TICKET_FINISH_PATH.read_text(encoding="utf-8")),
+        (_NOTE_MARKER, "Note", _implement_ticket()),
+    )
+
+
 def _site_window(text: str, marker: str) -> str:
     """The full line (echo statement or prose Note) containing `marker`."""
     idx = text.index(marker)
@@ -458,17 +470,15 @@ def _site_window(text: str, marker: str) -> str:
 
 def test_both_phase_12_sites_are_present_and_distinct():
     """Reddening mutation: delete either site, or collapse them into one."""
-    text = _implement_ticket()
-    assert text.count(_ECHO_MARKER) == 1
-    assert text.count(_NOTE_MARKER) == 1
-    assert text.index(_ECHO_MARKER) != text.index(_NOTE_MARKER)
+    for marker, name, text in _sites():
+        assert text.count(_ECHO_MARKER) + text.count(_NOTE_MARKER) == 1, name
+        assert text.count(marker) == 1, name
 
 
 def test_both_phase_12_sites_carry_the_merge_time_exception():
     """Reddening mutation: remove the exception clause from EITHER site - the
     surviving one would still promise an unconditional deferral."""
-    text = _implement_ticket()
-    for marker, name in ((_ECHO_MARKER, "echo"), (_NOTE_MARKER, "Note")):
+    for marker, name, text in _sites():
         window = _site_window(text, marker)
         assert "outside this auto-merge block" in window, name
         assert "fires immediately at merge time" in window, name
@@ -477,8 +487,7 @@ def test_both_phase_12_sites_carry_the_merge_time_exception():
 def test_both_phase_12_sites_point_at_git_workflow_for_the_new_rule():
     """Reddening mutation: change either site's new pointer to
     `§Session Context and Memory` - the wrong section for this rule."""
-    text = _implement_ticket()
-    for marker, name in ((_ECHO_MARKER, "echo"), (_NOTE_MARKER, "Note")):
+    for marker, name, text in _sites():
         window = _site_window(text, marker)
         head = window[:window.index(marker)]
         assert "§Git Workflow" in head, name
@@ -491,8 +500,7 @@ def test_both_phase_12_sites_narrow_the_rework_detection_claim():
     That claim went false with this change: the merge-time rule never consults
     the ledger and fires regardless of `rework_detection`.
     """
-    text = _implement_ticket()
-    for marker, name in ((_ECHO_MARKER, "echo"), (_NOTE_MARKER, "Note")):
+    for marker, name, text in _sites():
         window = _site_window(text, marker)
         assert "rework_detection" in window, name
         assert "never consults the ledger" in window, name
@@ -509,10 +517,9 @@ def test_both_phase_12_sites_retain_their_pinned_substrings():
     Restated here so this module fails on its own if a DS-202 edit ever becomes a
     rewrite rather than an append.
     """
-    text = _implement_ticket()
-    assert _ECHO_MARKER in text
-    assert _NOTE_MARKER in text
-    assert (
-        "the Done transition is pushed automatically by the session-start "
-        "pending-merge sweep" not in text
-    )
+    for marker, name, text in _sites():
+        assert marker in text, name
+        assert (
+            "the Done transition is pushed automatically by the session-start "
+            "pending-merge sweep" not in text
+        ), name
