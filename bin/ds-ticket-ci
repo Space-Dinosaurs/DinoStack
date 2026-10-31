@@ -18,11 +18,15 @@
 #     Required checks are the union of the base branch's ruleset
 #     `required_status_checks` contexts, its branch-protection contexts (when
 #     enforced), and each --required NAME (repeatable; a name may contain
-#     commas). If neither the rules nor the protection can be read and no
+#     commas). A rules read answering 403/404 means no rulesets. If the
+#     rules read fails otherwise, or neither source can be read, and no
 #     --required is given, the script stops with exit 4 rather than wait on
-#     an unknown set. A required check scoped to one app (ruleset
-#     integration_id, protection app_id) also exits 4: `gh pr checks` does
-#     not report which app produced a check.
+#     an unknown set. Each one-shot read is retried once.
+#     Accepted residual: required checks scoped to one app (ruleset
+#     integration_id, protection app_id) are matched by name only, because
+#     `gh pr checks` does not report which app produced a check; a
+#     same-named check from another app satisfies the name here, and
+#     GitHub's own merge enforcement still blocks that merge.
 #     --polls       poll budget (default 60); --interval seconds between
 #                   polls (default 30).
 #   Exit codes: 0 passed (or nothing registered across 4 polls with no
@@ -44,7 +48,8 @@
 #                line and never counted as pending or passed.
 #
 # Performance: at most --polls reads of `gh pr checks` plus three gh calls
-#              for the required set; default worst case about 30 minutes.
+#              for the required set (each retried once); default worst case
+#              about 30 minutes.
 # ---------------------------------------------------------------------------
 
 usage() {
@@ -83,46 +88,45 @@ is_count "$CI_PR" && [ -n "$CI_GH_REPO" ] || usage
 is_count "$CI_POLLS" && is_count "$CI_INTERVAL" || usage
 [ "$CI_POLLS" -gt 0 ] || usage
 
+CI_ERR_FILE=$(mktemp "${TMPDIR:-/tmp}/ds-ticket-ci.XXXXXX") || exit 4
+trap 'rm -f "$CI_ERR_FILE"' EXIT
+
+# gh_read ARGS...: a one-shot gh read, retried once after a transient failure.
+gh_read() {
+  gh "$@" 2>"$CI_ERR_FILE" && return 0
+  [ "$CI_INTERVAL" -gt 0 ] && sleep 2
+  gh "$@" 2>"$CI_ERR_FILE"
+}
+
 # Required set: ruleset contexts, enforced branch-protection contexts (the
-# branches endpoint, readable without admin), and --required. Either source
-# answering is enough: a plan without rulesets returns 403 on rules.
+# branches endpoint, readable without admin), and --required. A rules read
+# answering 403 or 404 means the plan has no rulesets; any other failure
+# leaves the set unknown. Otherwise either source answering is enough.
 CI_SOURCES_OK=false
+CI_RULES_UNKNOWN=false
 CI_RULE_NAMES=""
 CI_PROT_NAMES=""
-CI_SCOPED=""
-CI_BASE=$(gh pr view "$CI_PR" --repo "$CI_GH_REPO" --json baseRefName -q .baseRefName 2>/dev/null)
+CI_BASE=$(gh_read pr view "$CI_PR" --repo "$CI_GH_REPO" --json baseRefName -q .baseRefName)
 if [ -n "$CI_BASE" ]; then
-  if CI_RAW=$(gh api --paginate "repos/$CI_GH_REPO/rules/branches/$CI_BASE" 2>/dev/null) \
+  if CI_RAW=$(gh_read api --paginate "repos/$CI_GH_REPO/rules/branches/$CI_BASE") \
     && CI_RULE_NAMES=$(printf '%s' "$CI_RAW" | jq -s -r '.[][] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' 2>/dev/null); then
     CI_SOURCES_OK=true
-    CI_SCOPED=$(printf '%s' "$CI_RAW" | jq -s -r '.[][] | select(.type == "required_status_checks") | .parameters.required_status_checks[] | select(.integration_id != null) | .context' 2>/dev/null)
+  elif ! grep -q 'HTTP 40[34]' "$CI_ERR_FILE"; then
+    CI_RULES_UNKNOWN=true
   fi
-  if CI_RAW=$(gh api "repos/$CI_GH_REPO/branches/$CI_BASE" 2>/dev/null) \
+  if CI_RAW=$(gh_read api "repos/$CI_GH_REPO/branches/$CI_BASE") \
     && CI_PROT_NAMES=$(printf '%s' "$CI_RAW" | jq -r '(.protection.required_status_checks // {}) as $r
       | if ($r.enforcement_level // "off") == "off" then empty
         else (($r.contexts // [])[], (($r.checks // [])[] | .context)) end' 2>/dev/null); then
     CI_SOURCES_OK=true
-    CI_SCOPED="$CI_SCOPED
-$(printf '%s' "$CI_RAW" | jq -r '(.protection.required_status_checks // {}) as $r
-      | if ($r.enforcement_level // "off") == "off" then empty
-        else ($r.checks // [])[] | select(.app_id != null) | .context end' 2>/dev/null)"
   fi
 fi
-if [ "$CI_SOURCES_OK" != "true" ] && [ -z "$CI_EXTRA" ]; then
-  unreadable "required checks of PR #$CI_PR's base branch '${CI_BASE:-?}' not readable; fix gh access or pass --required"
-fi
-# `gh pr checks` does not say which app produced a check, so a check scoped
-# to one app could be satisfied by a same-named status from anything.
-CI_SCOPED=$(printf '%s' "$CI_SCOPED" | grep -v '^$' | sort -u | tr '\n' ';' | sed 's/;$//')
-if [ -n "$CI_SCOPED" ]; then
-  unreadable "app-scoped required checks ($CI_SCOPED) cannot be verified: gh pr checks does not report the app"
+if { [ "$CI_SOURCES_OK" != "true" ] || [ "$CI_RULES_UNKNOWN" = "true" ]; } && [ -z "$CI_EXTRA" ]; then
+  unreadable "required checks of PR #$CI_PR's base branch '${CI_BASE:-?}' not readable; fix gh access or pass --required NAME for each"
 fi
 CI_REQUIRED=$(printf '%s\n%s\n%s\n' "$CI_RULE_NAMES" "$CI_PROT_NAMES" "$CI_EXTRA" | grep -v '^$' | sort -u)
 CI_REQ_COUNT=$(printf '%s' "$CI_REQUIRED" | grep -c .)
 echo "[phase: ci-wait | required: $CI_REQ_COUNT | $(printf '%s' "$CI_REQUIRED" | tr '\n' ';' | sed 's/;$//')]"
-
-CI_ERR_FILE=$(mktemp "${TMPDIR:-/tmp}/ds-ticket-ci.XXXXXX") || exit 4
-trap 'rm -f "$CI_ERR_FILE"' EXIT
 
 CI_I=0
 CI_ZERO_STREAK=0

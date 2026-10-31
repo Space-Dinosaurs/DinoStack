@@ -107,6 +107,10 @@ esac
 TEMP_CLONE="/tmp/qa-evidence-clone-$$"
 git clone --depth=1 "$REPO" "$TEMP_CLONE"
 git -C "$TEMP_CLONE" remote set-url origin "$QA_ORIGIN_URL"
+# Commit as $REPO's own identity, not whatever this machine's global one is.
+for QA_KEY in user.name user.email; do
+  QA_VAL=$(git -C "$REPO" config "$QA_KEY") && git -C "$TEMP_CLONE" config "$QA_KEY" "$QA_VAL"
+done
 git -C "$TEMP_CLONE" checkout --orphan qa-evidence
 git -C "$TEMP_CLONE" rm -rf . 2>/dev/null || true
 mkdir -p "$TEMP_CLONE/$TICKET_SLUG/$BRANCH_SLUG/"

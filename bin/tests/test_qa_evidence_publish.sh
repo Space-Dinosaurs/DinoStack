@@ -39,10 +39,7 @@ mkdir -p "$SCRATCH/link-bin"
 ln -s "$REPO_ROOT/bin/agentic-qa-evidence-publish" "$SCRATCH/link-bin/ds-qa-evidence-publish"
 CLI="$SCRATCH/link-bin/ds-qa-evidence-publish"
 trap 'chmod -R u+w "$SCRATCH" 2>/dev/null; find "$SCRATCH" -depth -delete 2>/dev/null' EXIT
-unset REPO_DIR AE_SESSION_ID CLAUDE_CODE_SESSION_ID
-# The first-create scratch clone has no repo-local identity; CI has no
-# global one.
-export GIT_AUTHOR_NAME=spec GIT_AUTHOR_EMAIL=spec@example.com GIT_COMMITTER_NAME=spec GIT_COMMITTER_EMAIL=spec@example.com
+unset REPO_DIR AE_SESSION_ID CLAUDE_CODE_SESSION_ID GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
 
 fail_count=0
 assert() {
@@ -121,6 +118,8 @@ run_suite() {
   assert $? "first publish prints the URL of the file that landed on origin"
   ! git -C "$REPO" show-ref --verify --quiet refs/heads/qa-evidence
   assert $? "first publish leaves no local qa-evidence branch in the checkout"
+  [ "$(git --git-dir="$ORIGIN" log --format='%ae %ce' qa-evidence | sort -u)" = "spec@example.com spec@example.com" ]
+  assert $? "first publish commits as the checkout's repo-local identity"
 
   # Lose the first-create race: origin's hook creates qa-evidence and
   # rejects the first push, as a concurrent creator would.

@@ -4,8 +4,11 @@
 #          required check (from rulesets, enforced branch protection or
 #          --required, repeatable, names may hold commas) is absent, however
 #          many other checks are green; rules and protection both unreadable
-#          exits 4 before polling, one of them readable is enough; an
-#          app-scoped required check exits 4; a count change
+#          exits 4 before polling, one of them readable is enough, a rules
+#          read failing other than 403/404 is unknown; app-scoped checks
+#          match by name; unenforced protection contexts are not required;
+#          a skipped required check is satisfied; a flaky one-shot read is
+#          retried; a count change
 #          resets the two-poll confirmation; a red check exits 1 naming it;
 #          no checks at all pass only with no required checks; repeated
 #          unreadable reads exit 4; the only fields requested are ones
@@ -48,13 +51,15 @@ mkdir -p "$SCRATCH/stub-bin"
 # anything else verbatim as unparseable output. Field names gh rejects
 # fail the way the real CLI does. Rules come from $FAKE/rules.json (none
 # when absent) and branch protection from $FAKE/branch.json (unprotected
-# when absent); $FAKE/rules.fail and $FAKE/branch.fail make those reads
-# fail.
+# when absent); $FAKE/rules.fail (403), $FAKE/rules.502 and $FAKE/branch.fail
+# make those reads fail; $FAKE/view.failonce fails one gh pr view.
 cat > "$SCRATCH/stub-bin/gh" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >> "$FAKE/calls"
 case "$1 $2" in
-  "pr view") echo main; exit 0 ;;
+  "pr view")
+    [ -f "$FAKE/view.failonce" ] && { rm "$FAKE/view.failonce"; echo 'gh: HTTP 502' >&2; exit 1; }
+    echo main; exit 0 ;;
   "pr ready") exit 0 ;;
   "pr checks")
     case "$*" in *status*|*conclusion*) echo 'Unknown JSON field: "status"' >&2; exit 1 ;; esac
@@ -68,6 +73,7 @@ case "$1 $2" in
   "api --paginate")
     [ "$3" = repos/o/r/rules/branches/main ] || exit 1
     [ -f "$FAKE/rules.fail" ] && { echo 'gh: HTTP 403' >&2; exit 1; }
+    [ -f "$FAKE/rules.502" ] && { echo 'gh: HTTP 502' >&2; exit 1; }
     [ -f "$FAKE/rules.json" ] && { cat "$FAKE/rules.json"; exit 0; }
     echo '[]'; exit 0 ;;
   "api repos/o/r/branches/main")
@@ -155,14 +161,38 @@ run_suite() {
   scenario appscoped "$(checks build=pass)" "$(checks build=pass)"
   echo '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"build","integration_id":15368}]}}]' > "$FAKE/rules.json"
   OUT="$("$SH" "$CLI" --pr 7 --gh-repo o/r --polls 4 --interval 0 2>&1)"
-  [ $? -eq 4 ] && echo "$OUT" | grep -q 'app-scoped required checks (build)'
-  assert $? "a ruleset check scoped to an app (integration_id) exits 4: gh pr checks cannot verify the app"
+  [ $? -eq 0 ]
+  assert $? "a ruleset check scoped to an app (integration_id) is matched by name: passes when it passes"
 
   scenario appscopedprot "$(checks build=pass)" "$(checks build=pass)"
   echo '{"protected":true,"protection":{"enabled":true,"required_status_checks":{"enforcement_level":"everyone","contexts":["build"],"checks":[{"context":"build","app_id":15368}]}}}' > "$FAKE/branch.json"
   "$SH" "$CLI" --pr 7 --gh-repo o/r --polls 4 --interval 0 >/dev/null 2>&1
+  [ $? -eq 0 ]
+  assert $? "a protection check scoped to an app (app_id, vscode-style) is matched by name: passes"
+
+  scenario rules502 "$(checks lint=pass)"
+  touch "$FAKE/rules.502"
+  "$SH" "$CLI" --pr 7 --gh-repo o/r --polls 4 --interval 0 >/dev/null 2>&1
   [ $? -eq 4 ]
-  assert $? "a protection check scoped to an app (app_id) exits 4"
+  assert $? "a rules read failing with 502 (not 403/404) leaves the set unknown: exit 4, never a pass"
+
+  scenario viewflake "$(checks lint=pass)"
+  touch "$FAKE/view.failonce"
+  "$SH" "$CLI" --pr 7 --gh-repo o/r --polls 4 --interval 0 >/dev/null 2>&1
+  [ $? -eq 0 ] && [ "$(grep -c '^pr view' "$FAKE/calls")" -eq 2 ]
+  assert $? "one transient gh pr view failure is retried: normal pass"
+
+  scenario notenforced "$(checks a=pass)"
+  echo '{"protected":true,"protection":{"enabled":false,"required_status_checks":{"enforcement_level":"off","contexts":["ghost"],"checks":[{"context":"ghost","app_id":null}]}}}' > "$FAKE/branch.json"
+  "$SH" "$CLI" --pr 7 --gh-repo o/r --polls 4 --interval 0 >/dev/null 2>&1
+  [ $? -eq 0 ]
+  assert $? "protection contexts with enforcement_level off are not required"
+
+  scenario reqskipped "$(checks lint=pass test=skipping build=pass)"
+  echo "$rules_ltb" > "$FAKE/rules.json"
+  "$SH" "$CLI" --pr 7 --gh-repo o/r --polls 4 --interval 0 >/dev/null 2>&1
+  [ $? -eq 0 ]
+  assert $? "a skipped required check counts as satisfied"
 
   scenario lazy "$(checks lint=pass test=pass)" "$(checks lint=pass test=pass build=pending)" \
     "$(checks lint=pass test=pass build=pass)" "$(checks lint=pass test=pass build=pass)"
