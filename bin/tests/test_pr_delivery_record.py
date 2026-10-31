@@ -1,7 +1,7 @@
 """Purpose: Exercise the publisher and calling Markdown against a persistent fake GitHub.
 Public API: pytest-discovered test cases and the github fixture.
 Upstream deps: pytest, Python stdlib, lib.md_shell_extract, publisher CLI, calling Markdown and bin/ds-ticket-finish.
-Downstream consumers: bin-tests CI and local pytest runs.
+Downstream consumers: bin-tests CI and local pytest runs; bin/tests/test_ticket_pipeline_e2e.py imports GH and record().
 Failure modes: assertion failures or subprocess timeouts; GitHub state stays in temporary files.
 Performance: subprocess-backed cases; no network calls.
 """
@@ -27,8 +27,11 @@ A, B, C = "a" * 40, "b" * 40, "c" * 40
 START = "<!-- ds-delivery-record:v1:start -->"
 END = "<!-- ds-delivery-record:v1:end -->"
 
+# The single fake gh for this file and test_ticket_pipeline_e2e.py. With
+# s['origin'] (a bare repo) set, the PR head is that repo's s['branch'] and a
+# merge squashes it onto s['base'] there; without it, s['head'] is the head.
 GH = r"""#!/usr/bin/env python3
-import json, os, sys
+import json, os, subprocess, sys
 from pathlib import Path
 p=Path(os.environ['FAKE_GH_STATE']); s=json.loads(p.read_text()); args=sys.argv[1:]
 s['calls'].append(args)
@@ -36,6 +39,26 @@ def done(output=None, code=0):
     p.write_text(json.dumps(s))
     if output is not None: print(json.dumps(output))
     sys.exit(code)
+def raw(text):
+    p.write_text(json.dumps(s)); print(text); sys.exit(0)
+def opt(name):
+    return args[args.index(name)+1] if name in args else None
+def git(*a):
+    return subprocess.run(['git','--git-dir',s['origin'],*a],check=True,capture_output=True,text=True).stdout.strip()
+def head():
+    return git('rev-parse','refs/heads/'+s['branch']) if s.get('origin') else s['head']
+if args[:2] == ['pr','create']:
+    s['created']=True; s['draft']='--draft' in args; s['body']=Path(opt('--body-file')).read_text()
+    raw('https://github.com/test/repo/pull/7')
+if args[:2] == ['pr','checks']:
+    if 'status' in opt('--json') or 'conclusion' in opt('--json'):
+        print('Unknown JSON field: "status"', file=sys.stderr); done(code=1)
+    polls=s['check_polls']; current=polls.pop(0) if len(polls) > 1 else polls[0]
+    done(current, code=8 if any(c['bucket'] == 'pending' for c in current) else 0)
+if args[:2] == ['api','--paginate'] and args[2].endswith('/rules/branches/'+s.get('base','main')):
+    done([{'type':'required_status_checks','parameters':{'required_status_checks':[{'context':c} for c in s.get('required',[])]}}])
+if args[:1] == ['api'] and args[1].endswith('/branches/'+s.get('base','main')):
+    done({'protected':False,'protection':{'enabled':False,'required_status_checks':{'enforcement_level':'off','contexts':[],'checks':[]}}})
 if args[:2] == ['pr','view']:
     fields=args[args.index('--json')+1]
     if fields == 'headRefOid,body,url':
@@ -43,7 +66,12 @@ if args[:2] == ['pr','view']:
         n=str(s['views'])
         if n in s.get('move_at',{}): s['head']=s['move_at'][n]
         if n in s.get('body_at',{}): s['body']+=s['body_at'][n]
-        done({'headRefOid':s['head'],'body':s['body'],'url':'https://github.com/test/repo/pull/7'})
+        done({'headRefOid':head(),'body':s['body'],'url':'https://github.com/test/repo/pull/7'})
+    if fields == 'baseRefName':
+        raw(s.get('base','main'))
+    if fields == 'number':
+        if not s.get('created'): done(code=1)
+        raw('7')
     if fields == 'reviewDecision':
         if s.get('review_failure'): done(code=1)
         done({'reviewDecision':s.get('decision','')})
@@ -51,13 +79,13 @@ if args[:2] == ['pr','view']:
         if s.get('queue_failure'): done(code=1)
         done({'autoMergeRequest':s.get('queue')})
     if fields == 'isDraft,mergeable,reviewDecision':
-        done({'isDraft':False,'mergeable':'MERGEABLE','reviewDecision':'NONE'})
+        done({'isDraft':s.get('draft',False),'mergeable':'MERGEABLE','reviewDecision':'NONE'})
     if fields == 'commits':
-        p.write_text(json.dumps(s)); print(s.get('headline','feat: test')); sys.exit(0)
+        raw(git('log','-1','--format=%s','refs/heads/'+s['branch']) if s.get('origin') else s.get('headline','feat: test'))
     if fields == 'isDraft':
-        p.write_text(json.dumps(s)); print('false'); sys.exit(0)
+        raw('true' if s.get('draft') else 'false')
     if fields == 'state':
-        p.write_text(json.dumps(s)); print('OPEN'); sys.exit(0)
+        raw(s.get('state','OPEN'))
 if args[:2] == ['pr','edit']:
     if s.get('edit_failure'): done(code=1)
     s['body']=Path(args[args.index('--body-file')+1]).read_text()
@@ -68,7 +96,8 @@ if args[:2] == ['pr','list']:
     done(s.get('siblings',[]))
 if args[:2] == ['pr','update-branch']:
     s['head']='b'*40; done()
-if args[:2] == ['pr','ready']: done()
+if args[:2] == ['pr','ready']:
+    s['draft']=False; done()
 if args[:2] == ['pr','merge']:
     if '--disable-auto' in args:
         if s.get('disable_failure'): done(code=1)
@@ -76,8 +105,18 @@ if args[:2] == ['pr','merge']:
     if s.get('race_merge'): s['head']=s.pop('race_merge')
     if '--match-head-commit' not in args: s['unguarded']=True; done(code=1)
     requested=args[args.index('--match-head-commit')+1]
-    if requested != s['head']: s['rejected']=True; done(code=1)
-    s['accepted']=s.get('accepted',[])+[requested]; done()
+    if requested != head() or s.get('draft'): s['rejected']=True; done(code=1)
+    s['accepted']=s.get('accepted',[])+[requested]
+    if s.get('origin'):
+        base=s.get('base','main')
+        env={**os.environ, 'GIT_AUTHOR_NAME':'gh', 'GIT_AUTHOR_EMAIL':'gh@example.com',
+             'GIT_COMMITTER_NAME':'gh', 'GIT_COMMITTER_EMAIL':'gh@example.com'}
+        squash=subprocess.run(['git','--git-dir',s['origin'],'commit-tree',requested+'^{tree}','-p',git('rev-parse','refs/heads/'+base),'-m','squash (#7)'],
+                              check=True,capture_output=True,text=True,env=env).stdout.strip()
+        git('update-ref','refs/heads/'+base,squash)
+        if '--delete-branch' in args: git('update-ref','-d','refs/heads/'+s['branch'])
+        s['state']='MERGED'
+    done()
 done(code=1)
 """
 

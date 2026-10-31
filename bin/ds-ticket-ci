@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# Module manifest
+# Purpose: /ds-implement-ticket Phase 10 CI wait as one bounded command. Polls
+#          `gh pr checks --json name,state,bucket` and passes only when every
+#          required check of the PR's base branch is registered and passing
+#          (or skipped), nothing registered is pending or failed, and two
+#          consecutive polls see the same check count.
+#          Catches: a green verdict on a partial suite - checks register
+#          lazily after a push or rebase, so a few early green checks can
+#          stand in for a suite that has not started (PR #839 merged that
+#          way). Retires: when /ds-implement-ticket stops waiting on CI itself
+#          (e.g. hands the merge to a GitHub merge queue).
+#
+# Public API:
+#   ds-ticket-ci --pr N --gh-repo OWNER/REPO [--required NAME]...
+#                [--polls N] [--interval SECONDS]
+#     Required checks are the union of the base branch's ruleset
+#     `required_status_checks` contexts, its branch-protection contexts (when
+#     enforced), and each --required NAME (repeatable; a name may contain
+#     commas). A rules read answering 403/404 means no rulesets. If the
+#     rules read fails otherwise, or neither source can be read, and no
+#     --required is given, the script stops with exit 4 rather than wait on
+#     an unknown set. Each one-shot read is retried once.
+#     Accepted residual: required checks scoped to one app (ruleset
+#     integration_id, protection app_id) are matched by name only, because
+#     `gh pr checks` does not report which app produced a check; a
+#     same-named check from another app satisfies the name here, and
+#     GitHub's own merge enforcement still blocks that merge.
+#     --polls       poll budget (default 60); --interval seconds between
+#                   polls (default 30).
+#   Exit codes: 0 passed (or nothing registered across 4 polls with no
+#   required checks); 1 failed - every check complete and at least one in
+#   bucket fail or cancel, or a failure still present at the poll budget;
+#   the `failing-checks:` breadcrumb names them; 2 timeout (budget spent
+#   without a verdict; the breadcrumb names required checks not yet
+#   passing); 3 usage error; 4 the required-check set or `gh pr checks`
+#   unreadable (the latter on 5 consecutive polls).
+#   Never merges, pushes, or marks the PR ready.
+#
+# Upstream deps: bash 3.2+ or zsh, gh, jq.
+#
+# Downstream consumers: content/commands/ds-implement-ticket.md Phases 10
+#                       and 10a; bin/tests/test_ticket_ci.sh,
+#                       bin/tests/test_ticket_pipeline_e2e.py.
+#
+# Failure modes: an unparseable `gh pr checks` read is reported on its own
+#                line and never counted as pending or passed.
+#
+# Performance: at most --polls reads of `gh pr checks` plus three gh calls
+#              for the required set (each retried once); default worst case
+#              about 30 minutes.
+# ---------------------------------------------------------------------------
+
+usage() {
+  echo "usage: ds-ticket-ci --pr N --gh-repo OWNER/REPO [--required NAME]... [--polls N] [--interval S]" >&2
+  exit 3
+}
+
+is_count() {
+  case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac
+}
+
+unreadable() {
+  echo "[phase: ci-wait | result: unreadable | $1]"
+  exit 4
+}
+
+CI_PR=""
+CI_GH_REPO=""
+CI_EXTRA=""
+CI_POLLS=60
+CI_INTERVAL=30
+while [ "$#" -gt 0 ]; do
+  [ "$#" -ge 2 ] || usage
+  case "$1" in
+    --pr) CI_PR="$2" ;;
+    --gh-repo) CI_GH_REPO="$2" ;;
+    --required) CI_EXTRA="$CI_EXTRA
+$2" ;;
+    --polls) CI_POLLS="$2" ;;
+    --interval) CI_INTERVAL="$2" ;;
+    *) usage ;;
+  esac
+  shift 2
+done
+is_count "$CI_PR" && [ -n "$CI_GH_REPO" ] || usage
+is_count "$CI_POLLS" && is_count "$CI_INTERVAL" || usage
+[ "$CI_POLLS" -gt 0 ] || usage
+
+CI_ERR_FILE=$(mktemp "${TMPDIR:-/tmp}/ds-ticket-ci.XXXXXX") || exit 4
+trap 'rm -f "$CI_ERR_FILE"' EXIT
+
+# gh_read ARGS...: a one-shot gh read, retried once after a transient failure.
+gh_read() {
+  gh "$@" 2>"$CI_ERR_FILE" && return 0
+  [ "$CI_INTERVAL" -gt 0 ] && sleep 2
+  gh "$@" 2>"$CI_ERR_FILE"
+}
+
+# Required set: ruleset contexts, enforced branch-protection contexts (the
+# branches endpoint, readable without admin), and --required. A rules read
+# answering 403 or 404 means the plan has no rulesets; any other failure
+# leaves the set unknown. Otherwise either source answering is enough.
+CI_SOURCES_OK=false
+CI_RULES_UNKNOWN=false
+CI_RULE_NAMES=""
+CI_PROT_NAMES=""
+CI_BASE=$(gh_read pr view "$CI_PR" --repo "$CI_GH_REPO" --json baseRefName -q .baseRefName)
+if [ -n "$CI_BASE" ]; then
+  if CI_RAW=$(gh_read api --paginate "repos/$CI_GH_REPO/rules/branches/$CI_BASE") \
+    && CI_RULE_NAMES=$(printf '%s' "$CI_RAW" | jq -s -r '.[][] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' 2>/dev/null); then
+    CI_SOURCES_OK=true
+  elif ! grep -q 'HTTP 40[34]' "$CI_ERR_FILE"; then
+    CI_RULES_UNKNOWN=true
+  fi
+  if CI_RAW=$(gh_read api "repos/$CI_GH_REPO/branches/$CI_BASE") \
+    && CI_PROT_NAMES=$(printf '%s' "$CI_RAW" | jq -r '(.protection.required_status_checks // {}) as $r
+      | if ($r.enforcement_level // "off") == "off" then empty
+        else (($r.contexts // [])[], (($r.checks // [])[] | .context)) end' 2>/dev/null); then
+    CI_SOURCES_OK=true
+  fi
+fi
+if { [ "$CI_SOURCES_OK" != "true" ] || [ "$CI_RULES_UNKNOWN" = "true" ]; } && [ -z "$CI_EXTRA" ]; then
+  unreadable "required checks of PR #$CI_PR's base branch '${CI_BASE:-?}' not readable; fix gh access or pass --required NAME for each"
+fi
+CI_REQUIRED=$(printf '%s\n%s\n%s\n' "$CI_RULE_NAMES" "$CI_PROT_NAMES" "$CI_EXTRA" | grep -v '^$' | sort -u)
+CI_REQ_COUNT=$(printf '%s' "$CI_REQUIRED" | grep -c .)
+echo "[phase: ci-wait | required: $CI_REQ_COUNT | $(printf '%s' "$CI_REQUIRED" | tr '\n' ';' | sed 's/;$//')]"
+
+CI_I=0
+CI_ZERO_STREAK=0
+CI_READ_ERRORS=0
+CI_GREEN_TOTAL=""
+CI_FAILED_NAMES=""
+CI_MISSING="$(printf '%s' "$CI_REQUIRED" | tr '\n' ';' | sed 's/;$//; s/;/, /g')"
+CI_RESULT=""
+while [ "$CI_I" -lt "$CI_POLLS" ]; do
+  CI_I=$((CI_I + 1))
+  [ "$CI_I" -gt 1 ] && sleep "$CI_INTERVAL"
+  # gh exits non-zero while checks are pending, so stdout, not the exit
+  # status, decides whether this read is usable.
+  CI_JSON=$(gh pr checks "$CI_PR" --repo "$CI_GH_REPO" --json name,state,bucket 2>"$CI_ERR_FILE")
+  if printf '%s' "$CI_JSON" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    CI_TOTAL=$(printf '%s' "$CI_JSON" | jq 'length')
+  elif [ -z "$CI_JSON" ] && grep -q 'no checks reported' "$CI_ERR_FILE"; then
+    CI_JSON='[]'
+    CI_TOTAL=0
+  else
+    CI_READ_ERRORS=$((CI_READ_ERRORS + 1))
+    echo "[phase: ci-wait | read-error $CI_READ_ERRORS/5 | poll $CI_I/$CI_POLLS | $(head -c 200 "$CI_ERR_FILE" | tr '\n' ' ')]"
+    [ "$CI_READ_ERRORS" -ge 5 ] && unreadable "gh pr checks failed 5 polls in a row"
+    CI_GREEN_TOTAL=""
+    continue
+  fi
+  CI_READ_ERRORS=0
+
+  if [ "$CI_TOTAL" -eq 0 ]; then
+    CI_ZERO_STREAK=$((CI_ZERO_STREAK + 1))
+    CI_GREEN_TOTAL=""
+    if [ "$CI_REQ_COUNT" -eq 0 ] && [ "$CI_ZERO_STREAK" -ge 4 ]; then
+      echo "[phase: ci-wait | result: passed-by-default | no-checks]"
+      CI_RESULT=passed
+      break
+    fi
+    echo "Waiting for CI checks... ($CI_I/$CI_POLLS, none registered)"
+    continue
+  fi
+  CI_ZERO_STREAK=0
+
+  CI_PENDING=$(printf '%s' "$CI_JSON" | jq '[.[] | select(.bucket != "pass" and .bucket != "skipping" and .bucket != "fail" and .bucket != "cancel")] | length')
+  CI_FAILED_NAMES=$(printf '%s' "$CI_JSON" | jq -r '[.[] | select(.bucket == "fail" or .bucket == "cancel") | .name] | join(", ")')
+  CI_MISSING=$(printf '%s' "$CI_JSON" | jq -r --arg req "$CI_REQUIRED" \
+    '($req | split("\n") | map(select(length > 0))) - [.[] | select(.bucket == "pass" or .bucket == "skipping") | .name] | join(", ")')
+  if [ "$CI_PENDING" -eq 0 ] && [ -n "$CI_FAILED_NAMES" ]; then
+    CI_RESULT=failed
+    break
+  fi
+  if [ "$CI_PENDING" -eq 0 ] && [ -z "$CI_MISSING" ]; then
+    if [ "$CI_GREEN_TOTAL" = "$CI_TOTAL" ]; then
+      echo "[phase: ci-wait | result: passed | checks: $CI_TOTAL | required: $CI_REQ_COUNT]"
+      CI_RESULT=passed
+      break
+    fi
+    CI_GREEN_TOTAL="$CI_TOTAL"
+    echo "Waiting for CI checks... ($CI_I/$CI_POLLS, $CI_TOTAL/$CI_TOTAL complete, confirming the count holds)"
+    continue
+  fi
+  CI_GREEN_TOTAL=""
+  echo "Waiting for CI checks... ($CI_I/$CI_POLLS, $((CI_TOTAL - CI_PENDING))/$CI_TOTAL complete, required not passing: ${CI_MISSING:-none})"
+done
+
+if [ -z "$CI_RESULT" ] && [ -n "$CI_FAILED_NAMES" ]; then
+  CI_RESULT=failed
+fi
+case "$CI_RESULT" in
+  passed)
+    exit 0
+    ;;
+  failed)
+    echo "[phase: ci-wait | result: failed | failing-checks: $CI_FAILED_NAMES]"
+    exit 1
+    ;;
+esac
+echo "[phase: ci-wait | result: timeout | polls: $CI_POLLS | required not passing: ${CI_MISSING:-none}]"
+exit 2

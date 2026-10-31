@@ -42,11 +42,11 @@
 #                content/agents/engineer.md and
 #                content/agents/qa-engineer.md (the four points of use, each
 #                asserted to still carry a §section pointer at the canonical
-#                rule); the eleven CARRIER_WIRING_FILES plus one
+#                rule); the ten CARRIER_WIRING_FILES plus one
 #                bin/ds-ticket-commit block (Phase 8), one
-#                content/references/orchestration-units.md block, and one
-#                content/references/qa-evidence-publish.md block (grepped by
-#                check_carrier_wiring for `ds-retire-carrier`), and
+#                content/references/orchestration-units.md block, and the
+#                bin/ds-qa-evidence-publish qa_publish function (Phase 8.5)
+#                (grepped by check_carrier_wiring for `ds-retire-carrier`), and
 #                scripts/codex-skills.py `CODEX_SPAWN_CONTRACT` (imported by
 #                check_completion_sentence_parity, which also reads the
 #                canonical section and section 11 for sentence S).
@@ -992,7 +992,7 @@ echo "step2-argv exit=$r0g"
 # disposition must name the tool that performs it, and the three
 # ds-implement-ticket blocks that execute it must call it (the fan-out
 # **Worktree cleanup.** block lives in orchestration-units.md, the Phase 8.5
-# block in qa-evidence-publish.md). A site that loses
+# block in bin/ds-qa-evidence-publish). A site that loses
 # the name has gone back to describing a removal nothing performs.
 CARRIER_WIRING_FILES="content/sections/11-worktree-lifecycle.md
 content/references/worktree-lifecycle.md
@@ -1000,14 +1000,13 @@ content/rules/conventions.md
 content/references/subagent-protocol.md
 content/commands/ds-implement-ticket.md
 content/references/orchestration-units.md
-content/references/qa-evidence-publish.md
 content/references/qa-gate.md
 content/references/evidence-on-disk.md
 content/commands/ds-wrap.md
 scripts/codex-skills.py"
 COMMIT_SCRIPT="$REPO_ROOT/bin/ds-ticket-commit"
 ORCH_DOC="$REPO_ROOT/content/references/orchestration-units.md"
-QA_EVIDENCE_DOC="$REPO_ROOT/content/references/qa-evidence-publish.md"
+QA_EVIDENCE_SCRIPT="$REPO_ROOT/bin/ds-qa-evidence-publish"
 
 check_carrier_wiring() {
   local ok=0 rel block
@@ -1028,9 +1027,9 @@ check_carrier_wiring() {
     echo "CARRIER-WIRING VIOLATION: the fence after **Worktree cleanup.** does not call ds-retire-carrier" >&2
     ok=1
   fi
-  block=$(awk '/^## Phase 8\.5:/{c=1} c && /^## Phase 11:/{exit} c{print}' "$QA_EVIDENCE_DOC")
+  block=$(awk '/^qa_publish\(\) \{/{c=1} c{print} c && /^}/{exit}' "$QA_EVIDENCE_SCRIPT")
   if [ -z "$block" ] || ! printf '%s\n' "$block" | grep -qF 'ds-retire-carrier'; then
-    echo "CARRIER-WIRING VIOLATION: the Phase 8.5 block does not call ds-retire-carrier" >&2
+    echo "CARRIER-WIRING VIOLATION: the Phase 8.5 qa_publish function in bin/ds-qa-evidence-publish does not call ds-retire-carrier" >&2
     ok=1
   fi
   return "$ok"
@@ -1079,6 +1078,7 @@ import re, sys
 root = sys.argv[1]
 ticket = open(f"{root}/content/commands/ds-implement-ticket.md", encoding="utf-8").read()
 kc = open(f"{root}/content/references/knowledge-commit.md", encoding="utf-8").read()
+qa = open(f"{root}/content/references/qa-evidence-publish.md", encoding="utf-8").read()
 FINISH = '"$REPO_DIR/bin/ds-ticket-finish"'
 SITES = [
     ("Phase 8", ticket, "## Phase 8: Commit and push", "## Phase 8.5:",
@@ -1089,6 +1089,12 @@ SITES = [
      ['--repo "$REPO"', '--ticket "$TICKET_ID"', '--branch "$BRANCH_NAME"', '--gh-repo "$GH_REPO"',
       '--loop-key "$LOOP_KEY"', '--rework-detection "$REWORK_DETECTION"', '--risk-class "$RISK_CLASS"',
       '--skeptic-rounds "$SKEPTIC_ROUNDS"', '--qa-status "$QA_STATUS"']),
+    ("Phase 8.5 (qa-evidence-publish.md)", qa, "## Phase 8.5:", "## Phase 11:",
+     '"$REPO_DIR/bin/ds-qa-evidence-publish"',
+     ['--repo "$REPO"', '--ticket "$TICKET_ID"', '--branch "$BRANCH_NAME"', '--gh-repo "$GH_REPO"',
+      '-- "${QA_SCREENSHOT_PATHS[@]}"']),
+    ("Phase 10", ticket, "## Phase 10: Wait for CI checks", "## Phase 10a:", '"$REPO_DIR/bin/ds-ticket-ci"',
+     ['--pr "$PR_NUMBER"', '--gh-repo "$GH_REPO"', '--polls "$TIMEOUT_POLLS"']),
     ("Phase 12", ticket, "## Phase 12: Loop state cleanup", "## Phase 12a:", FINISH + " merge",
      ['--repo "$REPO"', '--branch "$BRANCH_NAME"', '--ticket "$TICKET_ID"', '--gh-repo "$GH_REPO"',
       '--pr "$PR_NUMBER"', '--delivery-record-input "$DELIVERY_RECORD_INPUT"',
@@ -1119,7 +1125,7 @@ sys.exit(bad)
 PYEOF
 }
 
-echo "== Script wiring: Phases 8, 9, 11e and 12 call ds-ticket-commit / ds-ticket-finish with their flags =="
+echo "== Script wiring: Phases 8, 8.5, 9, 10, 11e and 12 call ds-ticket-commit / ds-qa-evidence-publish / ds-ticket-finish / ds-ticket-ci with their flags =="
 check_ticket_script_wiring
 r0k=$?
 echo "script-wiring exit=$r0k"

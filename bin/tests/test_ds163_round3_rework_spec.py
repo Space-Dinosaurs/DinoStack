@@ -49,7 +49,6 @@ CORRECT_COVERAGE_PHRASE = "one event per W1 gate evaluation the conductor"
 # forever); anything else that fails bash -n is a NEW defect.
 ALLOWLISTED_FIRST_LINES = [
     re.compile(r'^\s*USAGE_AND_CALIBRATION="\$\(printf'),
-    re.compile(r"^PR_NUMBER=<captured-from-Phase-9>$"),
     re.compile(r'^\s*RUN_ID=\$\(gh run list --pr "\$PR_NUMBER"'),
     re.compile(r'^\s*if \[ -f \.github/CODEOWNERS \]'),
 ]

@@ -207,7 +207,7 @@ Parent rule: `content/rules/conventions.md` §Git Workflow ("Auto-merge follow-t
 
 ### Phase 10 timeout call site (full procedure)
 
-Called from `content/commands/ds-implement-ticket.md` Phase 10's Outcome routing, on the `Loop hit TIMEOUT_POLLS` outcome. When `auto_merge_on_ci_green` is `true`, check whether the PR is still a draft (the EXPECTED state on a fresh timeout, since Phase 10b's own un-draft is conditional on Phase 10 result: `passed`, which never fires on this path - but a resumed poll cycle or a manual `gh pr ready` between polls can make it non-draft by now, so the block checks rather than assumes), un-draft only if the check says `true`, then queue `--auto`:
+Called from `content/commands/ds-implement-ticket.md` Phase 10's Outcome routing, on the timeout outcome (`ds-ticket-ci` exit 2). When `auto_merge_on_ci_green` is `true`, check whether the PR is still a draft (the EXPECTED state on a fresh timeout, since Phase 10b's own un-draft is conditional on Phase 10 result: `passed`, which never fires on this path - but a resumed poll cycle or a manual `gh pr ready` between polls can make it non-draft by now, so the block checks rather than assumes), un-draft only if the check says `true`, then queue `--auto`:
 
 ```bash
 # @harness:phase10-timeout-auto-merge-queue
