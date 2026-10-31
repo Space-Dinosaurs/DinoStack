@@ -797,9 +797,15 @@ with open(${JSON.stringify(launchLog)}, 'a') as handle:
 
   const enabled = runHook(SCRIPT, projectDir, fakeHome, null, { AE_WORKTREE_REAP_DISABLE: undefined });
   assert(enabled.code === 0, 'W19: hook exits 0 with the kill switch unset');
-  for (let i = 0; i < 50 && !fs.existsSync(launchLog); i++) sleepMs(100);
-  const launched = fs.existsSync(launchLog) ? fs.readFileSync(launchLog, 'utf8') : '';
-  assert(launched.includes(`--repo ${projectDir} --min-age-hours 24`),
+  // Poll the content, not existence: the mock's open() creates the file
+  // before its write is flushed, so an existence check can read "".
+  const expectedLaunch = `--repo ${projectDir} --min-age-hours 24`;
+  let launched = '';
+  for (let i = 0; i < 300 && !launched.includes(expectedLaunch); i++) {
+    sleepMs(100);
+    launched = fs.existsSync(launchLog) ? fs.readFileSync(launchLog, 'utf8') : '';
+  }
+  assert(launched.includes(expectedLaunch),
     `W19: kill switch unset -> sweep launched against the main checkout (got: ${JSON.stringify(launched)})`);
 
   cleanup(fakeHome);
