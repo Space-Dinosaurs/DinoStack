@@ -36,7 +36,8 @@ export REPO_DIR
 # ---------------------------------------------------------------------------
 
 echo "Building OpenClaw adapter..."
-bash "$REPO_DIR/.openclaw/build.sh"
+. "$REPO_DIR/scripts/lib/harness-build.sh"
+ae_harness_build "$REPO_DIR" "$REPO_DIR/.openclaw/build.sh"
 
 # ---------------------------------------------------------------------------
 # Activation mode flags

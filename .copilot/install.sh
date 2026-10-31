@@ -181,7 +181,8 @@ fi
 
 echo ""
 echo "Running build..."
-bash "$COPILOT_DIR/build.sh"
+. "$REPO_DIR/scripts/lib/harness-build.sh"
+ae_harness_build "$REPO_DIR" "$COPILOT_DIR/build.sh"
 
 # ---------------------------------------------------------------------------
 # Step 2: Create ~/.copilot/ if needed and create symlinks

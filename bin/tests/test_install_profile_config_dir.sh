@@ -45,9 +45,9 @@ FAILS=0
 pass() { echo "  ok: $1"; }
 fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 
-# The codex/omp/pi installers rebuild or verify their own adapter dirs in the
-# live checkout, so they run only under DS_ALL_HARNESSES=1.
-CFG_HARNESSES="claude"
+# .codex/install.sh installs the committed generated Codex skills, so its
+# cases run only under DS_ALL_HARNESSES=1 (also run by codex-skill-sync.yml).
+CFG_HARNESSES="claude omp pi"
 if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
   CFG_HARNESSES="claude codex omp pi"
 fi
@@ -139,7 +139,7 @@ for harness in claude codex copilot cursor gemini hermes kimi omp openclaw openc
 done
 
 # ---------------------------------------------------------------------------
-# Test 4: per-harness --config-dir isolation across $CFG_HARNESSES
+# Test 4: per-harness --config-dir isolation across all 4 harnesses
 # (regression for PR #416 review finding 4: AE_CONFIG_PATH must follow
 # --config-dir for codex/omp/pi, not collapse to $HOME/.claude).
 # ---------------------------------------------------------------------------
@@ -181,7 +181,6 @@ rm -rf "$SX"
 # ---------------------------------------------------------------------------
 # Test 4b: Pi/OMP identity scope follows runtime-visible bindings only.
 # ---------------------------------------------------------------------------
-if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
 for harness in omp pi; do
   ISO="$(mktemp -d)"
   export HOME="$ISO/home"; mkdir -p "$HOME"
@@ -288,12 +287,9 @@ for harness in omp pi; do
   rm -rf "$ORCH_ENV"
 done
 
-fi
-
 # ---------------------------------------------------------------------------
 # Test 5: symlinked config FILE refusal (PR #416 review finding 1+2)
 # ---------------------------------------------------------------------------
-if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
 SYMT="$(mktemp -d)"
 export HOME="$SYMT/home"; mkdir -p "$HOME"
 echo "KEEP" > "$SYMT/victim_a"
@@ -309,6 +305,7 @@ ln -sf "$SYMT/victim_a" "$SY_PI/agentic-engineering.json"
 bash "$REPO_DIR/.pi/install.sh" --config-dir="$SY_PI" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || true
 grep -q KEEP "$SYMT/victim_a" && pass "pi JSON symlink write blocked" || fail "pi JSON symlink write truncated victim"
 
+if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
 SY_CX="$SYMT/codex_prof"; mkdir -p "$SY_CX"
 mkdir -p "$SYMT/victim_b"
 echo "KEEP" > "$SYMT/victim_b/inside.txt"
@@ -325,8 +322,8 @@ if [[ "$keep_b_kept" == "true" ]]; then
 else
   fail "codex config.toml symlink write truncated victim"
 fi
-rm -rf "$SYMT"
 fi
+rm -rf "$SYMT"
 
 # ---------------------------------------------------------------------------
 # Test 6: symlinked config DIRECTORY refusal (PR #416 review finding 3)

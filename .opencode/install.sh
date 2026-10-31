@@ -14,7 +14,8 @@ export REPO_DIR
 # ---------------------------------------------------------------------------
 
 echo "Building OpenCode adapter..."
-bash "$REPO_DIR/.opencode/build.sh"
+. "$REPO_DIR/scripts/lib/harness-build.sh"
+ae_harness_build "$REPO_DIR" "$REPO_DIR/.opencode/build.sh"
 
 # ---------------------------------------------------------------------------
 # Activation mode

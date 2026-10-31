@@ -164,7 +164,8 @@ fi
 echo ""
 echo "Building skill artifacts..."
 if [[ -x "$REPO_DIR/.hermes/build.sh" ]]; then
-  bash "$REPO_DIR/.hermes/build.sh"
+  . "$REPO_DIR/scripts/lib/harness-build.sh"
+  ae_harness_build "$REPO_DIR" "$REPO_DIR/.hermes/build.sh"
 else
   echo "  ! build.sh not found or not executable at $REPO_DIR/.hermes/build.sh"
   exit 1

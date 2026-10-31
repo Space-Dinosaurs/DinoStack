@@ -292,7 +292,7 @@ if [[ $CODEX_STAGE_BUILD_RC -ne 0 ]]; then
   exit "$CODEX_STAGE_BUILD_RC"
 fi
 
-python3 - "$REPO_DIR" "$CODEX_INSTALL_STAGE/repo" <<'PYEOF'
+python3 - "$REPO_DIR" "$CODEX_INSTALL_STAGE/repo" "${DS_ALL_HARNESSES:-}" <<'PYEOF'
 import hashlib
 import os
 import stat
@@ -330,12 +330,22 @@ def snapshot(base, relative):
             records[key] = ("special", stat.S_IFMT(info.st_mode))
     return records
 
+# Claude Code first (root AGENTS.md): `main` carries Codex artifacts that lag
+# content/ until the on-demand catch-up chore, so a stale source is expected
+# there and only warns; under DS_ALL_HARNESSES=1 it still refuses.
 for relative in roots:
     if snapshot(source, relative) != snapshot(staged, relative):
-        raise SystemExit(
-            f"Codex install source is stale at {relative}; run bash .codex/build.sh "
-            "and retry the installer"
+        if sys.argv[3] == "1":
+            raise SystemExit(
+                f"Codex install source is stale at {relative}; run bash .codex/build.sh "
+                "and retry the installer"
+            )
+        print(
+            f"warning: Codex install source is stale at {relative} (expected until the "
+            "next non-Claude catch-up merges); installing the committed artifacts.",
+            file=sys.stderr,
         )
+        break
 PYEOF
 
 ae_cleanup_install_stage

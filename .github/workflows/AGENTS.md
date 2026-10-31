@@ -94,8 +94,8 @@ merged trees had never been evaluated by any run**:
   `main` with a PAT (`CHANGELOG_PUSH_TOKEN`) - and a PAT *does* trigger
   workflows. Its commit subject (`chore(changelog): regenerate from merged
   PRs`) has no `(#N)` and no PR, so it hits the gate's no-PR path. Left alone
-  that fires the entire suite - `merged-codex-skill-sync` alone is budgeted 45
-  minutes - every single day on a two-file bot commit, and makes the retirement
+  that fires the entire suite - `merged-codex-skill-sync` alone was budgeted 45
+  minutes before it became dispatch-only - every single day on a two-file bot commit, and makes the retirement
   condition below unsatisfiable by construction.
 
   The gate therefore has a **second `run_full=false` path**: when no PR
@@ -217,9 +217,11 @@ loops are *not* consolidated (see `merged-hooks-js-tests`).
   whose branch starts with `chore/adapter-catch-up` (the on-demand catch-up chore);
   `verify-merged-tree.yml` sets it from its `all_harnesses` dispatch input,
   which also gates `merged-codex-skill-sync`. `codex-skill-sync.yml` is
-  advisory (off the required set) and its job runs only on that branch or a
-  workflow_dispatch: a job-level `if:` skip, not a `paths:` filter, per the
-  rule above.
+  advisory (off the required set) and path-triggered on the Codex skill
+  pipeline (`.codex/**` and its generator scripts) plus workflow_dispatch; a
+  `paths:` filter is safe here only because the check is not required. The
+  four non-Claude `*-skill-budget.yml` jobs run only on the catch-up branch
+  or a workflow_dispatch (job-level `if:` skip).
 - Both adapter pathspecs and both existence loops are duplicated verbatim
   between `adapter-sync.yml` and `verify-merged-tree.yml`. This is
   **not** extracted into a composite action: `scripts/gate-provenance.sh`'s D1

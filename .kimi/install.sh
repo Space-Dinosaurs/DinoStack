@@ -121,7 +121,8 @@ fi
 # ---------------------------------------------------------------------------
 
 echo "Building Kimi adapter..."
-bash "$REPO_DIR/.kimi/build.sh"
+. "$REPO_DIR/scripts/lib/harness-build.sh"
+ae_harness_build "$REPO_DIR" "$REPO_DIR/.kimi/build.sh"
 
 # ---------------------------------------------------------------------------
 # Link-health gate (DS-185)

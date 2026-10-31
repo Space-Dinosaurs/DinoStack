@@ -46,7 +46,8 @@ for arg in "$@"; do
 done
 
 echo "Building Pi coding agent adapter..."
-bash "$REPO_DIR/.pi/build.sh"
+. "$REPO_DIR/scripts/lib/harness-build.sh"
+ae_harness_build "$REPO_DIR" "$REPO_DIR/.pi/build.sh"
 
 # Activation config path defaults to the shared $HOME location but is also
 # redirectable via --config-dir so multi-tenant installs do not clobber each

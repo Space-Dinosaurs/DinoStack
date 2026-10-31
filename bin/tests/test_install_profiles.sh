@@ -23,16 +23,6 @@ SANDBOX="$(mktemp -d)"
 export HOME="$SANDBOX/home"
 mkdir -p "$HOME"
 
-# The codex/omp/pi installers rebuild or verify their own adapter dirs in the
-# live checkout, so the installing tests below run them only under
-# DS_ALL_HARNESSES=1.
-ALL_HARNESSES=false
-PROFILE_HARNESSES="claude"
-if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
-	ALL_HARNESSES=true
-	PROFILE_HARNESSES="claude codex omp pi"
-fi
-
 # ---------------------------------------------------------------------------
 # Test 1: discovery finds existing ~/.<harness>-* profile dirs and derives tenants
 # ---------------------------------------------------------------------------
@@ -40,16 +30,13 @@ mkdir -p "$HOME/.claude-acme" "$HOME/.codex-acme" "$HOME/.omp-acme/agent" "$HOME
 mkdir -p "$HOME/.claude-beta" "$HOME/.codex-beta" "$HOME/.pi-beta" # beta lacks omp -> skipped silently for omp
 
 out="$($REPO_DIR/scripts/install-profiles.sh --discover --no-cursor \
-	--harnesses="$PROFILE_HARNESSES" \
 	--no-identity --mode=opt-out --profile=default 2>&1 || true)"
 [[ "$out" == *"claude-acme"* ]] && pass "discovery installs claude-acme" || fail "discovery missed claude-acme"
-if [[ "$ALL_HARNESSES" == true ]]; then
-	[[ "$out" == *"codex-acme"* ]] && pass "discovery installs codex-acme" || fail "discovery missed codex-acme"
-	[[ "$out" == *"pi-acme"* ]] && pass "discovery installs pi-acme" || fail "discovery missed pi-acme"
-	[[ "$out" == *"pi-beta"* ]] && pass "discovery installs pi-beta" || fail "discovery missed pi-beta"
-	[[ "$out" == *"omp-acme"* ]] && pass "discovery installs omp-acme" || fail "discovery missed omp-acme"
-	[[ "$out" == *"codex-beta"* ]] && pass "discovery installs codex-beta" || fail "discovery missed codex-beta"
-fi
+[[ "$out" == *"codex-acme"* ]] && pass "discovery installs codex-acme" || fail "discovery missed codex-acme"
+[[ "$out" == *"pi-acme"* ]] && pass "discovery installs pi-acme" || fail "discovery missed pi-acme"
+[[ "$out" == *"pi-beta"* ]] && pass "discovery installs pi-beta" || fail "discovery missed pi-beta"
+[[ "$out" == *"omp-acme"* ]] && pass "discovery installs omp-acme" || fail "discovery missed omp-acme"
+[[ "$out" == *"codex-beta"* ]] && pass "discovery installs codex-beta" || fail "discovery missed codex-beta"
 
 # ---------------------------------------------------------------------------
 # Test 2: --tenants= explicit override still works
@@ -57,7 +44,6 @@ fi
 rm -rf "$HOME/.claude-"* "$HOME/.codex-"* "$HOME/.omp-"* "$HOME/.pi-"*
 mkdir -p "$HOME/.claude-foo" "$HOME/.codex-foo" "$HOME/.pi-foo"
 out="$($REPO_DIR/scripts/install-profiles.sh --tenants="foo" --no-cursor \
-	--harnesses="$PROFILE_HARNESSES" \
 	--no-identity --mode=opt-out --profile=default 2>&1 || true)"
 [[ "$out" == *"claude-foo"* ]] && pass "explicit --tenants installs claude-foo" || fail "explicit --tenants missed claude-foo"
 [[ "$out" != *"claude-acme"* ]] && pass "explicit --tenants ignores discovered acme" || fail "explicit --tenants still installed acme"
@@ -109,12 +95,9 @@ export HOME="$HOME_BAK"
 # ---------------------------------------------------------------------------
 rm -rf "$HOME/.claude-"* "$HOME/.codex-"* "$HOME/.omp-"* "$HOME/.pi-"*
 out="$($REPO_DIR/scripts/install-profiles.sh --create-profile=brandnew --no-cursor \
-	--harnesses="$PROFILE_HARNESSES" \
 	--no-identity --mode=opt-out --profile=default 2>&1 || true)"
 [[ -d "$HOME/.claude-brandnew" ]] && pass "create-profile created claude-brandnew" || fail "create-profile did not create claude-brandnew"
-if [[ "$ALL_HARNESSES" == true ]]; then
-	[[ -d "$HOME/.pi-brandnew" ]] && pass "create-profile created pi-brandnew" || fail "create-profile did not create pi-brandnew"
-fi
+[[ -d "$HOME/.pi-brandnew" ]] && pass "create-profile created pi-brandnew" || fail "create-profile did not create pi-brandnew"
 [[ "$out" == *"claude-brandnew"* ]] && pass "create-profile installed claude-brandnew" || fail "create-profile did not install claude-brandnew"
 
 if [[ "$FAILS" -gt 0 ]]; then

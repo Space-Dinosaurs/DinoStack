@@ -1,12 +1,18 @@
 name: codex-skill-sync
 
 on:
-  # PR-only. The post-merge run is not deleted, it is consolidated into
-  # verify-merged-tree.yml, which re-runs this check on `main` only when an
-  # `--admin` merge bypassed the ruleset's up-to-date requirement and landed
-  # a tree no PR run tested. Measurement, policy and retirement (the only
-  # site carrying the figures): .github/workflows/AGENTS.md
+  # Advisory. Runs on any PR that touches the Codex skill pipeline (the paths
+  # below; the catch-up chore's PR touches them whenever Codex output
+  # changes), and on workflow_dispatch. Its post-merge counterpart in
+  # verify-merged-tree.yml runs only on a workflow_dispatch with
+  # all_harnesses set. Policy: .github/workflows/AGENTS.md
   pull_request:
+    paths:
+      - '.codex/**'
+      - 'scripts/codex-skills.py'
+      - 'scripts/check-codex-skill-sync.sh'
+      - 'scripts/test/test_codex_skills.py'
+      - '.github/workflows/codex-skill-sync.yml'
   workflow_dispatch: {}
 
 concurrency:
@@ -19,13 +25,11 @@ permissions:
 jobs:
   # Advisory, not required (removed from the `main` ruleset 2026-10-31). Claude
   # Code first (root AGENTS.md): a methodology PR regenerates only `.claude`,
-  # so the Codex mirror is EXPECTED to be stale on every such PR and on `main`
-  # until the on-demand catch-up chore. This job therefore runs only where it
-  # can be green: on the catch-up chore PR (branch `chore/adapter-catch-up*`)
-  # and on workflow_dispatch. A `paths:` filter was not used: it would skip
-  # the content/ edits that make the mirror stale, and go red on any PR that
-  # touches `.codex/**` while `main` is mid-lag, for reasons that PR did not
-  # cause.
+  # so the Codex mirror may lag `main` until the on-demand catch-up chore.
+  # The `paths:` filter keeps this job off those PRs while still checking any
+  # PR that edits the Codex pipeline by hand. Such a PR can go red on lag it
+  # did not cause; the fix is to run the catch-up in the same PR
+  # (CONTRIBUTING.md, "Non-Claude harnesses").
   #
   # Ubuntu-only - this job MUST NOT carry a strategy.matrix key. GitHub
   # Actions appends " (<matrix value>)" to the reported check name for ANY
@@ -43,9 +47,8 @@ jobs:
   # escape passes through python3; see that file around lines 428-447).
   # Removed rather than demoted to a weekly cron.
   check-codex-skill-sync:
-    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'chore/adapter-catch-up') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 65
     env:
       DS_ALL_HARNESSES: '1'
     steps:
@@ -62,7 +65,7 @@ jobs:
       # observed max. Small setup steps measured well under 15s each; 2 min
       # is a generous multiple, not a tight fit. "Run clean-clone mutation
       # gate" measured 31s-47s; 5 min is ~6x headroom. Timed step timeouts
-      # sum to 39 min, kept under the 45-min job timeout so each step's own
+      # sum to 59 min, kept under the 65-min job timeout so each step's own
       # bound - not the job-level backstop - is what actually fires on a hang.
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -88,3 +91,13 @@ jobs:
       - name: Verify public build is clean
         run: git diff --exit-code
         timeout-minutes: 1
+      # The Codex installer cases of these two shell suites install the
+      # committed generated Codex skills, so bin-tests.yml skips them outside
+      # DS_ALL_HARNESSES; this job (DS_ALL_HARNESSES=1) runs them on any PR
+      # touching .codex/**.
+      - name: Run Codex installer config-dir cases
+        run: bash bin/tests/test_install_profile_config_dir.sh
+        timeout-minutes: 10
+      - name: Run Codex installer hooks-snapshot migration cases
+        run: bash bin/tests/test_hooks_snapshot_migration.sh
+        timeout-minutes: 10

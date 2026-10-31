@@ -19,7 +19,8 @@ export REPO_DIR
 # ---------------------------------------------------------------------------
 
 echo "Building Pi (oh-my-pi) adapter..."
-bash "$REPO_DIR/.omp/build.sh"
+. "$REPO_DIR/scripts/lib/harness-build.sh"
+ae_harness_build "$REPO_DIR" "$REPO_DIR/.omp/build.sh"
 
 # ---------------------------------------------------------------------------
 # Activation mode (shared across all adapters)

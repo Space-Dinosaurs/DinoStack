@@ -423,7 +423,8 @@ done
 
 echo "Running initial build..."
 [[ -f "$REPO_DIR/.claude/build.sh" ]] && bash "$REPO_DIR/.claude/build.sh"
-bash "$REPO_DIR/.cursor/build.sh"
+. "$REPO_DIR/scripts/lib/harness-build.sh"
+ae_harness_build "$REPO_DIR" "$REPO_DIR/.cursor/build.sh"
 
 # ---------------------------------------------------------------------------
 # Install pre-commit hook

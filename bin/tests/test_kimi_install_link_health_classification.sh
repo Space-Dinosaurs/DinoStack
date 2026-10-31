@@ -80,8 +80,10 @@
 
 set -uo pipefail
 
-# Runs the real .kimi/install.sh, which rebuilds .kimi/ in the live
-# checkout: a non-Claude harness test, run only under DS_ALL_HARNESSES=1.
+# Asserts on the .kimi build's own output, which outside DS_ALL_HARNESSES=1
+# the installer discards in favour of the committed (possibly lagging) files
+# (scripts/lib/harness-build.sh): a non-Claude harness test, run only under
+# DS_ALL_HARNESSES=1.
 if [ "${DS_ALL_HARNESSES:-}" != 1 ]; then
   echo "SKIP: non-Claude harness test (set DS_ALL_HARNESSES=1 to run)"
   exit 0

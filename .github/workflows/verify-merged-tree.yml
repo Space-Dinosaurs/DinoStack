@@ -188,8 +188,8 @@ jobs:
           # `git add CHANGELOG.md docs/changelog.html`, commits
           # "chore(changelog): regenerate from merged PRs" with no `(#N)`
           # suffix, and pushes straight to main. Without this branch that bot
-          # commit fires the entire suite - merged-codex-skill-sync alone is
-          # budgeted 45 minutes - every single day, and makes the Pillar 8
+          # commit fires the entire suite - merged-codex-skill-sync alone was
+          # budgeted 45 minutes before it became dispatch-only - every single day, and makes the Pillar 8
           # retirement condition unsatisfiable by construction.
           #
           # The allowlist is deliberately two entries. Verified by
@@ -513,7 +513,7 @@ jobs:
     # is a YAML scanner error, not merely a style choice.
     if: ${{ !cancelled() && inputs.all_harnesses && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -548,6 +548,12 @@ jobs:
       - name: Verify public build is clean
         run: git diff --exit-code -- .codex
         timeout-minutes: 1
+      - name: Run Codex installer config-dir cases
+        run: bash bin/tests/test_install_profile_config_dir.sh
+        timeout-minutes: 10
+      - name: Run Codex installer hooks-snapshot migration cases
+        run: bash bin/tests/test_hooks_snapshot_migration.sh
+        timeout-minutes: 10
 
   # Mirrors resident-budget.yml (both jobs), command-file-budget.yml, and the
   # four skill-budget workflows. `fetch-depth: 0` is required: every gate

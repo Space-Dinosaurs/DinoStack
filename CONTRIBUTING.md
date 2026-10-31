@@ -46,7 +46,17 @@ DS_ALL_HARNESSES=1 bash scripts/check-local.sh
 python3 scripts/test/test_codex_skills.py
 ```
 
-Then open the PR from that branch. Until it merges, `.codex/install.sh` refuses to install from `main` (`Codex install source is stale`).
+Then open the PR from that branch.
+
+**Between catch-ups (the trade-off).** `main` carries non-Claude files that lag `content/`, so users of those adapters run slightly older methodology until the next catch-up merges. Their installers still build, but outside `DS_ALL_HARNESSES=1` they restore every tracked file the build changed and remove any new untracked file it created (`scripts/lib/harness-build.sh`), so the checkout stays clean and `ds-update` keeps working. `.codex/install.sh` warns that its source is stale and installs the committed files.
+
+**Recovery.** If `ds-update` stops with `working tree has uncommitted changes` and lists only paths under the non-Claude adapter directories (for example after an older installer, or a manual `bash .gemini/build.sh`), those are rebuilt artifacts. Check that none of them are your own edits, then discard them and re-run:
+
+```bash
+git -C <checkout> checkout -- .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot .github
+git -C <checkout> clean -n -- .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot .github   # review, then -f
+ds-update
+```
 
 Exit 2 is deliberately distinct from exit 1: it means no gate ran, so it says nothing about your change. The preflight prints the exact install command for whatever is missing. What it requires:
 

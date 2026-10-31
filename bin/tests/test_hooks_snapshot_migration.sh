@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Purpose: Regression test for the DS-54 hooks-snapshot migration across all
-#          4 in-scope adapters (.claude, .codex, .gemini, .kimi; the last
-#          three only under DS_ALL_HARNESSES=1). Seeds each
+#          4 in-scope adapters (.claude, .codex, .gemini, .kimi). Seeds each
 #          adapter's config with an OLD checkout-pointing hook entry plus one
 #          unrelated third-party hook entry, runs the real install.sh with a
 #          fake $HOME, and asserts: every dinostack hook entry now
@@ -306,10 +305,6 @@ else
   _fail "claude: uninstall removed or altered unrelated UserPromptSubmit hook"
 fi
 
-# Sections 2-4 run non-Claude installers, which rebuild their own adapter
-# dirs in the live checkout; they run only under DS_ALL_HARNESSES=1.
-if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
-
 # =============================================================
 # 2. Gemini CLI
 # =============================================================
@@ -392,6 +387,10 @@ else
   _fail "gemini: settings.json changed on re-run (not idempotent)"
 fi
 
+# .codex/install.sh installs the committed generated Codex skills, so this
+# section runs only under DS_ALL_HARNESSES=1 (also run by codex-skill-sync.yml).
+if [ "${DS_ALL_HARNESSES:-}" = 1 ]; then
+
 # =============================================================
 # 3. Codex
 # =============================================================
@@ -449,6 +448,11 @@ if [[ ! -e "$HOME_CODEX/.codex/hooks.json" && ! -L "$HOME_CODEX/.codex/hooks.jso
   _pass "codex: uninstall removes snapshot-backed hooks.json symlink"
 else
   _fail "codex: uninstall left hooks.json behind: $(readlink "$HOME_CODEX/.codex/hooks.json" 2>/dev/null || echo '<not symlink>')"
+fi
+
+else
+  echo ""
+  echo "=== 3. SKIP: .codex section (set DS_ALL_HARNESSES=1 to run) ==="
 fi
 
 # =============================================================
@@ -510,11 +514,6 @@ if [[ "$CONFIG_KIMI_1" == "$CONFIG_KIMI_2" ]]; then
   _pass "kimi: config.toml unchanged across a re-run (idempotent)"
 else
   _fail "kimi: config.toml changed on re-run (not idempotent)"
-fi
-
-else
-  echo ""
-  echo "=== 2-4. SKIP: .gemini/.codex/.kimi sections (set DS_ALL_HARNESSES=1 to run) ==="
 fi
 
 # =============================================================

@@ -428,7 +428,8 @@ GEMINI_HOOKS_DIR="$AE_HOOKS_ROOT/.gemini/hooks"
 # ---------------------------------------------------------------------------
 
 echo "Running build..."
-bash "$GEMINI_DIR/build.sh"
+. "$REPO_DIR/scripts/lib/harness-build.sh"
+ae_harness_build "$REPO_DIR" "$GEMINI_DIR/build.sh"
 
 # ---------------------------------------------------------------------------
 # Step 2: Create ~/.gemini/ if it does not exist
