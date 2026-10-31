@@ -31,6 +31,23 @@ Test groups:
                                                          keeps the deny.
   6. test_grant_requires_successful_persist           - a grant whose round cannot be written to the
                                                          state file denies, on every retry.
+     test_plain_grant_after_deny_allows_one_round     - an operator reply of exactly "grant" (or another
+                                                         allowlisted reply) after the deny allows one round.
+     test_plain_grant_after_prefixed_deny_allows      - a deny recorded with the "PreToolUse:Agent hook
+                                                         error: " prefix still anchors the grant.
+     test_plain_grant_before_deny_does_not_count      - "grant" typed before the deny never grants.
+     test_reply_other_than_exact_grant_does_not_count - refusals, sentences, quoted or token-bearing prose,
+                                                         "go ahead", "Grant?" and "granted" never grant.
+     test_grant_after_another_units_deny_does_not_count - another unit's deny never anchors this unit's grant.
+     test_one_grant_reopens_each_unit_it_answers      - one "grant" after two units' denies reopens round 4
+                                                         of both and round 5 of neither.
+     test_deny_for_another_round_count_does_not_anchor_a_grant - a "13 rounds" deny never anchors a
+                                                         round-3 grant.
+     test_old_round_deny_and_reply_do_not_reopen_the_next_round - a forked or copied transcript's old deny
+                                                         and reply never grant the next round.
+     test_operator_turn_between_deny_and_reply_voids_it - only the first operator turn after the deny
+                                                         can be a plain grant.
+     test_plain_grant_in_subagent_transcript_never_grants - "grant" in a `subagents/` transcript never grants.
   7. test_parallel_fanout_consumes_one_round          - MAJOR 3 regression: a 3-spawn
                                                          `skeptic_strategy: multi-dimensional` fan-out
                                                          (same diff, same Worker output, different
@@ -841,6 +858,203 @@ def test_grant_requires_successful_persist():
         finally:
             agentic_dir.chmod(stat.S_IRWXU)
         assert _read_state(tmp, unit)["round_count"] == 3
+
+
+def _deny_tool_result_line(reason: str, prefix: str = "") -> dict:
+    """The line Claude Code records for a PreToolUse deny. Most real denies
+    carry a "PreToolUse:Agent hook error: " prefix before the reason; some
+    carry the bare reason."""
+    return {
+        "type": "user",
+        "isSidechain": False,
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_deny", "content": prefix + reason, "is_error": True}
+            ],
+        },
+    }
+
+
+def _denied_round_4(tmp: str, unit: str = "feature/round-cap-test") -> str:
+    _spend_three_rounds(tmp, unit)
+    _, denied = _run_hook(_skeptic_payload(tmp, unit, what_to_review="worker output round 4"))
+    assert _is_denied(denied)
+    return _deny_reason(denied)
+
+
+def _round_4_with(tmp: str, lines: list[dict], unit: str = "feature/round-cap-test") -> dict | None:
+    extra = {"transcript_path": _write_transcript(tmp, lines)}
+    _, parsed = _run_hook(_skeptic_payload(tmp, unit, what_to_review="worker output round 4", extra=extra))
+    return parsed
+
+
+@pytest.mark.parametrize(
+    "reply", ["grant", "Grant.", "  grant it ", "Yes grant!", "lift the cap", "Cap lifted."]
+)
+def test_plain_grant_after_deny_allows_one_round(reply):
+    """Mutations that redden it: make `_operator_granted` ignore plain
+    replies (round 4 denied); drop the round count from its deny marker
+    (round 5 allowed)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        unit = "feature/round-cap-test"
+        reason = _denied_round_4(tmp, unit)
+        lines = [_deny_tool_result_line(reason), _typed_user_line(reply)]
+        extra = {"transcript_path": _write_transcript(tmp, lines)}
+
+        _, parsed = _run_hook(_skeptic_payload(tmp, unit, what_to_review="worker output round 4", extra=extra))
+        assert not _is_denied(parsed), f"{reply!r} after the deny did not grant: {parsed}"
+        assert _read_state(tmp, unit)["round_count"] == 4
+
+        _, parsed = _run_hook(_skeptic_payload(tmp, unit, what_to_review="worker output round 5", extra=extra))
+        assert _is_denied(parsed), "one plain grant must allow exactly one round"
+        assert _read_state(tmp, unit)["round_count"] == 4
+
+
+def test_plain_grant_after_prefixed_deny_allows():
+    """Mutation that reddens it: require the tool_result text to start with
+    the deny marker instead of containing it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        reason = _denied_round_4(tmp)
+        parsed = _round_4_with(
+            tmp, [_deny_tool_result_line(reason, "PreToolUse:Agent hook error: "), _typed_user_line("grant")]
+        )
+        assert not _is_denied(parsed), f"grant after a prefixed deny did not grant: {parsed}"
+
+
+@pytest.mark.parametrize("shape", ["grant_then_deny", "deny_grant_deny"])
+def test_plain_grant_before_deny_does_not_count(shape):
+    """A reply counts only after the unit's LATEST deny. Mutation that
+    reddens it (deny_grant_deny): delete the `plain_granted = False` reset
+    on a deny in `_operator_granted`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        unit = "feature/round-cap-test"
+        reason = _denied_round_4(tmp, unit)
+        lines = [_typed_user_line("grant"), _deny_tool_result_line(reason)]
+        if shape == "deny_grant_deny":
+            lines.insert(0, _deny_tool_result_line(reason))
+        parsed = _round_4_with(tmp, lines)
+        assert _is_denied(parsed), "a grant typed before the deny reopened the cap"
+        assert _read_state(tmp, unit)["round_count"] == 3
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "don't lift the cap",
+        "I won't grant that",
+        "grant nothing, ship it",
+        "do not grant",
+        "go ahead and ship it",
+        "the skeptic-grant-deadbeef line",
+        '"grant"',
+        "go ahead",
+        "Grant?",
+        "granted",
+    ],
+)
+def test_reply_other_than_exact_grant_does_not_count(reply):
+    """Mutations that redden it: match `_PLAIN_GRANT_REPLIES` entries
+    anywhere in the text instead of against the whole reply; add "go ahead"
+    back to `_PLAIN_GRANT_REPLIES`; strip a trailing "?" in
+    `_is_plain_grant`; add "granted" back to `_PLAIN_GRANT_REPLIES`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        reason = _denied_round_4(tmp)
+        parsed = _round_4_with(tmp, [_deny_tool_result_line(reason), _typed_user_line(reply)])
+        assert _is_denied(parsed), f"{reply!r} granted a round"
+
+
+def test_grant_after_another_units_deny_does_not_count():
+    """Mutation that reddens it: set the deny marker in `_operator_granted`
+    to `_CAP_DENY_HEAD` alone, dropping the unit key."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _denied_round_4(tmp, "feature/unit-a")
+        reason_b = _denied_round_4(tmp, "feature/unit-b")
+        parsed = _round_4_with(
+            tmp, [_deny_tool_result_line(reason_b), _typed_user_line("grant")], unit="feature/unit-a"
+        )
+        assert _is_denied(parsed), "unit B's deny let a grant open unit A"
+        assert _read_state(tmp, "feature/unit-a")["round_count"] == 3
+
+
+def test_one_grant_reopens_each_unit_it_answers():
+    """One "grant" after two units' current-round denies allows round 4 of
+    both, and round 5 of neither. Mutations that redden it: let another
+    unit's cap deny clear `awaiting_reply` in `_operator_granted`, so only
+    the last-denied unit is reopened (round 4); drop the round count from
+    the deny marker (round 5)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        units = ("feature/unit-a", "feature/unit-b")
+        reasons = [_denied_round_4(tmp, u) for u in units]
+        lines = [_deny_tool_result_line(r) for r in reasons] + [_typed_user_line("grant")]
+        extra = {"transcript_path": _write_transcript(tmp, lines)}
+        for unit in units:
+            _, parsed = _run_hook(_skeptic_payload(tmp, unit, what_to_review="round 4", extra=extra))
+            assert not _is_denied(parsed), f"{unit} round 4 was not reopened by the grant: {parsed}"
+        for unit in units:
+            _, parsed = _run_hook(_skeptic_payload(tmp, unit, what_to_review="round 5", extra=extra))
+            assert _is_denied(parsed), f"{unit} round 5 was allowed by the round-4 grant"
+            assert _read_state(tmp, unit)["round_count"] == 4
+
+
+def test_deny_for_another_round_count_does_not_anchor_a_grant():
+    """A "13 rounds" deny must not anchor a round-3 unit's grant. Mutation
+    that reddens it: drop `{_CAP_DENY_HEAD} ` from the deny marker in
+    `_operator_granted`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        reason = _denied_round_4(tmp)
+        other = reason.replace(": 3 rounds already spent", ": 13 rounds already spent")
+        assert other != reason
+        parsed = _round_4_with(tmp, [_deny_tool_result_line(other), _typed_user_line("grant")])
+        assert _is_denied(parsed), "a 13-round deny anchored a round-3 grant"
+
+
+def test_old_round_deny_and_reply_do_not_reopen_the_next_round():
+    """A forked or copied transcript carries round 4's deny and reply into
+    round 5. Mutation that reddens it: drop `{round_count} rounds already`
+    from the deny marker in `_operator_granted`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        unit = "feature/round-cap-test"
+        reason = _denied_round_4(tmp, unit)
+        lines = [_deny_tool_result_line(reason), _typed_user_line("grant")]
+        assert not _is_denied(_round_4_with(tmp, lines, unit=unit))
+        assert _read_state(tmp, unit)["round_count"] == 4
+
+        fork = Path(tmp) / "fork"
+        fork.mkdir()
+        extra = {"transcript_path": _write_transcript(str(fork), lines)}
+        _, parsed = _run_hook(_skeptic_payload(tmp, unit, what_to_review="worker output round 5", extra=extra))
+        assert _is_denied(parsed), "a copied round-4 deny and reply reopened round 5"
+        assert _read_state(tmp, unit)["round_count"] == 4
+
+
+def test_operator_turn_between_deny_and_reply_voids_it():
+    """Mutation that reddens it: keep waiting for a reply after the first
+    operator turn (delete `awaiting_reply = False` in `_operator_granted`)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        reason = _denied_round_4(tmp)
+        parsed = _round_4_with(
+            tmp,
+            [_deny_tool_result_line(reason), _typed_user_line("what would round 4 buy?"), _typed_user_line("grant")],
+        )
+        assert _is_denied(parsed), "a reply after an intervening operator turn granted a round"
+
+
+def test_plain_grant_in_subagent_transcript_never_grants():
+    """A spawn brief lands as a user-shaped line in a `subagents/`
+    transcript. Mutation that reddens it: replace the `/subagents/` path
+    check in `_operator_granted` with `if False:`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        reason = _denied_round_4(tmp)
+        sub_dir = Path(tmp) / "session" / "subagents"
+        sub_dir.mkdir(parents=True)
+        lines = [_deny_tool_result_line(reason), _typed_user_line("grant")]
+        extra = {"transcript_path": _write_transcript(str(sub_dir), lines)}
+
+        _, parsed = _run_hook(
+            _skeptic_payload(tmp, "feature/round-cap-test", what_to_review="worker output round 4", extra=extra)
+        )
+        assert _is_denied(parsed), "a brief line in a subagent transcript granted a round"
 
 
 # --------------------------------------------------------------------------- #
