@@ -1654,7 +1654,7 @@ The following findings were raised earlier or by a human review. For each:
 ```
 
 **Step 2.** Receive Skeptic output. Classify findings. Update `findings_log` (durable record - log every finding, every severity, including all-Minor/sign-off rounds):
-- Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `description`, `severity`, `first_raised: <iteration>`, `status: open`.
+- Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `description` (the finding line verbatim, `check:` included), `severity`, `first_raised: <iteration>`, `status: open`.
 - If a finding carries `[PREV: <id>]`, set `re_raised: true` on the matching `findings_log` entry; an entry the Skeptic marks CLOSED, `H<n>` included, becomes `closed`.
 - Minor findings: the conductor marks every `Beyond AC:` Minor `deferred` and may defer any other Minor whose scope exceeds the ticket, except a `Scope drift:` Minor (Step 3 removes those). Deferred Minors do not re-enter the loop and are documented in the PR description. Major findings may NOT be deferred on an Engineer's self-declared say-so; inside the loop, deferral requires either explicit human approval or the round-cap `ship` decision taken per Step 3 - the conductor escalates rather than accepting a self-declared deferral.
 - Overwrite `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` with the updated LOOP_STATE.

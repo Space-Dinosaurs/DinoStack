@@ -85,7 +85,7 @@ If Critical or Major findings remain: proceed to Step 4.
 
 ## Step 4 - Route findings to a Worker
 
-Spawn a **background general-purpose subagent via the `Agent` tool** with:
+Spawn the **`engineer` agent in the background via the `Agent` tool** with:
 
 - The original task
 - The Skeptic's findings (verbatim)
@@ -109,7 +109,7 @@ You are a Worker agent. Address the Skeptic findings below and return your revis
 **Exchange log so far:**
 [Paste accumulated log]
 
-For each Critical or Major finding: fix it, or document a specific reason why it is not a real problem. Return your revised complete output.
+For each Critical or Major finding: fix every instance of its class and re-run its `check:`, or document a specific reason why it is not a real problem. Return your revised complete output.
 ---
 
 Update the resolved issues preflight list with each addressed finding's identifier and description.
