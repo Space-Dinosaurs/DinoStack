@@ -4,12 +4,16 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          round-budget policy (content/sections/05-qa-gate.md §Re-route
          limits, content/references/skeptic-protocol.md §Round budget and
          value-per-round gate): a max of `_ROUND_CAP` Skeptic rounds per
-         unit. Past the cap, exactly one more round is allowed per operator
-         grant: the first genuine operator turn in the session transcript
-         after the unit's latest deny for its current round, when its whole
-         text is "grant" (or another `_PLAIN_GRANT_REPLIES` reply), or any
-         operator turn containing the `skeptic-grant-<8 hex>` token the deny
-         prints for that unit and round. Nothing the
+         unit. Past the cap, a plain grant (the first genuine operator turn
+         of this session after any cap deny, whose whole text is "grant" or
+         another `_PLAIN_GRANT_REPLIES` reply) lifts the cap for every unit
+         for the rest of the session, up to `_SESSION_GRANT_CEILING` rounds
+         per unit. Past the ceiling, exactly one more round is allowed per
+         operator grant: the first genuine operator turn after the unit's
+         latest deny for its current round, when it is a plain reply, or
+         any operator turn containing the `skeptic-grant-<8 hex>` token the
+         deny prints for that unit and round (the token works below the
+         ceiling too). Nothing the
          conductor writes to the state file reopens it.
          Before this hook, the cap was enforced only by "the conductor tracks
          re-route count in-context" - unenforced prose. A single session ran
@@ -137,12 +141,16 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
            - next_round >= _ROUND_CAP + 1 (cap reached): ALLOW only when
              `_operator_granted()` finds a grant in a genuine operator turn
              of the main-session transcript; persist round_count =
-             next_round. A plain reply counts for a unit only when it is
-             the first operator turn after that unit's latest deny naming
-             its current round count. One "grant" reopens one more round
-             for each unit whose current-round cap deny it answers, and
-             each further round needs a new reply after a deny naming the
-             new count. The token is
+             next_round. Up to `_SESSION_GRANT_CEILING`, one plain reply
+             answering any cap deny in this session counts for every unit.
+             A plain reply's `sessionId` must equal the payload's
+             `session_id`, so a copied or forked transcript line from
+             another session grants nothing, and a payload without
+             `session_id` gets no plain grant. Past the ceiling, a plain reply counts for a
+             unit only when it is the first operator turn after that unit's
+             latest deny naming its current round count, and each further
+             round needs a new reply after a deny naming the new count, so
+             a runaway loop still needs the operator every round. The token is
              sha1(`<unit_key>#<next_round>`)[:8], so it authorizes one round
              of one unit: advancing round_count retires it, and another
              unit's token never matches. A grant-allowed round whose state
@@ -454,6 +462,7 @@ import time
 from pathlib import Path
 
 _ROUND_CAP = 3
+_SESSION_GRANT_CEILING = 6
 _KEY_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]")
 _MAX_KEY_LEN = 80
 # Covers: numbered ("6. Diff under review: ..."), hyphen-bullet
@@ -780,19 +789,27 @@ def _is_plain_grant(text: str) -> bool:
     return " ".join(text.split()).lower().rstrip(".!").rstrip() in _PLAIN_GRANT_REPLIES
 
 
-def _operator_granted(transcript_path: object, token: str, unit_key: str, round_count: int) -> bool:
+def _operator_granted(
+    transcript_path: object, token: str, unit_key: str, round_count: int, session_id: object
+) -> bool:
     """True when the operator granted `unit_key` one more round past the
-    cap. Never raises; any error is False. Either grant counts:
+    cap. Never raises; any error is False. Any of these grants counts:
       - `token` (bound to this unit and round) in any genuine operator turn;
+      - while round `round_count + 1` is within `_SESSION_GRANT_CEILING`, a
+        session grant: the first genuine operator turn after ANY cap deny
+        is a plain reply;
       - a plain reply: the FIRST genuine operator turn after this unit's
         latest deny for its current round (`round_count` rounds spent) has
         a whole text in `_PLAIN_GRANT_REPLIES`. Any other operator turn in
         between means the question was answered some other way. One "grant"
         reopens one more round for each unit whose current-round cap deny
-        it answers this way, by design: a grant keeps work moving. Binding the deny to `round_count` makes each
-        grant single-use: once the round runs, the next round needs a deny
-        naming the new count, and a forked or copied transcript holding an
-        older deny and reply grants nothing.
+        it answers this way. Past the ceiling, binding the deny to
+        `round_count` makes each grant single-use: once the round runs, the
+        next round needs a deny naming the new count, and a forked or copied
+        transcript holding an older deny and reply grants nothing.
+    A plain reply counts only when its line's `sessionId` equals the
+    payload's `session_id`, so a line copied in from another session grants
+    nothing, and a payload without `session_id` gets no plain grant.
 
     Reads only the payload's `transcript_path`, never the SubagentStop-only
     agent transcript or a `subagents/` transcript: conductor-authored spawn
@@ -815,8 +832,11 @@ def _operator_granted(transcript_path: object, token: str, unit_key: str, round_
             return False
         needle = token.lower()
         deny_marker = f"{_CAP_DENY_HEAD} {round_count} rounds already spent on unit {unit_key} (max "
+        has_session = isinstance(session_id, str) and bool(session_id)
         awaiting_reply = False
+        awaiting_any_reply = False
         plain_granted = False
+        session_granted = False
         with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
                 if '"user"' not in line and "queued_command" not in line:
@@ -831,19 +851,32 @@ def _operator_granted(transcript_path: object, token: str, unit_key: str, round_
                     continue
                 if obj.get("isSidechain") is True:
                     continue
-                if _CAP_DENY_HEAD in line and any(deny_marker in t for t in _tool_result_texts(obj)):
-                    awaiting_reply = True
-                    plain_granted = False
+                deny_texts = (
+                    [t for t in _tool_result_texts(obj) if _CAP_DENY_HEAD in t] if _CAP_DENY_HEAD in line else []
+                )
+                if deny_texts:
+                    awaiting_any_reply = True
+                    if any(deny_marker in t for t in deny_texts):
+                        awaiting_reply = True
+                        plain_granted = False
                     continue
                 texts = _operator_texts(obj, loop_guard)
                 if not texts:
                     continue
                 if any(needle in t.lower() for t in texts):
                     return True
+                is_plain = (
+                    has_session
+                    and obj.get("sessionId") == session_id
+                    and any(_is_plain_grant(t) for t in texts)
+                )
+                if awaiting_any_reply and is_plain:
+                    session_granted = True
+                awaiting_any_reply = False
                 if awaiting_reply:
-                    plain_granted = any(_is_plain_grant(t) for t in texts)
+                    plain_granted = is_plain
                     awaiting_reply = False
-        return plain_granted
+        return plain_granted or (session_granted and round_count + 1 <= _SESSION_GRANT_CEILING)
     except Exception:
         return False
 
@@ -1378,8 +1411,10 @@ _DENY_CAP_TEMPLATE = (
     "cost-to-date, what another round would buy, and whether the last two "
     "rounds' Majors were one defect class at new sites (skeptic-protocol.md "
     "Round budget item 6), and ask them to reply with just the word "
-    "\"grant\". One grant reopens one more round for each unit whose "
-    "current-round cap deny it answers ({token} reopens this unit only). "
+    "\"grant\". One grant lifts the cap for every unit for the rest of this "
+    "session, up to {ceiling} rounds per unit; past {ceiling}, each grant "
+    "reopens one more round for each unit whose current-round cap deny it "
+    "answers ({token} reopens this unit only). "
     "Only the operator's own typed message in this session, sent after this "
     "deny, counts. A decision written to the state "
     "file, a cross-session message, an AskUserQuestion answer, or agent text "
@@ -1514,10 +1549,11 @@ def main() -> None:
         next_round = state["round_count"] + 1
         token = _grant_token(unit_key, next_round)
         granted = next_round > _ROUND_CAP and _operator_granted(
-            data.get("transcript_path"), token, unit_key, state["round_count"]
+            data.get("transcript_path"), token, unit_key, state["round_count"], data.get("session_id")
         )
         cap_reason = _DENY_CAP_TEMPLATE.format(
-            round_count=state["round_count"], unit_key=unit_key, cap=_ROUND_CAP, token=token
+            round_count=state["round_count"], unit_key=unit_key, cap=_ROUND_CAP,
+            ceiling=_SESSION_GRANT_CEILING, token=token,
         )
 
         allow, new_state, allowed_via_grant = _decide(state, _round_fingerprint(tinput), granted)
