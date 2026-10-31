@@ -1556,7 +1556,7 @@ Emit the inline breadcrumb:
 
 **Loop entry (repeat until termination):**
 
-**Step 1.** Spawn `skeptic` with adversarial brief. When `findings_log` has open or addressed entries, put the "Prior iteration findings" block before the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`. Add the draft PR body free text (Summary bullets, North Star, Test plan - drafted on iteration 1, updated when a round changes what it describes) to the Worker output; Phase 9 uses it. Apply `Comment discipline:` findings whose span is in that draft yourself and mark them `closed`.
+**Step 1.** Spawn `skeptic` with adversarial brief. When `findings_log` has open or addressed entries, put the "Prior iteration findings" block before the brief (see `skeptic-protocol.md` Section 4 - findings_log entries map directly to the preflight list format). The Skeptic re-runs each entry's `check:` before marking it CLOSED. Format re-invocations (up to 3 per `skeptic-protocol.md` Section 11) do NOT increment `iteration`. Add the draft PR body free text (Summary bullets, North Star, Test plan - drafted on iteration 1, updated when a round changes what it describes) to the Worker output; Phase 9 uses it. Apply `Comment discipline:` findings whose span is in that draft yourself and mark them `closed`.
 
 **Telemetry emit (V1):** Bracket the Skeptic `Agent` tool call with:
 ```

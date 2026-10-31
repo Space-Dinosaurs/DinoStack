@@ -20,10 +20,12 @@ You drive the loop. Do not implement the task yourself.
 
 ## Step 1 - Spawn the Worker
 
-Spawn a **background general-purpose subagent via the `Agent` tool** with this prompt (fill in bracketed sections):
+Spawn the **`engineer` agent in the background via the `Agent` tool** with this prompt (fill in bracketed sections):
 
 ---
-You are a Worker agent. Implement the task fully and return your complete output. The main agent will arrange Skeptic review.
+SESSION_KEY: [this session's key, per `content/references/subagent-protocol.md` §11]
+
+Implement the task fully and return your complete output. The main agent will arrange Skeptic review.
 
 **Task:** $ARGUMENTS
 
@@ -98,7 +100,9 @@ Spawn the **`engineer` agent in the background via the `Agent` tool** with:
 Worker prompt:
 
 ---
-You are a Worker agent. Address the Skeptic findings below and return your revised output.
+SESSION_KEY: [this session's key]
+
+Address the Skeptic findings below and return your revised output.
 
 **Original task:** $ARGUMENTS
 

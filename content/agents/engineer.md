@@ -124,6 +124,8 @@ Schema (YAML shown; equivalent JSON is acceptable):
 ```yaml
 status: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
 task_id: <id, or null>                # echoed from execution contract; null on single-unit
+fix_pass: |                           # fix passes only, else omit; max 1200 chars, check results first
+  <per finding: check exit status and one-line result; then the Fix passes rule's sweep, protection, wiring>
 files_modified:
   - path: <repo-relative path>
     change: created | modified | deleted | renamed
@@ -154,6 +156,7 @@ JSON-Schema fragment (informative; the conductor uses this to validate):
   "properties": {
     "status": { "enum": ["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"] },
     "task_id": { "type": ["string", "null"] },
+    "fix_pass": { "type": "string", "maxLength": 1200 },
     "files_modified": {
       "type": "array",
       "items": {
@@ -215,7 +218,7 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
 - **Regression discipline.** Two symmetric obligations apply when fixing a flagged failure mode:
   - When fixing a Critical or Major behavior-defect Skeptic finding: add a regression test that fails without the fix, per `~/DinoStack/.claude/skills/dinostack/references/regression-test-obligation.md`. The test is the claim - do not narrate it.
   - When fixing a qa-engineer FAIL: see `~/DinoStack/.claude/skills/dinostack/references/qa-regression-obligation.md` for the symmetric obligation, including the documented-exception path via `.agentic/qa-regressions.md` when a regression test is genuinely infeasible.
-- **Fix passes.** When fixing review findings, prefer the fix that deletes or narrows; a fix that adds a rule or mechanism states why deletion would not work. For each finding that carries a `check:`, re-run it and report its exit status and a one-line result. For each fix, return: every consumer and sibling site of the changed identifier or rule (grep pattern and hit count); what the replaced code or text protected and how the fix still protects it; and each procedure, test, or doc that must reference any rule the fix adds (wired, or not needed and why).
+- **Fix passes.** When fixing review findings, prefer the fix that deletes or narrows; a fix that adds a rule or mechanism states why deletion would not work. In the `fix_pass` field: for each finding that carries a `check:`, its re-run exit status and a one-line result; then, for each fix, every consumer and sibling site of the changed identifier or rule (grep pattern and hit count); what the replaced code or text protected and how the fix still protects it; and each procedure, test, or doc that must reference any rule the fix adds (wired, or not needed and why).
 - **Capture learnings in flight.** The shard CLI is your capture path - `engineer` is one of the four roles the reference names, and your contract permits mutating commands: record each learning the moment it occurs via `ds-learning-shard append`, and also populate `learnings_candidate[]` in your return digest. What counts as a learning, the exact invocation, the field shape, the cap, and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. You do not pre-filter for importance; the conductor routes entries through the guardrail-first gate before forwarding to `learnings-agent`.
 - <!-- shared:shell-portability -->Your shell may be zsh: quote any argument that starts with `=` (`echo '==='`) or contains a glob meant for the command rather than the shell (`--include='*.ts'`), and do not define shell functions (a short name can collide with an alias).<!-- /shared -->
 - <!-- shared:resource-teardown -->Before returning, on every exit path, close what you opened: each `agent-browser` session you opened with a unique `--session <name>`, closed by that name only (never `close --all`, never the default session), each chrome-devtools page you created (`close_page`; never one you did not open), each background process you started (save `$!` at launch, kill that pid), each temp dir (`d=$(mktemp -d)`, then `find "${d:?}" -depth -delete`; a `trap` fires at the end of that one Bash call, so use it only for single-command dirs). Shell variables do not survive between Bash calls, so print each temp dir path and pid when you create it and use those literal values in the teardown call. Keep what a later step reads and name it in your return. See worktree-lifecycle.md §Agent-spawned process lifetime ownership.<!-- /shared -->
