@@ -703,7 +703,7 @@ fi
 # paths from hooks/pre-commit's git add block.
 # ---------------------------------------------------------------------------
 PRECOMMIT="$REPO_DIR/hooks/pre-commit"
-GIT_ADD_BLOCK="$(awk '/^  git add \\$/{f=1; print; next} f{print; if ($0 !~ /\\$/) exit}' "$PRECOMMIT")"
+GIT_ADD_BLOCK="$(awk '/^ *git add \\$/{f=1; print; next} f{print; if ($0 !~ /\\$/) f=0}' "$PRECOMMIT")"
 for p in \
   '.gemini/GEMINI.md' \
   '.gemini/skills/dinostack/SKILL.md' \

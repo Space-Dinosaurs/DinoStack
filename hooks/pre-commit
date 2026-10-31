@@ -127,32 +127,32 @@ fi
 
 CODEX_SKILL_SYNC_REQUIRED=false
 if [[ "${DS_ALL_HARNESSES:-}" == "1" ]]; then
-while IFS= read -r staged_path; do
-  case "$staged_path" in
-    content/*|\
-    scripts/build-methodology.sh|\
-    scripts/codex-skills.py|\
-    .codex/lib/prompt-wrappers.py|\
-    scripts/check-codex-skill-sync.sh|\
-    scripts/test/test_codex_skills.py|\
-    .codex/build.sh|\
-    .codex/skill-frontmatter/*|\
-    .codex/skill-compatibility.yml|\
-    .codex/skills/*|\
-    .codex/prompts/*|\
-    .codex/prompt-generation-state/*|\
-    .codex/commands/*|\
-    .codex/references/*|\
-    .codex/hooks/skill-auto-load-check.sh|\
-    hooks/skill-auto-load-check.sh|\
-    hooks/pre-commit|\
-    .github/workflows/codex-skill-sync.yml|\
-    .github/workflows/vision-alignment-check.yml)
-      CODEX_SKILL_SYNC_REQUIRED=true
-      break
-      ;;
-  esac
-done <<< "$(git diff --cached --name-only --diff-filter=ACMRD)"
+  while IFS= read -r staged_path; do
+    case "$staged_path" in
+      content/*|\
+      scripts/build-methodology.sh|\
+      scripts/codex-skills.py|\
+      .codex/lib/prompt-wrappers.py|\
+      scripts/check-codex-skill-sync.sh|\
+      scripts/test/test_codex_skills.py|\
+      .codex/build.sh|\
+      .codex/skill-frontmatter/*|\
+      .codex/skill-compatibility.yml|\
+      .codex/skills/*|\
+      .codex/prompts/*|\
+      .codex/prompt-generation-state/*|\
+      .codex/commands/*|\
+      .codex/references/*|\
+      .codex/hooks/skill-auto-load-check.sh|\
+      hooks/skill-auto-load-check.sh|\
+      hooks/pre-commit|\
+      .github/workflows/codex-skill-sync.yml|\
+      .github/workflows/vision-alignment-check.yml)
+        CODEX_SKILL_SYNC_REQUIRED=true
+        break
+        ;;
+    esac
+  done <<< "$(git diff --cached --name-only --diff-filter=ACMRD)"
 fi
 
 if [[ "$CODEX_SKILL_SYNC_REQUIRED" == "true" ]]; then
@@ -238,59 +238,59 @@ if git diff --cached --name-only | grep -q "^content/"; then
   # The other adapters are built and staged only under DS_ALL_HARNESSES=1;
   # otherwise the catch-up chore regenerates them.
   if [[ "${DS_ALL_HARNESSES:-}" == "1" ]]; then
-  bash "$REPO_DIR/.codex/build.sh"
-  bash "$REPO_DIR/.cursor/build.sh"
-  bash "$REPO_DIR/.gemini/build.sh"
-  bash "$REPO_DIR/.hermes/build.sh"
-  bash "$REPO_DIR/.kimi/build.sh"
-  bash "$REPO_DIR/.omp/build.sh"
-  bash "$REPO_DIR/.openclaw/build.sh"
-  bash "$REPO_DIR/.opencode/build.sh"
-  bash "$REPO_DIR/.pi/build.sh"
-  bash "$REPO_DIR/.copilot/build.sh"
-  bash "$REPO_DIR/scripts/check-codex-skill-sync.sh"
-  git add \
-    "$REPO_DIR/.codex/AGENTS.md" \
-    "$REPO_DIR/.codex/agents/"*.toml \
-    "$REPO_DIR/.codex/skills" \
-    "$REPO_DIR/.codex/prompts" \
-    "$REPO_DIR/.codex/prompt-generation-state" \
-    "$REPO_DIR/.codex/skill-compatibility.yml" \
-    "$REPO_DIR/.codex/hooks/skill-auto-load-check.sh" \
-    "$REPO_DIR/.codex/references/"*.md \
-    "$REPO_DIR/.codex/commands/"*.md \
-    "$REPO_DIR/.cursor/rules/"*.mdc \
-    "$REPO_DIR/.cursor/references/"*.md \
-    "$REPO_DIR/.cursor/commands/"*.md \
-    "$REPO_DIR/.gemini/GEMINI.md" \
-    "$REPO_DIR/.gemini/skills/dinostack/SKILL.md" \
-    "$REPO_DIR/.gemini/skills/dinostack/SKILL.full.md" \
-    "$REPO_DIR/.gemini/references/"*.md \
-    "$REPO_DIR/.gemini/commands/"*.toml \
-    "$REPO_DIR/.gemini/agents/"*.md \
-    "$REPO_DIR/.hermes/SKILL.md" \
-    "$REPO_DIR/.kimi/AGENTS.md" \
-    "$REPO_DIR/.kimi/skills/dinostack/METHODOLOGY.md" \
-    "$REPO_DIR/.kimi/skills/dinostack/SKILL.md" \
-    "$REPO_DIR/.kimi/skills/dinostack/sections" \
-    "$REPO_DIR/.omp/skills/dinostack/references" \
-    "$REPO_DIR/.omp/skills/dinostack/rules" \
-    "$REPO_DIR/.omp/skills/dinostack/commands" \
-    "$REPO_DIR/.omp/skills/dinostack/agents" \
-    "$REPO_DIR/.openclaw/skills" \
-    "$REPO_DIR/.opencode/skills/dinostack/METHODOLOGY.md" \
-    "$REPO_DIR/.opencode/agents/"*.md \
-    "$REPO_DIR/.opencode/commands/"*.md \
-    "$REPO_DIR/.pi/skills/dinostack/METHODOLOGY.md" \
-    "$REPO_DIR/.pi/skills/dinostack/SKILL.md" \
-    "$REPO_DIR/.pi/prompts/"*.md \
-    "$REPO_DIR/.github/copilot-instructions.md" \
-    "$REPO_DIR/.github/skills/dinostack/SKILL.md" \
-    "$REPO_DIR/.github/agents/"*.md \
-    "$REPO_DIR/.github/prompts/"*.prompt.md \
-    "$REPO_DIR/.github/instructions/"*.md \
-    "$REPO_DIR/.github/hooks/"* \
-    "$REPO_DIR/.copilot/references/"*.md
+    bash "$REPO_DIR/.codex/build.sh"
+    bash "$REPO_DIR/.cursor/build.sh"
+    bash "$REPO_DIR/.gemini/build.sh"
+    bash "$REPO_DIR/.hermes/build.sh"
+    bash "$REPO_DIR/.kimi/build.sh"
+    bash "$REPO_DIR/.omp/build.sh"
+    bash "$REPO_DIR/.openclaw/build.sh"
+    bash "$REPO_DIR/.opencode/build.sh"
+    bash "$REPO_DIR/.pi/build.sh"
+    bash "$REPO_DIR/.copilot/build.sh"
+    bash "$REPO_DIR/scripts/check-codex-skill-sync.sh"
+    git add \
+      "$REPO_DIR/.codex/AGENTS.md" \
+      "$REPO_DIR/.codex/agents/"*.toml \
+      "$REPO_DIR/.codex/skills" \
+      "$REPO_DIR/.codex/prompts" \
+      "$REPO_DIR/.codex/prompt-generation-state" \
+      "$REPO_DIR/.codex/skill-compatibility.yml" \
+      "$REPO_DIR/.codex/hooks/skill-auto-load-check.sh" \
+      "$REPO_DIR/.codex/references/"*.md \
+      "$REPO_DIR/.codex/commands/"*.md \
+      "$REPO_DIR/.cursor/rules/"*.mdc \
+      "$REPO_DIR/.cursor/references/"*.md \
+      "$REPO_DIR/.cursor/commands/"*.md \
+      "$REPO_DIR/.gemini/GEMINI.md" \
+      "$REPO_DIR/.gemini/skills/dinostack/SKILL.md" \
+      "$REPO_DIR/.gemini/skills/dinostack/SKILL.full.md" \
+      "$REPO_DIR/.gemini/references/"*.md \
+      "$REPO_DIR/.gemini/commands/"*.toml \
+      "$REPO_DIR/.gemini/agents/"*.md \
+      "$REPO_DIR/.hermes/SKILL.md" \
+      "$REPO_DIR/.kimi/AGENTS.md" \
+      "$REPO_DIR/.kimi/skills/dinostack/METHODOLOGY.md" \
+      "$REPO_DIR/.kimi/skills/dinostack/SKILL.md" \
+      "$REPO_DIR/.kimi/skills/dinostack/sections" \
+      "$REPO_DIR/.omp/skills/dinostack/references" \
+      "$REPO_DIR/.omp/skills/dinostack/rules" \
+      "$REPO_DIR/.omp/skills/dinostack/commands" \
+      "$REPO_DIR/.omp/skills/dinostack/agents" \
+      "$REPO_DIR/.openclaw/skills" \
+      "$REPO_DIR/.opencode/skills/dinostack/METHODOLOGY.md" \
+      "$REPO_DIR/.opencode/agents/"*.md \
+      "$REPO_DIR/.opencode/commands/"*.md \
+      "$REPO_DIR/.pi/skills/dinostack/METHODOLOGY.md" \
+      "$REPO_DIR/.pi/skills/dinostack/SKILL.md" \
+      "$REPO_DIR/.pi/prompts/"*.md \
+      "$REPO_DIR/.github/copilot-instructions.md" \
+      "$REPO_DIR/.github/skills/dinostack/SKILL.md" \
+      "$REPO_DIR/.github/agents/"*.md \
+      "$REPO_DIR/.github/prompts/"*.prompt.md \
+      "$REPO_DIR/.github/instructions/"*.md \
+      "$REPO_DIR/.github/hooks/"* \
+      "$REPO_DIR/.copilot/references/"*.md
   fi
 
   echo "[pre-commit] Generated files staged."
