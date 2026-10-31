@@ -302,7 +302,7 @@ Run once, before anything else, from `$REPO`. On a harness without `$AE_SESSION_
 # Setup call: ds-ticket-setup
 REPO_DIR="$(jq -r '.repo_dir // empty' "$HOME/.agentic/agentic-engineering-config.json" 2>/dev/null)"
 [ -x "$REPO_DIR/bin/ds-ticket-setup" ] || REPO_DIR="$HOME/DinoStack"
-"$REPO_DIR/bin/ds-ticket-setup" -- <input>
+"$REPO_DIR/bin/ds-ticket-setup" -- "<input>"
 ```
 
 Line 1 of the output is one JSON object. Carry its keys for the rest of the run:
