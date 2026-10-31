@@ -56,6 +56,7 @@ echo "--- mode dispatch ---"
 _eq "one bare id is single"        "$(_field "$PLAIN" 'd["mode"]' DS-1)" "single"
 _eq "freeform text is single"      "$(_field "$PLAIN" 'd["mode"]' fix the login page)" "single"
 _eq "two ids are batch"            "$(_field "$PLAIN" 'd["mode"]' 'DS-1, DS-2')" "batch"
+_eq "a batch has no ticket_id"     "$(_field "$PLAIN" 'd["ticket_id"]' 'DS-1, DS-2')" "None"
 _eq "two issue URLs are batch"     "$(_field "$PLAIN" 'd["mode"]' https://x.atlassian.net/browse/DS-1 https://linear.app/w/issue/ENG-4/t)" "batch"
 _eq "a repeated id is still single" "$(_field "$PLAIN" 'd["mode"]' DS-1 DS-1)" "single"
 _eq "--ticket forces single over a batch input" "$(_field "$PLAIN" 'd["mode"]' --ticket DS-3 -- DS-1 DS-2)" "single"
@@ -146,6 +147,34 @@ _eq "resumable legacy file sets mode resume" "$(_field "$LEG" 'd["mode"]' DS-1)"
 printf '{"status":"interrupted"}' > "$LEG/.agentic/loop-state-DS-1.json"
 _eq "keyed file beats a resumable legacy file" \
   "$(_field "$LEG" 'd["resume"]["recommended"]' DS-1)" ".agentic/loop-state-DS-1.json"
+printf '{"status":"complete"}' > "$LEG/.agentic/loop-state-DS-1.json"
+_eq "a keyed file that is not resumable still blocks legacy adoption" \
+  "$(_field "$LEG" 'd["resume"]["recommended"]' DS-1)" "None"
+
+BRES="$TMP_ROOT/batch-resume"
+mkdir -p "$BRES/.agentic"
+printf '{"status":"interrupted"}' > "$BRES/.agentic/loop-state-session-sid.json"
+_eq "a batch with a recommended file is still batch" \
+  "$(_field "$BRES" 'd["mode"] + " " + str(d["resume"]["recommended"])' DS-1 DS-2)" "batch .agentic/loop-state-session-sid.json"
+
+echo "--- session id sources ---"
+_sid_key() { # _sid_key <env...> -> loop_key for a freeform input
+  (cd "$PLAIN" && env -u CLAUDE_CODE_SESSION_ID -u AE_SESSION_ID "$@" "$SCRIPT" --repo "$PLAIN" -- freeform text 2>/dev/null) \
+    | head -1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["loop_key"])'
+}
+_eq "AE_SESSION_ID (Codex) is read when CLAUDE_CODE_SESSION_ID is unset" "$(_sid_key AE_SESSION_ID=codexsid)" "session-codexsid"
+_eq "CLAUDE_CODE_SESSION_ID wins over AE_SESSION_ID" \
+  "$(_sid_key CLAUDE_CODE_SESSION_ID=claudesid AE_SESSION_ID=codexsid)" "session-claudesid"
+_eq "--session-id wins over both" \
+  "$( (cd "$PLAIN" && CLAUDE_CODE_SESSION_ID=a AE_SESSION_ID=b "$SCRIPT" --repo "$PLAIN" --session-id c -- freeform 2>/dev/null) \
+      | head -1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["loop_key"])')" "session-c"
+
+echo "--- oversized input is classified, never silently single ---"
+BIG="$TMP_ROOT/big.txt"
+python3 -c 'import sys; sys.stdout.write("x " * 1300000 + "DS-1 DS-2\n")' > "$BIG"
+_eq "a 2.6 MB input still classifies as batch" \
+  "$( (cd "$PLAIN" && "$SCRIPT" --repo "$PLAIN" --session-id sid --stdin < "$BIG" 2>/dev/null) \
+      | head -1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["mode"])')" "batch"
 
 BEFORE="$(cd "$RES" && find . -type f | LC_ALL=C sort | xargs cat | cksum)"
 (cd "$RES" && "$SCRIPT" --repo "$RES" --session-id sid DS-4 >/dev/null 2>&1)
@@ -169,16 +198,31 @@ git -C "$G" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
 _eq "origin/HEAD beats local develop" "$(_field "$G" 'd["base_branch"]' DS-1)" "trunk"
 printf '# x\n\nDeclaration: `BASE_BRANCH: release`.\n' > "$G/AGENTS.md"
 _eq "AGENTS.md declaration wins" "$(_field "$G" 'd["base_branch"]' DS-1)" "release"
+printf '# x\n\nBASE_BRANCH: trunk2 - the branch every PR targets\n' > "$G/AGENTS.md"
+_eq "a declaration with trailing prose takes its first token" "$(_field "$G" 'd["base_branch"]' DS-1)" "trunk2"
+printf '# x\n\n```\nBASE_BRANCH: fenced\n```\n' > "$G/AGENTS.md"
+_eq "a fenced example is not a declaration" "$(_field "$G" 'd["base_branch"]' DS-1)" "trunk"
 
 echo "--- operator text reaches the script verbatim and unexpanded ---"
 HOSTILE_DIR="$TMP_ROOT/hostile"
 mkdir -p "$HOSTILE_DIR/.agentic"
 printf '%s\n' '{"ticket_id":"aut-12","pr_number":7,"opened_ts":"2026-01-01T00:00:00Z"}' \
   > "$HOSTILE_DIR/.agentic/ticket-ledger.jsonl"
-_eq "--ticket - reads a Phase-0-only id from stdin and returns its rework" \
-  "$(cd "$HOSTILE_DIR" && printf 'aut-12\n' | "$SCRIPT" --repo "$HOSTILE_DIR" --session-id sid --ticket - 2>/dev/null \
-     | head -1 | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["ticket_id"], d["loop_key"], d["rework"]["prior_attempts"])')" \
-  "aut-12 aut-12 1"
+_eq "--rework-only --ticket - reads a Phase-0-only id from stdin and returns its rework" \
+  "$(cd "$HOSTILE_DIR" && printf 'aut-12\n' | "$SCRIPT" --repo "$HOSTILE_DIR" --session-id sid --rework-only --ticket - 2>/dev/null \
+     | head -1 | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["ticket_id"], d["rework"]["prior_attempts"])')" \
+  "aut-12 1"
+
+echo "--- the rework re-run can never re-key the ticket ---"
+printf '{"status":"interrupted"}' > "$HOSTILE_DIR/.agentic/loop-state-aut-12.json"
+RO_OUT="$(cd "$HOSTILE_DIR" && "$SCRIPT" --repo "$HOSTILE_DIR" --session-id sid --rework-only --ticket aut-12 2>/dev/null)"
+_eq "rework-only output carries only ticket_id and rework" \
+  "$(printf '%s\n' "$RO_OUT" | head -1 | python3 -c 'import json, sys; print(",".join(sorted(json.load(sys.stdin))))')" "rework,ticket_id"
+_eq "rework-only injects no procedure even with a resumable keyed file" \
+  "$(printf '%s\n' "$RO_OUT" | grep -c -- '--- procedure:')" "0"
+rm -f "$HOSTILE_DIR/.agentic/loop-state-aut-12.json"
+(cd "$HOSTILE_DIR" && "$SCRIPT" --repo "$HOSTILE_DIR" --rework-only -- aut-12 >/dev/null 2>&1)
+_eq "--rework-only without --ticket is a usage error" "$?" "2"
 
 # Run the command's own Setup-call and re-run fences, with hostile text in
 # place of the placeholder. Each payload would create a marker file if any
@@ -204,12 +248,14 @@ M="$HOSTILE_DIR/pwned"
 printf '%s\n' "DS-9 \`touch $M-tick\` \$(touch $M-sub) \$HOME \"quoted\" goal_mode=x" > "$TMP_ROOT/input.txt"
 printf '%s\n' "ab\`touch $M-tick2\`\$(touch $M-sub2)\$HOME\"q\"" > "$TMP_ROOT/ticket.txt"
 if _fence '# Setup call: ds-ticket-setup' '<input>' "$TMP_ROOT/input.txt" "$TMP_ROOT/setup.sh" \
-   && _fence '# Setup call: per-ticket re-run' '<ticket id>' "$TMP_ROOT/ticket.txt" "$TMP_ROOT/rerun.sh"; then
+   && _fence '# Setup call: rework re-run' '<ticket id>' "$TMP_ROOT/ticket.txt" "$TMP_ROOT/rerun.sh"; then
   _pass "extracted both Setup-call fences from the command"
   OUT1="$(cd "$HOSTILE_DIR" && HOME="$FAKE_HOME" CLAUDE_CODE_SESSION_ID=sid bash "$TMP_ROOT/setup.sh" 2>/dev/null | head -1)"
-  OUT2="$(cd "$HOSTILE_DIR" && HOME="$FAKE_HOME" CLAUDE_CODE_SESSION_ID=sid REPO_DIR="$REPO_DIR" bash "$TMP_ROOT/rerun.sh" 2>/dev/null | head -1)"
+  OUT2="$(cd "$HOSTILE_DIR" && env -u REPO_DIR HOME="$FAKE_HOME" CLAUDE_CODE_SESSION_ID=sid bash "$TMP_ROOT/rerun.sh" 2>/dev/null | head -1)"
   _eq "Setup fence: the id inside hostile text is parsed" \
     "$(printf '%s' "$OUT1" | python3 -c 'import json, sys; print(json.load(sys.stdin)["ticket_id"])')" "DS-9"
+  _eq "re-run fence is rework-only (no loop_key, no resume)" \
+    "$(printf '%s' "$OUT2" | python3 -c 'import json, sys; print(",".join(sorted(json.load(sys.stdin))))')" "rework,ticket_id"
   _eq "re-run fence: the id arrives verbatim" \
     "$(printf '%s' "$OUT2" | python3 -c 'import json, sys; print(json.load(sys.stdin)["ticket_id"])')" \
     "$(cat "$TMP_ROOT/ticket.txt")"

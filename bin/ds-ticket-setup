@@ -13,15 +13,20 @@
 #          Retire the injection when a measured run shows the pointer Read.
 #
 # Public API:
-#   ds-ticket-setup [--session-id ID] [--repo PATH] [--ticket ID|-] [--stdin|-] [--] [<input...>]
+#   ds-ticket-setup [--session-id ID] [--repo PATH] [--ticket ID|-] [--rework-only] [--stdin|-] [--] [<input...>]
 #     <input...>  the /ds-implement-ticket <input>, as one or more args.
 #     --stdin, -  read <input> from stdin instead. The command passes
 #                 operator text this way (a quoted heredoc), so no shell
 #                 ever expands it.
 #     --ticket    use ID verbatim as TICKET_ID (mode single) instead of
 #                 classifying <input>; `--ticket -` reads ID from stdin.
-#                 The re-run once Phase 0 has resolved the ticket.
-#     --session-id  SESSION_ID for the loop key; default $CLAUDE_CODE_SESSION_ID.
+#                 Phase 0a-pre's batch pick (its own key and resume check).
+#     --rework-only  with --ticket: print only {ticket_id, rework}. The
+#                 re-run once Phase 0 resolves a ticket the first call
+#                 could not parse; it never yields a loop_key or resume,
+#                 so the first call's key is never re-derived.
+#     --session-id  SESSION_ID for the loop key; default $CLAUDE_CODE_SESSION_ID,
+#                 else $AE_SESSION_ID (Codex).
 #     --repo      the ticket's project checkout; default the cwd's git
 #                 toplevel, else the cwd.
 #   stdout line 1 is the JSON (plus `ticket_id`: the parsed or --ticket
@@ -148,7 +153,7 @@ if [ "$PRIOR_ATTEMPTS" -ge 1 ]; then IS_REWORK=true; else IS_REWORK=false; fi
 }
 
 _ts_usage() {
-  echo "usage: ds-ticket-setup [--session-id ID] [--repo PATH] [--ticket ID|-] [--stdin|-] [--] [<input...>]" >&2
+  echo "usage: ds-ticket-setup [--session-id ID] [--repo PATH] [--ticket ID|-] [--rework-only] [--stdin|-] [--] [<input...>]" >&2
 }
 
 # bash 3.2 misparses a heredoc inside $(...), so the python programs
@@ -156,7 +161,7 @@ _ts_usage() {
 _ts_classify_py() {
 cat <<'PY'
 import re, sys
-raw = sys.argv[1]
+raw = sys.stdin.read()
 open_goal = False
 for m in re.finditer(r'(\w+)=("[^"]*"|\S+)', raw):
     if m.group(1) == "goal_mode" and m.group(2).strip('"') == "open_goal":
@@ -182,7 +187,7 @@ PY
 
 _ts_assemble_py() {
 cat <<'PY'
-import datetime, glob, importlib.util, json, os, subprocess
+import datetime, glob, importlib.util, json, os, re, subprocess
 
 env = os.environ
 mode = env["TS_MODE"]
@@ -205,7 +210,19 @@ def declared_base():
         lib = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(lib)
         text = open("AGENTS.md", encoding="utf-8", errors="replace").read()
-        return lib._parse_base_branch_declaration(text)
+        strict = lib._parse_base_branch_declaration(text)
+        if strict:
+            return strict
+        # Setup's prose took a `BASE_BRANCH:` line's first token even with
+        # trailing prose after it; _lib's parser rejects that shape.
+        token = re.compile(r"`?BASE_BRANCH:\s*[`\"']?(?:refs/heads/|origin/)?"
+                           r"([A-Za-z0-9][A-Za-z0-9_./-]*)")
+        for line in lib._strip_fenced_and_indented_lines(text):
+            m = token.search(line)
+            if m:
+                value = m.group(1)
+                return value[:-1] if len(value) > 1 and value.endswith(".") else value
+        return None
     except Exception:
         return None
 
@@ -308,6 +325,17 @@ try:
 except ValueError:
     prior = []
 
+rework = {
+    "rework_detection": env["TS_REWORK_DETECTION"] != "false",
+    "prior_attempts": int(env.get("TS_ATTEMPTS") or 0),
+    "is_rework": env.get("TS_IS_REWORK") == "true",
+    "prior_completed": prior,
+}
+if env.get("TS_REWORK_ONLY") == "true":
+    print(json.dumps({"ticket_id": ticket or None, "rework": rework}))
+    print("rework_only")
+    raise SystemExit(0)
+
 resume = resume_state()
 if mode == "single" and resume is not None and resume["recommended"]:
     mode = "resume"
@@ -320,12 +348,7 @@ print(json.dumps({
     "loop_key": loop_key,
     "mode": mode,
     "resume": resume,
-    "rework": {
-        "rework_detection": env["TS_REWORK_DETECTION"] != "false",
-        "prior_attempts": int(env.get("TS_ATTEMPTS") or 0),
-        "is_rework": env.get("TS_IS_REWORK") == "true",
-        "prior_completed": prior,
-    },
+    "rework": rework,
 }))
 print(mode)
 PY
@@ -345,7 +368,8 @@ _ts_main() {
   local self_root
   self_root="$(cd -P "$(dirname "$src")/.." && pwd)"
 
-  local session_id="${CLAUDE_CODE_SESSION_ID-}" repo="" ticket_arg="" has_ticket=false from_stdin=false
+  local session_id="${CLAUDE_CODE_SESSION_ID:-${AE_SESSION_ID-}}" repo="" ticket_arg="" has_ticket=false
+  local from_stdin=false rework_only=false
   while [ $# -gt 0 ]; do
     case "$1" in
       --session-id) [ $# -ge 2 ] || { _ts_usage; return 2; }; session_id="$2"; shift 2 ;;
@@ -355,12 +379,17 @@ _ts_main() {
       --ticket) [ $# -ge 2 ] || { _ts_usage; return 2; }; ticket_arg="$2"; has_ticket=true; shift 2 ;;
       --ticket=*) ticket_arg="${1#--ticket=}"; has_ticket=true; shift ;;
       --stdin|-) from_stdin=true; shift ;;
+      --rework-only) rework_only=true; shift ;;
       -h|--help) _ts_usage; return 0 ;;
       --) shift; break ;;
       *) break ;;
     esac
   done
   local raw_input="$*"
+  if [ "$rework_only" = true ] && [ "$has_ticket" = false ]; then
+    _ts_usage
+    return 2
+  fi
   if [ "$has_ticket" = true ] && [ "$ticket_arg" = "-" ]; then
     [ "$from_stdin" = false ] || { _ts_usage; return 2; }
     ticket_arg="$(cat)"
@@ -392,7 +421,8 @@ _ts_main() {
   # bare id or single-issue URL names. Search/filter URLs, screenshots and
   # freeform text stay Phase 0's job.
   local parsed mode ticket_id
-  parsed="$(python3 -c "$(_ts_classify_py)" "$raw_input")" || parsed="single"
+  parsed="$(printf '%s' "$raw_input" | python3 -c "$(_ts_classify_py)")" \
+    || { echo "ds-ticket-setup: could not classify <input>" >&2; return 2; }
   mode="$(printf '%s\n' "$parsed" | sed -n 1p)"
   ticket_id="$(printf '%s\n' "$parsed" | sed -n 2p)"
   if [ "$has_ticket" = true ]; then
@@ -400,9 +430,9 @@ _ts_main() {
     ticket_id="$ticket_arg"
   fi
 
-  local loop_key
-  loop_key="$(ae_derive_loop_key "$ticket_id" "$session_id")"
-  if [ -n "$ticket_id" ] && [ -z "$(ae_sanitize "$ticket_id")" ]; then
+  local loop_key=""
+  [ "$rework_only" = true ] || loop_key="$(ae_derive_loop_key "$ticket_id" "$session_id")"
+  if [ "$rework_only" = false ] && [ -n "$ticket_id" ] && [ -z "$(ae_sanitize "$ticket_id")" ]; then
     echo "Ticket id '$ticket_id' sanitizes to empty; loop state keyed on session instead ($loop_key)." >&2
   fi
 
@@ -412,7 +442,7 @@ _ts_main() {
   ae_rework_detect
 
   local tracker_json=""
-  if [ -x "$self_root/bin/ds-tracker" ]; then
+  if [ "$rework_only" = false ] && [ -x "$self_root/bin/ds-tracker" ]; then
     tracker_json="$("$self_root/bin/ds-tracker" resolve --json --project-root "$repo")" || true
   fi
 
@@ -421,7 +451,8 @@ _ts_main() {
     TS_TICKET="$ticket_id" TS_LOOP_KEY="$loop_key" \
     TS_TRACKER="$tracker_json" TS_PRIOR="$PRIOR_COMPLETED_JSON" \
     TS_ATTEMPTS="$PRIOR_ATTEMPTS" TS_IS_REWORK="$IS_REWORK" \
-    TS_REWORK_DETECTION="$REWORK_DETECTION" python3 -c "$(_ts_assemble_py)")" \
+    TS_REWORK_DETECTION="$REWORK_DETECTION" TS_REWORK_ONLY="$rework_only" \
+    python3 -c "$(_ts_assemble_py)")" \
     || { echo "ds-ticket-setup: JSON assembly failed" >&2; return 2; }
 
   printf '%s\n' "$out" | sed -n 1p
