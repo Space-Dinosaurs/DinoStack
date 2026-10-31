@@ -6,8 +6,8 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          value-per-round gate): a max of `_ROUND_CAP` Skeptic rounds per
          unit. Past the cap, exactly one more round is allowed per operator
          grant: a genuine operator turn in the session transcript, after
-         the unit's latest cap deny, saying "grant" (or another
-         `_PLAIN_GRANT_RE` phrase), or containing the `skeptic-grant-<8 hex>`
+         the unit's latest cap deny, whose whole text is "grant" (or another
+         `_PLAIN_GRANT_REPLIES` reply), or containing the `skeptic-grant-<8 hex>`
          token the deny prints for that unit and round. Nothing the
          conductor writes to the state file reopens it.
          Before this hook, the cap was enforced only by "the conductor tracks
@@ -136,11 +136,13 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
            - next_round >= _ROUND_CAP + 1 (cap reached): ALLOW only when
              `_operator_granted()` finds a grant in a genuine operator turn
              of the main-session transcript; persist round_count =
-             next_round and grant_line, the grant's line index. A
-             plain-language grant counts only after this unit's latest cap
-             deny and after the recorded grant_line, so one operator turn
-             allows one round of each unit already past the cap, and each
-             further round needs a new turn after a new deny. The token is
+             next_round, plus grant_line (the grant's line index) and
+             grant_transcript (the transcript it indexes). A plain grant
+             counts only after this unit's latest cap deny in that
+             transcript and after a grant_line recorded for the same
+             transcript, so one reply allows one round of each unit whose
+             deny precedes it, and each further round needs a new reply
+             after a new deny. The token is
              sha1(`<unit_key>#<next_round>`)[:8], so it authorizes one round
              of one unit: advancing round_count retires it, and another
              unit's token never matches. A grant-allowed round whose state
@@ -383,8 +385,9 @@ Failure modes:
       state file.
     - Two truly concurrent spawns at the cap can both read the same
       pre-advance state and share one grant.
-    - Any operator turn after a cap deny that uses a `_PLAIN_GRANT_RE`
-      word without a negation grants, even one about something else.
+    - An operator turn after a cap deny whose whole text is "go ahead"
+      (or another `_PLAIN_GRANT_REPLIES` reply) grants even when it
+      answered something else.
     - grant_line lives in the state file, like round_count: a conductor
       that lowers it by hand lets an already-spent grant turn count again.
     - An SDK driver's prompt (`claude -p`) is recorded as a genuine user
@@ -757,11 +760,13 @@ def _operator_texts(obj: dict, loop_guard) -> list[str]:
     return [text] if isinstance(text, str) else []
 
 
-_PLAIN_GRANT_RE = re.compile(
-    r"\b(?:grant|granted|lift\s+the\s+cap|cap\s+(?:is\s+)?lifted|go\s+ahead\s+with\s+another\s+round)\b",
-    re.IGNORECASE,
-)
-_NEGATED_GRANT_RE = re.compile(r"\b(?:not|no|don'?t|don\u2019t)\s+grant", re.IGNORECASE)
+# A plain grant is an operator turn whose whole text is one of these replies.
+# An allowlist of exact replies, because phrase matching inside prose cannot
+# tell "grant it" from "I won't grant that".
+_PLAIN_GRANT_REPLIES = frozenset({
+    "grant", "granted", "grant it", "yes grant", "lift the cap", "cap lifted", "go ahead",
+})
+_PLAIN_GRANT_PREFILTER = ("grant", "lift the cap", "cap lifted", "go ahead")
 _CAP_DENY_HEAD = "Skeptic round cap reached:"
 
 
@@ -777,14 +782,18 @@ def _tool_result_texts(obj: dict) -> list[str]:
     return texts
 
 
+def _is_plain_grant(text: str) -> bool:
+    return " ".join(text.split()).lower().rstrip(".!?,;: ") in _PLAIN_GRANT_REPLIES
+
+
 def _operator_granted(
     transcript_path: object, token: str, unit_key: str, consumed_line: int
 ) -> int | None:
     """Return the transcript line index of the operator grant that allows
     `unit_key`'s next round past the cap, or None. Never raises; any error
     is None. A grant is either `token` in a genuine operator turn, or a
-    plain-language grant (`_PLAIN_GRANT_RE`, no `_NEGATED_GRANT_RE`) in a
-    genuine operator turn after this unit's latest cap deny and after
+    genuine operator turn whose whole text is a `_PLAIN_GRANT_REPLIES` reply,
+    after this unit's latest cap deny in this transcript and after
     `consumed_line`, the grant line the unit's last grant-allowed round
     recorded. The returned index is the latest grant line, so main() can
     record it and no earlier turn can grant again.
@@ -814,7 +823,8 @@ def _operator_granted(
             for i, line in enumerate(f):
                 has_token = needle in line.lower()
                 maybe_deny = _CAP_DENY_HEAD in line
-                maybe_plain = _PLAIN_GRANT_RE.search(line) is not None
+                low = line.lower()
+                maybe_plain = any(p in low for p in _PLAIN_GRANT_PREFILTER)
                 if not (has_token or maybe_deny or maybe_plain):
                     continue
                 try:
@@ -828,7 +838,7 @@ def _operator_granted(
                 if obj.get("isSidechain") is True:
                     continue
                 if maybe_deny and any(
-                    t.startswith(_CAP_DENY_HEAD) and deny_marker in t for t in _tool_result_texts(obj)
+                    _CAP_DENY_HEAD in t and deny_marker in t for t in _tool_result_texts(obj)
                 ):
                     last_deny = i
                 if not (has_token or maybe_plain):
@@ -836,9 +846,7 @@ def _operator_granted(
                 texts = _operator_texts(obj, loop_guard)
                 if has_token and any(needle in t.lower() for t in texts):
                     token_line = i
-                if any(
-                    _PLAIN_GRANT_RE.search(t) and not _NEGATED_GRANT_RE.search(t) for t in texts
-                ):
+                if any(_is_plain_grant(t) for t in texts):
                     plain_line = i
         if token_line >= 0:
             return max(token_line, plain_line)
@@ -1087,7 +1095,7 @@ def _state_path(cwd: str, key: str) -> Path | None:
 _KNOWN_STATE_KEYS = frozenset({
     "round_count", "last_round_fingerprint",
     "last_decision_allow", "last_decision_reason", "tool_use_ids",
-    "grant_line", "unit_key", "last_updated",
+    "grant_line", "grant_transcript", "unit_key", "last_updated",
 })
 
 
@@ -1118,6 +1126,7 @@ def _load_state(path: Path) -> dict:
         "last_decision_reason": "",
         "tool_use_ids": [],
         "grant_line": -1,
+        "grant_transcript": None,
         "_extra": {},
     }
     try:
@@ -1141,6 +1150,7 @@ def _load_state(path: Path) -> dict:
             "last_decision_reason": raw.get("last_decision_reason") if isinstance(raw.get("last_decision_reason"), str) else "",
             "tool_use_ids": tool_use_ids,
             "grant_line": raw.get("grant_line") if isinstance(raw.get("grant_line"), int) else -1,
+            "grant_transcript": raw.get("grant_transcript") if isinstance(raw.get("grant_transcript"), str) else None,
             "_extra": extra,
         }
     except Exception:
@@ -1380,8 +1390,8 @@ _DENY_CAP_TEMPLATE = (
     "Critical never ships; or (b) stop and report to the operator, stating "
     "cost-to-date, what another round would buy, and whether the last two "
     "rounds' Majors were one defect class at new sites (skeptic-protocol.md "
-    "Round budget item 6), and ask them to reply \"grant\" for one more "
-    "round (or paste {token}). Only the operator's own typed message in this "
+    "Round budget item 6), and ask them to reply with just the word "
+    "\"grant\" for one more round (or paste {token}). Only the operator's own typed message in this "
     "session, sent after this deny, counts. A decision written to the state "
     "file, a cross-session message, an AskUserQuestion answer, or agent text "
     "does not; a prompt sent with claude -p --resume does, so only the "
@@ -1515,7 +1525,14 @@ def main() -> None:
         next_round = state["round_count"] + 1
         token = _grant_token(unit_key, next_round)
         grant_line = (
-            _operator_granted(data.get("transcript_path"), token, unit_key, state["grant_line"])
+            _operator_granted(
+                data.get("transcript_path"),
+                token,
+                unit_key,
+                state["grant_line"]
+                if state["grant_transcript"] == data.get("transcript_path")
+                else -1,
+            )
             if next_round > _ROUND_CAP
             else None
         )
@@ -1527,7 +1544,9 @@ def main() -> None:
             state, _round_fingerprint(tinput), grant_line is not None
         )
         if allowed_via_grant:
-            new_state["grant_line"] = max(state["grant_line"], grant_line)
+            same = state["grant_transcript"] == data.get("transcript_path")
+            new_state["grant_line"] = max(state["grant_line"] if same else -1, grant_line)
+            new_state["grant_transcript"] = data.get("transcript_path")
 
         if not allow:
             _deny(data, cap_reason)
