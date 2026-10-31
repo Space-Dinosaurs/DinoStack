@@ -36,6 +36,7 @@ Test groups:
      test_session_grant_opens_every_unit_to_ceiling   - one "grant" opens rounds 4-6 of two units; round 7
                                                          of both denies again.
      test_grant_from_another_session_does_not_count   - a "grant" line carrying another sessionId never grants.
+     test_session_grant_needs_a_prior_deny            - a "grant" typed before any cap deny opens nothing.
      test_plain_grant_after_prefixed_deny_allows      - a deny recorded with the "PreToolUse:Agent hook
                                                          error: " prefix still anchors the grant.
      Past the ceiling (round 7+), each grant reopens one round of each unit whose current-round deny it answers:
@@ -972,6 +973,18 @@ def test_plain_grant_after_prefixed_deny_allows():
             tmp, [_deny_tool_result_line(reason, "PreToolUse:Agent hook error: "), _typed_user_line("grant")]
         )
         assert not _is_denied(parsed), f"grant after a prefixed deny did not grant: {parsed}"
+
+
+def test_session_grant_needs_a_prior_deny():
+    """Below the ceiling, a "grant" typed before any cap deny opens nothing.
+    Mutation that reddens it: start `awaiting_any_reply` as True in
+    `_operator_granted`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        unit = "feature/round-cap-test"
+        reason = _denied_round_4(tmp, unit)
+        parsed = _round_4_with(tmp, [_typed_user_line("grant"), _deny_tool_result_line(reason)], unit=unit)
+        assert _is_denied(parsed), "a grant typed before any deny opened the session"
+        assert _read_state(tmp, unit)["round_count"] == 3
 
 
 @pytest.mark.parametrize("shape", ["grant_then_deny", "deny_grant_deny"])

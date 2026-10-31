@@ -819,9 +819,13 @@ def _operator_granted(
     loop_guard's classifier but are not operator input, so they are skipped
     here. See `_operator_texts` for the line shapes that count. The deny is
     looked for in any tool_result, so a tool the conductor runs (an `echo`)
-    can write one too. That grants nothing new: the operator must still
-    reply first after it, and a real deny for the same unit and round
-    would be followed by the same reply."""
+    can write one too. The operator must still send a plain reply as the
+    first turn after it. On the per-unit path that grants nothing new,
+    because a real deny for the same unit and round would be followed by
+    the same reply. On the session path, any tool_result containing
+    `_CAP_DENY_HEAD` anchors the grant, so an echoed deny lets a plain
+    reply the operator meant for something else open every unit up to
+    `_SESSION_GRANT_CEILING`."""
     try:
         if not isinstance(transcript_path, str) or not transcript_path:
             return False
