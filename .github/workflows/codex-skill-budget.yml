@@ -7,6 +7,7 @@ on:
   # a tree no PR run tested. Measurement, policy and retirement (the only
   # site carrying the figures): .github/workflows/AGENTS.md
   pull_request:
+  workflow_dispatch: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,7 +17,11 @@ permissions:
   contents: read
 
 jobs:
+  # Measures generated non-Claude output, which lags `content/` until the
+  # on-demand catch-up chore (root AGENTS.md, "Claude Code first"), so this
+  # job runs only on that chore's branch or a workflow_dispatch.
   check-codex-skill-budget:
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'chore/adapter-catch-up') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

@@ -129,7 +129,7 @@ prose goldens.
 Jobs: `merged-adapter-sync` (incl. the DS-57 codex-hooks and DS-104
 symlinks-relative guards, which audit a landed SHA), `merged-methodology-drift`,
 `merged-agent-fragment-sync`, `merged-slides-sync` (incl. the advisory overflow
-check), `merged-codex-skill-sync` (only with `all_harnesses`), `merged-budget-gates` (all 7),
+check), `merged-codex-skill-sync` (only with `all_harnesses`), `merged-budget-gates` (all 7; the 4 non-Claude ones only with `all_harnesses`),
 `merged-content-guards`, `merged-wrap-lock-tests`, `merged-hooks-js-tests`,
 `merged-hooks-sh-tests`.
 

@@ -382,6 +382,33 @@ else
 $out"
 fi
 
+# A non-Claude adapter budget gate is discovered like any other, but runs only
+# under DS_ALL_HARNESSES=1.
+FX="$TMPROOT/nonclaudebudget"
+build_fixture "$FX"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'source "$(dirname "${BASH_SOURCE[0]}")/lib/budget-gate.sh"\n'
+  printf 'echo "deliberate codex budget failure"\nexit 1\n'
+} > "$FX/scripts/check-codex-skill-budget.sh"
+chmod +x "$FX/scripts/check-codex-skill-budget.sh"
+out="$(run_fixture "$FX")"
+rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q "budget gates (1 files)"; then
+  _pass "the default scope skips the non-Claude adapter budget gates"
+else
+  _fail "the default scope ran a non-Claude budget gate (expected exit 0 and 'budget gates (1 files)', got $rc):
+$out"
+fi
+out="$(run_fixture_all "$FX")"
+rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q "budget gates (1/2 files)"; then
+  _pass "DS_ALL_HARNESSES=1 runs the non-Claude adapter budget gates"
+else
+  _fail "expected exit 1 naming 'budget gates (1/2 files)' under DS_ALL_HARNESSES=1, got $rc:
+$out"
+fi
+
 # A missing adapter-sync pathspec entry must fail: git diff exits 0 on a
 # nonexistent pathspec, so without this step the drift check asserts nothing.
 FX="$TMPROOT/pathspec_claude"

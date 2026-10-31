@@ -453,8 +453,13 @@ _run_file_loop "wrap-lock-tests" node \
 # --- budget gates ----------------------------------------------------------
 # Derived, never hand-listed: every scripts/*.sh that sources the shared
 # budget-gate library is a budget gate, so a newly added one is picked up
-# without editing this file. Includes the 4 adapter skill-embed budgets.
+# without editing this file. The 4 non-Claude adapter skill budgets
+# (check-{codex,copilot,gemini,kimi}-*) measure generated non-Claude output,
+# so they run only under DS_ALL_HARNESSES=1.
 BUDGET_GATES="$(grep -rln '^source .*lib/budget-gate.sh' scripts/*.sh 2>/dev/null | LC_ALL=C sort)"
+if [ "${DS_ALL_HARNESSES:-}" != 1 ]; then
+  BUDGET_GATES="$(printf '%s\n' "$BUDGET_GATES" | grep -vE '^scripts/check-(codex|copilot|gemini|kimi)-' || true)"
+fi
 if [ -z "$BUDGET_GATES" ]; then
   echo "check-local: budget-gate discovery matched zero scripts - discovery is broken, not clean" >&2
   FAILED="${FAILED}budget-gate discovery matched zero scripts

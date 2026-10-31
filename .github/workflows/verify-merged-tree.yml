@@ -583,15 +583,19 @@ jobs:
         timeout-minutes: 2
         run: bash scripts/check-command-file-budget.sh
       - name: Run Codex skill budget check
+        if: env.DS_ALL_HARNESSES == '1'
         timeout-minutes: 2
         run: bash scripts/check-codex-skill-budget.sh
       - name: Run Copilot skill budget check
+        if: env.DS_ALL_HARNESSES == '1'
         timeout-minutes: 2
         run: bash scripts/check-copilot-skill-budget.sh
       - name: Run Gemini skill budget check
+        if: env.DS_ALL_HARNESSES == '1'
         timeout-minutes: 2
         run: bash scripts/check-gemini-skill-budget.sh
       - name: Run Kimi skill embed budget check
+        if: env.DS_ALL_HARNESSES == '1'
         timeout-minutes: 2
         run: bash scripts/check-kimi-skill-embed-budget.sh
 
