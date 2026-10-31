@@ -4001,10 +4001,8 @@ def add_detached_worktree_with_unique_commit(repo: Path, external_path: Path, co
     """Creates a DETACHED worktree at an absolute path outside `repo`,
     then commits UNIQUE work inside it (never pushed, never referenced
     by any branch/tag) - the commit is genuinely unreferenced, unlike
-    checking out the repo's current HEAD with no changes (round-3
-    finding 3: that shape's "unreferenced" property held only while
-    `head_reachable` was never computed, not because the commit was
-    actually unreachable; `head_reachable` is now computed)."""
+    checking out the repo's current HEAD with no changes, which a live
+    ref already contains."""
     _git(repo, "worktree", "add", "--detach", str(external_path))
     (external_path / "unique.txt").write_text(content)
     _git(external_path, "add", "unique.txt")
@@ -4612,3 +4610,90 @@ def test_failed_process_scan_skips_every_entry(tmp_path, monkeypatch):
     )
     assert result["outcome"] == "SKIP_LIVE_CWD", result
 
+
+@pytest.mark.parametrize("no_gh", [True, False])
+def test_detached_commit_named_only_by_private_reflog_is_never_removed(tmp_path, no_gh):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = repo / ".claude" / "worktrees" / "reflog-only"
+    wt.parent.mkdir(parents=True, exist_ok=True)
+    _git(repo, "worktree", "add", "-q", "--detach", str(wt), "main")
+    (wt / "only-here.txt").write_text("sole copy\n")
+    _git(wt, "add", "only-here.txt")
+    _git(wt, "commit", "-q", "-m", "sole copy")
+    _git(wt, "checkout", "-q", "--detach", "origin/main")
+    proc = run_reap(repo, no_gh=no_gh, gh_dir=None if no_gh else _fake_gh_dir(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(wt)].startswith("SKIP_UNPROVEN (private pin:"), proc.stdout
+
+
+def test_detached_whitespace_variant_of_a_base_commit_is_never_removed(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = repo / ".claude" / "worktrees" / "ws"
+    wt.parent.mkdir(parents=True, exist_ok=True)
+    _git(repo, "worktree", "add", "-q", "--detach", str(wt), "main")
+    (repo / "w.txt").write_text("a b\n")
+    _git(repo, "add", "w.txt")
+    _git(repo, "commit", "-q", "-m", "w on main")
+    (wt / "w.txt").write_text("a  b\n")
+    _git(wt, "add", "w.txt")
+    _git(wt, "commit", "-q", "-m", "w with different spacing")
+    assert _git(repo, "cherry", "main", _git(wt, "rev-parse", "HEAD").stdout.strip()).stdout.startswith("- ")
+
+    mod = _load_module_directly()
+    entry = _detached_worktree_entry(wt)
+    facts, _errored = mod._build_facts(str(repo), entry, "clean", "main", False, False)
+    assert facts.head_reachable == "unreachable", facts
+    result = mod.evaluate_entry(
+        str(repo), entry, mod.WorktreeClass.ISOLATION, "main",
+        gh_ok=False, allow_network=False, min_age_hours=None, strict_ignored=False,
+        activity_window_hours=0.0,
+    )
+    assert result["outcome"] != "REMOVE", result
+
+
+def test_live_cwd_matches_a_case_variant_registration(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    on_disk = repo / ".claude" / "worktrees" / "CaseWT"
+    on_disk.mkdir(parents=True)
+    registered = on_disk.parent / "casewt"
+    if not registered.exists():
+        pytest.skip("case-sensitive filesystem: no case-variant path to register")
+    _git(repo, "worktree", "add", "-q", str(registered), "-b", "casewt")
+    holder = subprocess.Popen(["sleep", "120"], cwd=str(on_disk))
+    try:
+        proc = run_reap(repo)
+    finally:
+        holder.kill()
+        holder.wait()
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(registered)].startswith("SKIP_LIVE_CWD"), proc.stdout
+
+
+def test_merge_commit_with_own_content_is_not_content_subsumed(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/mergey", "mergey")
+    (wt / "a.txt").write_text("a\n")
+    _git(wt, "add", "a.txt")
+    _git(wt, "commit", "-q", "-m", "a")
+    a_sha = _git(wt, "rev-parse", "HEAD").stdout.strip()
+    _git(wt, "checkout", "-q", "-b", "side-b", "main")
+    (wt / "b.txt").write_text("b\n")
+    _git(wt, "add", "b.txt")
+    _git(wt, "commit", "-q", "-m", "b")
+    b_sha = _git(wt, "rev-parse", "HEAD").stdout.strip()
+    _git(wt, "checkout", "-q", "mergey")
+    _git(wt, "merge", "-q", "--no-ff", "--no-commit", "side-b")
+    (wt / "e.txt").write_text("only in the merge commit\n")
+    _git(wt, "add", "e.txt")
+    _git(wt, "commit", "-q", "-m", "merge side-b")
+    (repo / "m.txt").write_text("main moves\n")
+    _git(repo, "add", "m.txt")
+    _git(repo, "commit", "-q", "-m", "main moves")
+    _git(repo, "cherry-pick", a_sha)
+    _git(repo, "cherry-pick", b_sha)
+    cherry = _git(repo, "cherry", "main", "mergey").stdout.split()
+    assert cherry[0::2] == ["-", "-"], cherry
+
+    proc = run_reap(repo, no_gh=False, gh_dir=_fake_gh_dir(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(wt)].startswith("SKIP_UNPROVEN"), proc.stdout

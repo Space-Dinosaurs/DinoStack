@@ -11233,9 +11233,8 @@ Purpose: Full reference for worktree and branch lifecycle command blocks
          pointer from content/sections/04-risk-classification.md §Trivial
          signals), and the SKIP_UNREFERENCED_COMMIT section (the
          disposition a crashed detached harness worktree resolves to when
-         its HEAD is neither in an origin/* ref nor patch-equivalent on
-         the base; see that section for the manual triage/recovery
-         procedure), and the Agent-spawned process
+         no local branch or origin/* ref contains its HEAD; see that
+         section for the manual triage/recovery procedure), and the Agent-spawned process
          lifetime ownership section (the canonical rule that a process an
          agent launches - a dev server, a browser - reparents to launchd
          when the launching tool call returns and outlives the agent's run,
@@ -11313,10 +11312,11 @@ Failure modes: Prose + bash blocks; does not auto-execute. Carrier
                A crashed Implicit Trivial batching continuation leaves its
                own harness isolation worktree detached (possibly with an
                unpushed commit) - a DIFFERENT case from the above: the
-               automatic reap removes it only when `head_reachable` holds
-               (HEAD in an origin/* ref, or every commit patch-equivalent
-               on the base); otherwise it resolves SKIP_UNREFERENCED_COMMIT
-               and only the manual procedure in §SKIP_UNREFERENCED_COMMIT
+               automatic reap removes it only when a local branch or
+               origin/* ref contains its HEAD and no commit its private
+               gitdir names would lose its last ref; otherwise it resolves
+               SKIP_UNREFERENCED_COMMIT or SKIP_UNPROVEN (private pin) and
+               only the manual procedure in §SKIP_UNREFERENCED_COMMIT
                resolves it.
 
 Performance: Standard.
@@ -11551,13 +11551,16 @@ like a branched one. `disposition_for`'s detached-HEAD branch
 (`bin/tests/worktree_model.py:756-762`) is `ELIGIBLE` only when
 `facts.head_reachable == "reachable"`, else `SKIP_UNREFERENCED_COMMIT`.
 `bin/ds-cleanup-worktrees`'s `_build_facts` sets `head_reachable` for a
-detached entry to `"reachable"` when its HEAD is contained in an
-`origin/*` ref (`_compute_origin_reachable`) or `git cherry <base> HEAD`
-marks every base..HEAD commit `-` (patch-equivalent on the base), else
-`"unreachable"`. A crash after the push therefore auto-sweeps; a commit
-that exists nowhere else resolves `SKIP_UNREFERENCED_COMMIT` and is left
-for manual handling - refused by design, the same work-preserving
-discipline as `SKIP_UNPROVEN` below, but a distinct disposition.
+detached entry to `"reachable"` only when a local branch or an
+`origin/*` ref contains its HEAD, else `"unreachable"`; patch equivalence
+does not count, because nothing keeps a detached commit alive. Before
+removal it also runs `bin/ds-retire-carrier`'s gate-7 pin check over the
+worktree's private HEAD reflog, `*_HEAD` files and private refs. A crash
+after the push therefore auto-sweeps. A HEAD no live ref contains
+resolves `SKIP_UNREFERENCED_COMMIT`; a contained HEAD whose private
+gitdir still names a commit no live ref holds resolves `SKIP_UNPROVEN`
+(`private pin: ...`). Both are left for manual handling - refused by
+design, the same work-preserving discipline as `SKIP_UNPROVEN` below.
 
 **Operator triage for a remaining `SKIP_UNREFERENCED_COMMIT`:** confirm
 the commit has not reached `origin` -
@@ -11882,7 +11885,7 @@ residual documented below.
 
 ## The unproven class, and archiving it (`--archive-unproven`)
 
-Even with every prior gate passing (unlocked, not self, no live process cwd inside, idle past the activity window, clean, not protected-content), `bin/ds-cleanup-worktrees` still refuses to remove a worktree whose branch carries real, unmerged commits that were never pushed anywhere and have no matching PR - `disposition_for` correctly reports `SKIP_UNPROVEN` rather than guessing. A squash-merged branch is not in this class: `content_subsumption` resolves it when `bin/ds-branch-prune`'s `subsumption_layer` or the `git cherry` rule proves its content is on the base and its PR query answered MERGED, CLOSED or NONE (see `content/commands/ds-cleanup-worktrees.md`). Measured against this repo's own live checkout, this is the dominant remaining blocker once the `.agentic/`-content correction landed: `skipped-protected-content` dropped to 0, but `removed` stayed 0, because most of the remaining worktrees carry exactly this class of branch (default-named `worktree-agent-<id>` branches and legacy `ds-round8`..`ds-round12` rework branches). Left alone by this predicate, `SKIP_UNPROVEN` worktrees do not resolve on their own. **This is now qualified, not absolute (DS-196):** a `SKIP_UNPROVEN` branch that has since been pushed to `origin` and reached a resolved (non-open) PR state can resolve via the separate `origin_reachable` evidence source (see the session-start reap above), which is LENIENT-only and evaluated after `pr_state` - `SKIP_UNPROVEN` itself, produced by the STRICT branch-deletion path, is untouched by this; only the worktree-removal path gains the new resolution route. A branch that is genuinely unpushed, with no PR, still never resolves.
+Even with every prior gate passing (unlocked, not self, no live process cwd inside, idle past the activity window, clean, not protected-content), `bin/ds-cleanup-worktrees` still refuses to remove a worktree whose branch carries real, unmerged commits that were never pushed anywhere and have no matching PR - `disposition_for` correctly reports `SKIP_UNPROVEN` rather than guessing. A squash-merged branch is not in this class: `content_subsumption` resolves it when `bin/ds-branch-prune`'s `subsumption_layer` or the `git cherry` rule proves its content is on the base and its PR query answered MERGED, CLOSED or NONE (see `content/commands/ds-cleanup-worktrees.md`). Measured against this repo's own live checkout, this is the dominant remaining blocker once the `.agentic/`-content correction landed: `skipped-protected-content` dropped to 0, but `removed` stayed 0, because most of the remaining worktrees carry exactly this class of branch (default-named `worktree-agent-<id>` branches and legacy `ds-round8`..`ds-round12` rework branches). Left alone by this predicate, `SKIP_UNPROVEN` worktrees do not resolve on their own. **This is now qualified, not absolute (DS-196):** a `SKIP_UNPROVEN` branch that has since been pushed to `origin` and reached a resolved (non-open) PR state can resolve via the separate `origin_reachable` evidence source (see the session-start reap above), which is LENIENT-only and evaluated after `pr_state` - `SKIP_UNPROVEN` itself, produced by the STRICT branch-deletion path, is untouched by this; only the worktree-removal path gains the new resolution route. A branch that is genuinely unpushed, with no PR, resolves only when `content_subsumption` proves its content is already on the base (the squash-merged case above); otherwise it never resolves.
 
 **`SKIP_RECENT_ACTIVITY` masking note:** the file-activity liveness gate (`--activity-window-hours`, default 3.0) is checked after the lock, self and age gates and before the dirty check, so a worktree that is BOTH recently active AND dirty reports only `SKIP_RECENT_ACTIVITY` in a plain run - the dirty fact is still true but not the reported reason. A locked worktree now always reports `SKIP_LOCKED` (DS-245 moved the lock gate ahead of self, age and activity), so it can no longer be masked by this gate or by the age floor. This is the same masking class as the pre-existing `SKIP_TOO_YOUNG` age-floor gate; `--explain` surfaces the full evidence for a given entry regardless of which single-reason bucket it lands in.
 
@@ -11909,10 +11912,9 @@ That leftover is a distinct disposition from `SKIP_UNPROVEN` above - it
 is not a checked-out branch with unproven ancestry, it is a **detached
 HEAD**. `disposition_for` reports it as `SKIP_UNREFERENCED_COMMIT`,
 refused by the same work-preserving discipline as `SKIP_UNPROVEN`. **A
-leftover reaches this disposition only when `head_reachable` fails** - its HEAD
-is in no `origin/*` ref and not every commit is patch-equivalent on the
-base (see §Crash paths above), so this worktree may hold the sole copy
-of the work. Auto-deleting an entry in this disposition is never
+leftover reaches this disposition only when `head_reachable` fails** - no
+local branch or `origin/*` ref contains its HEAD (see §Crash paths
+above), so this worktree may hold the sole copy of the work. Auto-deleting an entry in this disposition is never
 acceptable.
 
 **Manual recovery/discard procedure:**
@@ -17648,7 +17650,7 @@ Clean up stale git worktrees and local branches in the current repository. Cover
 
 **Origin-reachability evidence and the activity liveness gate (DS-196).** A worktree's branch can be pushed to `origin` and behind a resolved (non-open) PR yet still read `SKIP_UNPROVEN` forever, because the branch was squash-merged (never an ancestor of the base) or never had its own PR. `origin_reachable` is a new, LENIENT-only `DispositionFacts` evidence source (`_compute_origin_reachable`: `git branch -r --contains <head-sha> --list 'origin/*'`; nonempty stdout = `reachable`) added to `WORKTREE_REMOVAL_EVIDENCE_ORDER = (merge_evidence, content_subsumption, pr_state, origin_reachable, ls_remote_status)` - positioned after `pr_state` so an `SKIP_PR_OPEN` veto always resolves first, and it carries its own safety precondition: it never fires unless `pr_state` has been affirmatively resolved (not `"not_checked"`), so under `--no-gh` or a `gh` query failure the new evidence source is inert and the tool degrades to pre-DS-196 behavior. It never touches the STRICT branch-deletion path (`disposition_for_orphan_branch`, `bin/ds-branch-prune`) - branch deletion still requires the four-layer subsumption predicate. Pair it with the new `_worktree_activity_hours` file-activity liveness gate (recursive mtime over files, not directories, under the worktree root, pruning `.git`/`node_modules`/`.venv`/`dist`/`build`/`.next`/`__pycache__`; unresolvable reads fail closed as "too recent") - a worktree with a file touched inside `--activity-window-hours` (CLI default `3.0`) resolves the new `SKIP_RECENT_ACTIVITY` outcome regardless of any other evidence, checked after the lock, self and age gates and before dirty, so it can mask (never reveal less than) a `SKIP_DIRTY` reason in a plain run - same class as `SKIP_TOO_YOUNG`; a locked worktree always reports `SKIP_LOCKED` and can no longer be masked by either (DS-245). Use `--explain` for the full evidence. `--no-origin-reachable-evidence` is the rollback lever, restoring the pre-DS-196 evidence order exactly.
 
-**Squash-aware content subsumption.** A squash-merged branch is never an ancestor of the base, so it used to stop at `SKIP_UNPROVEN` (usually `SKIP_NOT_PUSHED`) unless its PR read MERGED. The tool now fills `content_subsumption` for a branched entry: `subsumed` when the per-branch PR query answered MERGED, CLOSED or NONE without error AND either `bin/ds-branch-prune`'s `subsumption_layer` proves the tip (L2 squash-patch equivalence, L3 tip-subsumed, L4 content-on-main; the merged-PR window is fetched once per repo) or `git cherry <base> <tip>` marks every base..tip commit `-`. An OPEN PR, a failed PR query, or `--no-gh` leaves it `not_checked`, because it is consulted before `pr_state`. A detached entry's `head_reachable` is now live too: `reachable` when its HEAD is in an `origin/*` ref or passes the same cherry rule, else `unreachable` (`SKIP_UNREFERENCED_COMMIT`). `--explain` labels these removals `content-subsumed` and `head-reachable`.
+**Squash-aware content subsumption.** A squash-merged branch is never an ancestor of the base, so it used to stop at `SKIP_UNPROVEN` (usually `SKIP_NOT_PUSHED`) unless its PR read MERGED. The tool now fills `content_subsumption` for a branched entry: `subsumed` when the per-branch PR query answered MERGED, CLOSED or NONE without error AND either `bin/ds-branch-prune`'s `subsumption_layer` proves the tip (L2 squash-patch equivalence, L3 tip-subsumed, L4 content-on-main; the merged-PR window is fetched once per repo) or `git cherry <base> <tip>` marks every base..tip commit `-`. An OPEN PR, a failed PR query, or `--no-gh` leaves it `not_checked`, because it is consulted before `pr_state`. A detached entry's `head_reachable` is now live too: `reachable` only when a local branch or an `origin/*` ref contains its HEAD, else `unreachable` (`SKIP_UNREFERENCED_COMMIT`); patch equivalence does not count for a detached commit, because nothing keeps it alive. Before any entry is REMOVEd or offered to `--archive-unproven`, bin/ds-retire-carrier's gate-7 pin check runs on it (HEAD, `*_HEAD` files, private refs and private reflogs in the worktree's own gitdir; no fetch, and phase 1 only under `--no-gh`): a commit no live ref holds keeps it `SKIP_UNPROVEN` with reason `private pin: ...`. `--explain` labels these removals `content-subsumed` and `head-reachable`.
 
 **The automatic session-start reap (DS-196).** In addition to being run on demand via this command, `bin/ds-cleanup-worktrees` is now also invoked by the conductor's session-start preflight, backgrounded so it never blocks, from the session-start prune prose block in `content/references/worktree-lifecycle.md` (§Session-start prune script) - after `git worktree prune`, before `bin/ds-branch-prune`. Output is appended (never truncated) to `<repo-root>/.agentic/worktree-reap.log`, with a per-run header line (UTC timestamp + pid) so DIFFERENT concurrent sessions interleave identifiably rather than clobbering the only record of a mutating removal - `$$` in a backgrounded subshell expands to the PARENT shell's own pid (verified in both bash and zsh), so a same-session 30-minute-idle preflight re-fire shares this pid across every run and is distinguished by its timestamp alone, not by pid. Suppress it with `AE_WORKTREE_REAP_DISABLE=1`; PATH-absence degrades to a `WARNING:` rather than blocking session start.
 

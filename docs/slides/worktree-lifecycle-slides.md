@@ -361,7 +361,7 @@ The passive nudges are report-only. The session-start reap is the mutating backs
   .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-Even a worktree that passes every gate can still be stuck `SKIP_UNPROVEN`: a real, unmerged, never-pushed branch with no matching PR - `disposition_for` correctly refuses to guess. A branch that is genuinely unpushed with no PR still never resolves this way. **DS-196 qualifies this for the pushed case:** a `SKIP_UNPROVEN` branch that has since been pushed to `origin` and reached a resolved (non-open) PR state can resolve via the new `origin_reachable` evidence source instead (LENIENT-only, evaluated after `pr_state`) - the STRICT branch-deletion path is untouched.
+Even a worktree that passes every gate can still be stuck `SKIP_UNPROVEN`: a real, unmerged, never-pushed branch with no matching PR - `disposition_for` correctly refuses to guess. A genuinely unpushed branch with no PR resolves only when its content is proven on the base (content subsumption). **DS-196 qualifies this for the pushed case:** a `SKIP_UNPROVEN` branch that has since been pushed to `origin` and reached a resolved (non-open) PR state can resolve via the new `origin_reachable` evidence source instead (LENIENT-only, evaluated after `pr_state`) - the STRICT branch-deletion path is untouched.
 
 A 2026-08-11 manual one-off operator sweep already solved this for BRANCHES: archive into a verified `git bundle`, prove the restore path, then delete (`.agentic/branch-archive/`, DS-153; `bin/ds-branch-prune` itself does not call `git bundle`). `ds-cleanup-worktrees --archive-unproven` - OPT-IN, never the default - extends that exact pattern to WORKTREES:
 
@@ -414,7 +414,7 @@ Canonical mechanism: content/references/worktree-lifecycle.md §Implicit Trivial
 
 A crashed continuation leaves ONE artifact - its own harness isolation worktree, detached, possibly with an unpushed commit. No nested worktree, no orphaned second entry.
 
-- `head_reachable` auto-sweeps a leftover whose HEAD is in an `origin/*` ref or whose every commit is patch-equivalent on the base; any other detached leftover resolves `SKIP_UNREFERENCED_COMMIT`, refused by design, same work-preserving discipline as `SKIP_UNPROVEN`
+- `head_reachable` auto-sweeps a leftover whose HEAD a local branch or `origin/*` ref contains and whose private reflog pins nothing else; otherwise it resolves `SKIP_UNREFERENCED_COMMIT` (or `SKIP_UNPROVEN`, private pin), refused by design
 - Triage manually: `git -C <path> branch -r --contains "$(git -C <path> rev-parse HEAD)"` - nonempty means the work already reached `origin` and is safe; empty means this worktree is the sole copy
 - Recovery: inspect the tip (`git -C <path> log -1`), then push it to its intended branch or cherry-pick it where it belongs
 - Retire via **`ds-retire-carrier <path>`** (`--pin` keeps an unpushed tip) or record a hold - never `--force`; a hold naming uncommitted changes means content `log -1` couldn't show - inspect `status --porcelain` and `diff` first
