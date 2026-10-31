@@ -1517,7 +1517,10 @@ class CodexSkillGenerationTests(unittest.TestCase):
         orchestration = (
             self.repo / ".codex/references/orchestration-units.md"
         ).read_text(encoding="utf-8")
-        self.assertIn('task -> "Task"; omit to accept project default', ticket)
+        self.assertIn(
+            "`$REPO_DIR/content/references/tracker-create.md` §Tracker Create Helper",
+            ticket,
+        )
         self.assertIn(
             "`$REPO_DIR/content/references/orchestration-units.md` §Phase 3b: Orchestration plan (conditional)",
             ticket,
