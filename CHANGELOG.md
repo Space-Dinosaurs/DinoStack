@@ -7,7 +7,21 @@
 
 ### Features
 
+- **#1070** [methodology PRs build and check Claude Code only; other harnesses catch up on demand](https://github.com/Space-Dinosaurs/DinoStack/pull/1070) - tyson-solara6
+- **#1069** [ds-ticket-ci verifies required checks by name; QA evidence publish script](https://github.com/Space-Dinosaurs/DinoStack/pull/1069) - tyson-solara6
+- **#1068** [ds-ticket-setup resolves setup, loop key and rework in one call](https://github.com/Space-Dinosaurs/DinoStack/pull/1068) - tyson-solara6
+- **#1066** [fix-pass impact sweeps, finding checks, no prescribed fixes](https://github.com/Space-Dinosaurs/DinoStack/pull/1066) - tyson-solara6
+- **#1065** [one grant lifts the cap for the session up to 6 rounds](https://github.com/Space-Dinosaurs/DinoStack/pull/1065) - tyson-solara6
+- **#1064** [run Phase 8-12 shell as ds-ticket-commit and ds-ticket-finish](https://github.com/Space-Dinosaurs/DinoStack/pull/1064) - tyson-solara6
+- **#1063** [accept a plain "grant" reply past the cap](https://github.com/Space-Dinosaurs/DinoStack/pull/1063) - tyson-solara6
+- **#1061** [define high blast radius for the Elevated route decision](https://github.com/Space-Dinosaurs/DinoStack/pull/1061) - tyson-solara6
+- **#1060** [close what you opened before returning; per-run TMPDIR for check-local](https://github.com/Space-Dinosaurs/DinoStack/pull/1060) - tyson-solara6
+- **#1059** [launch the cleanup sweep from SessionStart, archive before every removal](https://github.com/Space-Dinosaurs/DinoStack/pull/1059) - tyson-solara6
 - **#1058** [squash-aware removal predicate and live-cwd gate](https://github.com/Space-Dinosaurs/DinoStack/pull/1058) - tyson-solara6
+
+### Fixes
+
+- **#1067** [W19 waits for the launch line, not just the file](https://github.com/Space-Dinosaurs/DinoStack/pull/1067) - tyson-solara6
 
 ### Refactoring
 
