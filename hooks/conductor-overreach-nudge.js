@@ -106,12 +106,13 @@
  *                        Also writes the Layer 2 sentinel file (see above),
  *                        consumed by this hook's own future invocations
  *                        within the same session.
- *                        content/commands/ds-implement-ticket.md (Phase 5
- *                        §Low route) pre-writes this sentinel by its exact
- *                        name, in the directory resolveMainRepoRoot gives,
- *                        with content `low-route`, because that route is
- *                        zero-spawn by design, and its Phase 1 reset
- *                        deletes a sentinel holding that content; renaming
+ *                        content/commands/ds-implement-ticket.md (Phase 1
+ *                        §Overreach advisory) writes this sentinel by its
+ *                        exact name, in the directory resolveMainRepoRoot
+ *                        gives, with content `low-route` for a Low ticket,
+ *                        because that route is zero-spawn by design, and
+ *                        deletes a sentinel holding that content for any
+ *                        other ticket; renaming
  *                        _SENTINEL_PREFIX, re-anchoring _sentinelDir or
  *                        giving _markFired's file content requires
  *                        updating it.
