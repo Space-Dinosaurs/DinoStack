@@ -321,7 +321,7 @@ Treat the prior attempt as insufficient. Your plan MUST:
 
 Resolve `BRANCH_NAME` from the AGENTS.md convention (ticket type plus a 4-5 word slug) on every path.
 
-**Stale remote branch preflight** (before passing a branch to any engineer or cutting fan-out sub-branches; with a Brief/Plan, once here before the plan push, not again in Phase 5): `git -C $REPO ls-remote --heads origin "$BRANCH_NAME"`. Empty, or this ticket's own work (a SHA reachable from its resume state, or the branch a Low/single-review engineer pushed before escalating): proceed. A foreign SHA: rename to `-v2` (or `-<7-char HEAD sha>` if taken), re-check, and log `branch_collision: <original> → <renamed> (remote SHA <sha>)` to `resolution_notes`.
+**Stale remote branch preflight** (before passing a branch to any engineer or cutting fan-out sub-branches; with a Brief/Plan, once here before the plan push, not again in Phase 5): `git -C $REPO ls-remote --heads origin "$BRANCH_NAME"`. Empty, or this ticket's own work (a SHA reachable from its resume state, or the branch a single-review engineer or the Low conductor pushed before escalating): proceed. A foreign SHA: rename to `-v2` (or `-<7-char HEAD sha>` if taken), re-check, and log `branch_collision: <original> → <renamed> (remote SHA <sha>)` to `resolution_notes`.
 
 **Commit and push the planning artifact** (only when `brief_path` or `plan_path` is set; always set `PLAN_PRESEEDED`):
 
@@ -399,14 +399,14 @@ Empty `EXISTING_WT`: add normally. `UNPUSHED_RC` non-zero: do not reset; follow 
 
 ### Low route (conductor implements)
 
-The conductor makes the Low change itself and spawns no engineer. Measured on Low tickets: the spawned engineer alone cost about one vanilla Claude Code run, the conductor was a second session paying the repo's instruction floor again, and vanilla passed every Low ticket, so the second session bought no accuracy. Every gate that does not need a second agent stays. Each Low edit, a QA fix pass included, runs these steps:
+The conductor makes the Low change itself and spawns no engineer. Measured on Low tickets: the spawned engineer alone cost about one vanilla Claude Code run, the conductor was a second session paying the repo's instruction floor again, and vanilla passed every Low ticket, so the second session bought no accuracy. Every gate that does not need a second agent stays. Each Low edit, a QA fix pass (Phase 6b) and a CI fix (Phase 10a) included, runs these steps:
 
 1. `mkdir -p "$REPO/.agentic" && : > "$REPO/.agentic/.conductor-overreach-fired-$CLAUDE_CODE_SESSION_ID"`: a zero-spawn session is this route's design, so the once-per-session overreach advisory (`hooks/conductor-overreach-nudge.js`) is spent up front.
 2. `WORKTREE_PATH="$REPO/.agentic/worktrees/$BRANCH_NAME"`, created by `create_commands` (Elevated contract fields above, guard included) unless it exists; edit only inside it, by absolute path.
 3. Read `$REPO_DIR/content/agents/engineer.md` §Implementation process and §Quality gates (and §Front-end discipline for a front-end diff) and apply them to your own diff, skipping what concerns briefs and return blocks. Docs currency: follow this repo's own doc-sync rule and update any doc your diff makes stale, in the same commit.
-4. Check the actual diff (`git -C "$WORKTREE_PATH" diff --stat origin/$BASE_BRANCH`) against 04 §Profile deltas. A broken bound or a risk-surface touch: commit and push as in step 6, `"$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$WORKTREE_PATH"`, then Escalation (Phase 2); the Elevated route spawns as usual.
-5. Run `$QUALITY_CMD` in `$WORKTREE_PATH` after the nvm line (this is Phase 7 for Low); never suppress a check. A failure gets one fix pass, then Phase 7's `stalled` escalation.
-6. Stage by explicit path, `git -C "$WORKTREE_PATH" commit -s` (Phase 8 subject rules), `git -C "$WORKTREE_PATH" push -u origin "$BRANCH_NAME"`. Phase 8 runs as after an engineer commit and retires the worktree.
+4. Run `$QUALITY_CMD` in `$WORKTREE_PATH` after the nvm line (this is Phase 7 for Low); never suppress a check. A failure gets one fix pass, then Phase 7's `stalled` escalation.
+5. Stage by explicit path every file you created, moved or edited, until `git -C "$WORKTREE_PATH" status --porcelain` lists no untracked (`??`) or unstaged entry (delete what is not part of the change); only staged files are counted. Check `git -C "$WORKTREE_PATH" diff --cached -M --numstat origin/$BASE_BRANCH` against 04 §Profile deltas. A carve-out move is unchanged only when a whole-file move shows 0 added and 0 deleted lines on its `old => new` line, or, for a component extracted from a larger file, when `git -C "$WORKTREE_PATH" diff --cached --color-moved=plain --color=always origin/$BASE_BRANCH` shows every line of it in the moved colours (bold, `1;35m`/`1;36m` by default); any other line changed inside it, an added `export` aside, is a behavioural change. A broken bound or a risk-surface touch: commit and push as in step 6, `"$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$WORKTREE_PATH"`, then Escalation (Phase 2); the Elevated route spawns as usual.
+6. `git -C "$WORKTREE_PATH" commit -s` with Phase 8's message rules and `git_finalization`'s `Developer:` trailer (Elevated contract fields above), and no `Co-Authored-By` or other AI-attribution trailer whatever the harness's commit default says; then `git -C "$WORKTREE_PATH" push -u origin "$BRANCH_NAME"`. Do not run Phase 8 here: it runs once per ticket, in its place after Phase 7, without files or `--message`, and retires the worktree, which stays until then for a QA fix pass. A Phase 10a fix, made after Phase 8, ends with `"$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$WORKTREE_PATH"`.
 
 ### If parallel independent units were identified:
 
@@ -513,7 +513,7 @@ Runs after 6/6b exit clean; never re-enters the Phase 6 counter. Every write bel
 
 - **Elevated:** verify the return; never run `$QUALITY_CMD` yourself. lint, typecheck and test all `pass`: Phase 8. Any `fail` or `vacuous`, or no block (a Major): fix pass with `raw_output`.
 - **Trivial:** run `cd $REPO && $QUALITY_CMD` after the nvm line. Zero or ignored inputs is a failure; never suppress a check.
-- **Low:** already run in Phase 5 §Low route step 5.
+- **Low:** already run in Phase 5 §Low route step 4.
 
 **On failure, `DEBUGGER_ON_FAILURE` false or Trivial:** write `last_phase_action=engineer_spawned`; spawn one fix engineer (Elevated: worktree, "on origin" form; Trivial: its own round-N form); write `engineer_returned`, then `rerun_pending`; verify again. Pass: `status=complete`, Phase 8. Fail: `status=stalled`, batch routing, escalate with both outputs. One pass only.
 
@@ -652,7 +652,7 @@ TIMEOUT_POLLS=60
 
 ## Phase 10a: CI fix loop (conditional on Phase 10 result: failed)
 
-Up to 3 cycles. Each: `RUN_ID=$(gh run list --pr "$PR_NUMBER" --repo "$GH_REPO" --status failure --limit 1 --json databaseId 2>/dev/null | jq -r '.[0].databaseId')` and `FAILURE_LOG=$(gh run view "$RUN_ID" --repo "$GH_REPO" --log-failed 2>/dev/null | tail -300)`; write `last_phase: ci_loop, last_phase_action: fix_engineer_spawned, last_phase_iteration: N` to `.agentic/loop-state-$LOOP_KEY.json`; spawn a worktree fix engineer ("on origin" form) with the log, prior cycles (surgical-edit directive from cycle 2) and "commit and push to the same branch"; write `fix_engineer_returned`, then `ci_poll_pending`, and re-run the Phase 10 call. The same failing check names in two cycles escalate at once. After 3: write `cap_exceeded`, print each cycle's outcome, **W6b** (`target_state: $TRACKER_STATE_BLOCKED`; `[phase: tracker-writeback | site: W6b | target: $TRACKER_STATE_BLOCKED | escalation: ci-fix-loop-cap]`), STOP. `[phase: ci-fix-loop | iteration N/3 | failing: <check-names>]`
+Up to 3 cycles. Each: `RUN_ID=$(gh run list --pr "$PR_NUMBER" --repo "$GH_REPO" --status failure --limit 1 --json databaseId 2>/dev/null | jq -r '.[0].databaseId')` and `FAILURE_LOG=$(gh run view "$RUN_ID" --repo "$GH_REPO" --log-failed 2>/dev/null | tail -300)`; write `last_phase: ci_loop, last_phase_action: fix_engineer_spawned, last_phase_iteration: N` to `.agentic/loop-state-$LOOP_KEY.json`; spawn a worktree fix engineer ("on origin" form; Low route: the conductor, per Phase 5 §Low route) with the log, prior cycles (surgical-edit directive from cycle 2) and "commit and push to the same branch"; write `fix_engineer_returned`, then `ci_poll_pending`, and re-run the Phase 10 call. The same failing check names in two cycles escalate at once. After 3: write `cap_exceeded`, print each cycle's outcome, **W6b** (`target_state: $TRACKER_STATE_BLOCKED`; `[phase: tracker-writeback | site: W6b | target: $TRACKER_STATE_BLOCKED | escalation: ci-fix-loop-cap]`), STOP. `[phase: ci-fix-loop | iteration N/3 | failing: <check-names>]`
 
 ## Phase 10b: Mark ready + assign reviewers (conditional on Phase 10 result: passed)
 

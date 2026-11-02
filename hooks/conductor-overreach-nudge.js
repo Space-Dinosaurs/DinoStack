@@ -31,8 +31,8 @@
  *                     Stop call the harness itself re-invoked after a prior
  *                     Stop hook's output kept the turn open.
  *            Layer 2: a once-per-session sentinel file at
- *                     [resolved root]/.agentic/.conductor-overreach-fired-
- *                     <sanitized session_id> - backstops Claude Code bug
+ *                     [main checkout root]/.agentic/.conductor-overreach-
+ *                     fired-<sanitized session_id> - backstops Claude Code bug
  *                     #54360, under which `stop_hook_active` can fail to
  *                     propagate when a UserPromptSubmit hook interleaves
  *                     system reminders (this repo has such hooks). A
@@ -89,13 +89,16 @@
  *                (computeOverreach, DEFAULT_THRESHOLD - reads and parses
  *                payload.transcript_path itself, bounded by a size
  *                ceiling), hooks/lib/repo-root.js (resolveAgenticCwd -
- *                anchors both reads/writes below to the repo root instead
- *                of the raw payload cwd), hooks/lib/prune-aged.js
+ *                anchors the config read and event append to the repo
+ *                root instead of the raw payload cwd; resolveMainRepoRoot
+ *                - anchors the sentinel to the main checkout even from a
+ *                linked worktree), hooks/lib/prune-aged.js
  *                (pruneAgedFiles, the sentinel sweep). Reads
  *                [resolved root]/.agentic/config.json (optional,
  *                conductor_overreach_threshold key; config-reversible) and,
  *                for the Layer 2 sentinel, checks for the existence of
- *                [resolved root]/.agentic/.conductor-overreach-fired-<id>.
+ *                [main checkout root]/.agentic/.conductor-overreach-fired-
+ *                <id>.
  *
  * Downstream consumers: none - terminal hook. Appends to
  *                        [cwd]/.agentic/events.jsonl, read by bin/ds-cost
@@ -147,7 +150,7 @@ const path = require('path');
 
 const { readStdinGuarded } = require('./lib/stdin-guard.js');
 const { computeOverreach, DEFAULT_THRESHOLD } = require('./lib/overreach-detector.js');
-const { resolveAgenticCwd } = require('./lib/repo-root.js');
+const { resolveAgenticCwd, resolveMainRepoRoot } = require('./lib/repo-root.js');
 const { pruneAgedFiles } = require('./lib/prune-aged.js');
 
 /**
@@ -217,9 +220,16 @@ function _appendEvent(cwd, sessionId, result) {
 const _SENTINEL_PREFIX = '.conductor-overreach-fired-';
 const _SENTINEL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+// Anchored to the main checkout, not a linked worktree: a session that cd's
+// into a worktree keeps one sentinel, and the /ds-implement-ticket Low route
+// pre-writes it in the main checkout.
+function _sentinelDir(cwd) {
+  return path.join(resolveMainRepoRoot(cwd).root, '.agentic');
+}
+
 function _sentinelPath(cwd, sessionId) {
   const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return path.join(resolveAgenticCwd(cwd), '.agentic', `${_SENTINEL_PREFIX}${safeId}`);
+  return path.join(_sentinelDir(cwd), `${_SENTINEL_PREFIX}${safeId}`);
 }
 
 /**
@@ -243,8 +253,7 @@ function _sentinelPath(cwd, sessionId) {
  */
 function _pruneAgedSentinels(cwd) {
   try {
-    const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
-    pruneAgedFiles(agenticDir, _SENTINEL_PREFIX, _SENTINEL_RETENTION_MS);
+    pruneAgedFiles(_sentinelDir(cwd), _SENTINEL_PREFIX, _SENTINEL_RETENTION_MS);
   } catch (_) {
     // Root resolution failed - silent, non-fatal.
   }
@@ -283,7 +292,7 @@ function _hasFired(cwd, sessionId) {
  *   false as "do not emit" - see the module docstring's Layer 2 section.
  */
 function _markFired(cwd, sessionId) {
-  const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
+  const agenticDir = _sentinelDir(cwd);
   const sentinelPath = _sentinelPath(cwd, sessionId);
   const tmp = `${sentinelPath}.tmp.${process.pid}`;
   let wrote = false;
