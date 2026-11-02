@@ -121,11 +121,6 @@
  *                                  `.tmp.<pid>` staging file is not left
  *                                  behind - regression for the tmp-file-
  *                                  leak Minor.
- *   17. main-checkout-sentinel-covers-linked-worktree: a sentinel in the
- *                                  main checkout's .agentic/ suppresses the
- *                                  advisory for a Stop whose cwd is a linked
- *                                  worktree (the /ds-implement-ticket Low
- *                                  route pre-writes it there).
  *
  * Run with: node hooks/tests/test-conductor-overreach-nudge.js
  */
@@ -732,27 +727,6 @@ console.log('\nTest 16: rename-failure-no-tmp-residue');
   const leaked = fs.readdirSync(agenticDir).filter((n) => n.includes('.tmp.'));
   assert(leaked.length === 0, `no orphaned .tmp.<pid> file left behind (found: ${JSON.stringify(leaked)})`);
   cleanup(cwd);
-}
-
-// ---------------------------------------------------------------------------
-// Test 17: main-checkout-sentinel-covers-linked-worktree
-// ---------------------------------------------------------------------------
-console.log('\nTest 17: main-checkout-sentinel-covers-linked-worktree');
-{
-  const repo = makeTempProject();
-  const git = (...args) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
-  git('init', '-q');
-  git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '--allow-empty', '-m', 'init');
-  const wt = path.join(repo, '.agentic', 'worktrees', 'feat-x');
-  const added = git('worktree', 'add', '-q', '-b', 'feat-x', wt);
-  assert(added.status === 0, `linked worktree created (${added.stderr})`);
-  const sessionId = 'overreach-session-017';
-  fs.writeFileSync(path.join(repo, '.agentic', `.conductor-overreach-fired-${sessionId}`), '');
-  const transcriptPath = writeTranscript(repo, buildInvestigationOnlyTranscript(15)); // 15 > 12
-  const { stdout, status } = runHook(stopPayload(wt, sessionId, transcriptPath), wt);
-  assert(status === 0, 'exits 0 with cwd in a linked worktree');
-  assert(stdout.trim() === '', 'a sentinel in the main checkout suppresses the advisory from a linked-worktree cwd');
-  cleanup(repo);
 }
 
 // ---------------------------------------------------------------------------

@@ -79,7 +79,7 @@ Only `.agentic/loop-state-$LOOP_KEY.json` is recommended (`resume.recommended`);
 - **Resumable** (`interrupted`, or `active` with `last_updated` over 10 minutes old): print branch, ticket, `last_phase`/`last_phase_action`, iteration, open findings; ask `Resume this loop or start fresh? (resume / fresh)`. `fresh`: delete **only** `.agentic/loop-state-$LOOP_KEY.json` and proceed. `resume`: on `interrupt_reason == "rate_limit"` wait out 60s from `interrupted_at`; increment `resume_count`; enter per the table.
 - **Live** (`active`, fresh): no prompt. **`complete`/`stalled`:** print a clearing line and delete that keyed file only. **Parse failure:** warn and offer to delete that one candidate.
 - **Legacy `.agentic/loop-state.json`**, resumable with no keyed file: adopt it under its `ticket_id`, else `session-<its session_id>`, else `legacy` (atomic keyed copy with `loop_key` set and `resume_count` incremented, then `rm -f .agentic/loop-state.json` (loop-key: legacy)), then resume. A resumable keyed file wins over legacy. A `session-*` candidate adopted on a null ticket keeps its own `loop_key`. A `loop_key` field disagreeing with its filename: the filename selects, the field is the key; warn once.
-- **After resuming - resolve and print `TRACKER_TRANSITIONS_MODE` before jumping to any entry point.** Also set `RISK_CLASS` from the loop state's `risk_class` and run Phase 1's overreach advisory call with it, run the ticket diff (Phase 6) before any spawn (empty with open findings: the work was lost; tell the operator) and re-read any Brief/Plan.
+- **After resuming - resolve and print `TRACKER_TRANSITIONS_MODE` before jumping to any entry point.** Also run the ticket diff (Phase 6) before any spawn (empty with open findings: the work was lost; tell the operator) and re-read any Brief/Plan.
 
 **Entry by `last_phase`/`last_phase_action`:** a `spawned` agent is re-spawned with its prior brief (Skeptic on the current diff, with the prior-iteration findings block; an engineer only on a clean `git status --porcelain`, else ask "discard and re-run, or commit and re-run Skeptic?"); after a `returned` agent its next step runs (Skeptic: the fix pass on open findings; engineer: the Skeptic with `last_engineer_summary`; QA: its fix pass; Debugger: the fix pass with its Fix brief). `quality_gate|engineer_returned` or `rerun_pending`: verify `quality_gate_results` (Trivial: re-run `$QUALITY_CMD`). `ci_wait|timeout`: with `auto_merge_queued` true run `gh pr view $PR_NUMBER --json state -q .state` first (`MERGED` skips to Phase 10b; never re-queue), else re-run the Phase 10 call once. `ci_loop`: re-spawn the fix engineer or re-run the Phase 10 call at cycle N; `cap_exceeded` never auto-resumes. In the `skeptic` loop `max_iterations` 2 means `ELEVATED_ROUTE=single-review`.
 
@@ -182,15 +182,6 @@ W1_DISPATCH_OUTCOME=""
 ELEVATED_ROUTE=""
 ```
 
-**Overreach advisory.** `hooks/conductor-overreach-nudge.js` advises once per session when the session has made more investigation calls than its threshold (default 12) and no spawn. The Low route spawns nothing by design, so its ticket spends that advisory and every other ticket re-arms it; a sentinel the hook wrote itself is empty and stays. Run this as one call, which reads no earlier call's shell state: here with `ROUTE=""`, at the Phase 2 declaration with `ROUTE="$RISK_CLASS"`, and on Resume with the loop state's `risk_class`.
-
-```bash
-ROUTE=""
-S="$(node -e 'console.log(require(process.argv[1]).resolveMainRepoRoot(process.argv[2]).root)' "$REPO_DIR/hooks/lib/repo-root.js" "$REPO")/.agentic/.conductor-overreach-fired-$CLAUDE_CODE_SESSION_ID"
-if [ "$ROUTE" = Low ]; then mkdir -p "$(dirname "$S")" && { [ -e "$S" ] || printf low-route > "$S"; }
-elif [ "$(cat "$S" 2>/dev/null)" = low-route ]; then rm -f "$S"; fi
-```
-
 #### If TRACKER is `linear`
 
 `mcp__linear__get_issue` (`includeRelations: true`); on error `W1_FETCH_FAILED=true`. Read Implementation, Files and QA; confirm `blockedBy` tickets are done; the type drives branch naming. `mcp__linear__list_comments`: comments containing `QA` and one of `FAIL`, `PARTIAL`, `BLOCKED`, `failed`, `re-work` go to `PRIOR_QA_COMMENTS`; `COMMENT_THREAD_SUMMARY` = all bodies, 2000 chars max; both empty on error.
@@ -274,8 +265,6 @@ Classify per `content/sections/04-risk-classification.md`. **Rework floor:** whe
 RISK_CLASS="<Trivial | Low | Elevated>"     # post-floor
 ELEVATED_ROUTE="<full | single-review>"
 ```
-
-Then run Phase 1's overreach advisory call with `ROUTE="$RISK_CLASS"`.
 
 | Route | Spawns | When QA does not run |
 |---|---|---|
@@ -410,7 +399,7 @@ Empty `EXISTING_WT`: add normally. `UNPUSHED_RC` non-zero: do not reset; follow 
 
 ### Low route (conductor implements)
 
-The conductor makes the Low change itself and spawns no engineer. Measured on Low tickets: the spawned engineer alone cost about one vanilla Claude Code run, the conductor was a second session paying the repo's instruction floor again, and vanilla passed every Low ticket, so the second session bought no accuracy. Every gate that does not need a second agent stays. Each Low edit, a QA fix pass (Phase 6b) and a CI fix (Phase 10a) included, runs these steps:
+The conductor makes the Low change itself and spawns no engineer. Measured on Low tickets: the spawned engineer alone cost about one vanilla Claude Code run, the conductor was a second session paying the repo's instruction floor again, and vanilla passed every Low ticket, so the second session bought no accuracy. Every gate that does not need a second agent stays. Because the route spawns nothing, the once-per-session overreach advisory may fire on a Low ticket; it needs no action. Each Low edit, a QA fix pass (Phase 6b) and a CI fix (Phase 10a) included, runs these steps:
 
 1. `WORKTREE_PATH="$REPO/.agentic/worktrees/$BRANCH_NAME"`, created by `create_commands` (Elevated contract fields above, guard included) unless it exists; edit only inside it, by absolute path.
 2. Read `$REPO_DIR/content/agents/engineer.md` §Reading your spawn prompt and required context item 5 and the North Star conflict paragraph after it, §Implementation process and §Quality gates (and §Front-end discipline for a front-end diff) and apply them to your own diff, skipping what concerns briefs and return blocks. Docs currency: follow this repo's own doc-sync rule and update any doc your diff makes stale, in the same commit.
@@ -793,6 +782,6 @@ Every conductor write to `.agentic/batch-state.json` or `.agentic/loop-state-$LO
 
 The Claude Code Stop hook (`--cadence=turn`) only refreshes `last_updated`/`updated_at` on `active` files whose `session_id` positively matches. The SessionEnd hook's `markInterrupted` sets `status=interrupted`, `interrupted_at`, `interrupt_reason="unknown"` (plus `updated_at` on batch-state only; never `last_updated`, which Resume reads). Neither derives a key: `candidatePaths(cwd)` takes every `.agentic/loop-state-*.json` plus batch-state and the legacy file.
 
-**`loop-state-$LOOP_KEY.json` fields:** `schema_version: 1`, `session_id` (`$CLAUDE_CODE_SESSION_ID`, or null on a harness that cannot match the hook namespace), `ticket_id`, `loop_key` (required; the file's own key), `resume_count`, `last_phase_iteration` (Phase 10a cycle), `branch`, `repo`, `base_branch`, `risk_class` (`$RISK_CLASS` at the write), `status` (`active|interrupted|complete|stalled`), `last_updated`, `interrupted_at`, `interrupt_reason`, `last_phase` (the authoritative resume key), `last_phase_action`, `auto_merge_queued` (written only by Phase 10's timeout), `loop_state {phase, iteration, max_iterations, tier, findings_log, qa_failures_log, last_engineer_summary, termination_reason}`. Overwritten at each transition, kept after clean exit; a stable contract for resume readers.
+**`loop-state-$LOOP_KEY.json` fields:** `schema_version: 1`, `session_id` (`$CLAUDE_CODE_SESSION_ID`, or null on a harness that cannot match the hook namespace), `ticket_id`, `loop_key` (required; the file's own key), `resume_count`, `last_phase_iteration` (Phase 10a cycle), `branch`, `repo`, `base_branch`, `status` (`active|interrupted|complete|stalled`), `last_updated`, `interrupted_at`, `interrupt_reason`, `last_phase` (the authoritative resume key), `last_phase_action`, `auto_merge_queued` (written only by Phase 10's timeout), `loop_state {phase, iteration, max_iterations, tier, findings_log, qa_failures_log, last_engineer_summary, termination_reason}`. Overwritten at each transition, kept after clean exit; a stable contract for resume readers.
 
 **`batch-state.json`** (skeleton in `batch-mode.md`): `status` `active|paused|interrupted|complete|stalled`; `mode` `batch|open_goal|single_ticket_capped` (absent = `batch`); `pause_reason` `stale_pace|operator_pause|wallclock_cap|open_goal_iteration_cap|null`; `wallclock_cap_min` 90 (env `AGENTIC_BATCH_MAX_WALLCLOCK_MIN`), per batch lifetime; `tickets[].status` `pending|in_progress|complete|blocked|skipped_already_merged`; `replan_log[]` (Contract B); `open_goal {active, goal_condition, iteration, max_iterations, risk_declared, termination_reason, dry_run}`.
