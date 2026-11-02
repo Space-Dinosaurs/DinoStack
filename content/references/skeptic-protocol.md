@@ -56,7 +56,7 @@ Before starting any task, the main agent performs a brief risk assessment. The c
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
 | Trivial | Worktree-isolated `engineer` (no Skeptic, no brief file) | None | Silent |
-| Low | Direct action (small single-concern change: one `engineer`) | Brief inline self-check | Silent |
+| Low | Direct action (small single-concern change: one `engineer`; on `/ds-implement-ticket` the conductor makes it in its own worktree) | Brief inline self-check | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated, single-review route | One worktree-isolated engineer; no architect or planner | One Skeptic pass; fixes re-reviewed only after a Critical | Stated before starting |
 | Elevated + Cleanup (full route only) | Worker | Skeptic → `/simplify` → Skeptic (narrow) | Stated before starting |

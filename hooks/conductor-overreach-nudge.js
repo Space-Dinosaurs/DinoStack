@@ -108,8 +108,10 @@
  *                        invocations within the same session.
  *                        content/commands/ds-implement-ticket.md (Phase 5
  *                        §Low route) pre-writes this sentinel by its exact
- *                        name, because that route is zero-spawn by design;
- *                        renaming _SENTINEL_PREFIX requires updating it.
+ *                        name, in the directory resolveMainRepoRoot gives,
+ *                        because that route is zero-spawn by design;
+ *                        renaming _SENTINEL_PREFIX or re-anchoring
+ *                        _sentinelDir requires updating it.
  *
  * Failure modes: fail-open on any error - missing/malformed stdin, missing
  *                fields, unreadable/malformed config, an unavailable or
