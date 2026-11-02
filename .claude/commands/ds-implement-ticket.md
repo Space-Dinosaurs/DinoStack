@@ -23,7 +23,7 @@ Take a ticket (Linear, Jira, or none) from description to merged PR: Architect, 
 ## Conductor rules (binding)
 
 - **Conductor-owned, never delegated:** risk classification before any spawn; Brief/Plan authoring at the promotion gate; every stop-and-ask; all `.agentic/*.json[l]` writes (sole writer across agents; `tasks.jsonl` is append-only and read through the task-state fold, `content/references/task-state-file.md`); loop history and re-route limits; `[phase: ...]`/`[loop: ...]` breadcrumbs; dispatch; summary synthesis (PR body, tracker comment: `conventions-detail.md` §External Comment Discipline); Setup; `gh pr create`; the CI wait; fan-out worktree creation.
-- **The conductor never edits the shippable tree.** Every change, Trivial included, is made by a worktree-isolated `engineer`.
+- **The conductor never edits the shippable tree,** except on the Low route (Phase 5 §Low route), where it makes the change itself in its own worktree. Every other change, Trivial included, is made by a worktree-isolated `engineer`.
 - **Spawn shape.** Keep the background default of `run_in_background` (never pass `false`) and wait for the completion notification; only `wrap-ticket` (Phase 11b) is synchronous. `engineer` and `qa-engineer` spawns set `isolation: "worktree"`. Use the named agents. Canonical: `content/sections/02-delegation.md`.
 - **Skeptic spawns** carry the `## Global-context inputs` block (`content/references/skeptic-protocol.md` Section 4.5, 7 fields). Field 6 is the literal line `6. Diff under review: <KEY> | <diff command or paths>`; `$UNIT_KEY` is the KEY: `${LOOP_KEY}-plan` (plan), `$LOOP_KEY` (whole diff), `${LOOP_KEY}-u-<unit_slug>` (per-unit), `${LOOP_KEY}-single` (single-review), the reviewed KEY plus `-meta` (meta). The round-cap hook keys on it, and past the cap only an operator grant reopens the unit. Field 7 is `7. Conductor spawn brief (claim-bearing text only): n/a - no conductor claims beyond the inputs above`, or the conductor's own factual sentences, each ending in `[per conductor, unverified]` or `[verified: <file:line>]`. Ticket and acceptance text never go in field 7: put them before the block under `## Ticket <id> [per ticket, unverified]`. Every brief field is a slot (`subagent-protocol.md` §11): no conductor conclusion about the artifact under review.
 - **Telemetry.** Hooks emit `spawn_start`/`spawn_complete` for every spawn. At each conductor `ds-emit` call site `export AGENTIC_LOOP_KEY="$LOOP_KEY"` first and put `"session_uuid":"$CLAUDE_CODE_SESSION_ID"` in the data (`METHODOLOGY.md` §Events log).
@@ -269,13 +269,13 @@ ELEVATED_ROUTE="<full | single-review>"
 | Route | Spawns | When QA does not run |
 |---|---|---|
 | Trivial | one worktree `engineer`, lightweight contract; no investigator, architect, planner, Skeptic, QA | `QA_STATUS="skipped:Trivial path"`, set now (Phase 6b never runs) |
-| Low, small single-concern override (04 §Profile deltas) | Trivial branches; Phase 6b still runs after the engineer for user-visible UI, the acceptance text as criteria; QA fix passes use the Trivial round-N form | `QA_STATUS="skipped:Low path"` |
+| Low, small single-concern override (04 §Profile deltas) | none: the conductor implements (Phase 5 §Low route); Phase 6b still runs after the change for user-visible UI, the acceptance text as criteria | `QA_STATUS="skipped:Low path"` |
 | Elevated `single-review` (04 §Elevated routes) | one Elevated-contract `engineer`, no investigator/architect/planner; Phase 2b; one Phase 6 pass keyed BASE`-single`; Phases 7 and 11b; Phase 6b as on Low | `QA_STATUS="skipped:single-review path"` |
 | Elevated `full` | Phases 2b-12 below | set at Phase 6b |
 
 All non-QA paths (Trivial, Low, single-review, a set `qa_skip`) write the rationale, not null.
 
-**Escalation (binding).** A Low or single-review brief states its bounds: on a diff that breaks one, or a risk-surface touch the engineer or Skeptic reports, the engineer pushes to `$BRANCH_NAME`, stops and reports. Then set `RISK_CLASS="Elevated"`, `ELEVATED_ROUTE="full"`, clear `QA_STATUS`, delete `.agentic/loop-state-$LOOP_KEY.json` (single-review), and re-enter Phase 3 with that diff as architect input (skipping Phase 0b's snapshot and 2b). The pushed branch is this ticket's own work: the stale-branch preflight's own-work row applies and Phase 5 takes the branch-exists-on-origin form, whose already-checked-out guard covers the Low worktree; never a `-v2` rename or a create from `origin/$BASE_BRANCH`. `SKEPTIC_ROUNDS` counts full-route rounds only.
+**Escalation (binding).** A single-review brief states its bounds, and the Low conductor holds its own: on a diff that breaks one, or a risk-surface touch the engineer, conductor or Skeptic finds, the diff is pushed to `$BRANCH_NAME` and work stops (Low: Phase 5 §Low route). Then set `RISK_CLASS="Elevated"`, `ELEVATED_ROUTE="full"`, clear `QA_STATUS`, delete `.agentic/loop-state-$LOOP_KEY.json` (single-review), and re-enter Phase 3 with that diff as architect input (skipping Phase 0b's snapshot and 2b). The pushed branch is this ticket's own work: the stale-branch preflight's own-work row applies and Phase 5 takes the branch-exists-on-origin form, whose already-checked-out guard covers the Low worktree; never a `-v2` rename or a create from `origin/$BASE_BRANCH`. `SKEPTIC_ROUNDS` counts full-route rounds only.
 
 ## Phase 2b: Pre-architect ambiguity scan
 
@@ -393,9 +393,20 @@ Empty `EXISTING_WT`: add normally. `UNPUSHED_RC` non-zero: do not reset; follow 
 
 **BLOCKED with an unpushed commit:** never clean that worktree; record `"$REPO_DIR/bin/ds-retire-carrier" --hold --reason "BLOCKED: unpushed commit" --revisit "operator resolves the push rejection" <worktree>`.
 
-**Trivial (and small-change Low) engineer:** lightweight contract (no `worktree_setup`/`quality_gates`/`git_finalization`, no `quality_gate_results`, no brief file), still worktree-isolated; it branches, runs the quality check, commits and pushes. The brief carries the nvm line and `git -C $REPO checkout -b $BRANCH_NAME origin/$BASE_BRANCH`, or on a round-N fix of a branch on origin `git -C $REPO checkout -B $BRANCH_NAME origin/$BRANCH_NAME`. `checkout -B`'s already-checked-out behavior is git-version-dependent: OLDER git (2.39.5) does NOT refuse and drags the other worktree's HEAD, dropping its unpushed commit; NEWER git (2.55.0) now refuses. The guard above is MANDATORY before `checkout -B` under BOTH behaviors. It also says: "Docs currency: follow this repo's own doc-sync rule (its AGENTS.md/CONTRIBUTING.md) and, in the same commit, update any doc your diff makes stale."
+**Trivial engineer:** lightweight contract (no `worktree_setup`/`quality_gates`/`git_finalization`, no `quality_gate_results`, no brief file), still worktree-isolated; it branches, runs the quality check, commits and pushes. The brief carries the nvm line and `git -C $REPO checkout -b $BRANCH_NAME origin/$BASE_BRANCH`, or on a round-N fix of a branch on origin `git -C $REPO checkout -B $BRANCH_NAME origin/$BRANCH_NAME`. `checkout -B`'s already-checked-out behavior is git-version-dependent: OLDER git (2.39.5) does NOT refuse and drags the other worktree's HEAD, dropping its unpushed commit; NEWER git (2.55.0) now refuses. The guard above is MANDATORY before `checkout -B` under BOTH behaviors. It also says: "Docs currency: follow this repo's own doc-sync rule (its AGENTS.md/CONTRIBUTING.md) and, in the same commit, update any doc your diff makes stale."
 
 **Task state (multi-unit, `.agentic/tasks.jsonl`).** Before each spawn apply the task-state fold (`content/references/task-state-file.md`); every `depends_on` must fold to `done`. Then append a `pending` -> `in_progress` transition; this append is the ownership claim. It carries `assigned_agent`, `worktree_path`, `branch_name`, `author_model` (the engineer's model id, or `null`), and `ticket_id`. On return append an output-only entry (`worker_summary`, `commit_sha`, `files_modified`, `quality_gate_passed`) with no `status` field: under the task-state fold a status field would be a fresh claim. After the Skeptic/QA loop append the terminal status with `loop_state`, `outputs.skeptic_status` and `outputs.skeptic_findings_count`.
+
+### Low route (conductor implements)
+
+The conductor makes the Low change itself and spawns no engineer. Measured on Low tickets: the spawned engineer alone cost about one vanilla Claude Code run, the conductor was a second session paying the repo's instruction floor again, and vanilla passed every Low ticket, so the second session bought no accuracy. Every gate that does not need a second agent stays. Each Low edit, a QA fix pass included, runs these steps:
+
+1. `mkdir -p "$REPO/.agentic" && : > "$REPO/.agentic/.conductor-overreach-fired-$CLAUDE_CODE_SESSION_ID"`: a zero-spawn session is this route's design, so the once-per-session overreach advisory (`hooks/conductor-overreach-nudge.js`) is spent up front.
+2. `WORKTREE_PATH="$REPO/.agentic/worktrees/$BRANCH_NAME"`, created by `create_commands` (Elevated contract fields above, guard included) unless it exists; edit only inside it, by absolute path.
+3. Read `$REPO_DIR/content/agents/engineer.md` §Implementation process and §Quality gates (and §Front-end discipline for a front-end diff) and apply them to your own diff, skipping what concerns briefs and return blocks. Docs currency: follow this repo's own doc-sync rule and update any doc your diff makes stale, in the same commit.
+4. Check the actual diff (`git -C "$WORKTREE_PATH" diff --stat origin/$BASE_BRANCH`) against 04 §Profile deltas. A broken bound or a risk-surface touch: commit and push as in step 6, `"$REPO_DIR/bin/ds-retire-carrier" --repo "$REPO" "$WORKTREE_PATH"`, then Escalation (Phase 2); the Elevated route spawns as usual.
+5. Run `$QUALITY_CMD` in `$WORKTREE_PATH` after the nvm line (this is Phase 7 for Low); never suppress a check. A failure gets one fix pass, then Phase 7's `stalled` escalation.
+6. Stage by explicit path, `git -C "$WORKTREE_PATH" commit -s` (Phase 8 subject rules), `git -C "$WORKTREE_PATH" push -u origin "$BRANCH_NAME"`. Phase 8 runs as after an engineer commit and retires the worktree.
 
 ### If parallel independent units were identified:
 
@@ -474,7 +485,7 @@ Skip unless `batch-state.json.open_goal.active` is `true`. Read `$REPO_DIR/conte
 
 ## Phase 6b: QA Gate (conditional)
 
-Skipped when open-goal `dry_run` is true (go to Phase 12). **Full route:** fires when Phase 6 exited clean, `qa_criteria` exists, `qa_skip == null` and `scenarios[]` is non-empty. **Low and single-review routes:** fires after the engineer (single-review: after Phase 6) whenever the change has user-visible UI behavior, with the ticket's acceptance text or the operator's request as the criteria; the Elevated, `qa_criteria` and Phase 6 triggers are waived. A `qa_skip` outside `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only` becomes null with `WARNING: qa_skip value '<X>' is not a valid enum. Treating as null; QA will fire.` qa.md supplements, never gates. QA cap 3, separate from the Skeptic cap.
+Skipped when open-goal `dry_run` is true (go to Phase 12). **Full route:** fires when Phase 6 exited clean, `qa_criteria` exists, `qa_skip == null` and `scenarios[]` is non-empty. **Low and single-review routes:** fires after the change (single-review: after Phase 6) whenever the change has user-visible UI behavior, with the ticket's acceptance text or the operator's request as the criteria; the Elevated, `qa_criteria` and Phase 6 triggers are waived. A `qa_skip` outside `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only` becomes null with `WARNING: qa_skip value '<X>' is not a valid enum. Treating as null; QA will fire.` qa.md supplements, never gates. QA cap 3, separate from the Skeptic cap.
 
 **Skipped:** record the rationale in the status update and set `QA_STATUS="skipped:<rationale>"`.
 
@@ -485,7 +496,7 @@ Skipped when open-goal `dry_run` is true (go to Phase 12). **Full route:** fires
 1. Spawn `qa-engineer` (`isolation: "worktree"`) with the ticket, the diff, the `qa_criteria` block (the test plan), `ticket_id` and the qa.md config; from iteration 2 prepend `## Prior QA failures` (mark fixed criteria CLOSED, re-raise with `[PREV: <id>]`) listing the open/addressed `qa_failures_log` entries.
 2. Log each failure (`id`, `description`, `first_raised`, `status: open`, `re_raised`), overwrite `.agentic/loop-state-$LOOP_KEY.json`, and run the QA knowledge capture (`qa-gate.md` §"QA knowledge capture (canonical procedure)").
 3. **PASS:** close all, `termination_reason: clean`, `QA_RAN_AND_PASSED="true"`, `QA_STATUS="PASS"`. Assign `SCREENSHOT_JSON_PATH` from the pointer's `screenshot_evidence_json_path` (never inline it) and load `QA_SCREENSHOT_PATHS` from that file, keeping `result == "PASS"` entries (missing or malformed: empty), in-context only. Any other terminal verdict sets `QA_STATUS` to it (`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`); an accepted INCONCLUSIVE sets `QA_STATUS="INCONCLUSIVE"`, never null. **Cap:** `cap_reached`, batch routing, escalate with the log; no Phase 7. **Re-raised failure:** `convergence_failure`, batch routing, escalate.
-4. **Fix pass** ("on origin" form; Low route: the Trivial round-N form): the failures, the prior summary, fix only the failing criteria, cite `content/references/qa-regression-obligation.md` (a regression test, or a `.agentic/qa-regressions.md` exception), and from iteration 2 the surgical-edit directive (tied to a QA failure id). `BLOCKED`: `blocked`, batch routing, **W5** (`target_state: $TRACKER_STATE_BLOCKED`; `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]`), escalate. `NEEDS_CONTEXT` as Phase 6.
+4. **Fix pass** ("on origin" form; Low route: the conductor, per Phase 5 §Low route): the failures, the prior summary, fix only the failing criteria, cite `content/references/qa-regression-obligation.md` (a regression test, or a `.agentic/qa-regressions.md` exception), and from iteration 2 the surgical-edit directive (tied to a QA failure id). `BLOCKED`: `blocked`, batch routing, **W5** (`target_state: $TRACKER_STATE_BLOCKED`; `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]`), escalate. `NEEDS_CONTEXT` as Phase 6.
 5. Claimed fixes `addressed`, increment, overwrite, back to 1.
 
 After each terminal outcome, once the curator below has read the report: `rm -f "${SCREENSHOT_JSON_PATH:-}" "${QA_REPORT_PATH:-}" 2>/dev/null || true`.
@@ -502,6 +513,7 @@ Runs after 6/6b exit clean; never re-enters the Phase 6 counter. Every write bel
 
 - **Elevated:** verify the return; never run `$QUALITY_CMD` yourself. lint, typecheck and test all `pass`: Phase 8. Any `fail` or `vacuous`, or no block (a Major): fix pass with `raw_output`.
 - **Trivial:** run `cd $REPO && $QUALITY_CMD` after the nvm line. Zero or ignored inputs is a failure; never suppress a check.
+- **Low:** already run in Phase 5 §Low route step 5.
 
 **On failure, `DEBUGGER_ON_FAILURE` false or Trivial:** write `last_phase_action=engineer_spawned`; spawn one fix engineer (Elevated: worktree, "on origin" form; Trivial: its own round-N form); write `engineer_returned`, then `rerun_pending`; verify again. Pass: `status=complete`, Phase 8. Fail: `status=stalled`, batch routing, escalate with both outputs. One pass only.
 
@@ -513,7 +525,7 @@ Runs after 6/6b exit clean; never re-enters the Phase 6 counter. Every write bel
 
 Open-goal `dry_run`: skip Phases 8-11b (commits stay local), go to Phase 12.
 
-Pass `-- [specific files]` and `--message` only when the conductor commits: the sequential path in `$REPO`, or fan-out fixups shown by `git -C "$INTEGRATION_WORKTREE" status --short`. When the engineer already committed, omit both. Never `git add -A`. Subject at most 50 chars, imperative; no AI-attribution trailer.
+Pass `-- [specific files]` and `--message` only when the conductor commits: the sequential path in `$REPO`, or fan-out fixups shown by `git -C "$INTEGRATION_WORKTREE" status --short`. When the engineer (or the Low conductor, Phase 5) already committed, omit both. Never `git add -A`. Subject at most 50 chars, imperative; no AI-attribution trailer.
 
 ```bash
 "$REPO_DIR/bin/ds-ticket-commit" --repo "$REPO" --branch "$BRANCH_NAME" \
