@@ -104,14 +104,17 @@
  *                        [cwd]/.agentic/events.jsonl, read by bin/ds-cost
  *                        and content/references/events-log.md consumers.
  *                        Also writes the Layer 2 sentinel file (see above),
- *                        consumed only by this hook's own future
- *                        invocations within the same session.
+ *                        consumed by this hook's own future invocations
+ *                        within the same session.
  *                        content/commands/ds-implement-ticket.md (Phase 5
  *                        §Low route) pre-writes this sentinel by its exact
  *                        name, in the directory resolveMainRepoRoot gives,
- *                        because that route is zero-spawn by design;
- *                        renaming _SENTINEL_PREFIX or re-anchoring
- *                        _sentinelDir requires updating it.
+ *                        with content `low-route`, because that route is
+ *                        zero-spawn by design, and its Phase 1 reset
+ *                        deletes a sentinel holding that content; renaming
+ *                        _SENTINEL_PREFIX, re-anchoring _sentinelDir or
+ *                        giving _markFired's file content requires
+ *                        updating it.
  *
  * Failure modes: fail-open on any error - missing/malformed stdin, missing
  *                fields, unreadable/malformed config, an unavailable or

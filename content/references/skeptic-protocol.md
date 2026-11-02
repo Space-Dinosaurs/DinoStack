@@ -943,7 +943,7 @@ Meta-Skeptic spawns are **background fire-and-forget**. A meta-Skeptic spawn's f
 ### Meta-Skeptic spawn brief
 
 The meta-Skeptic receives:
-- The original diff (`git diff origin/$BASE_BRANCH..HEAD` or unit equivalent)
+- The original diff (the original Skeptic's field 6 diff command)
 - The original Skeptic's findings list verbatim
 - The original Skeptic's sign-off statement verbatim
 - The original adversarial brief
