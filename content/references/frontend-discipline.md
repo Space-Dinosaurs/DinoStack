@@ -53,7 +53,9 @@ ARIA is an escape hatch for cases where native HTML semantics are insufficient.
 Do not add ARIA attributes to elements that already carry the needed role
 natively - the redundancy creates noise for assistive technology and is often
 wrong. `role="presentation"` must never appear on focusable elements because it
-removes all keyboard and AT interaction from the element.
+removes all keyboard and AT interaction from the element. This governs adding
+ARIA, not removing it: when you replace, wrap or fork an existing element or
+component, keep the ARIA it carries (e.g. its `aria-label`).
 
 **Violation example:**
 ```tsx
