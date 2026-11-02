@@ -92,6 +92,8 @@ From `AGENTS.md` and `.agentic/config.json` (default in parentheses):
 3. Else if a `## Linear` section exists: `TRACKER=linear`; `Team` -> `TICKET_PREFIX`, `Workspace` -> `LINEAR_WORKSPACE`, optional `QA assignee ID`, and optional `State In Progress:`/`State In Review:`/`State QA:` (default `Testing`)/`State Dev Complete:` (default the RESOLVED `TRACKER_STATE_DONE` value for this project)/`State Blocked:`/`State Done:`. `TRACKER_DEV_COMPLETE_DECLARED` is `true` when `State Dev Complete:` (or overlay `state_dev_complete`) is declared, tested BEFORE applying the inherited default; a dev-complete lane that sits BEFORE your QA lane needs `Pipeline order:`. Also extract an optional pipeline-order override: `Pipeline order:` -> `TRACKER_PIPELINE_ORDER`, same syntax, validation, and default as the Jira `JIRA_PIPELINE_ORDER` field above.
 4. Else: set `TRACKER=none`. States take their defaults (QA `Testing`, `TRACKER_STATE_DEV_COMPLETE="Done"` (the resolved `TRACKER_STATE_DONE` value)); `TRACKER_DEV_COMPLETE_DECLARED=false`; set `TRACKER_PIPELINE_ORDER` to its default `IN_PROGRESS, IN_REVIEW, QA`.
 
+In every case `TRACKER_TRANSITIONS_MODE` is `.agentic/tracker.yml`'s `transitions:` (`manual` or `auto`, default `auto`), honored even when that file names no usable tracker.
+
  A `## Linear` section with no `Workspace:` stops the run: `Your tracker config is missing fields /ds-implement-ticket needs. Run /ds-init-project to update it.`
 
 Print before Phase 1:

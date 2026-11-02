@@ -1,32 +1,24 @@
 #!/usr/bin/env bash
-# Purpose: Pins the `## North Star alignment` section into BOTH Phase 9
-#          `gh pr create` body branches in content/commands/ds-implement-ticket.md
-#          (Case A - behavior-visible with QA evidence; Case B - all else), and
+# Purpose: Pins the `## North Star alignment` section into the Phase 9
+#          `gh pr create` body heredoc in content/commands/ds-implement-ticket.md
+#          (one heredoc serves behavior-visible and all-else bodies), and
 #          pins vision-alignment-check.yml to re-run on `edited`.
 #
 #          WHY THIS TEST EXISTS: `check-vision-alignment` is a REQUIRED check on
 #          main and reads the PR body for a `## North Star alignment` section.
 #          `gh pr create --body-file` bypasses .github/PULL_REQUEST_TEMPLATE.md
 #          entirely (the template only populates web-UI PRs), so before this
-#          section existed in the Phase 9 heredocs every conductor-composed PR
+#          section existed in the Phase 9 heredoc every conductor-composed PR
 #          touching a methodology-shaping path opened with a red required check
-#          by construction. A one-sided edit is the specific hazard: Case B is
-#          the branch EVERY Trivial ticket takes, so dropping the section from
-#          Case B alone would still look correct on any behavior-visible ticket
-#          while reddening every Trivial one. The per-branch extraction below is
-#          therefore load-bearing - a whole-file grep for the heading stays green
-#          when only one branch loses it, since the binding prose note and the
-#          other branch both still match.
+#          by construction. The suite requires exactly one PR-body heredoc, so
+#          a second body branch cannot reappear without the section.
 #
 #          The `edited` trigger is pinned alongside because the two defects
 #          compound: without it, a body edit that adds the section never re-runs
 #          the check, leaving the red permanent until an unrelated push.
 #
 #          Pillar 8 obligation. *Named catch:* a Phase 9 edit that drops the
-#          section from one of the two PR-body branches - measured pre-fix as
-#          0/4 assertions passing against origin/main, and as exactly 1/4
-#          failing under a Case-B-only removal that leaves a whole-file grep
-#          count of 2 and would keep a naive guard green.
+#          section from the PR-body heredoc, or adds a second heredoc.
 #          *Retirement condition:* this suite retires when
 #          "check-vision-alignment" leaves the required-checks list of the main
 #          ruleset (14778332) - once the check cannot block a merge, a
@@ -74,58 +66,37 @@ _fail() { echo "FAIL: $1" >&2; FAIL=$((FAIL + 1)); }
 
 SECTION_HEADING='## North Star alignment'
 
-# --- Per-branch extraction ----------------------------------------------------
-# Split the Phase 9 `if`/`else` on its Case A and Case B marker comments, which
-# the spec's own prose names, and assert the heading independently inside each
-# half. A whole-file grep cannot distinguish a one-sided drop.
+# --- Template extraction --------------------------------------------------------
+# Phase 9 builds every PR body from ONE `<<PRBODY` heredoc and places the QA
+# evidence before or after it, so behavior-visible and all-else bodies share
+# the section. Asserting exactly one heredoc keeps a second branch from
+# reappearing without its own copy of the section.
 if ! command -v python3 >/dev/null 2>&1; then
-  _fail "python3 not found on PATH - the per-branch extraction cannot run (a silently-skipped regression guard is indistinguishable from a passing one)"
+  _fail "python3 not found on PATH - the template extraction cannot run (a silently-skipped regression guard is indistinguishable from a passing one)"
 else
-  CASE_A_MARKER='# Case A: behavior-visible unit'
-  CASE_B_MARKER='# Case B: all else'
-
-  extract_branch() {
-    # $1 = start marker, $2 = end marker ("" means to end of the PRBODY heredoc
-    # that follows the start marker). Prints the branch text.
-    python3 - "$DIT" "$1" "$2" <<'PY'
+  extract_template() {
+    python3 - "$DIT" <<'PY'
 import sys
-path, start_marker, end_marker = sys.argv[1], sys.argv[2], sys.argv[3]
-text = open(path, encoding="utf-8").read()
-start = text.find(start_marker)
-if start == -1:
+text = open(sys.argv[1], encoding="utf-8").read()
+opener = '<<PRBODY\n'
+if text.count(opener) != 1:
     sys.exit(3)
-if end_marker:
-    end = text.find(end_marker, start)
-    if end == -1:
-        sys.exit(4)
-else:
-    # End at the close of the first PRBODY heredoc after the marker.
-    end = text.find("\nPRBODY\n", start)
-    if end == -1:
-        sys.exit(4)
+start = text.index(opener)
+end = text.find("\nPRBODY\n", start)
+if end == -1:
+    sys.exit(4)
 sys.stdout.write(text[start:end])
 PY
   }
 
-  CASE_A="$(extract_branch "$CASE_A_MARKER" "$CASE_B_MARKER")"
-  RC_A=$?
-  CASE_B="$(extract_branch "$CASE_B_MARKER" "")"
-  RC_B=$?
-
-  if [ "$RC_A" -ne 0 ] || [ -z "$CASE_A" ]; then
-    _fail "Case A branch not locatable in $DIT (anchor '$CASE_A_MARKER' .. '$CASE_B_MARKER', rc=$RC_A)"
+  TEMPLATE="$(extract_template)"
+  RC_T=$?
+  if [ "$RC_T" -ne 0 ] || [ -z "$TEMPLATE" ]; then
+    _fail "PR body heredoc not locatable as exactly one '<<PRBODY' block in $DIT (rc=$RC_T)"
   else
-    printf '%s' "$CASE_A" | grep -qF "$SECTION_HEADING" \
-      && _pass "Case A PR body heredoc contains '$SECTION_HEADING'" \
-      || _fail "Case A PR body heredoc lacks '$SECTION_HEADING' - every behavior-visible ticket's PR would open with a red required check-vision-alignment"
-  fi
-
-  if [ "$RC_B" -ne 0 ] || [ -z "$CASE_B" ]; then
-    _fail "Case B branch not locatable in $DIT (anchor '$CASE_B_MARKER' .. PRBODY, rc=$RC_B)"
-  else
-    printf '%s' "$CASE_B" | grep -qF "$SECTION_HEADING" \
-      && _pass "Case B PR body heredoc contains '$SECTION_HEADING'" \
-      || _fail "Case B PR body heredoc lacks '$SECTION_HEADING' - Case B is the branch EVERY Trivial ticket takes, so this reddens check-vision-alignment on every Trivial ticket"
+    printf '%s' "$TEMPLATE" | grep -qF "$SECTION_HEADING" \
+      && _pass "PR body heredoc contains '$SECTION_HEADING'" \
+      || _fail "PR body heredoc lacks '$SECTION_HEADING' - every conductor-composed PR would open with a red required check-vision-alignment"
   fi
 fi
 
@@ -256,25 +227,16 @@ fi
 if ! command -v python3 >/dev/null 2>&1; then
   _fail "python3 not found on PATH - the template-ordering check cannot run (a silently-skipped regression guard is indistinguishable from a passing one)"
 else
-for marker in '# Case A: behavior-visible unit' '# Case B: all else'; do
-  if [ "$marker" = '# Case A: behavior-visible unit' ]; then
-    END_MARKER='# Case B: all else'
-  else
-    END_MARKER=''
-  fi
-  BRANCH="$(extract_branch "$marker" "$END_MARKER")"
-  NS_LINE="$(printf '%s\n' "$BRANCH" | grep -n '^## North Star alignment$' | head -1 | cut -d: -f1)"
-  TP_LINE="$(printf '%s\n' "$BRANCH" | grep -n '^## Test plan$' | head -1 | cut -d: -f1)"
-  TR_LINE="$(printf '%s\n' "$BRANCH" | grep -n '^\[TRACKER_REFERENCE_BLOCK\]$' | head -1 | cut -d: -f1)"
-  LABEL="${marker#\# }"
+  NS_LINE="$(printf '%s\n' "$TEMPLATE" | grep -n '^## North Star alignment$' | head -1 | cut -d: -f1)"
+  TP_LINE="$(printf '%s\n' "$TEMPLATE" | grep -n '^## Test plan$' | head -1 | cut -d: -f1)"
+  TR_LINE="$(printf '%s\n' "$TEMPLATE" | grep -n '^\[TRACKER_REFERENCE_BLOCK\]$' | head -1 | cut -d: -f1)"
   if [ -z "$NS_LINE" ] || [ -z "$TP_LINE" ] || [ -z "$TR_LINE" ]; then
-    _fail "$LABEL: cannot locate all three of the section heading, Test plan, and tracker block (ns='$NS_LINE' tp='$TP_LINE' tr='$TR_LINE')"
+    _fail "PR body template: cannot locate all three of the section heading, Test plan, and tracker block (ns='$NS_LINE' tp='$TP_LINE' tr='$TR_LINE')"
   elif [ "$TR_LINE" -lt "$NS_LINE" ] && [ "$NS_LINE" -lt "$TP_LINE" ]; then
-    _pass "$LABEL: tracker block precedes the section, which sits directly above '## Test plan'"
+    _pass "PR body template: tracker block precedes the section, which precedes '## Test plan'"
   else
-    _fail "$LABEL: template reordered - the tracker block must precede '## North Star alignment', which must precede '## Test plan' (got tracker=$TR_LINE section=$NS_LINE testplan=$TP_LINE). Any content captured between the section heading and the next '## ' passes an unfilled section."
+    _fail "PR body template reordered - the tracker block must precede '## North Star alignment', which must precede '## Test plan' (got tracker=$TR_LINE section=$NS_LINE testplan=$TP_LINE). Any content captured between the section heading and the next '## ' passes an unfilled section."
   fi
-done
 fi
 
 echo ""

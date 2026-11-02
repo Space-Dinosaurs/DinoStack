@@ -497,7 +497,7 @@ _present "a Trivial-REACHABLE QA_STATUS definition site exists (Phase 2 declarat
 _present "the Phase 2 declaration subsection is unconditional" \
          '### Risk classification declaration \(unconditional'
 _present "spec states why Phase 6b alone is insufficient for Trivial" \
-         'only point in the command a Trivial ticket can record that rationale'
+         'set now \(Phase 6b never runs\)'
 
 echo ""
 echo "--- Major B (prose): per-ticket reset must exist and cover all three ---"
@@ -506,8 +506,8 @@ _present "per-ticket reset section exists" \
 _present "reset clears RISK_CLASS"    'RISK_CLASS=""'
 _present "reset clears SKEPTIC_ROUNDS" 'SKEPTIC_ROUNDS=""'
 _present "reset clears QA_STATUS"      'QA_STATUS=""'
-_present "reset explains it makes the disk fallback reachable" \
-         'makes the Phase 9 disk fallback .*reachable'
+_present "reset is scoped to the values feeding the ledger" \
+         'each value feeding the ledger, the REWORK notice or the W1 breadcrumb has one definition site'
 
 echo ""
 echo "--- Major 2 (prose): SKEPTIC_ROUNDS captured before Phase 6b overwrites ---"

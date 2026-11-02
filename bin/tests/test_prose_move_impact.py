@@ -236,7 +236,7 @@ def test_known_answer_tracker_dev_complete_heading_block_does_not_break_when_unt
 
 # ---------------------------------------------------------------------------
 # Known-answer 2: test_tasks_jsonl_fold.sh's FOLDSPEC per-file floor (>= 4)
-# for the target drops to 2 when the single-engineer Phase 5 path moves.
+# for the target drops to 3 when the single-engineer Phase 5 path moves.
 # ---------------------------------------------------------------------------
 
 
@@ -250,10 +250,10 @@ def test_known_answer_tasks_jsonl_fold_heredoc_floor_breaks():
     ]
     assert hits, "expected a grep_count_floor assertion for test_tasks_jsonl_fold.sh"
     breaking = [a for a in hits if a.breaks]
-    assert breaking, "FOLDSPEC per-file floor for the target file must break: before=4, after=2, floor>=4"
+    assert breaking, "FOLDSPEC per-file floor for the target file must break: before=4, after=3, floor>=4"
     foldspec_hits = [a for a in breaking if "FOLDSPEC" in a.detail]
     assert foldspec_hits, f"expected the FOLDSPEC heredoc floor among breaking hits, got: {[a.detail for a in breaking]}"
-    assert "after=2" in foldspec_hits[0].detail
+    assert "after=3" in foldspec_hits[0].detail
     assert "floor >= 4" in foldspec_hits[0].detail
     assert not report.ok
 
@@ -516,18 +516,14 @@ def test_regression_pattern_slot_literal_not_dropped_by_meaningfulness_filter():
     # split) was abandoned as an extraction (salvage-and-narrow fix instead,
     # see content/commands/ds-implement-ticket.md's Phase 6b/8.5 - both
     # stayed inline), so this fixture no longer depends on that extraction
-    # having happened. It is repointed anyway to a heading the
-    # progressive-disclosure split provably never touches (Sections
-    # 03/05/06/11 pattern; "## Batch state contracts (binding)" is the
-    # binding contract every extracted phase must keep citing, so it cannot
-    # itself be extracted) rather than to QA_GATE/QA_EVIDENCE, so this
-    # fixture stays robust even if a future split unit resumes the QA-loop
-    # extraction.
+    # having happened. It points at the heading that holds every
+    # 'mark-blocked-and-continue' occurrence in the condensed command, so
+    # moving that range must break the literal-presence assertion.
     ranges = [
         r
         for r in NINE_RANGES
         if r.dest != "content/references/qa-loop-state.md"
-    ] + [_range_for_heading("## Batch state contracts (binding)", "content/references/_hypothetical-batch-state-split.md")]
+    ] + [_range_for_heading("### Batch-mode escalation routing (mark-blocked-and-continue)", "content/references/_hypothetical-batch-state-split.md")]
     report = pmi.analyze(REPO_ROOT, TARGET, ranges)
     hits = {
         a.detail: a
@@ -544,8 +540,8 @@ def test_regression_pattern_slot_literal_not_dropped_by_meaningfulness_filter():
     mark_blocked = [a for d, a in hits.items() if "mark-blocked-and-continue" in d and d.startswith("asserts")]
     assert mark_blocked, f"expected a 'mark-blocked-and-continue' hit, got: {list(hits)}"
     assert any(a.breaks for a in mark_blocked), (
-        "'mark-blocked-and-continue' has an occurrence inside the "
-        "'## Batch state contracts (binding)' move range and must break"
+        "'mark-blocked-and-continue' has every occurrence inside the "
+        "'### Batch-mode escalation routing' move range and must break"
     )
 
 

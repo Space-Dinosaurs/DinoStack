@@ -122,14 +122,17 @@ def test_phase11_returns_line_documents_partial_side_effects():
 #     positioned ahead of both tracker-specific forward-only-guard bullets
 # ---------------------------------------------------------------------------
 
+KERNEL_KILL_SWITCH = "> - **Kill switch first:**"
+KERNEL_LINEAR = "> - **Linear:** forward-only guard"
+KERNEL_JIRA = "> - **Jira:** forward-only guard"
+
+
 def test_phase11_behavior_block_has_kill_switch_bullet():
     text = _text(CANONICAL_PATH)
     behavior_idx = text.index("> **Behavior:**")
-    linear_idx = text.index("> - **Linear:** Apply forward-only guard")
-    jira_idx = text.index("> - **Jira:** Apply forward-only guard")
-    kill_switch_idx = text.index(
-        "> - **Kill switch (checked FIRST, ahead of forward-only guard).**"
-    )
+    linear_idx = text.index(KERNEL_LINEAR)
+    jira_idx = text.index(KERNEL_JIRA)
+    kill_switch_idx = text.index(KERNEL_KILL_SWITCH)
     assert behavior_idx < kill_switch_idx < linear_idx < jira_idx, (
         "Phase 11's kill-switch bullet must sit in the Behavior block, ahead of "
         "both the Linear and Jira forward-only-guard bullets"
@@ -138,20 +141,10 @@ def test_phase11_behavior_block_has_kill_switch_bullet():
 
 def test_phase11_kill_switch_bullet_does_not_suppress_comment_or_assignee():
     text = _text(CANONICAL_PATH)
-    idx = text.index(
-        "> - **Kill switch (checked FIRST, ahead of forward-only guard).**"
-    )
-    bullet = text[idx : idx + 1100]
+    idx = text.index(KERNEL_KILL_SWITCH)
+    bullet = text[idx : text.index(KERNEL_LINEAR)]
     assert "suppresses the STATE TRANSITION only" in bullet
-    assert "at this site both still fire" in bullet
-    # Phase 11 is the ONLY site carrying a comment body and an assignee; the
-    # round-3 finding was a global "comment/assignee still fire" claim read off
-    # this bullet and pasted onto sites that carry neither.
-    assert "ONLY writeback call site that carries a comment body and an assignee" in bullet
-    # Major 4: no single cross-tracker claim - Linear cannot both skip every
-    # round trip and still update the assignee.
-    assert "assignee update and comment stay UNAFFECTED" not in bullet
-    assert "each tracker bullet below states its own behavior" in bullet
+    assert "the comment and the assignee update still fire" in bullet
 
 
 # ---------------------------------------------------------------------------
@@ -160,32 +153,23 @@ def test_phase11_kill_switch_bullet_does_not_suppress_comment_or_assignee():
 
 def test_kernel_setup_documents_four_state_overlay_model():
     text = _text(CANONICAL_PATH)
-    assert "**Four-state diagnostic.**" in text
     assert "**Three-state diagnostic.**" not in text, (
         "the kernel's fallback prose still asserts the superseded three-state "
         "model, which silently discards `transitions` on the `no_tracker` path"
     )
-    idx = text.index("**Four-state diagnostic.**")
-    bullet = text[idx : idx + 900]
-    for token in ("`ok`", "`absent`", "`no_tracker`", "`unusable`"):
-        assert token in bullet, token
+    assert "its four states `ok`/`absent`/`no_tracker`/`unusable`" in text
 
 
 def test_kernel_setup_documents_no_tracker_transitions_carve_out():
     text = _text(CANONICAL_PATH)
-    idx = text.index("**`no_tracker` carve-out (binding - never discard `transitions`).**")
-    bullet = text[idx : idx + 1200]
-    assert "`transitions:` IS honored and sets `TRACKER_TRANSITIONS_MODE`" in bullet
-    assert "tracker-specific overlay field is ignored" in bullet
-    assert "`unusable` is the only status that discards `transitions`" in bullet
-
-
-def test_kernel_required_field_rule_demotes_to_no_tracker_not_unusable():
-    text = _text(CANONICAL_PATH)
-    idx = text.index("- **Required-field rule.**")
-    bullet = text[idx : idx + 700]
-    assert "demoted to `no_tracker` when it still carries a valid `transitions:` value" in bullet
-    assert "demoted to `unusable` rather than producing" not in bullet
+    # The `ds-tracker resolve --json` path and the hand-resolution fallback
+    # both keep `transitions` when no usable tracker is configured.
+    assert "`TRACKER_TRANSITIONS_MODE` (`auto|manual`; `no_tracker` still honors it)" in text
+    assert (
+        "In every case `TRACKER_TRANSITIONS_MODE` is `.agentic/tracker.yml`'s "
+        "`transitions:` (`manual` or `auto`, default `auto`), honored even when "
+        "that file names no usable tracker."
+    ) in text
 
 
 def test_kernel_setup_summary_prints_transitions_mode():
@@ -278,32 +262,23 @@ def test_reference_comment_posting_caller_enumeration_is_the_true_set():
 
 
 def test_fire_and_forget_sites_emit_no_per_skip_line_and_name_no_session_state():
-    """Minor regression: the old rule bounded the fire-and-forget stderr line
-    to "exactly ONE line per conductor session" while naming no state location
-    and no session boundary, unlike every other cross-invocation flag in this
-    repo. Replaced with a bound needing no persisted state: no line at all,
-    with the one per-run print as the guaranteed indication.
-
-    The zero-state bound is kept rather than traded for a bounded per-site
-    line, and its guarantee is stated to cover BOTH run shapes: a fresh run
-    prints from Setup, a resumed run from the Resume check (which never
-    reaches Setup). The earlier wording named Setup alone, which was false on
-    the resume path."""
+    """The fire-and-forget sites emit no line for skipped_transitions_manual
+    and need no session state: the one per-run print, from Setup on a fresh
+    run and from the Resume check on a resumed one, is the indication."""
+    ref = _text(HELPER_PATH)
+    assert "emit NO stderr line for this status" in ref
+    assert "not one per fire, and not one per run" in ref
+    assert "every such run prints `TRACKER_TRANSITIONS_MODE`" in ref
+    assert "never reaches Setup" in ref
     for path in (CANONICAL_PATH, HELPER_PATH):
         text = _text(path)
-        assert "emit NO stderr line for this status" in text, path
-        assert "not one per fire, and not one per run" in text, path
-        # The unimplementable bound and its line must both be gone.
         assert "ONE line per conductor session" not in text, path
         assert "ONE stderr line per conductor session" not in text, path
         assert "further transition-skip lines suppressed this session" not in text, path
-        # The guarantee must not rest on Setup alone.
-        assert "every such run prints `TRACKER_TRANSITIONS_MODE`" in text, path
-        assert "never reaches Setup" in text, path
 
-    # The operator is never left with zero indication: the print carries
-    # the consequence when the mode is manual.
     kernel = _text(CANONICAL_PATH)
+    assert "emit NO stderr line for this status `skipped_transitions_manual`" in kernel
+    assert "This print (and its resume-path twin) is the run's only kill-switch notice." in kernel
     assert (
         "TRACKER_TRANSITIONS_MODE:   manual - no automatic tracker state "
         "transition will fire this run."
@@ -311,12 +286,11 @@ def test_fire_and_forget_sites_emit_no_per_skip_line_and_name_no_session_state()
 
 
 def test_resume_path_resolves_and_prints_transitions_mode():
-    """Major regression: every resume entry point sits downstream of W1-W7 and
-    Phase 11, and the resume path jumps straight past Setup - so a resumed
-    session left TRACKER_TRANSITIONS_MODE unresolved and the Helper's
-    transitions_mode defaulted to `auto`, firing the transitions a
-    `transitions: manual` operator had explicitly disabled. The Resume check
-    must now resolve and print it before jumping to any entry point."""
+    """Every resume entry point sits downstream of W1-W7 and Phase 11 and
+    jumps past the project config, so the Resume check must resolve and print
+    TRACKER_TRANSITIONS_MODE itself, or a `transitions: manual` operator's
+    disabled transitions fire on `auto`. The Setup call, which runs first on
+    every invocation, supplies the resolved tracker object."""
     kernel = _text(CANONICAL_PATH)
 
     marker = (
@@ -324,19 +298,12 @@ def test_resume_path_resolves_and_prints_transitions_mode():
         "before jumping to any entry point.**"
     )
     assert marker in kernel
+    setup_tracker = "`tracker` (the `ds-tracker resolve --json` object)"
+    assert kernel.index(setup_tracker) < kernel.index(marker)
+    assert kernel.index(marker) < kernel.index("### Project config")
 
-    block = kernel[kernel.index(marker) : kernel.index(marker) + 1400]
-    # It must say WHY (the auto fallback fires suppressed transitions) ...
-    assert "falls back to its `auto` default" in block
-    # ... HOW to resolve it (Setup's own rule, not a second algorithm) ...
-    assert "ds-tracker resolve --json" in block
-    assert "`no_tracker` carve-out" in block
-    # ... and that it prints the same line Setup prints.
-    assert "print the same `TRACKER_TRANSITIONS_MODE:` line Setup prints" in block
 
-    # The obligation has to sit in the Resume check, ahead of Setup.
-    assert kernel.index(marker) < kernel.index("## Setup: Read project config")
-
+# ---------------------------------------------------------------------------
 
 def test_pending_merge_print_and_record_decisions_do_not_contradict():
     """Minor regression: step (f) inherited single-ticket step 6's manual-branch
@@ -385,20 +352,21 @@ def test_all_sweep_and_wrap_substitute_diagnostics_do_not_claim_a_comment():
 
 def test_phase11_linear_bullet_specifies_assignee_only_save_issue():
     text = _text(CANONICAL_PATH)
-    idx = text.index("> - **Linear:** Apply forward-only guard")
-    bullet = text[idx : text.index("> - **Jira:** Apply forward-only guard")]
-    assert "**Under `transitions_mode: manual`:**" in bullet
-    assert "make ONE assignee-only `save_issue` call passing `assigneeId` and no `state`" in bullet
-    assert "make no `save_issue` call at all" in bullet
+    bullet = text[text.index(KERNEL_LINEAR) : text.index(KERNEL_JIRA)]
+    assert (
+        "Under `manual`: one assignee-only `save_issue` (no `state`) when an "
+        "assignee is configured, else none."
+    ) in bullet
 
 
 def test_phase11_jira_bullet_states_its_own_manual_behavior():
     text = _text(CANONICAL_PATH)
-    idx = text.index("> - **Jira:** Apply forward-only guard")
-    bullet = text[idx : idx + 2600]
-    assert "**Under `transitions_mode: manual`:**" in bullet
-    assert "no round trip at all on the transition path" in bullet
-    assert "fire exactly as they would under `auto`" in bullet
+    idx = text.index(KERNEL_JIRA)
+    bullet = text[idx : text.index("\n", idx)]
+    assert (
+        "Under `manual`: skip the guard and transition calls; assignee and "
+        "comment fire as under `auto`."
+    ) in bullet
 
 
 def test_reference_closing_phase11_note_scopes_assignee_per_tracker():
