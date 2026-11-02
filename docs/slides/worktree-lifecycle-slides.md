@@ -175,7 +175,7 @@ Isolation by default. Clean up by rule.
 - Every `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST use `isolation: "worktree"`
 
 <div class="callout">
-The conductor never edits the shippable tree directly - not even for Trivial one-line changes. Only the execution location moves off the primary checkout.
+The conductor never edits the shippable tree directly - not even for Trivial one-line changes. Only the execution location moves off the primary checkout. Sole exception: `/ds-implement-ticket`'s Low route, where the conductor edits in a worktree it creates.
 </div>
 
 ---
