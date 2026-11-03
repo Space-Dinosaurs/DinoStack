@@ -50,14 +50,17 @@ navigate, and `<a href>` for navigation to a URL.
 ## 2. ARIA
 
 ARIA is an escape hatch for cases where native HTML semantics are insufficient.
-Do not add ARIA attributes to elements that already carry the needed role
-natively - the redundancy creates noise for assistive technology and is often
-wrong. `role="presentation"` must never appear on focusable elements because it
-removes all keyboard and AT interaction from the element.
+Do not add ARIA that only repeats what the element already exposes - a `role`
+equal to its native role, or an `aria-label` that repeats its visible text - the
+redundancy creates noise for assistive technology and is often wrong. ARIA that
+supplies something the element lacks, such as the accessible name of an
+icon-only link or button, is not redundant: keep it. `role="presentation"` must
+never appear on focusable elements because it removes all keyboard and AT
+interaction from the element.
 
 **Violation example:**
 ```tsx
-// Wrong - button already has role=button; aria-label is also redundant here
+// Wrong - button already has role=button; aria-label repeats the visible text
 <button role="button" aria-label="Click">Click</button>
 
 // Wrong - removes AT semantics from a focusable element
@@ -65,6 +68,9 @@ removes all keyboard and AT interaction from the element.
 
 // Correct
 <button onClick={handler}>Click</button>
+
+// Correct - the icon has no text, so aria-label is the link's only name
+<a href="/scan" aria-label="Scan for AR"><ScanIcon /></a>
 ```
 
 ---

@@ -409,7 +409,7 @@ are invalid.
 | Finding ID | Severity | Trigger condition |
 |---|---|---|
 | `semantic-html-misuse` | Major | non-semantic element used where a native semantic element exists (e.g., `div onClick` instead of `button`) |
-| `aria-needs-no-aria` | Major | ARIA attribute added to an element that already has native semantics (e.g., `<button role="button">`) |
+| `aria-needs-no-aria` | Major | ARIA attribute that only repeats the element's native role or visible text (e.g., `<button role="button">`); ARIA that supplies a missing name is not this finding |
 | `missing-focus-management` | Major | modal/drawer/popover-style component lacks focus trap or focus restore to trigger |
 | `hardcoded-token-instead-of-design-token` | Major | hardcoded color/spacing/font value in a codebase where a token system is detected (heuristics in `content/references/frontend-discipline.md` §6); the finding MUST cite which heuristic triggered detection |
 | `missing-keyboard-support` | Major | element with `onClick` handler is not a native interactive element and lacks both `onKeyDown` handler and `tabIndex` |
@@ -943,7 +943,7 @@ Meta-Skeptic spawns are **background fire-and-forget**. A meta-Skeptic spawn's f
 ### Meta-Skeptic spawn brief
 
 The meta-Skeptic receives:
-- The original diff (`git diff origin/$BASE_BRANCH..HEAD` or unit equivalent)
+- The original diff (the original Skeptic's field 6 diff command)
 - The original Skeptic's findings list verbatim
 - The original Skeptic's sign-off statement verbatim
 - The original adversarial brief

@@ -15,7 +15,7 @@ Public API: Read-only reference document, addressed by its retained
             the rest of Phase 6 stays in the command.
 
 Upstream deps: none (prose reference only; no code, no runtime execution).
-               Assumes Contracts A-C and the `batch-state.json` schema
+               Assumes Contracts A-C and the `batch-state.json` field list
                (`## Batch state contracts (binding)` in
                content/commands/ds-implement-ticket.md) are in context.
 
@@ -97,7 +97,7 @@ Either way, fall through to Phase 1 for the iteration corresponding to the last 
 
 **Per-iteration ticket lifecycle.** Each iteration's synthetic `tickets[]` entry (`ticket_id:"<goal-slug>-iter-N"`, `cluster_id:"open-goal"`) follows the SAME transition-write pattern ordinary batch tickets use: `pending → in_progress` at Phase 1 start, `in_progress → complete` at Phase 12, or `→ blocked` via "Batch-mode escalation routing" (Phase 6). Every transition applies Contract A + Contract B.
 
-**Interaction with top-level "Resume check (before setup)".** That check derives `LOOP_KEY` and reads `loop-state-$LOOP_KEY.json` before Phase 0, independent of this phase. A mid-iteration interrupted resume jumps to that iteration's resume entry point; Phase 0a-open-goal is never re-entered that session. Step 0 fires only on a normal Phase 0 pass reaching `goal_mode=open_goal`.
+**Interaction with the top-level Resume check (`### Resume`).** That check derives `LOOP_KEY` and reads `loop-state-$LOOP_KEY.json` before Phase 0, independent of this phase. A mid-iteration interrupted resume jumps to that iteration's resume entry point; Phase 0a-open-goal is never re-entered that session. Step 0 fires only on a normal Phase 0 pass reaching `goal_mode=open_goal`.
 
 ## Phase 6: Skeptic review
 
