@@ -57,6 +57,17 @@ def test_step3_cleanup_applies_only_to_other_entries():
             )
 
 
+def test_step3_fix_pass_writes_have_low_resume_rows():
+    step = _low_route_step(3)
+    assert "`last_phase_action=conductor_fix`" in step
+    text = COMMAND_PATH.read_text(encoding="utf-8")
+    entry = re.search(r"(?m)^\*\*Entry by `last_phase`/`last_phase_action`:\*\*.*$", text)
+    assert entry, "resume entry table not found"
+    row = entry.group(0)
+    assert "`quality_gate|conductor_fix` (Low)" in row
+    assert "Low: re-run Phase 5 §Low route step 3's gate" in row
+
+
 def test_step4_phase10a_break_stops_instead_of_escalating():
     step = _low_route_step(4)
     escalate_idx = step.index("A broken bound or a risk-surface touch:")
@@ -101,6 +112,12 @@ def test_step4_count_ignores_base_commits_after_the_cut():
         _run(["git", "commit", "-qm", "base"], work, env)
         _run(["git", "push", "-q", "origin", "HEAD:main"], work, env)
         _run(["git", "checkout", "-qb", "feat"], work, env)
+        # Phase 8's telemetry commit, already on the branch when a Phase 10a fix runs.
+        log_dir = work / ".agentic" / "session-log"
+        log_dir.mkdir(parents=True)
+        (log_dir / "dev.jsonl").write_text("".join(f'{{"n":{i}}}\n' for i in range(150)))
+        _run(["git", "add", "-f", ".agentic/session-log/dev.jsonl"], work, env)
+        _run(["git", "commit", "-qm", "chore(telemetry): session log"], work, env)
 
         _run(["git", "clone", "-q", "-b", "main", "origin.git", "other"], root, env)
         other = root / "other"
@@ -120,4 +137,7 @@ def test_step4_count_ignores_base_commits_after_the_cut():
     assert "a.txt" in out, out
     assert "unrelated.txt" not in out, (
         "step 4 counted a base commit merged after the branch was cut: " + out
+    )
+    assert ".agentic/session-log" not in out, (
+        "step 4 counted Phase 8's telemetry commit as part of the change: " + out
     )
