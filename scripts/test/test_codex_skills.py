@@ -2086,6 +2086,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         env["HOME"] = str(home)
         env["TMPDIR"] = str(temp_root)
         env.pop("AGENTIC_CONFIG_DIR", None)
+        env["DS_ALL_HARNESSES"] = "1"
 
         result = execute(
             [
@@ -2103,6 +2104,31 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertEqual("", result.stdout)
         self.assertEqual(home_before, identity_fingerprint(home))
         self.assertEqual([], list(temp_root.iterdir()))
+
+    def test_installer_build_failure_without_switch_installs_committed_files(self) -> None:
+        home = Path(self.temporary.name) / "installer-build-fallback" / "home"
+        home.mkdir(parents=True)
+        build = self.repo / ".codex/build.sh"
+        build.write_text("#!/usr/bin/env bash\nexit 73\n", encoding="utf-8")
+        build.chmod(0o755)
+        env = {key: value for key, value in os.environ.items()
+               if key not in {"AGENTIC_CONFIG_DIR", "CODEX_HOME", "AE_ADAPTER", "DS_ALL_HARNESSES"}}
+        env["HOME"] = str(home)
+
+        result = execute(
+            [
+                "bash",
+                str(self.repo / ".codex/install.sh"),
+                "--mode=opt-out",
+                "--profile=default",
+                "--no-identity",
+            ],
+            cwd=self.repo,
+            env=env,
+        )
+
+        self.assertIn("warning: Codex staged build failed (exit 73", result.stderr)
+        self.assertTrue((home / ".codex/config.toml").is_file())
 
     def test_install_preserves_indented_features_and_reinstall(self) -> None:
         import tomllib
@@ -3321,6 +3347,8 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         execute(["git", "add", "-A"], cwd=self.repo)
         execute(["git", "commit", "-qm", "fixture"], cwd=self.repo)
         precommit = ["bash", str(self.repo / "hooks/pre-commit")]
+        # The hook runs its Codex sync gate only under DS_ALL_HARNESSES=1.
+        precommit_env = dict(os.environ, DS_ALL_HARNESSES="1")
 
         generated = self.repo / ".codex/skills/dinostack-codex-brief/SKILL.md"
         original_generated = generated.read_bytes()
@@ -3330,7 +3358,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         )
         execute(["git", "add", str(generated.relative_to(self.repo))], cwd=self.repo)
         generated.write_bytes(original_generated)
-        corruption = execute(precommit, cwd=self.repo, expected=1)
+        corruption = execute(precommit, cwd=self.repo, expected=1, env=precommit_env)
         self.assertIn("Checking staged Codex native skill sync", corruption.stdout)
         self.assertIn("generated skill drift", corruption.stderr)
 
@@ -3341,7 +3369,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
             encoding="utf-8",
         )
         execute(["git", "add", str(generator.relative_to(self.repo))], cwd=self.repo)
-        generator_result = execute(precommit, cwd=self.repo)
+        generator_result = execute(precommit, cwd=self.repo, env=precommit_env)
         self.assertIn("Checking staged Codex native skill sync", generator_result.stdout)
         self.assertIn("Codex skill check: OK (4 skills)", generator_result.stdout)
 
@@ -3349,13 +3377,13 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         canonical = self.repo / "content/commands/ds-brief.md"
         canonical.unlink()
         execute(["git", "add", "-u", str(canonical.relative_to(self.repo))], cwd=self.repo)
-        canonical_deletion = execute(precommit, cwd=self.repo, expected=1)
+        canonical_deletion = execute(precommit, cwd=self.repo, expected=1, env=precommit_env)
         self.assertIn("Checking staged Codex native skill sync", canonical_deletion.stdout)
 
         execute(["git", "reset", "--hard", "HEAD"], cwd=self.repo)
         generated.unlink()
         execute(["git", "add", "-u", str(generated.relative_to(self.repo))], cwd=self.repo)
-        generated_deletion = execute(precommit, cwd=self.repo, expected=1)
+        generated_deletion = execute(precommit, cwd=self.repo, expected=1, env=precommit_env)
         self.assertIn("Checking staged Codex native skill sync", generated_deletion.stdout)
         self.assertIn("generated skill drift", generated_deletion.stderr)
         self.assertIn("dinostack-codex-brief/SKILL.md", generated_deletion.stderr)

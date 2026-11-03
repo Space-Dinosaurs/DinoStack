@@ -9,9 +9,9 @@
 #            Gate W2 - no PROSE-PHRASED loop-state write site survives
 #                      unrepointed (the class that let the Phase 10a CI-loop
 #                      writes through review, because they carry the referent
-#                      but no path literal). The condensed command has none,
-#                      so W2 guards reintroduction; a self-test on planted
-#                      lines proves the pattern and filters still fire.
+#                      but no path literal). A self-test on planted lines
+#                      proves the pattern and filters fire, so an empty live
+#                      scan is a pass only when no such site exists.
 #            Gate W3 - every Phase 7 `last_phase=quality_gate` write site
 #                      names a keyed path.
 #            DS-232 prose pins - the ship-at-cap bullet keeps both halves on one
@@ -157,9 +157,9 @@ echo "--- floors and caps ---"
 
 # L2 (referent) is floored because repointing does NOT reduce it. L1 is
 # deliberately NOT floored - see FLOOR DESIGN in the manifest above.
-# Floors re-derived when the command was condensed (about 285 KB to 86 KB),
-# which removed sites rather than repointing them: measured L2=24,
-# LOOP_KEY=27, W1 stage=21 on the condensed file.
+# Each floor sits a little below the live count, so deleting the referent or
+# disarming a pattern fails here; re-derive it only when a change deletes
+# sites rather than repointing them.
 L2="$(_count -ciE 'loop.?state')"
 if [ "${L2:-0}" -ge 20 ]; then
   _pass "L2 floor: $L2 referent lines (>= 20)"
@@ -229,10 +229,8 @@ fi
 # ---------------------------------------------------------------------------
 # Gate W2: no PROSE-PHRASED write site survives.
 # The gate whose absence let the Phase 10a CI-loop writes through review.
-# The condensed command has no prose-phrased site, so the live scan below
-# finds nothing and guards against reintroduction. The self-test runs the
-# same pattern and filters over planted lines, so a disarmed pattern or
-# filter fails here rather than passing on an empty scan.
+# The self-test runs the same pattern and filters over planted lines, so a
+# disarmed pattern or filter fails here rather than passing on an empty scan.
 # ---------------------------------------------------------------------------
 echo "--- Gate W2: prose-phrased sites ---"
 
@@ -273,8 +271,8 @@ echo "--- Gate W3: Phase 7 referent-free writes ---"
 
 # POOLED across the six extracted-content paths - see _pool_loop_state_files
 # above. This is a gate BODY input, not one of the L2/LOOP_KEY/MARKERS floors.
-# The condensed Phase 7 states its writes once ("Every write below goes to
-# ... with `last_phase=quality_gate`"), so the pattern pins the field value.
+# Phase 7 names its write target once, with `last_phase=quality_gate`, so
+# the pattern pins the field value.
 _pool_loop_state_files "$TMP/w3a" -nE 'last_phase=quality_gate'
 W3_HITS="$(grep -c . "$TMP/w3a" 2>/dev/null || true)"
 [ -n "$W3_HITS" ] || W3_HITS=0

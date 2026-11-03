@@ -57,6 +57,20 @@ def test_step3_cleanup_applies_only_to_other_entries():
             )
 
 
+def test_step4_phase10a_break_stops_instead_of_escalating():
+    step = _low_route_step(4)
+    escalate_idx = step.index("A broken bound or a risk-surface touch:")
+    stop = (
+        "In a Phase 10a fix the PR already exists, so do not escalate: stop as at "
+        "Phase 10a's cap (`cap_exceeded`, W6b, STOP)"
+    )
+    assert stop in step, (
+        "a Low CI fix that breaks the bound after the PR exists must stop, not "
+        "re-enter Phase 3 (which would create a second PR and ledger line)"
+    )
+    assert step.index(stop) > escalate_idx
+
+
 def _run(cmd: list[str], cwd: Path, env: dict[str, str]) -> str:
     return subprocess.run(
         cmd, cwd=str(cwd), env=env, check=True, capture_output=True, text=True

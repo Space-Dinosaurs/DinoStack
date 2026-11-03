@@ -171,7 +171,7 @@ Signal-based decisions that drive every delegation choice
 <div class="columns-3">
 <div class="card" style="border-left-color: #3ad99a;">
 <strong>Trivial</strong>
-Delegate to a worktree-isolated engineer. No Skeptic. No brief file. The conductor never edits the shippable tree directly.
+Delegate to a worktree-isolated engineer. No Skeptic. No brief file. The conductor never edits the shippable tree directly (Low route: only in its own worktree).
 </div>
 <div class="card" style="border-left-color: #18E0FF;">
 <strong>Low</strong>

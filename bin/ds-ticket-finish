@@ -81,9 +81,9 @@ usage() {
 finish_ledger() {
 # @harness:phase9-ticket-ledger
 # Phase 9: ticket-rework ledger write (soft-fail; never blocks Phase 9 or anything downstream).
-# Called from Phase 9 after the Case A / Case B if/else closes - fires for both branches, Trivial included.
+# Called from Phase 9 after the PR opens - fires on every path, Trivial included.
 # REWORK_DETECTION / TICKET_ID / RISK_CLASS / SKEPTIC_ROUNDS / QA_STATUS arrive as flags carrying
-# the conductor's in-context state (definition sites in ds-implement-ticket.md's Phase 9 table).
+# the conductor's in-context state (definition sites in ds-implement-ticket.md's Phase 1 reset and Phase 2 route table).
 # QA_STATUS holds the QA result when QA ran, and "skipped:<qa_skip enum>" or
 # "skipped:Trivial path" / "skipped:Low path" / "skipped:single-review path" when it did not. It is empty ONLY in the degenerate
 # case where neither a result nor a rationale exists - every ordinary non-QA path carries one.

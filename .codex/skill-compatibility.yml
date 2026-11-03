@@ -162,6 +162,16 @@
       "source_token": ".claude/"
     },
     {
+      "expected_target": "git worktree add + spawn_agent",
+      "generated_token": "There is no in-place exception. The Trivial-path solo `engineer` spawn must also execute the Codex spawn contract above: the conductor never edits the shippable tree directly (sole exception: `/ds-implement-ticket`'s Low route, in its own worktree), so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout.",
+      "kind": "operational",
+      "occurrence_hash": "1281e54aa968d5aca91644bc1bddd432cc619d1d032e5338cca95e6b9034971d",
+      "resolution_mode": "codex-spawn-contract",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "There is no in-place exception. The Trivial-path solo `engineer` spawn is also `isolation: \"worktree\"`: the conductor never edits the shippable tree directly (sole exception: `/ds-implement-ticket`'s Low route, in its own worktree), so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout."
+    },
+    {
       "expected_target": "one bounded direct question after default derivation",
       "generated_token": "AskUserQuestion",
       "kind": "semantic-reference",
@@ -302,10 +312,40 @@
       "source_token": "content/references/planning-artifacts.md"
     },
     {
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "1cbc38309299b46f7cd798379767578ed8260a3178dbdb7bf8deb2ecb66be7cd",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
+    },
+    {
       "expected_target": "content/sections/04-risk-classification.md",
       "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
       "occurrence_hash": "1d094656f94c4eedae473ef42fdd975ab4674bc381c6a3d74ce3da857641585f",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/04-risk-classification.md"
+    },
+    {
+      "expected_target": "Task",
+      "generated_token": "Task",
+      "kind": "semantic-reference",
+      "occurrence_hash": "1d2975b297679eecd23eb03e7d2696193247041b9f560abb683db7e52e7965a5",
+      "resolution_mode": "canonical-prose",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Task"
+    },
+    {
+      "expected_target": "content/sections/04-risk-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
+      "kind": "operational",
+      "occurrence_hash": "1d4209dcbc502a51e7bca5311feffaaa17111e3130f72acea1822eca11824661",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
@@ -382,6 +422,16 @@
       "source_token": "content/references/conductor-operating-rules.md"
     },
     {
+      "expected_target": "shell",
+      "generated_token": "Bash",
+      "kind": "semantic-reference",
+      "occurrence_hash": "256d6e6901c14b63f20f65421089efa6257ad9e573076e5478104f99c54d043c",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Bash"
+    },
+    {
       "expected_target": "one bounded direct question after default derivation",
       "generated_token": "AskUserQuestion",
       "kind": "semantic-reference",
@@ -430,6 +480,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
+    },
+    {
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "2c4d12c6f5de389577252544626ca27cb6376dd617071b6b41073931d55829a0",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
@@ -542,16 +602,6 @@
       "source_token": "content/references/events-log.md"
     },
     {
-      "expected_target": "content/references/agent-team.md",
-      "generated_token": "$AE_REPO_DIR/content/references/agent-team.md",
-      "kind": "operational",
-      "occurrence_hash": "354bd66cd8aa2287dbadc3d0f16b32ac031a8411688aef45ac48807899b65835",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/agent-team.md"
-    },
-    {
       "expected_target": "Task",
       "generated_token": "Task",
       "kind": "semantic-reference",
@@ -640,16 +690,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "AskUserQuestion"
-    },
-    {
-      "expected_target": "content/sections/04-risk-classification.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
-      "kind": "operational",
-      "occurrence_hash": "40c7cc14b3b4b9e9e05846609ceec071eee7714a814a58b5e37125aa123b1205",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/04-risk-classification.md"
     },
     {
       "expected_target": "references/skeptic-protocol.md#section-12",
@@ -752,6 +792,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "content/sections/04-risk-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
+      "kind": "operational",
+      "occurrence_hash": "48833dc3d48aade990c04cfe3619269c70a169c5f3a9b65149f8f1fbd3da644c",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/04-risk-classification.md"
+    },
+    {
       "expected_target": ".agentic/**",
       "generated_token": "$AE_PROJECT_DIR/.agentic/**",
       "kind": "operational",
@@ -812,6 +862,26 @@
       "source_token": "~/DinoStack/.claude/skills/dinostack"
     },
     {
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "4f224377a5abfb33f8f421795c9e7ff13b72061c8128bbd7a5a4aa3ca84c6087",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
+    },
+    {
+      "expected_target": "git worktree add + spawn_agent",
+      "generated_token": "**Isolation is mandatory for every shippable-edit spawn.** Before every `engineer`, `qa-engineer`, and `release-orchestrator` spawn, execute the Codex spawn contract above (see \u00a7Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn must also execute the Codex spawn contract above - the conductor never edits the shippable tree directly (sole exception: `/ds-implement-ticket`'s Low route, in its own worktree), so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn.",
+      "kind": "operational",
+      "occurrence_hash": "4f7e68aef36dfc3c8002b01dde64aa296940aaa9adfbd4f6eec071e956a625e0",
+      "resolution_mode": "codex-spawn-contract",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "**Isolation is mandatory for every shippable-edit spawn.** Every `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: \"worktree\"` on the Agent tool call (see \u00a7Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn is also `isolation: \"worktree\"` - the conductor never edits the shippable tree directly (sole exception: `/ds-implement-ticket`'s Low route, in its own worktree), so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn."
+    },
+    {
       "expected_target": "scripts/codex-skills.py",
       "generated_token": "$AE_REPO_DIR/scripts/codex-skills.py",
       "kind": "operational",
@@ -820,16 +890,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "scripts/codex-skills.py"
-    },
-    {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "533d3d24a56fc4bfcec21d4d4981e99faa58543d23d22389a7fdfac96646b814",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": "hooks/enforce-no-abdication.py",
@@ -1062,16 +1122,6 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "content/sections/04-risk-classification.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
-      "kind": "operational",
-      "occurrence_hash": "6ab55d19ca9b9ebf7b301d50c5a4e2a8dddf3998f6a7e54c658135a590bbc678",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/04-risk-classification.md"
-    },
-    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -1080,16 +1130,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
-    },
-    {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "6d38d8b3786d1da8f53232d3a1d709cfd493d6ec7ef299044662b8a69eaebc38",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": "content/references/conductor-turn-format.md",
@@ -1145,11 +1185,31 @@
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
+      "occurrence_hash": "73091ab9b4f9c00050e7fdcd3d4a1ae3dfb701f6d3858bcb4fc9d7cdd2028bc3",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
+    },
+    {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
       "occurrence_hash": "74ba3e932d44c962cf4c7d689551d2bce256a1995b13786883ed54afaa6c74f5",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
+    },
+    {
+      "expected_target": "content/sections/04-risk-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
+      "kind": "operational",
+      "occurrence_hash": "74c7c1f2df37042c266ffc1dc9ec6172c13b02a9dec91b025958898867f7b843",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/04-risk-classification.md"
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -1160,16 +1220,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
-      "expected_target": "content/references/delegation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "7a59d201781d3692e36fc9e0a0f6a23ab635459cf47dc7d87c69745eff5a2c85",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": ".agentic/events.jsonl",
@@ -1480,6 +1530,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Write"
+    },
+    {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "a16336ff6d50496b42e5a06f5766677de2ea0bdf7f97968c1e368ae2937ad152",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": "one bounded direct question after default derivation",
@@ -1832,6 +1892,16 @@
       "source_token": "~/DinoStack/.claude/skills/dinostack"
     },
     {
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "c8de14d58a8c54f59059534fb96b5a98544173018f55334fc250cbdaf8fc4d45",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
+    },
+    {
       "expected_target": "references/skeptic-protocol.md#section-12",
       "generated_token": "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)",
       "kind": "operational",
@@ -1840,26 +1910,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/simplify"
-    },
-    {
-      "expected_target": "dinostack-codex-implement-ticket",
-      "generated_token": "$dinostack-codex-implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "c94e71ba5f46c2764bf016c33bee221ccf12a519810848ca1f510ecf07bf16a0",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "/ds-implement-ticket"
-    },
-    {
-      "expected_target": "shell",
-      "generated_token": "Bash",
-      "kind": "semantic-reference",
-      "occurrence_hash": "c98ba9b237ee18cdc0517cfa61a281f78ab3fccfc054fc4fc23a99866c8a824c",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Bash"
     },
     {
       "expected_target": "Agent",
@@ -1910,6 +1960,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/trigger-catalog.md"
+    },
+    {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "cf2426d136c769016bf42609d7db59d0b1029fbaafa5679080a82d9ee74d9ab8",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": ".agentic/config.json",
@@ -2020,6 +2080,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "**Isolation worktrees** (`.claude/worktrees/*`) are created by the Agent tool when `isolation: \"worktree\"` is set; conductor-created ones live under `.agentic/worktrees/*`. That path class (`bin/tests/worktree_model.py`, normative) drives only the evidence-gated sweep of leftovers (`/ds-cleanup-worktrees` Step 2), which also requires merge evidence."
+    },
+    {
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "d9ae51308934dca50f7f3549bac8af5b27b5122e64abe052b5fe1a988b3c716c",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
@@ -2182,6 +2252,26 @@
       "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "e71a2a4f8af0500bce79594625b8bf3e76bdde3e3fd5b9b7d8096cbb3896b1aa",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
+    },
+    {
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "e8333a9abe5c5b0c98e051e0bcb1046b8b915d60b51cb66e5a243f68da0ccd92",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
+    },
+    {
       "expected_target": "spawn_agent",
       "generated_token": "**Codex spawn contract.** Delegate with `spawn_agent` only. Before any spawn that needs an\nisolated checkout, run the following from the invoked project root (`$AE_PROJECT_DIR`):\n\n1. `git fetch origin`.\n2. Resolve `BASE_BRANCH` with\n   `$AE_REPO_DIR/bin/ds-codex-dispatch base-branch \"$AE_PROJECT_DIR\"`. This applies the\n   canonical precedence: exactly one dedicated unfenced whole-line `BASE_BRANCH:` declaration in\n   project `AGENTS.md` (with an optional Markdown list prefix and optional `Declaration:` prefix),\n   then local `develop`, then local `development`. Multiple matching declarations are rejected as\n   ambiguous. If none exists, the helper fails closed; ask the operator whether to use `main`\n   (recommended, falling back to `master`) or establish a develop-based workflow, exactly as\n   required by the base-branch resolution protocol.\n3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.\n4. Run `git worktree add \"$AE_PROJECT_DIR/.agentic/worktrees/<branch>\" -b \"<branch>\" \"origin/$BASE_BRANCH\"`.\n5. Load the named role instructions with\n   `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`.\n6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the\n   message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role\n   instructions plus the execution contract. The spawned agent must use shell commands in that\n   worktree and must not edit the conductor checkout.\n\nCodex spawns are asynchronous. The conductor remains responsive, uses the collaboration status and\nwait operations to collect completion, and applies the existing review gates to the returned diff.\n\n**Retire or hold each checkout at completion.** A carrier's work is complete when the review gates\non its output have returned, or the work is abandoned, and its agent will be sent no further work.\nThen run `$AE_REPO_DIR/bin/ds-retire-carrier <absolute-path>`; it removes only the checkout, never\nthe branch, or records a hold whose revisit event you act on. Never wait for ticket completion or PR\nmerge.\n\nClaude hook payload fields and Claude Task behavior do not apply on Codex.",
       "kind": "operational",
@@ -2192,26 +2282,6 @@
       "source_token": "**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default, and `hooks/enforce-background-spawn.py` enforces background-by-default on both `Task` and `Agent`. The conductor norm on Claude Code: omit `run_in_background` entirely on `Agent` spawns and rely on the harness default; never pass `false`. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because the conductor holds `.agentic/wrap/lock` for its duration and Phase 12 cleanup must wait for it to return; treat that as a behavioral property of `wrap-ticket`, not a general exemption. For the payload-capture history and the asymmetric allow/deny hook mechanics: read `content/references/delegation-detail.md` \u00a7Background-Spawn Enforcement Detail."
     },
     {
-      "expected_target": "git worktree add + spawn_agent",
-      "generated_token": "**Isolation is mandatory for every shippable-edit spawn.** Before every `engineer`, `qa-engineer`, and `release-orchestrator` spawn, execute the Codex spawn contract above (see \u00a7Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn must also execute the Codex spawn contract above - the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn.",
-      "kind": "operational",
-      "occurrence_hash": "eabcd6f9848f491f210f6fbe1b31ec6a79e8b2f7b67741b9cf1587ac6ee797d1",
-      "resolution_mode": "codex-spawn-contract",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "**Isolation is mandatory for every shippable-edit spawn.** Every `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: \"worktree\"` on the Agent tool call (see \u00a7Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn is also `isolation: \"worktree\"` - the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn."
-    },
-    {
-      "expected_target": "git worktree add + spawn_agent",
-      "generated_token": "There is no in-place exception. The Trivial-path solo `engineer` spawn must also execute the Codex spawn contract above: the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout.",
-      "kind": "operational",
-      "occurrence_hash": "eb29f558e5889d56a4aa42b6d51db71b4a5c19efc4877c0a70788aee358885de",
-      "resolution_mode": "codex-spawn-contract",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "There is no in-place exception. The Trivial-path solo `engineer` spawn is also `isolation: \"worktree\"`: the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout."
-    },
-    {
       "expected_target": "content/references/worktree-lifecycle.md",
       "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
       "kind": "operational",
@@ -2220,16 +2290,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
-      "expected_target": "Task",
-      "generated_token": "Task",
-      "kind": "semantic-reference",
-      "occurrence_hash": "eb9f2a067ecc3bbd84bf4f72f93db40ba50bcf03c5c2890679ee3aa28d6e8a38",
-      "resolution_mode": "canonical-prose",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Task"
     },
     {
       "expected_target": "content/references/conventions-detail.md",
@@ -2352,6 +2412,16 @@
       "source_token": "content/references/capture-classification.md"
     },
     {
+      "expected_target": "content/references/agent-team.md",
+      "generated_token": "$AE_REPO_DIR/content/references/agent-team.md",
+      "kind": "operational",
+      "occurrence_hash": "f99a52155c8577d06d7f090123084947bc86d3bdc5d3c2ba6b086a2dd681112a",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/agent-team.md"
+    },
+    {
       "expected_target": "content/commands/ds-brief.md",
       "generated_token": "$AE_REPO_DIR/content/commands/ds-brief.md",
       "kind": "operational",
@@ -2360,16 +2430,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/commands/ds-brief.md"
-    },
-    {
-      "expected_target": "content/sections/04-risk-classification.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
-      "kind": "operational",
-      "occurrence_hash": "fc1b5a897a083200c2d5b40d27fbd2624d4b87b4dfa8a4658dbb4dda5cbe79c6",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/04-risk-classification.md"
     },
     {
       "expected_target": "content/references/skeptic-protocol.md",
