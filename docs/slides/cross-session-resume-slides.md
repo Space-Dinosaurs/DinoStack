@@ -232,7 +232,7 @@ When `/ds-implement-ticket` is invoked, it derives `LOOP_KEY` and checks for `.a
 - Mid-engineer (dirty branch) - conductor asks human to discard or commit the partial work
 
 **Restart required:**
-- Phases 1-4 are cheap to re-run and have no branch side effects. State file is not written until Phase 6 loop initialization (Low route: Phase 6b, 7 or 10; an interrupted Low engineer is re-spawned).
+- Phases 1-4 are cheap to re-run and have no branch side effects. State file is not written until Phase 6 loop initialization (Low route: its first engineer spawn; an interrupted Low engineer is re-spawned).
 
 <div class="callout">
 If a Skeptic is interrupted mid-output, resume re-runs the Skeptic from scratch (<code>last_phase=skeptic</code>, <code>last_phase_action=spawned</code>). Skeptic is read-only and idempotent - re-running it costs one agent turn, not correctness.

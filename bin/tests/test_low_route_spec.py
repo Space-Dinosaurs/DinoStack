@@ -4,6 +4,8 @@ Spec tests for /ds-implement-ticket Phase 5 §Low route.
 
 - The conductor spawns one engineer for a Low ticket and implements nothing
   itself; no conductor-implements exception remains in the command.
+- Every Low fix spawn carries the bound check, and the first spawn renames a
+  stale local branch instead of failing to create it.
 - A broken bound in a Phase 10a fix stops instead of escalating, since the PR
   already exists.
 - The bound check's line count must measure only this change. The test runs
@@ -54,6 +56,23 @@ def test_no_conductor_implements_exception_remains():
     text = COMMAND_PATH.read_text(encoding="utf-8")
     for phrase in ("conductor implements)", "Low conductor", "makes the change itself"):
         assert phrase not in text, f"conductor-implements phrasing remains: {phrase!r}"
+
+
+def test_every_low_fix_brief_carries_the_bound_check():
+    section = _low_route_section()
+    assert (
+        "a QA fix (Phase 6b), a Phase 7 fix and a CI fix (Phase 10a) are each a fresh "
+        "spawn whose brief carries the ticket and its acceptance text and the bound check below"
+    ) in section, "a Low fix spawn must carry the bound check, not only the first spawn"
+
+
+def test_low_first_spawn_survives_an_existing_local_branch():
+    section = _low_route_section()
+    assert (
+        "Before the first spawn, when `$BRANCH_NAME` is not on origin but exists locally "
+        "(`git -C \"$REPO\" rev-parse --verify --quiet \"refs/heads/$BRANCH_NAME\"`), "
+        "rename it as the preflight does, to a name free locally and on origin"
+    ) in section, "a stale local branch must not fail the Low first spawn's branch create"
 
 
 def test_phase10a_break_stops_instead_of_escalating():
