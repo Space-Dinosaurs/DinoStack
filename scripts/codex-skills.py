@@ -653,6 +653,9 @@ LITERAL_RULES: tuple[tuple[str, str, str, str, str, str, str], ...] = (
     # adapter installer to have put the tool on PATH.
     (r"ds-retire-carrier <path>", "repository-tool", "$AE_REPO_DIR/bin/ds-retire-carrier <path>", "repository-owned", "repository-path", "bin/ds-retire-carrier", "dinostack-repository"),
     (r"ds-retire-carrier --list-holds", "repository-tool", "$AE_REPO_DIR/bin/ds-retire-carrier --list-holds", "repository-owned", "repository-path", "bin/ds-retire-carrier", "dinostack-repository"),
+    # A git pathspec, resolved by `git -C "$WORKTREE_PATH"` against that
+    # worktree, so it must stay relative.
+    (r"':\(exclude\)\.agentic/session-log'", "project-path", "':(exclude).agentic/session-log'", "invoked-project-path", "pathspec", ".agentic/session-log", "invoked-project"),
 )
 
 
