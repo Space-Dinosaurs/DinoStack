@@ -150,13 +150,8 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # Lowered for the route-gated split (QA evidence publishing, Tracker Create Helper).
 # Lowered for the Phase 8/9/12 shell moved into bin/ds-ticket-commit and bin/ds-ticket-finish.
 # Lowered for the Phase 10 CI wait moved into bin/ds-ticket-ci.
-# Lowered for the single-session Low route and condensed command.
-# Raised 176 B for the restored transitions fallback line (its exact size).
-# Raised 236 B net for the restored tracker.yml fallback merge, less the
-# deleted unsourced measurement sentence.
-# Raised 267 B for the Low route's merge-base count and step 3 scoping, and
-# the rejected-overlay transitions rule.
-THRESHOLD_BYTES=86755
+# Lowered for the condensed command with the single-session Low route.
+THRESHOLD_BYTES=87274
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

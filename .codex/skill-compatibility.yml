@@ -3992,6 +3992,16 @@
       "source_token": "join"
     },
     {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "/file",
+      "kind": "display-only",
+      "occurrence_hash": "47a039d54dd5855e3198da0794bf380ed6f681572db0db71f1369fda53a15045",
+      "resolution_mode": "display-only",
+      "scope": "display-only",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/file"
+    },
+    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -4130,6 +4140,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/tracker.yml"
+    },
+    {
+      "expected_target": ".agentic/loop-state-",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
+      "kind": "operational",
+      "occurrence_hash": "619ead99d305904b200911f9274b2c913768ad71c904d855efa7cd6b53e975a8",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/loop-state-"
     },
     {
       "expected_target": "rm",
@@ -5332,16 +5352,6 @@
       "source_token": "/dev"
     },
     {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "/file",
-      "kind": "display-only",
-      "occurrence_hash": "be9b20262744dbafa8a276409493efbbb6dd851bdb803c10336eee5e6c0a9395",
-      "resolution_mode": "display-only",
-      "scope": "display-only",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/file"
-    },
-    {
       "expected_target": ".agentic/qa.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/qa.md",
       "kind": "operational",
@@ -6200,16 +6210,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/agents/engineer.md"
-    },
-    {
-      "expected_target": ".agentic/loop-state-",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
-      "kind": "operational",
-      "occurrence_hash": "f77ba4b53a653b084b13a9b87bc24575e061b4f446129409a18a593b59c90632",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/loop-state-"
     },
     {
       "expected_target": "if",
