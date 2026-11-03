@@ -1392,16 +1392,6 @@
       "source_token": "`/ds-update-agentic-engineering`"
     },
     {
-      "expected_target": "dinostack-codex-implement-ticket",
-      "generated_token": "$dinostack-codex-implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "93dad58500d612d75089ec31292841f4a167db8b22ae262120acce359606f391",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "/ds-implement-ticket"
-    },
-    {
       "expected_target": "content/sections/11-worktree-lifecycle.md",
       "generated_token": "$AE_REPO_DIR/content/sections/11-worktree-lifecycle.md",
       "kind": "operational",
@@ -1450,6 +1440,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/ds-brief"
+    },
+    {
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "9dd46e0353730ac677e123fc4a65ffd6ff3fef904ca077f06ae98928e35bad0c",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "content/references/capability-preflight.md",
@@ -3992,16 +3992,6 @@
       "source_token": "join"
     },
     {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "/file",
-      "kind": "display-only",
-      "occurrence_hash": "47a039d54dd5855e3198da0794bf380ed6f681572db0db71f1369fda53a15045",
-      "resolution_mode": "display-only",
-      "scope": "display-only",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/file"
-    },
-    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -5350,6 +5340,16 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/dev"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "/file",
+      "kind": "display-only",
+      "occurrence_hash": "bec1aed83762206e98b469527051416492df8b35ec7de548d24d93a198409c55",
+      "resolution_mode": "display-only",
+      "scope": "display-only",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/file"
     },
     {
       "expected_target": ".agentic/qa.md",

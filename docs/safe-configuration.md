@@ -240,7 +240,7 @@ The methodology supports three risk profiles that move the line between Low
 - **`default`** - single-file locally-scoped behavioral edits and small
   single-concern code changes (one source file plus tests/docs, under 100
   changed lines; moving or exporting an unchanged helper within its package
-  does not count) are Low; everything else Elevated.
+  is not a second source file) are Low; everything else Elevated.
 - **`strict`** - more work treated as Elevated; broad Skeptic coverage. For when
   correctness matters more than speed.
 

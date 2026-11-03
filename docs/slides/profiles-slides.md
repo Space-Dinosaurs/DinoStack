@@ -231,7 +231,7 @@ After activation, answer only from held context. Explicit unfamiliar or multi-re
 **The starting point for all projects**
 
 - Single-file locally-scoped behavioral edits: **Low** (no Skeptic)
-- Small single-concern changes (one source file plus tests/docs, under 100 changed lines; moving an unchanged helper does not count): **Low** (no Skeptic)
+- Small single-concern changes (one source file plus tests/docs, under 100 changed lines; moving an unchanged helper is not a second file): **Low** (no Skeptic)
 - All other legacy Elevated signals remain **Elevated** (non-rework, no risk surface: one pass)
 - Multi-file UI-only changes: **Elevated** (Skeptic runs)
 - The right choice for most day-to-day work
