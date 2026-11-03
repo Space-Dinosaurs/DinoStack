@@ -70,7 +70,7 @@ Long-running `/ds-implement-ticket` loops can survive rate limits and session ex
 
 - **Resumable with human confirmation:** Mid-Engineer (dirty branch) - conductor asks human to discard or commit the partial work.
 
-- **Restart required:** Phases 1-4 (cheap to re-run, no branch side effects). State file is not written until Phase 6 loop initialization.
+- **Restart required:** Phases 1-4 (cheap to re-run, no branch side effects). State file is not written until Phase 6 loop initialization (Low route: Phase 6b, or Phase 10 when QA does not run, so an earlier interrupted Low change restarts).
 
 - **Full Skeptic re-run on interruption.** If a Skeptic is interrupted mid-output, resume re-runs the Skeptic from scratch (last_phase=skeptic, last_phase_action=spawned). Skeptic is read-only and idempotent.
 

@@ -3642,16 +3642,6 @@
       "source_token": "printf"
     },
     {
-      "expected_target": ".agentic/loop-state-",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
-      "kind": "operational",
-      "occurrence_hash": "26b80b93a7535dd9975dabd082c1e4f6a6bb4a29a2fcd3df64589227cd6277b5",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/loop-state-"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "W1_REASON",
       "kind": "display-only",
@@ -5002,16 +4992,6 @@
       "source_token": "git"
     },
     {
-      "expected_target": "hooks/enforce-nested-worktree-spawn.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-nested-worktree-spawn.py",
-      "kind": "operational",
-      "occurrence_hash": "9d13b8993a4b467be8f850bb3d7bfd347369aae9dc7aca5b3c8080eb2cafcf3e",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "hooks/enforce-nested-worktree-spawn.py"
-    },
-    {
       "expected_target": ".agentic/loop-state-",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
       "kind": "operational",
@@ -5950,6 +5930,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "then"
+    },
+    {
+      "expected_target": "hooks/enforce-nested-worktree-spawn.py",
+      "generated_token": "$AE_REPO_DIR/hooks/enforce-nested-worktree-spawn.py",
+      "kind": "operational",
+      "occurrence_hash": "e43fff8d104aee19b71c76c53e9c7c75665ad6b9a07ada65c48486acf5fb79d1",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "hooks/enforce-nested-worktree-spawn.py"
     },
     {
       "expected_target": "filesystem read",

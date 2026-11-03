@@ -22,6 +22,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from harness_scope import non_claude
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 COMMAND_PATH = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
@@ -61,22 +62,17 @@ def test_step3_cleanup_applies_only_to_other_entries():
             )
 
 
-def test_step3_fix_pass_writes_have_low_resume_rows():
-    step = _low_route_step(3)
-    write_idx = step.index("`last_phase_action=conductor_fix`")
-    scope = "On the first Low change only, write `last_phase=quality_gate`"
-    assert scope in step and step.index(scope) < write_idx, (
-        "step 3's quality_gate write must be scoped to the first Low change"
-    )
-    # A Phase 6b or 10a fix pass runs step 3 too; overwriting its qa|* or
-    # ci_loop|* state would resume it in Phase 7 with its counters lost.
-    assert "inside a Phase 6b or 10a fix pass, keep that loop's own state and counters" in step
+def test_low_steps_write_no_loop_state():
+    # A loop-state write in steps 1-5 would resume a Low ticket at that write
+    # after later steps ran (skipping steps 4-5, or into a retired worktree),
+    # and inside a Phase 6b or 10a fix pass would overwrite that loop's state.
     text = COMMAND_PATH.read_text(encoding="utf-8")
-    entry = re.search(r"(?m)^\*\*Entry by `last_phase`/`last_phase_action`:\*\*.*$", text)
-    assert entry, "resume entry table not found"
-    row = entry.group(0)
-    assert "`quality_gate|conductor_fix` (Low, first change only)" in row
-    assert "Low: re-run Phase 5 §Low route step 3's gate" in row
+    start = text.index("### Low route (conductor implements)")
+    section = text[start:text.index("\n### ", start + 1)]
+    assert "Steps 1-5 write no loop state" in section
+    assert "inside a Phase 6b or 10a fix pass that loop's own state and counters stand" in section
+    for token in ("last_phase=", "last_phase_action=", "loop-state-$LOOP_KEY.json"):
+        assert token not in section, f"the Low route writes loop state: {token!r}"
 
 
 def test_step4_phase10a_break_stops_instead_of_escalating():
@@ -99,7 +95,10 @@ def _run(cmd: list[str], cwd: Path, env: dict[str, str]) -> str:
     ).stdout
 
 
-@pytest.mark.parametrize("path", [COMMAND_PATH, CODEX_SKILL_PATH], ids=["content", "codex"])
+@pytest.mark.parametrize("path", [
+    pytest.param(COMMAND_PATH, id="content"),
+    pytest.param(CODEX_SKILL_PATH, id="codex", marks=non_claude),
+])
 def test_step4_count_ignores_base_commits_after_the_cut(path: Path):
     step = _low_route_step(4, path)
     base_set = re.search(r"`(LOW_BASE=\"\$\(git [^`]*\)\")`", step)
