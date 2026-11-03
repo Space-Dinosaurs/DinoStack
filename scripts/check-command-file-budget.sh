@@ -153,7 +153,7 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # Lowered for the condensed command with the single-session Low route.
 # Raised 192 B for the Low route's telemetry exclusion and loop-state scope.
 # Lowered for Low tickets delegating to an engineer again.
-THRESHOLD_BYTES=86043
+THRESHOLD_BYTES=86040
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the
