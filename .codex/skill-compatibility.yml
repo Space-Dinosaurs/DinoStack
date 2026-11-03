@@ -3672,16 +3672,6 @@
       "source_token": ".agentic/loop-state-"
     },
     {
-      "expected_target": "hooks/enforce-nested-worktree-spawn.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-nested-worktree-spawn.py",
-      "kind": "operational",
-      "occurrence_hash": "2cda8adcee8e5ca1bd4beb32a268b9351e36e8d1d13027e763294587cbbb398b",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "hooks/enforce-nested-worktree-spawn.py"
-    },
-    {
       "expected_target": "printf",
       "generated_token": "printf",
       "kind": "operational",
@@ -4080,6 +4070,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "--worktree-path"
+    },
+    {
+      "expected_target": ".agentic/loop-state-",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
+      "kind": "operational",
+      "occurrence_hash": "49c72ea00788751c2bfc4bd7b5755d03a73997ff8352a4ced5282c5843f350f7",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/loop-state-"
     },
     {
       "expected_target": "jq",
@@ -5680,6 +5680,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "do"
+    },
+    {
+      "expected_target": "hooks/enforce-nested-worktree-spawn.py",
+      "generated_token": "$AE_REPO_DIR/hooks/enforce-nested-worktree-spawn.py",
+      "kind": "operational",
+      "occurrence_hash": "d0bcc77ff695bfef94c0e856dcd540b2e1a549300714a19f37b6b89127788844",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "hooks/enforce-nested-worktree-spawn.py"
     },
     {
       "expected_target": "filesystem read",
