@@ -777,7 +777,10 @@ class CodexSkillGenerationTests(unittest.TestCase):
           Helper section. 9 of the 10 are restored as a "Caller
           enumeration" bullet list (the 10th was a legitimate relocation to
           content/references/tracker-writeback.md's own citation of
-          ds-wrap.md and stays where it is).
+          ds-wrap.md and stays where it is). The condensed command keeps
+          the Caller enumeration as one paragraph and leaves the awaiting
+          callers to content/references/tracker-writeback.md, so their
+          token counts are no longer pinned here.
         - Unit 6 (#621, merged) had dropped 4 occurrences from Phase 12a.
           All 4 are restored as the "Resume banners" and "Interrupt vs.
           pause path note" paragraphs.
@@ -803,21 +806,6 @@ class CodexSkillGenerationTests(unittest.TestCase):
         twh_end = kernel.index("## Tracker Create Helper", twh_start)
         twh = kernel[twh_start:twh_end]
         self.assertIn("**Caller enumeration", twh)
-        self.assertEqual(twh.count("/ds-wrap"), 6, (
-            "expected 6 '/ds-wrap' occurrences in the Tracker Writeback Helper "
-            "section (1 pre-existing in the intro paragraph + 5 in the Caller "
-            "enumeration block: 4 in the awaiting-caller bullets restored by "
-            "Unit 1, plus 1 in the 'Full return-status set' bullet pointing at "
-            "content/commands/ds-wrap.md Part F for the "
-            "skipped_transitions_manual rendering, added by DS-244) - got a "
-            "different count, which means the restoration or the DS-244 bullet "
-            "was partially or fully reverted"
-        ))
-        self.assertEqual(twh.count("`/ds-ticket-status-sync`"), 5, (
-            "expected 5 '`/ds-ticket-status-sync`' occurrences in the Tracker "
-            "Writeback Helper section (1 pre-existing + 4 restored) - got a "
-            "different count"
-        ))
         self.assertIn(".agentic/tracker-states.json", twh)
 
         # --- Unit 6: Phase 12a "Resume banners" / "Interrupt vs. pause path note" ---
@@ -3395,14 +3383,14 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         self.assertEqual(3, len(simplify))
         self.assertTrue(all(item["resolution_mode"] == "cleanup-resource-contract" for item in simplify))
 
-    def test_proceed_tokens_remain_display_only(self) -> None:
+    def test_path_fragment_slash_tokens_remain_display_only(self) -> None:
         generated = (self.repo / ".codex/skills/dinostack-codex-implement-ticket/SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("`yes`/proceed override", generated)
+        self.assertIn("`dir/{a => b}/file`", generated)
         payload = json.loads((self.repo / ".codex/skill-compatibility.yml").read_text())
-        proceed = [item for item in payload["occurrences"] if item["source_token"] == "/proceed"]
-        self.assertEqual(1, len(proceed))
-        self.assertTrue(all(item["kind"] == "display-only" for item in proceed))
-        self.assertTrue(all(item["resolution_mode"] == "display-only" for item in proceed))
+        fragment = [item for item in payload["occurrences"] if item["source_token"] == "/file"]
+        self.assertEqual(1, len(fragment))
+        self.assertTrue(all(item["kind"] == "display-only" for item in fragment))
+        self.assertTrue(all(item["resolution_mode"] == "display-only" for item in fragment))
 
     def test_unsupported_spawn_fields_and_operational_slash_fail_closed(self) -> None:
         source = self.repo / "content/SKILL.md"

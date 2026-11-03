@@ -1192,6 +1192,11 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
                 "as required by the Codex spawn contract above",
             )
             generated = generated.replace(
+                "Keep the background default of `run_in_background` (never pass `false`) "
+                "and wait for the completion notification",
+                "Spawn per the asynchronous Codex spawn contract above and wait for completion",
+            )
+            generated = generated.replace(
                 "`engineer` and `qa-engineer` spawns set `isolation: \"worktree\"`",
                 "`engineer` and `qa-engineer` spawns execute the Codex spawn contract above",
             )

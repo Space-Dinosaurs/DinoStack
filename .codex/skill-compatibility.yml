@@ -3362,6 +3362,16 @@
       "source_token": "EXISTING_WT"
     },
     {
+      "expected_target": "git worktree add + spawn_agent",
+      "generated_token": "1. Spawn `qa-engineer` (after the Codex spawn contract above) with the ticket, the diff, the `qa_criteria` block (the test plan), `ticket_id` and the qa.md config (`$AE_PROJECT_DIR/.agentic/qa.md`, else legacy `$AE_PROJECT_DIR/.claude/qa.md`); from iteration 2 prepend `## Prior QA failures` (mark fixed criteria CLOSED, re-raise with `[PREV: <id>]`) listing the open/addressed `qa_failures_log` entries.",
+      "kind": "operational",
+      "occurrence_hash": "120574b6ebd6bc8c186d40205db6d12585bc78731eb6797853b799e3d23f7212",
+      "resolution_mode": "codex-spawn-contract",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "1. Spawn `qa-engineer` (`isolation: \"worktree\"`) with the ticket, the diff, the `qa_criteria` block (the test plan), `ticket_id` and the qa.md config (`.agentic/qa.md`, else legacy `.claude/qa.md`); from iteration 2 prepend `## Prior QA failures` (mark fixed criteria CLOSED, re-raise with `[PREV: <id>]`) listing the open/addressed `qa_failures_log` entries."
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "TIMEOUT_POLLS",
       "kind": "display-only",
@@ -3820,16 +3830,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "--head"
-    },
-    {
-      "expected_target": "git worktree add + spawn_agent",
-      "generated_token": "1. Spawn `qa-engineer` (after the Codex spawn contract above) with the ticket, the diff, the `qa_criteria` block (the test plan), `ticket_id` and the qa.md config; from iteration 2 prepend `## Prior QA failures` (mark fixed criteria CLOSED, re-raise with `[PREV: <id>]`) listing the open/addressed `qa_failures_log` entries.",
-      "kind": "operational",
-      "occurrence_hash": "3d815852a7878f57fb97ecf3000333809a7e3f968cb8cffcbab2edb4cb87a0ed",
-      "resolution_mode": "codex-spawn-contract",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "1. Spawn `qa-engineer` (`isolation: \"worktree\"`) with the ticket, the diff, the `qa_criteria` block (the test plan), `ticket_id` and the qa.md config; from iteration 2 prepend `## Prior QA failures` (mark fixed criteria CLOSED, re-raise with `[PREV: <id>]`) listing the open/addressed `qa_failures_log` entries."
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -4313,7 +4313,7 @@
     },
     {
       "expected_target": "git worktree add + spawn_agent",
-      "generated_token": "- **Spawn shape.** Keep the background default of `run_in_background` (never pass `false`) and wait for the completion notification; only `wrap-ticket` (Phase 11b) is synchronous. `engineer` and `qa-engineer` spawns execute the Codex spawn contract above. Use the named agents. Canonical: `content/sections/02-delegation.md`.",
+      "generated_token": "- **Spawn shape.** Spawn per the asynchronous Codex spawn contract above and wait for completion; only `wrap-ticket` (Phase 11b) is synchronous. `engineer` and `qa-engineer` spawns execute the Codex spawn contract above. Use the named agents. Canonical: `content/sections/02-delegation.md`.",
       "kind": "operational",
       "occurrence_hash": "6b38aca05a4844651c9f989469c436be1433a8967097a20ef3d271ba54ed0735",
       "resolution_mode": "codex-spawn-contract",
@@ -4370,6 +4370,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "EVIDENCE_FILE"
+    },
+    {
+      "expected_target": ".claude/qa.md",
+      "generated_token": "$AE_PROJECT_DIR/.claude/qa.md",
+      "kind": "operational",
+      "occurrence_hash": "6f130200229e467f99d1d4c9274c0b0d9606025b6fe2df03c8407dc21f4927a5",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".claude/qa.md"
     },
     {
       "expected_target": "content/references/delivery-record.md",
@@ -4770,6 +4780,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "-C"
+    },
+    {
+      "expected_target": ".agentic/qa.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/qa.md",
+      "kind": "operational",
+      "occurrence_hash": "90e2653b906fb73895daf0118855d77a7ca8e66f14c985893911568b56b7cbac",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/qa.md"
     },
     {
       "expected_target": "filesystem read",
