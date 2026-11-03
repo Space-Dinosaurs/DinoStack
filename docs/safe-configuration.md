@@ -228,7 +228,8 @@ adapters rely on the prose rule alone.
 ## Risk profiles
 
 The methodology supports three risk profiles that move the line between Low
-(direct action, or one engineer for a small single-concern change) and Elevated
+(direct action, or one engineer for a small single-concern change, which
+`/ds-implement-ticket` makes in the conductor's own worktree) and Elevated
 (Worker plus Skeptic). Set the profile in
 `~/.claude/agentic-engineering.json` or per-project via an
 `agentic-engineering-profile:` marker in `AGENTS.md`
@@ -273,8 +274,8 @@ Small tasks pay the full pipeline.
 The **risk profile** is the primary lever for cutting that cost. Moving from
 `strict` or `default` toward `relaxed` reclassifies more small work as Low, which removes the Skeptic and most of
 the pipeline: Low work is conductor direct action, except small single-concern
-code changes, which get one worktree-isolated engineer and no architect or
-Skeptic. Non-rework Elevated work that touches no risk surface skips the architect and
+code changes, which get one worktree-isolated engineer (on `/ds-implement-ticket`,
+the conductor in its own worktree) and no architect or Skeptic. Non-rework Elevated work that touches no risk surface skips the architect and
 gets one Skeptic pass. See the [Risk profiles](#risk-profiles) section above for
 the full list of which signals shift at each level.
 

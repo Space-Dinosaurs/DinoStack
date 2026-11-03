@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Purpose: executable regression spec for the DS-157 "Round-N rework
 #          mechanic" `worktree_setup.create_commands` branch-already-exists
-#          form (content/commands/ds-implement-ticket.md §Elevated-path
-#          engineer-contract extensions; canonical prose also referenced
+#          form (content/commands/ds-implement-ticket.md Phase 5 Elevated
+#          contract fields; canonical prose also referenced
 #          from content/references/worktree-lifecycle.md §Round-N rework
 #          mechanic). Grew across three Skeptic rounds, each of which found
 #          a MEASURED defect in the prose this file pins:

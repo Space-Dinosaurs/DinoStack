@@ -152,7 +152,9 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # Lowered for the Phase 10 CI wait moved into bin/ds-ticket-ci.
 # Lowered for the single-session Low route and condensed command.
 # Raised 176 B for the restored transitions fallback line (its exact size).
-THRESHOLD_BYTES=86252
+# Raised 236 B net for the restored tracker.yml fallback merge, less the
+# deleted unsourced measurement sentence.
+THRESHOLD_BYTES=86488
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

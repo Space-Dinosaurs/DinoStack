@@ -9,7 +9,9 @@
 #            Gate W2 - no PROSE-PHRASED loop-state write site survives
 #                      unrepointed (the class that let the Phase 10a CI-loop
 #                      writes through review, because they carry the referent
-#                      but no path literal).
+#                      but no path literal). The condensed command has none,
+#                      so W2 guards reintroduction; a self-test on planted
+#                      lines proves the pattern and filters still fire.
 #            Gate W3 - every Phase 7 `last_phase=quality_gate` write site
 #                      names a keyed path.
 #            DS-232 prose pins - the ship-at-cap bullet keeps both halves on one
@@ -227,26 +229,33 @@ fi
 # ---------------------------------------------------------------------------
 # Gate W2: no PROSE-PHRASED write site survives.
 # The gate whose absence let the Phase 10a CI-loop writes through review.
+# The condensed command has no prose-phrased site, so the live scan below
+# finds nothing and guards against reintroduction. The self-test runs the
+# same pattern and filters over planted lines, so a disarmed pattern or
+# filter fails here rather than passing on an empty scan.
 # ---------------------------------------------------------------------------
 echo "--- Gate W2: prose-phrased sites ---"
 
-# POOLED across the six extracted-content paths - see _pool_loop_state_files
-# above. This is a gate BODY input, not one of the L2/LOOP_KEY/MARKERS floors.
-# The condensed command has no prose-phrased site left, so the floor checks
-# the pattern against known-positive lines instead of the live file.
-W2_STAGE1="$(printf '%s\n' 'write to loop-state now' 'write loop-state' 'set in loop-state' 'the loop-state file' \
-  | grep -ciE 'to loop-state|write loop-state|in loop-state|loop-state file' || true)"
-[ -n "$W2_STAGE1" ] || W2_STAGE1=0
-if [ "${W2_STAGE1:-0}" -ge 4 ]; then
-  _pass "W2 stage floor: prose pattern matched $W2_STAGE1 of 4 known-positive lines"
+W2_PATTERN='to loop-state|write loop-state|in loop-state|loop-state file'
+_w2_unkeyed() { # stdin: candidate lines; stdout: prose sites with no keyed path
+  grep -Ei "$W2_PATTERN" 2>/dev/null \
+    | grep -v 'loop-state\.json' \
+    | grep -v 'LOOP_KEY' \
+    | grep -v 'loop-key: prose' || true
+}
+
+W2_PLANTED="$(printf '%s\n' 'write to loop-state before the gate' | _w2_unkeyed)"
+W2_KEYED="$(printf '%s\n' 'write to loop-state ($LOOP_KEY) before the gate' | _w2_unkeyed)"
+if [ -n "$W2_PLANTED" ] && [ -z "$W2_KEYED" ]; then
+  _pass "W2 self-test: an unkeyed prose site is flagged and a keyed one is not"
 else
-  _fail "FLOOR FAIL: W2 prose pattern matched ${W2_STAGE1:-0} of 4 known-positive lines - pattern is vacuous. Fix the pattern."
+  _fail "W2 self-test FAIL: planted unkeyed='$W2_PLANTED' keyed='$W2_KEYED' - the pattern or a filter is disarmed. Fix it."
 fi
 
-_pool_loop_state_files "$TMP/w2raw" -nEi 'to loop-state|write loop-state|in loop-state|loop-state file'
-grep -v 'loop-state\.json' "$TMP/w2raw" 2>/dev/null \
-  | grep -v 'LOOP_KEY' \
-  | grep -v 'loop-key: prose' > "$TMP/w2" 2>/dev/null || true
+# POOLED across the six extracted-content paths - see _pool_loop_state_files
+# above.
+_pool_loop_state_files "$TMP/w2raw" -nEi "$W2_PATTERN"
+_w2_unkeyed < "$TMP/w2raw" > "$TMP/w2"
 if [ -s "$TMP/w2" ]; then
   _fail "W2 FAIL - prose-phrased loop-state site(s) not repointed:"
   cat "$TMP/w2" >&2
