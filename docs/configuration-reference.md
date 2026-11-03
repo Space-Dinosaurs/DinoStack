@@ -33,7 +33,8 @@ Per-project markers (Section 2) override global values.
   Skeptic).
 - **`default`** - single-file locally-scoped behavioral edits and small
   single-concern code changes (one source file plus tests/docs, under 100
-  changed lines) are Low; everything else follows standard Elevated signals.
+  changed lines; moving or exporting an unchanged helper within its package
+  does not count) are Low; everything else follows standard Elevated signals.
   In `default` and `relaxed`, non-rework Elevated work touching no risk surface takes the
   single-review route (one engineer, one Skeptic pass).
 - **`strict`** - UI-only copy changes, file renaming, targeted wording fixes,

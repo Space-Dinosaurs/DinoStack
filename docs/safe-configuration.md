@@ -239,7 +239,8 @@ The methodology supports three risk profiles that move the line between Low
   iteration on well-understood code you trust.
 - **`default`** - single-file locally-scoped behavioral edits and small
   single-concern code changes (one source file plus tests/docs, under 100
-  changed lines) are Low; everything else Elevated.
+  changed lines; moving or exporting an unchanged helper within its package
+  does not count) are Low; everything else Elevated.
 - **`strict`** - more work treated as Elevated; broad Skeptic coverage. For when
   correctness matters more than speed.
 

@@ -154,7 +154,9 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # Raised 176 B for the restored transitions fallback line (its exact size).
 # Raised 236 B net for the restored tracker.yml fallback merge, less the
 # deleted unsourced measurement sentence.
-THRESHOLD_BYTES=86488
+# Raised 267 B for the Low route's merge-base count and step 3 scoping, and
+# the rejected-overlay transitions rule.
+THRESHOLD_BYTES=86755
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

@@ -163,12 +163,15 @@ def test_kernel_setup_documents_four_state_overlay_model():
 def test_kernel_setup_documents_no_tracker_transitions_carve_out():
     text = _text(CANONICAL_PATH)
     # The `ds-tracker resolve --json` path and the hand-resolution fallback
-    # both keep `transitions` when no usable tracker is configured.
+    # both keep `transitions` when no usable tracker is configured, and both
+    # discard it when the file is rejected outright (bin/ds-tracker's
+    # `unusable`).
     assert "`TRACKER_TRANSITIONS_MODE` (`auto|manual`; `no_tracker` still honors it)" in text
     assert (
-        "In every case `TRACKER_TRANSITIONS_MODE` is `.agentic/tracker.yml`'s "
-        "`transitions:` (`manual` or `auto`, default `auto`), honored even when "
-        "that file names no usable tracker."
+        "Unless the file is unreadable or rejected, `TRACKER_TRANSITIONS_MODE` is "
+        "`.agentic/tracker.yml`'s `transitions:` (`manual` or `auto`, default "
+        "`auto`), honored even when that file names no usable tracker; a "
+        "rejected file's `transitions:` is discarded too."
     ) in text
 
 

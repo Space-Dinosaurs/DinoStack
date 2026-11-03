@@ -202,7 +202,7 @@ After the structured block, return a plain-text summary covering:
 
 Keep prose brief. A reviewer reading the structured block plus prose summary plus a diff should be able to verify the implementation quickly.
 
-**Trivial-path solo spawns** are exempt from the fenced structured block: the lightweight return (status line + prose) is sufficient because no `quality_gate_results` contract applies (see Trivial-path carve-out in `/ds-implement-ticket` Phase 5).
+**Trivial-path solo spawns** are exempt from the fenced structured block: the lightweight return (status line + prose) is sufficient because no `quality_gate_results` contract applies (see **Trivial engineer** in `/ds-implement-ticket` Phase 5).
 
 ## Rules
 
