@@ -175,7 +175,7 @@ Isolation by default. Clean up by rule.
 - Every `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST use `isolation: "worktree"`
 
 <div class="callout">
-The conductor never edits the shippable tree directly - not even for Trivial one-line changes. Only the execution location moves off the primary checkout. Sole exception: `/ds-implement-ticket`'s Low route, where the conductor edits in a worktree it creates.
+The conductor never edits the shippable tree directly - not even for Trivial one-line changes. Only the execution location moves off the primary checkout.
 </div>
 
 ---
@@ -230,7 +230,7 @@ The Agent tool creates isolation worktrees automatically when `isolation: "workt
 The version floor matters: on Claude Code builds predating the isolated-worktree own-file fix, an isolated engineer self-denies on its own files and deadlocks. The fix is a hard floor for the delegation model.
 
 <div class="callout">
-"Conductor never edits the shippable tree directly" (Low route: only in its own worktree) is not a convention. It is the mechanism that prevents scaffolding files from appearing in PRs.
+"Conductor never edits the shippable tree directly" is not a convention. It is the mechanism that prevents scaffolding files from appearing in PRs.
 </div>
 
 ---

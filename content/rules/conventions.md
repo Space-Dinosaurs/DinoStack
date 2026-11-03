@@ -110,7 +110,7 @@ Read `content/references/conventions-detail.md` §The Intent Layer for the artif
 
 ## Git Workflow
 
-**Conductor never edits shippable artifacts directly - including Trivial one-line changes.** Every shippable change is delegated to a worktree-isolated `engineer` branched from `origin/main`. The conductor edits only exempt artifacts in its own checkout. Worktrees are exclusively for subagents. Sole exception: the Low route of `/ds-implement-ticket` (its Phase 5 §Low route), where the conductor makes the change in a worktree it creates under `.agentic/worktrees/`.
+**Conductor never edits shippable artifacts directly - including Trivial one-line changes.** Every shippable change is delegated to a worktree-isolated `engineer` branched from `origin/main`. The conductor edits only exempt artifacts in its own checkout. Worktrees are exclusively for subagents.
 
 **Shippable/exempt classifier (4-rule precedence, first match wins):**
 1. `.agentic/**` -> EXEMPT (conductor sole-writer).
