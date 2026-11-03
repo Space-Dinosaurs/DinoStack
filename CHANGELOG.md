@@ -3,6 +3,18 @@
 
 # Changelog
 
+## 2026-11-03
+
+### Features
+
+- **#1073** [condensed command with a single-session Low route](https://github.com/Space-Dinosaurs/DinoStack/pull/1073) - tyson-solara6
+
+## 2026-11-02
+
+### Features
+
+- **#1072** [contract parity on component reuse; whole-repo doc-sync sweep](https://github.com/Space-Dinosaurs/DinoStack/pull/1072) - tyson-solara6
+
 ## 2026-10-31
 
 ### Features
