@@ -66,7 +66,7 @@ def test_every_low_fix_brief_carries_the_bound_check():
     ) in section, "a Low fix spawn must carry the bound check, not only the first spawn"
 
 
-def test_low_first_spawn_survives_an_existing_local_branch():
+def test_low_first_spawn_renames_a_stale_local_branch():
     section = _low_route_section()
     assert (
         "Before the first spawn, when `$BRANCH_NAME` is not on origin but exists locally "

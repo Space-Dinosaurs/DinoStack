@@ -154,7 +154,8 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # Raised 192 B for the Low route's telemetry exclusion and loop-state scope.
 # Lowered for Low tickets delegating to an engineer again.
 # Raised 65 B for the Low engineer's worktree retirement and first-spawn loop state.
-THRESHOLD_BYTES=86105
+# Raised 140 B for the Low restart's branch form and own-work rule.
+THRESHOLD_BYTES=86245
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the
