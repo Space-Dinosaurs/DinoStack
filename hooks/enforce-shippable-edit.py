@@ -10,6 +10,11 @@ Purpose: PreToolUse hook that mechanically backstops the METHODOLOGY
          hard gate on Claude Code, mirroring how enforce-orchestrator-
          singularity.py backstops the sole-orchestrator invariant.
 
+         Shippable files are written by engineer subagents, and by the
+         conductor on /ds-implement-ticket's Low route, which edits inside
+         a worktree it creates under .agentic/worktrees/; this hook allows
+         that path through its .agentic/** exemption.
+
          Predecessor note (DS-94): an earlier version of this guard was
          never committed and crashed-to-block (raised an uncaught exception
          on a missing repo-root file), which took down Write/Edit globally
@@ -72,8 +77,9 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
     - Kill-switch (AE_SHIPPABLE_GUARD_DISABLE=1): fail-open immediately,
       before reading stdin.
     - agent_id present at the top level (a subagent, e.g. an engineer
-      Worker): fail-open (ALLOW) - subagents are the sanctioned writers of
-      shippable files.
+      Worker): fail-open (ALLOW) - subagents write shippable files (the
+      conductor's Low-route worktree is covered by the .agentic/** exemption
+      below).
     - Non-Write/Edit/MultiEdit tool_name: passthrough (exit 0).
     - Missing/non-dict tool_input, missing/blank file_path: fail-open.
     - repo_root unresolvable (no snapshot meta and the hook's own directory

@@ -149,16 +149,11 @@ python3 - "$doc" <<'PYEOF'
 import sys
 path = sys.argv[1]
 with open(path) as f:
-    lines = f.readlines()
-inserted = False
-for i, line in enumerate(lines):
-    if line.rstrip("\n") == "```yaml":
-        lines.insert(i + 1, "decoy: $1\n")
-        inserted = True
-        break
-assert inserted, "no ```yaml fence found to inject into"
+    content = f.read()
+# The fixture carries no yaml fence of its own, so append one.
+content = content.rstrip("\n") + "\n\n```yaml\ndecoy: $1\n```\n"
 with open(path, "w") as f:
-    f.writelines(lines)
+    f.write(content)
 PYEOF
 fixture_rc=$?
 # G3 (DS-192 round 3): mutation 3's assertion below is NEGATIVE (rc must be

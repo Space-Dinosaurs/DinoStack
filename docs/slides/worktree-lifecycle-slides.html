@@ -319,7 +319,7 @@ hr {
 <li>Every <code>engineer</code>, <code>qa-engineer</code>, and <code>release-orchestrator</code> spawn MUST use <code>isolation: &quot;worktree&quot;</code></li>
 </ul>
 <div class="callout">
-The conductor never edits the shippable tree directly - not even for Trivial one-line changes. Only the execution location moves off the primary checkout.
+The conductor never edits the shippable tree directly - not even for Trivial one-line changes. Only the execution location moves off the primary checkout. Sole exception: `/ds-implement-ticket`'s Low route, where the conductor edits in a worktree it creates.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="3" data-marpit-scope-s002="" data-paginate="true" data-class="highlight" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -649,7 +649,7 @@ hr {
 <p>The Agent tool creates isolation worktrees automatically when <code>isolation: &quot;worktree&quot;</code> is set on the spawn call. No manual <code>git worktree add</code> is needed or correct for isolation worktrees - that command is for manually-managed feature/subagent worktrees only.</p>
 <p>The version floor matters: on Claude Code builds predating the isolated-worktree own-file fix, an isolated engineer self-denies on its own files and deadlocks. The fix is a hard floor for the delegation model.</p>
 <div class="callout">
-"Conductor never edits the shippable tree directly" is not a convention. It is the mechanism that prevents scaffolding files from appearing in PRs.
+"Conductor never edits the shippable tree directly" (Low route: only in its own worktree) is not a convention. It is the mechanism that prevents scaffolding files from appearing in PRs.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="5" data-marpit-scope-s004="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

@@ -125,11 +125,9 @@ WORKTREE_PARAGRAPHS = (
     r"There is no in-place exception\..*?(?=\n\n)",
     r"\*\*Isolation is mandatory for every shippable-edit spawn\.\*\*.*?(?=\n\n)",
     r"\*\*Isolation worktrees\*\* \(`\.claude/worktrees/\*`\).*?(?=\n\n)",
-    r"\*\*Worktree isolation is mandatory on the Elevated path\.\*\*.*?(?=\n\n)",
-    r"\*\*Trivial-path solo engineer carve-out\.\*\*.*?(?=\n\n)",
-    r"\*\*Step 1\.\*\* Spawn `qa-engineer`.*?(?=\n\n)",
-    r"2\. Spawn one `engineer` fix pass scoped to the quality gate failure output.*?(?=\n\n)",
-    r"5\. Spawn one `engineer` fix pass with the Debugger's Fix brief appended.*?(?=\n\n)",
+    r"- \*\*Spawn shape\.\*\*[^\n]*",
+    r"One `engineer` per unit, in order, `isolation: \"worktree\"`[^\n]*",
+    r"1\. Spawn `qa-engineer` \(`isolation: \"worktree\"`\)[^\n]*",
 )
 SIMPLIFY_CONTRACT = (
     "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` "
@@ -525,7 +523,7 @@ PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
             ),
         ),
         (
-            r"\*\*Contract D — Stop hook / SessionEnd hook mirror\.\*\*\n\nThe Claude Code Stop "
+            r"\*\*Contract D - Stop hook / SessionEnd hook mirror\.\*\*\n\nThe Claude Code Stop "
             r"hook .*?(?=\n\n)",
             (
                 "**Contract D - Codex runtime boundary.**\n\n"
@@ -1193,6 +1191,23 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
                 "are created explicitly by the conductor with `git worktree add` before `spawn_agent`, "
                 "as required by the Codex spawn contract above",
             )
+            generated = generated.replace(
+                "Keep the background default of `run_in_background` (never pass `false`) "
+                "and wait for the completion notification",
+                "Spawn per the asynchronous Codex spawn contract above and wait for completion",
+            )
+            generated = generated.replace(
+                "`engineer` and `qa-engineer` spawns set `isolation: \"worktree\"`",
+                "`engineer` and `qa-engineer` spawns execute the Codex spawn contract above",
+            )
+            generated = generated.replace(
+                "One `engineer` per unit, in order, `isolation: \"worktree\"`,",
+                "One `engineer` per unit, in order, each after the Codex spawn contract above,",
+            )
+            generated = generated.replace(
+                "Spawn `qa-engineer` (`isolation: \"worktree\"`)",
+                "Spawn `qa-engineer` (after the Codex spawn contract above)",
+            )
             generated = generated.replace("; conductor-created ones live under `.agentic/worktrees/*`.", ".")
             generated = generated.replace("(`.claude/worktrees/*`)", "(`.agentic/worktrees/*` on Codex)")
             generated = codexify_project_paths(
@@ -1392,7 +1407,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
 
     all_slashes = re.compile(r"(?<![\w./:-])/([a-z][a-z0-9-]+)\b")
     display_slashes = {
-        "attachments", "blob", "browse", "context", "dev", "docs", "empty", "issue", "issues", "jira", "null",
+        "attachments", "blob", "browse", "context", "dev", "docs", "empty", "file", "issue", "issues", "jira", "null",
         "operators", "proceed", "pull", "rest", "settings", "staleness", "tmp", "unavailable", "view",
         "wrap-internal",
     }

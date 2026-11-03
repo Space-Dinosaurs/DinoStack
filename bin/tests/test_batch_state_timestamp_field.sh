@@ -144,16 +144,15 @@ _present "$SPEC" "Contract A step 2 scopes the precondition to batch-state.json 
          'EXCEPT that on .batch-state\.json. ONLY, this condition additionally requires .status. to be .active.'
 _absent "$SPEC" "Contract A step 2 no longer claims the precondition applies to BOTH files" \
         'precondition applies to BOTH files'
-_present "$SPEC" "Contract A step 2 states batch-state's rationale (touchTimestampOnTerminal true)" \
-         'touchTimestampOnTerminal: true.*hooks/lib/state-mark\.js'
-_present "$SPEC" "Contract A step 2 cites the pause path's clean exit" \
-         'Exit cleanly\. Do NOT advance to the next ticket'
-# FILENAME UPDATED for per-ticket keying (see the note above). The asymmetry
-# being pinned - batch-state carries the status=active precondition, loop-state
-# does not - is unchanged.
-_present "$SPEC" "Contract A step 2 states loop-state does NOT carry the precondition" \
-         'loop-state-\$LOOP_KEY\.json. does NOT carry the precondition'
-_present "$SPEC" "Contract A step 2 cites loop-state's touchTimestampOnTerminal:false shield" \
+# The rationale for the asymmetry lives in cross-session-loop-resume.md; the
+# command keeps the gate itself (asserted above).
+_present "$SPEC2" "batch-state's precondition rationale (touchTimestampOnTerminal true)" \
+         'touchTimestampOnTerminal: true. \(.hooks/lib/state-mark\.js.\)'
+_present "$SPEC" "Phase 12a's pause path exits cleanly" \
+         'pause and exit cleanly'
+_present "$SPEC2" "a keyed loop-state file does NOT carry the precondition" \
+         'A keyed loop-state file does not carry it'
+_present "$SPEC2" "loop-state's touchTimestampOnTerminal:false shield" \
          'touchTimestampOnTerminal: false'
 _present "$SPEC" "Contract A step 2 cites the stall path leaving a live session holding a non-active loop-state" \
          'mark-blocked-and-continue'
@@ -167,15 +166,13 @@ _absent "$SPEC" "Contract C message no longer lacks a file-removal remedy" \
 
 echo ""
 echo "--- updated_at refresh cadence is qualified to the Claude Code Stop hook (Minor 2) ---"
-_present "$SPEC" "batch-state updated_at bullet names the Claude Code Stop hook, not a bare per-turn claim" \
-         'refreshed per-turn by the Claude Code Stop hook'
-_present "$SPEC" "batch-state updated_at bullet documents the off-Claude-Code coarser-cadence, fail-open direction" \
-         'fail-open'
+_present "$SPEC" "the liveness refresh is qualified to the Claude Code Stop hook" \
+         'The Claude Code Stop hook ..--cadence=turn.. only refreshes .last_updated./.updated_at.'
 
 echo ""
 echo "--- loop-state Field notes call batch-state's updated_at canonical, not a fallback (Minor 3) ---"
-_present "$SPEC" "loop-state Field notes call updated_at canonical on batch-state.json" \
-         '.updated_at. is the CANONICAL field on .batch-state\.json.'
+_present "$SPEC2" "updated_at is batch-state's own field, not a fallback" \
+         'the two files intentionally use different field names for the same concept'
 _absent "$SPEC" "loop-state Field notes no longer call updated_at an accepted reader fallback" \
         'accepted reader fallback'
 
@@ -209,13 +206,13 @@ _present "$SPEC_BATCH" "Phase 0a init's Contract C check reads updated_at" \
 
 echo ""
 echo "--- The batch-state.json schema block still declares updated_at ---"
-_present "$SPEC" 'schema JSON block declares "updated_at": "<ISO8601>"' \
-         '"updated_at": "<ISO8601>"'
+_present "$SPEC_BATCH" 'batch-state init writes updated_at' \
+         '.created_at: now., .updated_at: now.'
 
 echo ""
 echo "--- Absent-timestamp-is-stale tolerance is documented ---"
-_present "$SPEC" "batch-state Field semantics documents absent updated_at as stale" \
-         'ABSENT .updated_at. as \*\*stale\*\*'
+_present "$SPEC" "Contract A documents an absent liveness timestamp as stale" \
+         'absent counts as stale'
 _present "$SPEC2" "cross-session-loop-resume.md documents absent liveness timestamp as stale" \
          'absent liveness-timestamp field is treated as stale'
 
@@ -228,10 +225,10 @@ _absent "$SPEC" "'Known separate defect' heading tied to DS-96 is removed" \
 
 echo ""
 echo "--- loop-state.json's own last_updated field is untouched (not renamed) ---"
-_present "$SPEC" "loop-state.json schema JSON block still declares last_updated" \
-         '"last_updated": "<ISO8601>"'
-_present "$SPEC" "loop-state.json Field notes still name last_updated as its own field" \
-         '.last_updated. is the per-turn liveness timestamp'
+_present "$SPEC" "loop-state field list still declares last_updated" \
+         '.status. \(.active[|]interrupted[|]complete[|]stalled.\), .last_updated.'
+_present "$SPEC" "SessionEnd never writes loop-state's last_updated" \
+         'never .last_updated., which Resume reads'
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

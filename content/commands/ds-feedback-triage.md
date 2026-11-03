@@ -108,7 +108,7 @@ Resolve `TRACKER` / `TICKET_PREFIX` / `JIRA_BASE_URL` / `LINEAR_WORKSPACE`
 if that project uses the Claude Code `@AGENTS.md` import pattern, resolve
 through to the actual `AGENTS.md` first, same as the Activation preflight
 does. Then apply the exact same fallback chain `/ds-implement-ticket`'s
-"Setup: Read project config" section uses under "Tracker resolution" (the
+"Project config" section uses under "Tracker" (the
 `## Tracker` / `## Linear` section checks, in that priority order), rooted
 at `<item.repo>` instead of the current session's own project. Do this
 resolution independently for every item - items in the same batch can

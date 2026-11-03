@@ -150,7 +150,8 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # Lowered for the route-gated split (QA evidence publishing, Tracker Create Helper).
 # Lowered for the Phase 8/9/12 shell moved into bin/ds-ticket-commit and bin/ds-ticket-finish.
 # Lowered for the Phase 10 CI wait moved into bin/ds-ticket-ci.
-THRESHOLD_BYTES=285291
+# Lowered for the condensed command with the single-session Low route.
+THRESHOLD_BYTES=87252
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

@@ -285,10 +285,9 @@ The main session agent classifies each task as <strong>Trivial</strong>, <strong
 <div>
 
 **Trivial / Low**
-- Reads, answering from memory
-- Screenshots, diagnostic logging
+- Reads, memory answers, screenshots, diagnostic logging
 - Small, reversible edits
-- Trivial work and small single-concern changes go to an isolated engineer; other Low work is direct action
+- Trivial work and small single-concern changes go to an isolated engineer (`/ds-implement-ticket`: the conductor's own worktree); other Low work is direct action
 
 </div>
 <div>

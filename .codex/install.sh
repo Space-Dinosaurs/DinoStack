@@ -284,7 +284,13 @@ bash "$CODEX_INSTALL_STAGE/repo/.codex/build.sh" \
   2>"$CODEX_INSTALL_STAGE/build.stderr"
 CODEX_STAGE_BUILD_RC=$?
 set -e
-if [[ $CODEX_STAGE_BUILD_RC -ne 0 ]]; then
+# Claude Code first (root AGENTS.md): outside DS_ALL_HARNESSES=1, content/ can
+# move past what the Codex generator maps until the catch-up chore, so a failed
+# staged build installs the committed artifacts instead of aborting.
+if [[ $CODEX_STAGE_BUILD_RC -ne 0 && "${DS_ALL_HARNESSES:-}" != 1 ]]; then
+  cat "$CODEX_INSTALL_STAGE/build.stderr" >&2
+  echo "warning: Codex staged build failed (exit $CODEX_STAGE_BUILD_RC; expected until the next non-Claude catch-up merges); installing the committed artifacts." >&2
+elif [[ $CODEX_STAGE_BUILD_RC -ne 0 ]]; then
   cat "$CODEX_INSTALL_STAGE/build.stdout"
   cat "$CODEX_INSTALL_STAGE/build.stderr" >&2
   ae_cleanup_install_stage

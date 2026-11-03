@@ -16,7 +16,7 @@ Public API: Read-only reference document, addressed by its retained
             heading below is the parent of the moved subsection only.
 
 Upstream deps: none (prose reference only; no code, no runtime execution).
-               Assumes Contracts A-C and the `batch-state.json` schema
+               Assumes Contracts A-C and the `batch-state.json` field list
                (`## Batch state contracts (binding)` in
                content/commands/ds-implement-ticket.md) are in context;
                /ds-ticket-triage Phases 1-3 by reference.

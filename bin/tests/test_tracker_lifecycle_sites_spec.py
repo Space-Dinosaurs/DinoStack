@@ -805,40 +805,37 @@ def test_tracker_yml_ignored_by_default_no_negation(init_project_text):
 # ds-config.md out-of-scope clause.
 # ---------------------------------------------------------------------------
 
+TRACKER_PARAGRAPH = "**Tracker.** Take the Setup call's `tracker` object"
+PRINT_SUMMARY = "Print before Phase 1:"
+
+
 def test_overlay_block_after_dual_shape_note_before_print_summary(implement_ticket_text):
-    # Prose row 1.
-    dual_shape_idx = implement_ticket_text.index("**Dual-shape note:**")
-    print_summary_idx = implement_ticket_text.index(
-        "Print a summary of resolved values before Phase 1:"
+    # Prose row 1: Setup resolves the tracker through the overlay merge
+    # before the resolved-values print.
+    tracker_idx = implement_ticket_text.index(TRACKER_PARAGRAPH)
+    print_summary_idx = implement_ticket_text.index(PRINT_SUMMARY)
+    overlay_idx = implement_ticket_text.index(
+        "the `.agentic/tracker.yml` overlay merge", tracker_idx
     )
-    tracker_yml_idx = implement_ticket_text.index(
-        ".agentic/tracker.yml", dual_shape_idx
-    )
-    assert dual_shape_idx < tracker_yml_idx < print_summary_idx, (
-        "the .agentic/tracker.yml overlay block must occur after the "
-        "Dual-shape note and before the Print-summary anchor, inside Setup"
+    assert tracker_idx < overlay_idx < print_summary_idx, (
+        "the .agentic/tracker.yml overlay merge must be named in Setup's "
+        "Tracker paragraph, before the Print-summary anchor"
     )
 
 
 def test_guard_interaction_literal_after_legacy_guard_stop(implement_ticket_text):
-    # Prose row 2. Exact literal so the assertion pins the guard
-    # interaction wording, not just "some mention" of it.
-    stop_anchor = (
-        "Do not continue. Do not attempt to write the migration. "
-        "All config-mutation logic lives in `/ds-init-project`."
+    # Prose row 2: the legacy `## Linear` shape guard is part of the same
+    # resolution, and a `## Linear` section with no Workspace still stops
+    # the run before the print.
+    tracker_idx = implement_ticket_text.index(TRACKER_PARAGRAPH)
+    guard_idx = implement_ticket_text.index("and the `## Linear` shape guard", tracker_idx)
+    stop_idx = implement_ticket_text.index(
+        "A `## Linear` section with no `Workspace:` stops the run"
     )
-    stop_idx = implement_ticket_text.index(stop_anchor)
-    print_summary_idx = implement_ticket_text.index(
-        "Print a summary of resolved values before Phase 1:"
-    )
-    literal = (
-        "the legacy `## Linear` shape guard is evaluated before this "
-        "overlay and is never suppressed by it"
-    )
-    literal_idx = implement_ticket_text.index(literal, stop_idx)
-    assert stop_idx < literal_idx < print_summary_idx, (
-        "the guard-interaction literal must occur after the legacy-guard "
-        "stop line and before the Print-summary anchor"
+    print_summary_idx = implement_ticket_text.index(PRINT_SUMMARY)
+    assert tracker_idx < guard_idx < stop_idx < print_summary_idx, (
+        "the `## Linear` shape guard and its stop line must sit in Setup, "
+        "before the Print-summary anchor"
     )
 
 

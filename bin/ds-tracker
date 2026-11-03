@@ -192,11 +192,9 @@ PIPELINE_REQUIRED_TOKENS = ("IN_PROGRESS", "IN_REVIEW", "QA")
 PIPELINE_OPTIONAL_TOKENS = ("DEV_COMPLETE",)
 PIPELINE_TOKENS = PIPELINE_REQUIRED_TOKENS + PIPELINE_OPTIONAL_TOKENS
 
-# Live guard text sourced from content/commands/ds-implement-ticket.md
-# "Legacy `## Linear` shape guard" (em dash normalized to a hyphen here per
-# this repo's no-em-dash convention; content/commands/ds-implement-ticket.md
-# itself is out of scope for this change and still carries the original
-# character).
+# The legacy `## Linear` shape guard's stop message; the hand fallback in
+# content/commands/ds-implement-ticket.md §Project config prints its first
+# two sentences.
 LEGACY_LINEAR_GUARD_MESSAGE = (
     "Your tracker config is missing fields /ds-implement-ticket needs. "
     "Run /ds-init-project to update it -\n"

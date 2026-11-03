@@ -206,7 +206,7 @@ Profiles are not a security dial - they tune review cadence. The underlying risk
 **For rapid iteration on well-understood UI or local bug fixes**
 
 - Ephemeral chat advice: **Low** only as a no-investigation answer from context already held
-- Single-file local edits and small single-concern changes (under 100 lines): **Low** (no Skeptic)
+- Single-file local edits and small single-concern changes (see default): **Low** (no Skeptic)
 - Multi-file pure-UI-only changes: **Low** (no Skeptic)
 - Any other Elevated signal wins (no risk surface, not rework: one Skeptic pass)
 
@@ -231,7 +231,7 @@ After activation, answer only from held context. Explicit unfamiliar or multi-re
 **The starting point for all projects**
 
 - Single-file locally-scoped behavioral edits: **Low** (no Skeptic)
-- Small single-concern changes (one source file plus tests/docs, under 100 changed lines): **Low** (no Skeptic)
+- Small single-concern changes (one source file plus tests/docs, under 100 changed lines; moving an unchanged helper is not a second file): **Low** (no Skeptic)
 - All other legacy Elevated signals remain **Elevated** (non-rework, no risk surface: one pass)
 - Multi-file UI-only changes: **Elevated** (Skeptic runs)
 - The right choice for most day-to-day work
