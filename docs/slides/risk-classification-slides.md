@@ -171,11 +171,11 @@ Signal-based decisions that drive every delegation choice
 <div class="columns-3">
 <div class="card" style="border-left-color: #3ad99a;">
 <strong>Trivial</strong>
-Delegate to a worktree-isolated engineer. No Skeptic. No brief file. The conductor never edits the shippable tree directly (Low route: only in its own worktree).
+Delegate to a worktree-isolated engineer. No Skeptic. No brief file. The conductor never edits the shippable tree directly.
 </div>
 <div class="card" style="border-left-color: #18E0FF;">
 <strong>Low</strong>
-Direct action. Brief inline self-check only. No Skeptic. A small single-concern change gets one engineer (in `/ds-implement-ticket`, the conductor in its own worktree).
+Direct action. Brief inline self-check only. No Skeptic. A small single-concern change gets one engineer.
 </div>
 <div class="card" style="border-left-color: #ff5d73;">
 <strong>Elevated</strong>

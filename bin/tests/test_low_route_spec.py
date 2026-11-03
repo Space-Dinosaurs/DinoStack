@@ -2,13 +2,15 @@
 """
 Spec tests for /ds-implement-ticket Phase 5 §Low route.
 
-- Step 3's cleanup before the quality gate must never delete or restore a
-  file the change itself created, moved or edited. Step 4 stages those
-  files, so a step 3 that removes untracked entries without that scope
-  deletes the change's own new files before they are gated.
-- Step 4's line count must measure only this change. The test runs step 4's
-  own commands, taken from the command text, against a scratch repo whose
-  base gained an unrelated commit after the branch was cut and fetched.
+- The conductor spawns one engineer for a Low ticket and implements nothing
+  itself; no conductor-implements exception remains in the command.
+- Every Low fix spawn carries the bound check, and the first spawn renames a
+  stale local branch instead of failing to create it.
+- A broken bound in a Phase 10a fix stops instead of escalating, since the PR
+  already exists.
+- The bound check's line count must measure only this change. The test runs
+  its own commands, taken from the command text, against a scratch repo
+  whose base gained an unrelated commit after the branch was cut and fetched.
 
 Run with: python3 -m pytest bin/tests/test_low_route_spec.py -q
 """
@@ -26,61 +28,59 @@ from harness_scope import non_claude
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 COMMAND_PATH = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
-# The generated Codex skill rewrites project paths, so its step 4 is run too.
+# The generated Codex skill rewrites project paths, so its bound check is run too.
 CODEX_SKILL_PATH = REPO_ROOT / ".codex" / "skills" / "dinostack-codex-implement-ticket" / "SKILL.md"
 
-KEEP_SENTENCE = "Keep every file the change created, moved or edited."
-SCOPE_SENTENCE = "Each other entry"
+HEADING = "### Low route (one engineer)"
 
 
-def _low_route_step(number: int, path: Path = COMMAND_PATH) -> str:
+def _low_route_section(path: Path = COMMAND_PATH) -> str:
     text = path.read_text(encoding="utf-8")
-    start = text.index("### Low route (conductor implements)")
-    end = text.index("\n### ", start + 1)
-    section = text[start:end]
-    match = re.search(rf"(?m)^{number}\. .*$", section)
-    assert match, f"Low route step {number} not found"
+    start = text.index(HEADING)
+    return text[start:text.index("\n### ", start + 1)]
+
+
+def _bound_check(path: Path = COMMAND_PATH) -> str:
+    match = re.search(r"(?m)^\*\*Bound check\.\*\* .*$", _low_route_section(path))
+    assert match, "Low route bound check not found"
     return match.group(0)
 
 
-def test_step3_keeps_the_change_before_any_cleanup():
-    step = _low_route_step(3)
-    assert step.startswith(f"3. {KEEP_SENTENCE}"), (
-        "step 3 must open by keeping every file the change created, moved or "
-        "edited, so no reading of its cleanup applies to them"
-    )
+def test_low_route_spawns_an_engineer():
+    section = _low_route_section()
+    assert "The conductor implements nothing on a Low ticket" in section
+    assert "It spawns one worktree-isolated `engineer`" in section
 
 
-def test_step3_cleanup_applies_only_to_other_entries():
-    step = _low_route_step(3)
-    scope_idx = step.index(SCOPE_SENTENCE)
-    for verb in ("delete", "restore", "clean -fd"):
-        for match in re.finditer(re.escape(verb), step):
-            assert match.start() > scope_idx, (
-                f"step 3 says {verb!r} before scoping the cleanup to entries "
-                "that are not part of the change"
-            )
-
-
-def test_low_steps_write_no_loop_state():
-    # A loop-state write in steps 1-5 would resume a Low ticket at that write
-    # after later steps ran (skipping steps 4-5, or into a retired worktree),
-    # and inside a Phase 6b or 10a fix pass would overwrite that loop's state.
+def test_no_conductor_implements_exception_remains():
     text = COMMAND_PATH.read_text(encoding="utf-8")
-    start = text.index("### Low route (conductor implements)")
-    section = text[start:text.index("\n### ", start + 1)]
-    assert "Steps 1-5 write no loop state" in section
-    assert "inside a Phase 6b or 10a fix pass that loop's own state and counters stand" in section
-    for token in ("last_phase=", "last_phase_action=", "loop-state-$LOOP_KEY.json"):
-        assert token not in section, f"the Low route writes loop state: {token!r}"
+    for phrase in ("conductor implements)", "Low conductor", "makes the change itself"):
+        assert phrase not in text, f"conductor-implements phrasing remains: {phrase!r}"
 
 
-def test_step4_phase10a_break_stops_instead_of_escalating():
-    step = _low_route_step(4)
+def test_every_low_fix_brief_carries_the_bound_check():
+    section = _low_route_section()
+    assert (
+        "a QA fix (Phase 6b), a Phase 7 fix and a CI fix (Phase 10a) are each a fresh "
+        "spawn whose brief carries the ticket and its acceptance text and the bound check below"
+    ) in section, "a Low fix spawn must carry the bound check, not only the first spawn"
+
+
+def test_low_first_spawn_survives_an_existing_local_branch():
+    section = _low_route_section()
+    assert (
+        "Before the first spawn, when `$BRANCH_NAME` is not on origin but exists locally "
+        "(`git -C \"$REPO\" rev-parse --verify --quiet \"refs/heads/$BRANCH_NAME\"`), "
+        "rename it as the preflight does, to a name free locally and on origin"
+    ) in section, "a stale local branch must not fail the Low first spawn's branch create"
+
+
+def test_phase10a_break_stops_instead_of_escalating():
+    step = _bound_check()
     escalate_idx = step.index("A broken bound or a risk-surface touch:")
     stop = (
-        "In a Phase 10a fix the PR already exists, so do not escalate: stop as at "
-        "Phase 10a's cap (`cap_exceeded`, W6b, STOP)"
+        "In a Phase 10a fix the PR already exists, so the conductor does not escalate: "
+        "it stops as at Phase 10a's cap (`cap_exceeded`, W6b, STOP)"
     )
     assert stop in step, (
         "a Low CI fix that breaks the bound after the PR exists must stop, not "
@@ -99,12 +99,12 @@ def _run(cmd: list[str], cwd: Path, env: dict[str, str]) -> str:
     pytest.param(COMMAND_PATH, id="content"),
     pytest.param(CODEX_SKILL_PATH, id="codex", marks=non_claude),
 ])
-def test_step4_count_ignores_base_commits_after_the_cut(path: Path):
-    step = _low_route_step(4, path)
+def test_bound_count_ignores_base_commits_after_the_cut(path: Path):
+    step = _bound_check(path)
     base_set = re.search(r"`(LOW_BASE=\"\$\(git [^`]*\)\")`", step)
-    assert base_set, "step 4 must set LOW_BASE before counting"
+    assert base_set, "the bound check must set LOW_BASE before counting"
     numstat = re.search(r"`(git -C \"\$WORKTREE_PATH\" diff --cached -M --numstat [^`]*)`", step)
-    assert numstat, "step 4's numstat command not found"
+    assert numstat, "the bound check's numstat command not found"
     script = f"{base_set.group(1)}\n{numstat.group(1)}\n"
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -147,8 +147,8 @@ def test_step4_count_ignores_base_commits_after_the_cut(path: Path):
 
     assert "a.txt" in out, out
     assert "unrelated.txt" not in out, (
-        "step 4 counted a base commit merged after the branch was cut: " + out
+        "the bound check counted a base commit merged after the branch was cut: " + out
     )
     assert ".agentic/session-log" not in out, (
-        "step 4 counted Phase 8's telemetry commit as part of the change: " + out
+        "the bound check counted Phase 8's telemetry commit as part of the change: " + out
     )

@@ -152,7 +152,9 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # Lowered for the Phase 10 CI wait moved into bin/ds-ticket-ci.
 # Lowered for the condensed command with the single-session Low route.
 # Raised 192 B for the Low route's telemetry exclusion and loop-state scope.
-THRESHOLD_BYTES=87444
+# Lowered for Low tickets delegating to an engineer again.
+# Raised 65 B for the Low engineer's worktree retirement and first-spawn loop state.
+THRESHOLD_BYTES=86105
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the
