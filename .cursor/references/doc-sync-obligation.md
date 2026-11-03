@@ -38,7 +38,7 @@ Over-documenting is itself drift - do not add speculative doc edits to changes t
 
 ## Worker obligation
 
-On a predicate-tripping change, in the same change update every invalidated intent-layer doc (scan `README.md`, `CONTRIBUTING.md`, `content/SKILL.md`, affected `content/sections` + `content/references` cross-refs).
+On a predicate-tripping change, in the same change grep the whole repository for the old value and update every invalidated mention (at minimum `README.md`, `CONTRIBUTING.md`, `content/SKILL.md`, affected `content/sections` + `content/references` cross-refs). A generated copy follows its source through the project's build; a deliberate historical keep (changelogs, archived docs) stays.
 
 ## Skeptic verification
 

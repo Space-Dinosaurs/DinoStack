@@ -538,7 +538,7 @@ This document is the canonical source for The Subagent Protocol. **When this doc
 - **`~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md`** - canonical specification for the inner Skeptic loop
 
 When this document changes:
-1. If the change affects the risk signal list or delegation decision table, update `content/sections/02-delegation.md` and/or `content/sections/04-risk-classification.md` to match, then rebuild the adapters (`bash scripts/build-all.sh`) so the change reaches the skill embed. Procedural changes (worktree rules, check-in behavior, parallel spawning details) are picked up automatically via pointers.
+1. If the change affects the risk signal list or delegation decision table, update `content/sections/02-delegation.md` and/or `content/sections/04-risk-classification.md` to match, then rebuild the Claude Code adapter (`bash .claude/build.sh`) so the change reaches the skill embed. Procedural changes (worktree rules, check-in behavior, parallel spawning details) are picked up automatically via pointers.
 2. Check `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md` for sections that may be affected by changes to orchestration rules (particularly Sections 2, 5, 9, and 10).
 
 ## 13. Conductor context budget
