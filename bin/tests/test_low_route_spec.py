@@ -21,15 +21,19 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 COMMAND_PATH = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
+# The generated Codex skill rewrites project paths, so its step 4 is run too.
+CODEX_SKILL_PATH = REPO_ROOT / ".codex" / "skills" / "dinostack-codex-implement-ticket" / "SKILL.md"
 
 KEEP_SENTENCE = "Keep every file the change created, moved or edited."
 SCOPE_SENTENCE = "Each other entry"
 
 
-def _low_route_step(number: int) -> str:
-    text = COMMAND_PATH.read_text(encoding="utf-8")
+def _low_route_step(number: int, path: Path = COMMAND_PATH) -> str:
+    text = path.read_text(encoding="utf-8")
     start = text.index("### Low route (conductor implements)")
     end = text.index("\n### ", start + 1)
     section = text[start:end]
@@ -59,12 +63,19 @@ def test_step3_cleanup_applies_only_to_other_entries():
 
 def test_step3_fix_pass_writes_have_low_resume_rows():
     step = _low_route_step(3)
-    assert "`last_phase_action=conductor_fix`" in step
+    write_idx = step.index("`last_phase_action=conductor_fix`")
+    scope = "On the first Low change only, write `last_phase=quality_gate`"
+    assert scope in step and step.index(scope) < write_idx, (
+        "step 3's quality_gate write must be scoped to the first Low change"
+    )
+    # A Phase 6b or 10a fix pass runs step 3 too; overwriting its qa|* or
+    # ci_loop|* state would resume it in Phase 7 with its counters lost.
+    assert "inside a Phase 6b or 10a fix pass, keep that loop's own state and counters" in step
     text = COMMAND_PATH.read_text(encoding="utf-8")
     entry = re.search(r"(?m)^\*\*Entry by `last_phase`/`last_phase_action`:\*\*.*$", text)
     assert entry, "resume entry table not found"
     row = entry.group(0)
-    assert "`quality_gate|conductor_fix` (Low)" in row
+    assert "`quality_gate|conductor_fix` (Low, first change only)" in row
     assert "Low: re-run Phase 5 §Low route step 3's gate" in row
 
 
@@ -88,8 +99,9 @@ def _run(cmd: list[str], cwd: Path, env: dict[str, str]) -> str:
     ).stdout
 
 
-def test_step4_count_ignores_base_commits_after_the_cut():
-    step = _low_route_step(4)
+@pytest.mark.parametrize("path", [COMMAND_PATH, CODEX_SKILL_PATH], ids=["content", "codex"])
+def test_step4_count_ignores_base_commits_after_the_cut(path: Path):
+    step = _low_route_step(4, path)
     base_set = re.search(r"`(LOW_BASE=\"\$\(git [^`]*\)\")`", step)
     assert base_set, "step 4 must set LOW_BASE before counting"
     numstat = re.search(r"`(git -C \"\$WORKTREE_PATH\" diff --cached -M --numstat [^`]*)`", step)

@@ -3352,6 +3352,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": ".agentic/session-log",
+      "generated_token": "':(exclude).agentic/session-log'",
+      "kind": "operational",
+      "occurrence_hash": "0c2ca47e82b5ca2c78fc6ef8acf435a6427c8ec2b0cadfd5fc188fb1dcccc937",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "':(exclude).agentic/session-log'"
+    },
+    {
       "expected_target": "printf",
       "generated_token": "printf",
       "kind": "operational",
@@ -3630,6 +3640,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "printf"
+    },
+    {
+      "expected_target": ".agentic/loop-state-",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
+      "kind": "operational",
+      "occurrence_hash": "26b80b93a7535dd9975dabd082c1e4f6a6bb4a29a2fcd3df64589227cd6277b5",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/loop-state-"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -4070,16 +4090,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "--worktree-path"
-    },
-    {
-      "expected_target": ".agentic/loop-state-",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
-      "kind": "operational",
-      "occurrence_hash": "49c72ea00788751c2bfc4bd7b5755d03a73997ff8352a4ced5282c5843f350f7",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/loop-state-"
     },
     {
       "expected_target": "jq",
@@ -4972,16 +4982,6 @@
       "source_token": "else"
     },
     {
-      "expected_target": ".agentic/session-log",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/session-log",
-      "kind": "operational",
-      "occurrence_hash": "9a2aaba2f91f82a71822d0a71bbd9996590dab19a6c18c27f5010cad2729ce36",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/session-log"
-    },
-    {
       "expected_target": "elif",
       "generated_token": "elif",
       "kind": "operational",
@@ -5000,6 +5000,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "git"
+    },
+    {
+      "expected_target": "hooks/enforce-nested-worktree-spawn.py",
+      "generated_token": "$AE_REPO_DIR/hooks/enforce-nested-worktree-spawn.py",
+      "kind": "operational",
+      "occurrence_hash": "9d13b8993a4b467be8f850bb3d7bfd347369aae9dc7aca5b3c8080eb2cafcf3e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "hooks/enforce-nested-worktree-spawn.py"
     },
     {
       "expected_target": ".agentic/loop-state-",
@@ -5680,16 +5690,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "do"
-    },
-    {
-      "expected_target": "hooks/enforce-nested-worktree-spawn.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-nested-worktree-spawn.py",
-      "kind": "operational",
-      "occurrence_hash": "d0bcc77ff695bfef94c0e856dcd540b2e1a549300714a19f37b6b89127788844",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "hooks/enforce-nested-worktree-spawn.py"
     },
     {
       "expected_target": "filesystem read",
