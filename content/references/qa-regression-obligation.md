@@ -10,7 +10,7 @@ This is the QA-side mirror of the Skeptic-side regression rule in `content/refer
 
 ## Engineer obligation
 
-When the conductor spawns a fix engineer in response to a qa-engineer FAIL, the engineer must:
+When the conductor routes a qa-engineer FAIL to a fix engineer (the resumed sole implementer or a fresh spawn), the engineer must:
 
 1. Implement the fix.
 2. Add a regression test - a unit, integration, e2e, or eval case in the project's normal test suite, alongside existing tests for the affected module, that would have **failed** without the fix and **passes** with it.

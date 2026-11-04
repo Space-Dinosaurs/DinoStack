@@ -260,4 +260,4 @@ When spawning `qa-engineer`, include:
 - Which pages/features to verify based on the files changed
 - The qa-engineer uses `agent-browser` for all browser interaction
 - QA returns a structured pass/fail report with bugs and evidence
-- On failure, the conductor spawns fix engineers, then re-runs QA
+- On failure, the conductor routes a fix pass (to the sole implementer via `SendMessage`, else to fresh fix engineers), then re-runs QA

@@ -41,7 +41,7 @@ Performance: Standard.
 3. Wait for both to return. After qa-engineer returns, run the QA knowledge capture procedure (see §"QA knowledge capture (canonical procedure)" below) before routing on the verdict.
 4. If both pass: unit is complete.
 5. If Skeptic raises Critical/Major: enter standard Skeptic fix loop. QA re-runs after Skeptic sign-off is achieved.
-6. If QA fails (Skeptic already signed off): spawn fix engineer, then re-run QA only. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`.
+6. If QA fails (Skeptic already signed off): send the fix pass to the sole implementer, else spawn a fix engineer (`ds-implement-ticket.md` Phase 5 §Fix-pass delivery), then re-run QA only. The fix brief MUST cite `content/references/qa-regression-obligation.md`.
 
 **Phase breadcrumb:** `[phase: qa-review]`
 
@@ -52,7 +52,7 @@ Performance: Standard.
 3. If `qa_criteria` is present AND `qa_skip == null` AND scenarios non-empty: spawn `qa-engineer` with the unit's `qa_criteria` and ticket context. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
 4. QA engineer opens the dev server in a browser (or invokes API/runtime checks per the scenarios' `method`), verifies functionality, returns pass/fail report. Run the QA knowledge capture procedure (see §"QA knowledge capture (canonical procedure)" below) before proceeding to the next step.
 5. On PASS: unit is complete.
-6. On FAIL: spawn fix engineer for each bug, then re-run QA. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`. After Phase 6b clean-exit, if any iteration involved a QA FAIL, the conductor emits the qa-regressions curator to append to `.agentic/qa-regressions.md` (see `content/references/qa-evidence-publish.md` §"QA regressions curator").
+6. On FAIL: route a fix pass for each bug as in the concurrent flow's step 6, then re-run QA. The fix brief MUST cite `content/references/qa-regression-obligation.md`. After Phase 6b clean-exit, if any iteration involved a QA FAIL, the conductor emits the qa-regressions curator to append to `.agentic/qa-regressions.md` (see `content/references/qa-evidence-publish.md` §"QA regressions curator").
 
 ## Per-ticket, in-flow (anti-pattern: end-of-batch QA sweep)
 
