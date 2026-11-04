@@ -1,8 +1,8 @@
 <!--
 Purpose: Operator-facing guide to .agentic/events.jsonl - the structured
          event log that records orchestration boundaries. Covers the base
-         schema, main event types, who writes what, and how ds-cost
-         consumes the data. Complements docs/identity-telemetry.md (which
+         schema, main event types, who writes what, and how ds-cost and
+         the ds-eval [steps] section consume the data. Complements docs/identity-telemetry.md (which
          covers identity setup, not the event data model).
 
 Public API: Operator-facing prose. Entry point for operators who want to
@@ -79,6 +79,11 @@ both fire while the conductor's turn is still in progress. The third,
 `conductor_overreach` event, but only when its `ratio_trigger` condition
 fires - see below. It also guards against re-firing when the harness
 re-invokes Stop after its own `additionalContext` (see below).
+
+The `/ds-implement-ticket` helpers `bin/ds-ticket-ci`, `bin/ds-ticket-commit`
+and `bin/ds-ticket-finish` append one `step_outcome` event on every exit,
+written to the primary checkout's `events.jsonl` even when run from a linked
+worktree (see below).
 
 Subagent agents never emit events themselves; hooks firing on their spawns
 and completions do.
@@ -272,6 +277,25 @@ most one. A week's count in the rollup is therefore a session count, not a
 fire count, and weeks either side of this change are not directly
 comparable.
 
+### step_outcome
+
+Appended through `bin/ds-emit` by `bin/ds-ticket-ci` (Phase 10),
+`bin/ds-ticket-commit` (Phase 8) and `bin/ds-ticket-finish` (`ledger` and
+`merge`), once on every exit, to the primary checkout's `.agentic/events.jsonl`
+(`scripts/lib/step-outcome.sh`). `agent: null`; `task_id` is the ticket or
+`null`.
+
+Key `data` fields: `step` (a step id), `outcome`, `helper` (the script name),
+and, when known, `pr` (number) and `branch`. Each helper's manifest header
+defines its step and its closed `outcome` enum; they are not restated here.
+
+**Read by `[steps]`.** `bin/ds-eval` and `bin/ds-evaluate` (via
+`bin/_eval.py`) count fires and outcomes per step id from `step_outcome`
+rows, the W1 and Phase 11e writeback rows, and ticket-ledger fields. Step
+ids come from the existing command and section headings; the rules live in
+the module header of `bin/_steps.py`. A step's 0 is real only when its own
+source wrote rows in the window; otherwise it reads ABSENT.
+
 ## ds-cost
 
 `ds-cost` reads `events.jsonl` and the per-developer session logs to
@@ -296,8 +320,9 @@ row's project.
 ## Practical notes
 
 **Append discipline.** No fsync, no lock file. Multiple writers append
-(conductor, the two spawn-telemetry hooks, and the
-conductor-overreach Stop hook, all noted above) via `appendFileSync`/`>>`,
+(conductor, the two spawn-telemetry hooks, the
+conductor-overreach Stop hook, and the `bin/ds-ticket-*` helpers, all noted
+above) via `appendFileSync`/`>>`,
 each an `O_APPEND` write, so lines never interleave mid-write; no
 cross-writer locking is needed.
 
