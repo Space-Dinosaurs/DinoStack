@@ -34,11 +34,13 @@ Purpose: PreToolUse hook that enforces the operator-confirmation rule of
          Classifies a tracker-ticket CREATE call three ways:
            1. `mcp__mcp-atlassian__jira_create_issue` - always a creation
               (the tool only creates; verified against
-              `content/commands/ds-implement-ticket.md:536`).
+              `content/references/tracker-create.md` §Tracker Create
+              Helper).
            2. `mcp__linear__save_issue` - a creation ONLY when the call
               carries no `id` field (Linear's `save_issue` creates when
               `id` is omitted and updates when it is supplied - verified
-              against `content/commands/ds-implement-ticket.md:534`). An
+              against `content/references/tracker-create.md` §Tracker
+              Create Helper). An
               `id`-bearing call (a status/comment update on an existing
               ticket) is never counted.
            3. `Bash` - a direct API bypass (PR #606 found conductors

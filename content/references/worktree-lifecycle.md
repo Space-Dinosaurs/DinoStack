@@ -209,9 +209,10 @@ A Trivial-classified change (`content/sections/04-risk-classification.md` §Triv
 signals) commits and pushes immediately, from a fresh, disposable,
 worktree-isolated Trivial-path engineer spawn (per the delegation
 kernel's existing spawn contract - the Trivial tier's real contract is
-plain prose per `content/commands/ds-implement-ticket.md:1545`; the tier
-carries no `worktree_setup` field; the Elevated-only contract at
-`:1543`/`:1615`/`:1621` is not used here). The **first** tweak to a surface
+plain prose per the **Trivial engineer** paragraph of
+`content/commands/ds-implement-ticket.md` §If work is a single logical
+unit (or units must be sequential):; the tier carries no `worktree_setup`
+field; the Elevated-only contract in that same section is not used here). The **first** tweak to a surface
 opens a **draft** PR immediately. Every continuation is seeded via a
 detached-HEAD checkout of the batch's fetched remote tip. CI runs on every
 push; nothing is deferred or skipped.
@@ -226,12 +227,15 @@ branch/PR rather than risk colliding with an unrelated batch).
 ### Seeding mechanics
 
 **Continuation** (an existing batch): the Trivial engineer is briefed in
-plain prose (per `:1545`'s form) to run, directly inside its own
+plain prose (per the form of the **Trivial engineer** paragraph in
+`content/commands/ds-implement-ticket.md` §If work is a single logical
+unit (or units must be sequential):) to run, directly inside its own
 harness-provided isolation worktree - no nested worktree, no separate
 directory.
 
 **Cleanliness precheck, mandatory, immediately before the detach:**
-`:1545`'s own porcelain precheck was written for a `checkout -B`
+that section's own porcelain precheck (the already-checked-out guard the
+**Trivial engineer** paragraph makes mandatory) was written for a `checkout -B`
 force-moving a shared branch ref and is inapplicable to that case - but
 this in-place `git checkout --detach` re-invalidates that reasoning for a
 different reason: any untracked file already present in the worktree (a
@@ -288,7 +292,9 @@ being pushed regardless of what local branches happen to exist. Do not
 simplify this to a bare branch-name form, and **do not substitute
 `AGENTS.md:53`'s literal** (`git push -u origin <branch-name>`) here -
 that sequence's worker-pushes-then-conductor-acts SEQUENCE carries over
-(matching the `:2575`/`:2585-2595` in-worktree push precedent, which uses
+(matching the in-worktree non-fast-forward recovery push in the
+`git_finalization` bullet of `content/commands/ds-implement-ticket.md`
+§If work is a single logical unit (or units must be sequential):, which uses
 this same explicit-refspec form for the same underlying reason), its push
 FORM does not.
 

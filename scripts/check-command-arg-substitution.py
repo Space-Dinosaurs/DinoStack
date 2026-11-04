@@ -40,7 +40,7 @@ Failure modes: never mutates any file - read-only scan, stdout/stderr
                either way it is undetected here. Deliberately NOT
                folded into TOKEN_RE: defaulted brace forms like `${1-}`/
                `${2-}` appear legitimately in this codebase (e.g.
-               content/commands/ds-implement-ticket.md:267) as the
+               bin/ds-ticket-setup) as the
                substitution-safe idiom, and widening the regex to catch
                bare `${1}` would also fire on that safe form.
 """

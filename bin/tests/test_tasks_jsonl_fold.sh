@@ -161,7 +161,8 @@ if [ -s "$TMP/g4b" ]; then _fail "G4b FAIL - prose counting reader of tasks.json
 else _pass "G4b: R8/R9 prose counting readers count DISTINCT task_ids"; fi
 
 # G5 (OQ1): scoped to status-sync ONLY. The identical enum at
-# ds-implement-ticket.md:218/900 is batch-state.json's tickets[] and is CORRECT.
+# ds-implement-ticket.md §Batch state contracts (binding) is batch-state.json's
+# tickets[] and is CORRECT.
 git grep -niE 'skipped_already_merged|\| complete \|' -- "$SS" > "$TMP/g5" 2>/dev/null || true
 if [ -s "$TMP/g5" ]; then _fail "G5 FAIL - the batch-state tickets[] enum is still pasted onto the tasks.jsonl lookup (OQ1):"; cat "$TMP/g5" >&2
 else _pass "G5: status-sync reads the tasks.jsonl writer enum, not the batch-state one"; fi
