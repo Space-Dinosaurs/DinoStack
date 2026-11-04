@@ -209,9 +209,10 @@ A Trivial-classified change (`content/sections/04-risk-classification.md` §Triv
 signals) commits and pushes immediately, from a fresh, disposable,
 worktree-isolated Trivial-path engineer spawn (per the delegation
 kernel's existing spawn contract - the Trivial tier's real contract is
-plain prose per `content/commands/ds-implement-ticket.md:1545`; the tier
-carries no `worktree_setup` field; the Elevated-only contract at
-`:1543`/`:1615`/`:1621` is not used here). The **first** tweak to a surface
+plain prose per the **Trivial engineer** paragraph of
+`content/commands/ds-implement-ticket.md` §If work is a single logical
+unit (or units must be sequential):; the tier carries no `worktree_setup`
+field; the Elevated-only contract in that same section is not used here). The **first** tweak to a surface
 opens a **draft** PR immediately. Every continuation is seeded via a
 detached-HEAD checkout of the batch's fetched remote tip. CI runs on every
 push; nothing is deferred or skipped.

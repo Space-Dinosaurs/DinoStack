@@ -134,7 +134,8 @@ _SEQ = "_seq"
 #:      carries no information that could distinguish the two writers.
 #:
 #: The value is outside the `<ISO-date>-<4hex>` namespace the conductor mints
-#: (ds-implement-ticket.md:1671), so it can never collide with a real id.
+#: (orchestration-units.md §Task-state initialization (multi-unit only)), so
+#: it can never collide with a real id.
 LEGACY_SENTINEL = "<legacy>"
 
 # --------------------------------------------------------------------------
@@ -446,8 +447,10 @@ def fold(
 # Row classification (plan.md section 2 B x C matrix)
 # --------------------------------------------------------------------------
 
-#: Live schema at content/commands/ds-implement-ticket.md:1497 (`branch_name`)
-#: and :1501 (`outputs.skeptic_status`, dotted - NOT bare `skeptic_status`).
+#: Live schema at content/commands/ds-implement-ticket.md §If work is a single
+#: logical unit (or units must be sequential):, its **Task state** paragraph
+#: (`branch_name`, and `outputs.skeptic_status`, dotted - NOT bare
+#: `skeptic_status`).
 _BUILD_FIELDS = ("branch_name", "commit_sha", "outputs.skeptic_status")
 
 

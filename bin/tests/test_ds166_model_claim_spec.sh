@@ -15,9 +15,9 @@
 #          claim site (re-opening the inert-line bug), drops the jq's ticket scoping, or
 #          removes the Model: printf fails here. The jq-scoping pin is block-specific:
 #          it extracts the ENGINEER_MODEL jq block from the content file rather than
-#          grep-ing the whole file, because '.ticket_id == $t' also appears in unrelated
-#          jq (ds-implement-ticket.md:1048/2825/2834) and a whole-file grep would stay
-#          green if only the ENGINEER_MODEL jq lost its scoping.
+#          grep-ing the whole file, because a whole-file grep would stay green if
+#          another jq in the file carried '.ticket_id == $t' while the ENGINEER_MODEL
+#          jq lost its scoping.
 #
 # Public API: ./bin/tests/test_ds166_model_claim_spec.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -88,9 +88,8 @@ fi
 # Extract the ENGINEER_MODEL jq block from the content file itself (from the
 # ENGINEER_MODEL=$(jq assignment to the terminating '| unique | join(", ")' line)
 # and assert BOTH its ticket scoping and its engineer filter survive. A whole-file
-# grep for '.ticket_id == $t' would NOT trip on a scoping removal - that string
-# also appears in pre-existing jq at ds-implement-ticket.md:1048/2825/2834
-# (ticket-rework ledger / loop-state reads) - so the pin must be block-specific.
+# grep for '.ticket_id == $t' would NOT trip on a scoping removal whenever any
+# other jq in the file carries that string - so the pin must be block-specific.
 JQ_START="$(grep -nF 'ENGINEER_MODEL=$(jq' "$DIT" | head -1 | cut -d: -f1)"
 JQ_END="$(grep -nF '| unique | join(", ")' "$DIT" | head -1 | cut -d: -f1)"
 if [ -z "$JQ_START" ] || [ -z "$JQ_END" ] || [ "$JQ_START" -gt "$JQ_END" ]; then
