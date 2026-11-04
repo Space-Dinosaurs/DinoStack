@@ -65,16 +65,6 @@ Use these forms in any rule, reference, agent spec, or command file:
 
 Bold-prose paragraph leads (e.g. `**Conductor rule for Trivial:**`) are NOT covered by the stability contract. If you need to reference such content from outside the section file, the content must first be promoted to a real `###` sub-heading in a separate Elevated change.
 
-## Known Wave 1 regressions
-
-The Wave 1 PR that introduced this directory deletes the now-renamed `content/rules/METHODOLOGY.md`. As of that PR, three sibling adapter scripts still reference the deleted path and will fail until Wave 2 lands:
-
-- `.gemini/build.sh` (line ~55) cats `content/rules/METHODOLOGY.md` (deleted path)
-- `.kimi/build.sh` (line ~32) cats `content/rules/METHODOLOGY.md` (deleted path)
-- `.opencode/install.sh` (line ~322) references the deleted path
-
-If you are on the Wave-1 branch, do NOT run those adapter builds. Wave 2 (Codex/Gemini/Cursor adapter migrations) plus the Kimi and OpenCode catch-ups documented here will close all three.
-
 ## Existing-installation upgrade path
 
 If you previously installed the dinostack skill (via `bash .claude/install.sh`), your `~/.claude/CLAUDE.md` contains a managed block with `@skills/dinostack/METHODOLOGY.md`. After pulling Wave 1, that import points at a deleted file. Re-run `bash .claude/install.sh` once - the script's regex sub rewrites the managed block to import `@skills/dinostack/METHODOLOGY.md` cleanly. The skill directory itself is symlinked from the repo, so its content updates automatically on `git pull`; only the `@`-import line in `CLAUDE.md` is stale until install re-runs.
