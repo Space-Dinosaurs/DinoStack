@@ -11,7 +11,9 @@ Purpose: Executes the Phase 8 commit-and-telemetry shell block
          `Signed-off-by:  <>` trailer - fixed; the guard now skips the
          telemetry commit instead of emitting the malformed trailer).
 
-Public API: none (pytest test module; 10 functions x {bash, zsh} = 20 tests).
+Public API: none (pytest test module; 11 functions x {bash, zsh} = 22 tests).
+            Test #11 runs the CLI itself from a linked worktree and checks
+            its step_outcome rows land in the primary checkout.
 
 Upstream deps: bin/tests/lib/md_shell_extract.py, bin/tests/lib/git_fixture.py,
                bin/ds-ticket-commit (file under test).
@@ -39,6 +41,7 @@ Known scope limitation: the region runs with no file arguments, so the
 from __future__ import annotations
 
 import functools
+import json
 import os
 import shutil
 import subprocess
@@ -420,3 +423,47 @@ def test_dco_guard_skips_telemetry_commit_when_gitconfig_missing(tmp_path, shell
         "WARNING: git user.name or user.email not set; skipping telemetry "
         "commit to avoid malformed DCO trailer." in result.stdout
     ), f"expected the DCO-identity-guard WARNING in stdout, got: {result.stdout!r}"
+
+
+# ---------------------------------------------------------------------------
+# 11. step_outcome: one row per exit, in the primary checkout.
+# ---------------------------------------------------------------------------
+
+
+def _step_outcomes(events: Path) -> list[tuple]:
+    if not events.exists():
+        return []
+    rows = [json.loads(line) for line in events.read_text().splitlines() if line.strip()]
+    return [(r["data"]["step"], r["data"]["outcome"], r["data"]["helper"], r["data"].get("branch"))
+            for r in rows if r["event"] == "step_outcome"]
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_cli_step_outcome_lands_in_primary_from_linked_worktree(tmp_path, shell):
+    """Run from inside a linked worktree, every exit appends exactly one
+    implement-ticket/phase-8 step_outcome to the PRIMARY checkout's
+    .agentic/events.jsonl, carrying data.branch (the only key /ds-evaluate
+    can join a phase-8 row to its ticket by). The fixture has no origin, so the push fails
+    (push_failed); a missing --branch is a usage error; files passed while
+    the commit checkout is off the PR branch are commit_failed."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_worktree_shape(tmp_path)
+    env = {k: v for k, v in fixture.env.items() if k != "REPO_DIR"}
+    wt = fixture.worktree_dir
+    primary = fixture.repo_dir / ".agentic" / "events.jsonl"
+
+    def cli(*args):
+        return subprocess.run([shell, str(SCRIPT_PATH), *args], cwd=str(wt), env=env,
+                              capture_output=True, text=True, timeout=60)
+
+    pushed = cli("--repo", str(wt), "--branch", fixture.branch_name)
+    assert pushed.returncode == 1, pushed.stdout + pushed.stderr
+    assert _step_outcomes(primary) == [
+        ("implement-ticket/phase-8", "push_failed", "ds-ticket-commit", fixture.branch_name)]
+    assert not (wt / ".agentic" / "events.jsonl").exists()
+
+    assert cli("--repo", str(wt)).returncode == 2
+    off_branch = cli("--repo", str(fixture.repo_dir), "--branch", fixture.branch_name,
+                     "--message", "feat: x", "--", "README.md")
+    assert off_branch.returncode == 3, off_branch.stdout + off_branch.stderr
+    assert [o for _, o, _, _ in _step_outcomes(primary)] == ["push_failed", "usage", "commit_failed"]

@@ -39,6 +39,8 @@
 #
 # Downstream consumers: content/commands/ds-implement-ticket.md (Phase 1, 6,
 #                       6b, 11e);
+#                       scripts/lib/step-outcome.sh (step_outcome, for
+#                       bin/ds-ticket-ci, -commit and -finish);
 #                       any future command that reaches an instrumented
 #                       boundary.
 #

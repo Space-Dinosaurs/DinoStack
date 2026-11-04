@@ -15,7 +15,7 @@ Report (default output, plain text, in this order):
   2. Header: telemetry repos, window, session count, one line per
      transcript store (bin/ds-eval's print_header).
   3. The measured evaluate() sections [cost] [agents] [skeptic_rounds]
-     [work_items] [hooks] [mix] (bin/ds-eval's print_sections).
+     [work_items] [hooks] [mix] [steps] (bin/ds-eval's print_sections).
   4. [methodology]: signals of the --repo checkout, read only when it is a
      DinoStack checkout (has content/sections); otherwise one ABSENT line:
        budget_gates   - runs every script in BUDGET_SCRIPTS from the repo

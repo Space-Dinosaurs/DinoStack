@@ -125,9 +125,9 @@ def set_polls(p, polls):
     p["state"].write_text(json.dumps(s))
 
 
-def run(p, *argv, extra_env=None):
+def run(p, *argv, extra_env=None, cwd=None):
     return subprocess.run([str(a) for a in argv], env={**p["env"], **(extra_env or {})},
-                          capture_output=True, text=True, timeout=50)
+                          capture_output=True, text=True, timeout=50, cwd=cwd)
 
 
 def commit_create_ledger_wait(p):
@@ -137,7 +137,8 @@ def commit_create_ledger_wait(p):
     ledger = run(p, BIN / "ds-ticket-finish", "ledger", "--repo", p["repo"], "--ticket", "T-1", "--branch", BRANCH,
                  "--gh-repo", "test/repo", "--loop-key", "t-1", "--rework-detection", "true",
                  "--risk-class", "Elevated", "--skeptic-rounds", "2", "--qa-status", "PASS")
-    ci = run(p, BIN / "ds-ticket-ci", "--pr", "7", "--gh-repo", "test/repo", "--polls", "10", "--interval", "0")
+    ci = run(p, BIN / "ds-ticket-ci", "--pr", "7", "--gh-repo", "test/repo", "--polls", "10", "--interval", "0",
+             cwd=p["repo"])
     return commit, create, ledger, ci
 
 
@@ -194,6 +195,10 @@ def test_commit_through_merge_delivers_and_cleans_up(pipeline):
     assert git("--git-dir", str(p["origin"]), "rev-parse", "refs/heads/main^{tree}") == git("rev-parse", engineer_sha + "^{tree}", cwd=p["repo"])
     assert git("rev-parse", "main", cwd=p["repo"]) == origin_main, "base sync fast-forwarded local main"
     assert not p["qa"].exists(), "QA carrier retired"
+    events = [json.loads(line) for line in (p["repo"] / ".agentic/events.jsonl").read_text().splitlines()]
+    assert [(e["data"]["step"], e["data"]["outcome"]) for e in events if e["event"] == "step_outcome"] == [
+        ("implement-ticket/phase-8", "pushed"), ("implement-ticket/ticket-rework-ledger-write", "written"),
+        ("implement-ticket/phase-10", "passed"), ("implement-ticket/phase-12", "merged")]
 
 
 def test_red_check_stops_before_ready_and_merge(pipeline):

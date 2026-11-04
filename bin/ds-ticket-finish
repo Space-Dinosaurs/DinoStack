@@ -48,12 +48,25 @@
 #   2 usage error. The breadcrumb lines carry the outcome:
 #   `[phase: auto-merged | pr=N]` is the W7 tracker-writeback trigger.
 #   Carrier holds never change the exit code.
+#   `ledger` records `elevated_route` from the loop-state file it reads for
+#   skeptic_rounds, only when --risk-class is Elevated and the file's
+#   ticket_id matches; otherwise, or when the field is absent, null.
+#   `ledger` and `merge` append one `step_outcome` event on every exit
+#   (scripts/lib/step-outcome.sh, resolved from R, or the current directory
+#   before --repo parses; data.branch = B;
+#   `knowledge` is counted by its own knowledge_commit event):
+#     ledger  step implement-ticket/ticket-rework-ledger-write; outcome
+#             written | skipped (rework detection off, no ticket, or the
+#             record could not be built or appended) | no_pr | usage.
+#     merge   step implement-ticket/phase-12; outcome merged | queued |
+#             deferred | failed | skipped (the auto-merge gate declined) |
+#             auto_merge_off | no_pr (no --pr) | usage.
 #
 # Upstream deps: bash or zsh, git, jq, python3, gh; ds-pr-delivery-record,
 #                ds-migrate, ds-emit, ds-memory-capture on PATH (soft);
-#                bin/ds-base-sync and bin/ds-retire-carrier under REPO_DIR
-#                (env REPO_DIR when set, else the checkout this file lives
-#                in).
+#                bin/ds-base-sync, bin/ds-retire-carrier, bin/ds-emit and
+#                scripts/lib/step-outcome.sh under REPO_DIR (env REPO_DIR
+#                when set, else the checkout this file lives in).
 #
 # Downstream consumers: content/commands/ds-implement-ticket.md Phases 9
 #                       and 12; content/references/knowledge-commit.md
@@ -75,7 +88,16 @@
 
 usage() {
   echo "usage: ds-ticket-finish ledger|knowledge|merge --repo R --branch B [flags] (see the header of this file)" >&2
+  fin_step_outcome usage "${REPO:-.}"
   exit 2
+}
+
+# fin_step_outcome OUTCOME BASE [PR]
+fin_step_outcome() {
+  case "$FIN_STEP" in
+    ledger) ds_step_outcome "$REPO_DIR/bin/ds-emit" "$2" ds-ticket-finish implement-ticket/ticket-rework-ledger-write "$1" "${TICKET_ID:--}" "${3:-}" "${BRANCH_NAME:-}" ;;
+    merge) ds_step_outcome "$REPO_DIR/bin/ds-emit" "$2" ds-ticket-finish implement-ticket/phase-12 "$1" "${TICKET_ID:--}" "${3:-}" "${BRANCH_NAME:-}" ;;
+  esac
 }
 
 finish_ledger() {
@@ -87,11 +109,15 @@ finish_ledger() {
 # QA_STATUS holds the QA result when QA ran, and "skipped:<qa_skip enum>" or
 # "skipped:Trivial path" / "skipped:Low path" / "skipped:single-review path" when it did not. It is empty ONLY in the degenerate
 # case where neither a result nor a rationale exists - every ordinary non-QA path carries one.
+FIN_LEDGER_OUTCOME=skipped
+TRL_PR_NUMBER=""
 if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
   # pr_number derived live from the ticket currently in flight's own branch - never $PR_NUMBER.
   TRL_PR_NUMBER=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number 2>/dev/null || true)
 
-  if [ -n "$TRL_PR_NUMBER" ]; then
+  if [ -z "$TRL_PR_NUMBER" ]; then
+    FIN_LEDGER_OUTCOME=no_pr
+  else
     # skeptic_rounds: prefer the value captured at Phase 6 clean exit. Empty on the Trivial
     # path, which never reaches Phase 6 - that is a correct null, not a missing read.
     TRL_ROUNDS="${SKEPTIC_ROUNDS:-}"
@@ -125,6 +151,14 @@ if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
       .agentic/tasks.jsonl 2>/dev/null | sort -u | grep -c . || true)
     case "$TRL_UNITS" in ''|0|*[!0-9]*) TRL_UNITS=1 ;; esac
 
+    # elevated_route: never defaulted - an absent field (files before #1073) stays null.
+    TRL_ROUTE=""
+    if [ "$RISK_CLASS" = "Elevated" ] && [ -f .agentic/loop-state-$LOOP_KEY.json ]; then
+      TRL_ROUTE=$(jq -r --arg t "$TICKET_ID" '
+        select(.ticket_id == $t) | .elevated_route | strings
+      ' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null) || TRL_ROUTE=""
+    fi
+
     # Build the whole record first, then append it with ONE write. Do not split this append.
     TRL_LINE=$(jq -cn \
       --arg tid "$TICKET_ID" \
@@ -132,18 +166,20 @@ if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
       --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       --arg br "$BRANCH_NAME" \
       --arg rc "$RISK_CLASS" \
+      --arg er "${TRL_ROUTE:-}" \
       --arg sr "${TRL_ROUNDS:-}" \
       --arg qs "${QA_STATUS:-}" \
       --argjson uc "$TRL_UNITS" \
       '{ticket_id:$tid, pr_number:$pr, opened_ts:$ts, branch:$br,
         risk_class:(if $rc == "" then null else $rc end),
+        elevated_route:(if $er == "" then null else $er end),
         skeptic_rounds:(if $sr == "" then null else ($sr|tonumber) end),
         qa_status:(if $qs == "" then null else $qs end),
         unit_count:$uc}' 2>/dev/null || true)
 
     if [ -n "$TRL_LINE" ]; then
       mkdir -p .agentic 2>/dev/null || true
-      printf '%s\n' "$TRL_LINE" >> .agentic/ticket-ledger.jsonl 2>/dev/null || true
+      printf '%s\n' "$TRL_LINE" >> .agentic/ticket-ledger.jsonl 2>/dev/null && FIN_LEDGER_OUTCOME=written
     fi
   fi
 fi
@@ -567,6 +603,7 @@ ds-emit knowledge_commit - "${TICKET_ID:--}" "{\"site\":\"phase-11e\",\"status\"
 
 finish_auto_merge() {
 # @harness:phase12-auto-merge
+FIN_MERGE_OUTCOME=auto_merge_off
 if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
   DELIVERY_PUBLISHED_SHA=""
   if DELIVERY_PUBLICATION=$(ds-pr-delivery-record --repo "$GH_REPO" --pr "$PR_NUMBER" --input "$DELIVERY_RECORD_INPUT"); then
@@ -590,21 +627,25 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
     if [ "$KC_KNOWLEDGE_PUSHED" = "true" ]; then
       if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch --auto 2>/dev/null; then
         echo "[phase: auto-merge-queued | pr=$PR_NUMBER | reason=knowledge-commit-ci-rerun]"
+        FIN_MERGE_OUTCOME=queued
         # W7 does NOT fire: --auto exiting 0 means QUEUED, not MERGED. The
         # dev-complete transition is pushed by the session-start pending-merge
         # sweep within one session boot of the actual merge - the same mechanism
         # the default auto_merge_on_ci_green=false path relies on.
       elif [ "$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
         echo "[phase: auto-merged | pr=$PR_NUMBER]"
+        FIN_MERGE_OUTCOME=merged
         # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
         # with target_state: $TRACKER_STATE_DEV_COMPLETE, forward_only_guard: true.
         # Fire-and-forget. Fires ONLY when the PR is confirmed MERGED (this branch).
         # [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DEV_COMPLETE | trigger: auto-merge-success]
       else
         echo "[phase: auto-merge-deferred | pr=$PR_NUMBER | reason=knowledge-commit-ci-rerun - merge when checks are green]"
+        FIN_MERGE_OUTCOME=deferred
       fi
     elif gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --match-head-commit "$DELIVERY_PUBLISHED_SHA" --squash --delete-branch 2>/dev/null; then
       echo "[phase: auto-merged | pr=$PR_NUMBER]"
+      FIN_MERGE_OUTCOME=merged
       # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
       # with target_state: $TRACKER_STATE_DEV_COMPLETE, forward_only_guard: true.
       # Fire-and-forget. Fires ONLY when merge succeeded (this branch). No
@@ -614,9 +655,11 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
       # [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DEV_COMPLETE | trigger: auto-merge-success]
     else
       echo "[phase: auto-merge-failed | pr=$PR_NUMBER]"
+      FIN_MERGE_OUTCOME=failed
     fi
   else
     echo "[phase: auto-merge-skipped | isDraft=$IS_DRAFT mergeable=$MERGEABLE reviewDecision=$REVIEW_DECISION]"
+    FIN_MERGE_OUTCOME=skipped
   fi
 else
   echo "PR #$PR_NUMBER is open and ready for review: https://github.com/$GH_REPO/pull/$PR_NUMBER"
@@ -670,6 +713,23 @@ for rec in json.load(sys.stdin):
   fi
 }
 
+FIN_STEP=""
+# Resolved before the cd below, which would break a relative $0 or --repo.
+if [ -z "${REPO_DIR:-}" ]; then
+  SELF="$0"
+  while [ -L "$SELF" ]; do
+    SELF_DIR="$(cd "$(dirname "$SELF")" && pwd -P)"
+    SELF="$(readlink "$SELF")"
+    case "$SELF" in /*) ;; *) SELF="$SELF_DIR/$SELF" ;; esac
+  done
+  REPO_DIR="$(cd "$(dirname "$SELF")/.." && pwd -P)"
+fi
+if [ -f "$REPO_DIR/scripts/lib/step-outcome.sh" ]; then
+  . "$REPO_DIR/scripts/lib/step-outcome.sh"
+else
+  ds_step_outcome() { :; }
+fi
+
 [ "$#" -gt 0 ] || usage
 FIN_STEP="$1"
 shift
@@ -698,22 +758,13 @@ while [ "$#" -gt 0 ]; do
   shift 2
 done
 [ -n "${REPO:-}" ] && [ -n "${BRANCH_NAME:-}" ] || usage
-# Resolved before the cd below, which would break a relative $0 or --repo.
-if [ -z "${REPO_DIR:-}" ]; then
-  SELF="$0"
-  while [ -L "$SELF" ]; do
-    SELF_DIR="$(cd "$(dirname "$SELF")" && pwd -P)"
-    SELF="$(readlink "$SELF")"
-    case "$SELF" in /*) ;; *) SELF="$SELF_DIR/$SELF" ;; esac
-  done
-  REPO_DIR="$(cd "$(dirname "$SELF")/.." && pwd -P)"
-fi
-cd "$REPO" || exit 2
+cd "$REPO" || { fin_step_outcome usage "$REPO"; exit 2; }
 REPO="$(pwd)"
 
 case "$FIN_STEP" in
   ledger)
     finish_ledger
+    fin_step_outcome "$FIN_LEDGER_OUTCOME" "$REPO" "${TRL_PR_NUMBER:-}"
     ;;
   knowledge)
     finish_knowledge
@@ -726,9 +777,11 @@ case "$FIN_STEP" in
       finish_auto_merge
     else
       echo "[phase: auto-merge-skipped | reason=no PR number]"
+      FIN_MERGE_OUTCOME=no_pr
     fi
     finish_base_sync
     finish_retire_carriers
+    fin_step_outcome "$FIN_MERGE_OUTCOME" "$REPO" "${PR_NUMBER:-}"
     ;;
 esac
 exit 0

@@ -185,6 +185,8 @@ _write() { # _write - run the Phase 9 block with the caller's env
 }
 _last() { tail -1 .agentic/ticket-ledger.jsonl; }
 _field() { _last | jq -r "$1"; }
+_so() { grep '"event":"step_outcome"' .agentic/events.jsonl | tail -1 |
+  jq -r '[.data.step, .data.outcome, (.data.pr // "null"), .task_id] | map(tostring) | join(" ")'; }
 
 # ===========================================================================
 echo ""
@@ -203,6 +205,27 @@ _eq "elevated qa_status"      "$(_field .qa_status)"      "PASS"
 _eq "elevated unit_count"     "$(_field .unit_count)"     "2"
 _eq "elevated branch"         "$(_field .branch)"         "feature/ds-87"
 _eq "opened_ts is ISO8601 Z"  "$(_field .opened_ts | grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$')" "1"
+_eq "written emits step_outcome" "$(_so)" "implement-ticket/ticket-rework-ledger-write written 458 DS-87"
+
+# ===========================================================================
+echo ""
+echo "--- elevated_route: read from the keyed loop-state file, never defaulted ---"
+: > .agentic/ticket-ledger.jsonl
+rm -f .agentic/loop-state-*.json
+printf '{"ticket_id":"DS-95","elevated_route":"single-review","loop_state":{"phase":"skeptic","iteration":1}}' > .agentic/loop-state-DS-95.json
+_write REWORK_DETECTION=true TICKET_ID=DS-95 LOOP_KEY=DS-95 BRANCH_NAME=feature/ds-95 GH_REPO=o/r \
+       RISK_CLASS=Elevated SKEPTIC_ROUNDS=1 QA_STATUS="skipped:single-review path" FAKE_GH_PR=470
+_eq "Elevated + matching ticket records the route" "$(_field .elevated_route)" "single-review"
+_write REWORK_DETECTION=true TICKET_ID=DS-95 LOOP_KEY=DS-95 BRANCH_NAME=feature/ds-95 GH_REPO=o/r \
+       RISK_CLASS=Low QA_STATUS="skipped:Low path" FAKE_GH_PR=470
+_eq "Low records null even with a route on disk" "$(_field '.elevated_route|type')" "null"
+_write REWORK_DETECTION=true TICKET_ID=DS-96 LOOP_KEY=DS-95 BRANCH_NAME=feature/ds-96 GH_REPO=o/r \
+       RISK_CLASS=Elevated QA_STATUS=PASS FAKE_GH_PR=471
+_eq "a foreign ticket's route is not recorded" "$(_field '.elevated_route|type')" "null"
+printf '{"ticket_id":"DS-97","loop_state":{"phase":"skeptic","iteration":2}}' > .agentic/loop-state-DS-97.json
+_write REWORK_DETECTION=true TICKET_ID=DS-97 LOOP_KEY=DS-97 BRANCH_NAME=feature/ds-97 GH_REPO=o/r \
+       RISK_CLASS=Elevated SKEPTIC_ROUNDS=2 QA_STATUS=PASS FAKE_GH_PR=472
+_eq "Elevated with the field absent records null, not full" "$(_field '.elevated_route|type')" "null"
 
 # ===========================================================================
 echo ""
@@ -380,10 +403,13 @@ echo "--- Phase 9 skip conditions: no record written ---"
 : > .agentic/ticket-ledger.jsonl
 _write REWORK_DETECTION=false TICKET_ID=DS-94 BRANCH_NAME=b GH_REPO=o/r RISK_CLASS=Elevated QA_STATUS=PASS FAKE_GH_PR=999
 _eq "toggle off writes nothing"   "$(wc -l < .agentic/ticket-ledger.jsonl | tr -d ' ')" "0"
+_eq "toggle off emits skipped"    "$(_so)" "implement-ticket/ticket-rework-ledger-write skipped null DS-94"
 _write REWORK_DETECTION=true TICKET_ID= BRANCH_NAME=b GH_REPO=o/r RISK_CLASS=Elevated QA_STATUS=PASS FAKE_GH_PR=999
 _eq "empty ticket writes nothing" "$(wc -l < .agentic/ticket-ledger.jsonl | tr -d ' ')" "0"
+_eq "empty ticket emits skipped"  "$(_so)" "implement-ticket/ticket-rework-ledger-write skipped null null"
 _write REWORK_DETECTION=true TICKET_ID=DS-94 BRANCH_NAME=b GH_REPO=o/r RISK_CLASS=Elevated QA_STATUS=PASS FAKE_GH_PR=
 _eq "no PR number writes nothing" "$(wc -l < .agentic/ticket-ledger.jsonl | tr -d ' ')" "0"
+_eq "no PR number emits no_pr"    "$(_so)" "implement-ticket/ticket-rework-ledger-write no_pr null DS-94"
 
 # ===========================================================================
 echo ""

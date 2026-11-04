@@ -22,7 +22,7 @@ Public API:
              stores=None, rates=None, include_sessions=False,
              use_feedback=True) -> dict
         Keys: meta, agents, skeptic_rounds, work_items, hooks, cost, mix,
-        keepalive, decisions, gaps, plus `session_rows` (one session_summary() per
+        steps, keepalive, decisions, gaps, plus `session_rows` (one session_summary() per
         in-window session) when include_sessions is True, so ds-change-delta
         can split a window by entrypoint without a second transcript pass.
         use_feedback=False skips the `ds-feedback list` read (labels are
@@ -50,6 +50,26 @@ Public API:
         metric's input set is non-empty and every source it reads was
         available (coverage < 1 then says the input set is a subset, and
         `missing` names what it excludes).
+    steps: {status, missing, rows, unmapped, unresolved,
+        zero_fire_instrumented, absent_instrumented, uninstrumented_count,
+        collisions}. rows are
+        [{step, fires, source, outcomes{}, tickets}] by fires descending,
+        built only from sources that record their own step (bin/_steps.py:
+        step_outcome rows, the W1 and phase-11e sites, ledger fields), each
+        row under at most one step; spawn rows and the top-level `phase` are
+        never read. Events count when `ts` is in the window, ledger records
+        (latest per ticket_id and pr_number) when `opened_ts` is. `tickets`
+        counts distinct tickets, by task_id, else a row's data.pr joined to a
+        ledger pr_number, else its data.branch joined to a ledger branch; a
+        row that joins none counts in fires only. unmapped: {site: n} for
+        writeback sites with no step. unresolved: step ids no current
+        heading produces. Of the instrumented steps with 0 fires,
+        zero_fire_instrumented are a real 0 (their source wrote rows in the
+        window, bin/_steps.py step_sources) and absent_instrumented are
+        ABSENT (it wrote none); uninstrumented_count: steps with no source,
+        also ABSENT, never 0. status is ABSENT when no source wrote a row in
+        the window, PARTIAL when `missing` names an absent file or a silent
+        source.
     keepalive: {repo: section}, one per repo (never pooled). A section is
         pings {fired, passed, dropped, deleted, wrapped, unclassified}
         (_transcripts.Turn.outcome, ping turns timestamped in the window);
@@ -182,11 +202,13 @@ Work-item key (tiers, first match wins): 1 exactly one ticket id in the
     has compared >= 20 and agree/compared < 0.8.
 
 Upstream deps: Python 3 stdlib; bin/_lib.py (resolve_base_branch, _run),
-    bin/_telemetry.py (pricing, hook spawn folding) and bin/_transcripts.py
-    (sessions across every config-dir store), each loaded by resolved path.
-    Reads <repo>/.agentic/events.jsonl (hook spawn rows),
+    bin/_telemetry.py (pricing, hook spawn folding), bin/_transcripts.py
+    (sessions across every config-dir store) and bin/_steps.py (step ids,
+    read from this checkout's content/), each loaded by resolved path.
+    Reads <repo>/.agentic/events.jsonl (hook spawn rows, step rows),
     <repo>/.agentic/.enforcement-fires.jsonl (primary copy only),
-    <repo>/.agentic/tasks.jsonl and ticket-ledger.jsonl (ticket prefixes),
+    <repo>/.agentic/tasks.jsonl and ticket-ledger.jsonl (ticket prefixes;
+    the ledger also feeds `steps`),
     `git log --first-parent <base>` (the window, and one undated --grep
     pass for the items with no in-window merge), `git remote get-url origin`, and,
     `ds-feedback list --status triaged --repo <repo>` (operator fire labels,
@@ -234,6 +256,7 @@ def _load(name: str, filename: str):
 _LIB = _load("_eval_lib", "_lib.py")
 _TELEMETRY = _load("_telemetry", "_telemetry.py")
 _TRANSCRIPTS = _load("_eval_transcripts", "_transcripts.py")
+_STEPS = _load("_eval_steps", "_steps.py")
 
 REENTRY_AFTER_MERGE = timedelta(hours=1)
 QA_FAIL_RESULTS = ("FAIL", "PARTIAL")
@@ -255,7 +278,8 @@ ROUTES = {
     "D2": "update-agentic-engineering",
     "D3": "tracker-ticket",
 }
-SECTIONS = ("agents", "skeptic_rounds", "work_items", "hooks", "cost", "mix", "keepalive", "decisions", "gaps")
+SECTIONS = ("agents", "skeptic_rounds", "work_items", "hooks", "cost", "mix", "steps", "keepalive", "decisions",
+            "gaps")
 IDLE_RETURN = timedelta(minutes=20)
 RETURN_BUCKETS = (("20-60", 60), ("60-120", 120), ("120-240", 240), ("over 240", None))
 MIN_BUCKET_N = 10
@@ -913,6 +937,8 @@ def _load_repo(repo: Path, start: datetime, end: datetime, base, ticket_re, use_
     return {
         "repo": str(repo), "sessions": sessions, "hook_rows": hook_rows,
         "events_present": events is not None, "fires": fires, "pattern": pattern,
+        "step_rows": [ev for ev in events or [] if _STEPS.event_step(ev) is not None],
+        "ledger": _read_jsonl(agentic / "ticket-ledger.jsonl"),
         "prefixes": sorted(prefixes), "base": base_ref, "base_source": base_source,
         "base_diagnostics": base_diag, "prs": prs, "slug": slug,
         "gh_states": gh_states, "gh_changes_requested": gh_changes, "gh_status": gh_status, "labels": labels,
@@ -1890,6 +1916,84 @@ def _decide(repo, sections, spawns, returns, pricing_ok) -> tuple[list, list]:
 # ---------------------------------------------------------------------------
 
 
+def _steps_section(inputs, start, end) -> dict:
+    """Per-step fires and outcomes; every rule about which row feeds which
+    step lives in bin/_steps.py."""
+    derived = _STEPS.derive_steps(_BIN.parent)
+    known = derived["steps"]
+    sources = _STEPS.step_sources(_BIN.parent)
+    instrumented = set(sources)
+    acc: dict[str, dict] = {}
+    unmapped: dict[str, int] = {}
+    live: set[str] = set()
+
+    def add(step, outcome, source, ticket):
+        a = acc.setdefault(step, {"fires": 0, "sources": set(), "outcomes": {}, "tickets": set()})
+        a["fires"] += 1
+        a["sources"].add(source)
+        a["outcomes"][outcome] = a["outcomes"].get(outcome, 0) + 1
+        if ticket:
+            a["tickets"].add(ticket)
+
+    for inp in inputs:
+        latest: dict = {}
+        for rec in inp.get("ledger") or []:
+            latest[(rec.get("ticket_id"), rec.get("pr_number"))] = rec
+        ledger = list(latest.values())
+        by_pr: dict[int, set] = {}
+        by_branch: dict[str, set] = {}
+        for rec in ledger:
+            pr = _as_int(rec.get("pr_number"))
+            if pr is not None and rec.get("ticket_id"):
+                by_pr.setdefault(pr, set()).add(rec["ticket_id"])
+            if isinstance(rec.get("branch"), str) and rec.get("ticket_id"):
+                by_branch.setdefault(rec["branch"], set()).add(rec["ticket_id"])
+        for ev in inp.get("step_rows", []):
+            if not _in(_parse_ts(ev.get("ts")), start, end):
+                continue
+            live.add(_STEPS.row_source(ev))
+            step, outcome, source = _STEPS.event_step(ev)
+            if step == "unmapped":
+                unmapped[outcome] = unmapped.get(outcome, 0) + 1
+                continue
+            ticket = ev.get("task_id") if isinstance(ev.get("task_id"), str) and ev.get("task_id") else None
+            if ticket is None:
+                joined = (by_pr.get(_as_int(ev["data"].get("pr")), set())
+                          or by_branch.get(ev["data"].get("branch"), set()))
+                ticket = next(iter(joined)) if len(joined) == 1 else None
+            add(step, outcome, source, ticket and (inp["repo"], ticket))
+        for rec in ledger:
+            if not _in(_parse_ts(rec.get("opened_ts")), start, end):
+                continue
+            live.add("ledger")
+            ticket = rec.get("ticket_id") if isinstance(rec.get("ticket_id"), str) else None
+            for step, outcome, source in _STEPS.ledger_outcomes(rec):
+                add(step, outcome, source, ticket and (inp["repo"], ticket))
+
+    rows = [{"step": step, "fires": a["fires"], "source": "+".join(sorted(a["sources"])),
+             "outcomes": dict(sorted(a["outcomes"].items(), key=lambda kv: (-kv[1], kv[0]))),
+             "tickets": len(a["tickets"])}
+            for step, a in acc.items()]
+    rows.sort(key=lambda r: (-r["fires"], r["step"]))
+    missing = [f"{name} absent in every repo" for name, present in (
+        ("events.jsonl", any(inp.get("events_present") for inp in inputs)),
+        ("ticket-ledger.jsonl", any(inp.get("ledger") is not None for inp in inputs))) if not present]
+    zero = instrumented & set(known) - set(acc)
+    silent = sorted({sources[s] for s in zero} - live)
+    missing += [f"no rows in window from {src}" for src in silent]
+    return {
+        "status": ABSENT if not live else PARTIAL if missing else OK,
+        "missing": missing,
+        "rows": rows,
+        "unmapped": dict(sorted(unmapped.items())),
+        "unresolved": sorted({r["step"] for r in rows} - set(known) | instrumented - set(known)),
+        "zero_fire_instrumented": sorted(s for s in zero if sources[s] in live),
+        "absent_instrumented": sorted(s for s in zero if sources[s] not in live),
+        "uninstrumented_count": len(set(known) - instrumented),
+        "collisions": derived["collisions"],
+    }
+
+
 def _sections(inputs, rates, start, end) -> tuple[dict, list, list]:
     spawns = _spawn_index(inputs, rates)
     keying = _key_spawns(spawns, inputs)
@@ -1904,6 +2008,7 @@ def _sections(inputs, rates, start, end) -> tuple[dict, list, list]:
         "hooks": hooks,
         "cost": _cost_section(inputs, rates, start, end),
         "mix": _mix_section(inputs, rates),
+        "steps": _steps_section(inputs, start, end),
         "_round_cap": round_cap,
     }
     return sections, spawns, returns

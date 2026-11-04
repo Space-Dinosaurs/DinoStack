@@ -78,16 +78,16 @@ The alert is backed by one local, gitignored, append-only file: `.agentic/ticket
 
 ```json
 {"ticket_id":"DS-87","pr_number":458,"opened_ts":"2026-07-17T11:54:58Z",
- "branch":"feature/ds-87-pr-template","risk_class":"Elevated","skeptic_rounds":2,
- "qa_status":"PASS","unit_count":5}
+ "branch":"feature/ds-87-pr-template","risk_class":"Elevated","elevated_route":"full",
+ "skeptic_rounds":2,"qa_status":"PASS","unit_count":5}
 ```
 
-A Trivial-path record legitimately carries two null fields:
+A Trivial-path record legitimately carries two null fields besides `elevated_route`:
 
 ```json
 {"ticket_id":"DS-91","pr_number":462,"opened_ts":"2026-07-20T09:10:00Z",
- "branch":"fix/ds-91-label-typo","risk_class":"Trivial","skeptic_rounds":null,
- "qa_status":"skipped:Trivial path","unit_count":1}
+ "branch":"fix/ds-91-label-typo","risk_class":"Trivial","elevated_route":null,
+ "skeptic_rounds":null,"qa_status":"skipped:Trivial path","unit_count":1}
 ```
 
 **Nullability column** - which fields can legitimately be null, and why:
@@ -99,6 +99,7 @@ A Trivial-path record legitimately carries two null fields:
 | `opened_ts` | No | Generated at write time. |
 | `branch` | No | `BRANCH_NAME` is resolved early in every ticket's flow, regardless of path. |
 | `risk_class` | No | Declared before any spawn happens. |
+| `elevated_route` | **Yes** | Read from `.agentic/loop-state-$LOOP_KEY.json` (the file the `skeptic_rounds` fallback reads) only when `risk_class` is `Elevated` and the file's `ticket_id` matches; null on every other path, and when the field is absent (files written before the field existed), never defaulted to `full`. |
 | `skeptic_rounds` | **Yes** | The Trivial path bypasses the Skeptic loop entirely; the only durable iteration-count source is written by the Skeptic loop itself, which a Trivial ticket never enters. |
 | `qa_status` | **Yes, on two paths** | Trivial tickets never run QA. Elevated tickets with a `qa_skip` value also never run QA - the write records the skip rationale instead of a status. |
 | `unit_count` | No | **Derived, not read** - there is no `unit_count` variable anywhere in the command. Derivation rule: apply the **task-state fold** (`content/references/task-state-file.md`) to `.agentic/tasks.jsonl` and count of **distinct** `task_id`s among the folded records matching this `ticket_id` on the Phase 5 fan-out path; `1` on a single-engineer path; `1` when `tasks.jsonl` is absent or unreadable. |

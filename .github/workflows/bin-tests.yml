@@ -82,15 +82,16 @@ jobs:
         # The prior bound (5 minutes) killed a run in which every test had
         # passed. Must stay below the job backstop above.
         timeout-minutes: 10
-      - name: floor collected test_phase8_telemetry_shell.py count at 20
-        # 10 test functions x 2 shells (bash, zsh) = 20 collected IDs (round
+      - name: floor collected test_phase8_telemetry_shell.py count at 22
+        # 11 test functions x 2 shells (bash, zsh) = 22 collected IDs (round
         # 12 added test_correct_block_aborts_loudly_on_defeated_negation, the
-        # point-of-use defeated-negation loud-fail test). Adding or removing
+        # point-of-use defeated-negation loud-fail test; the step-id work
+        # added test_cli_step_outcome_lands_in_primary_from_linked_worktree). Adding or removing
         # a test function in bin/tests/test_phase8_telemetry_shell.py
         # obliges updating the floor below in the same PR.
         timeout-minutes: 2
         run: |
-          python3 -m pytest bin/tests/test_phase8_telemetry_shell.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 20) { print "expected >= 20 collected tests (10 functions x 2 shells), got " $1; exit 1 } }'
+          python3 -m pytest bin/tests/test_phase8_telemetry_shell.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 22) { print "expected >= 22 collected tests (11 functions x 2 shells), got " $1; exit 1 } }'
       - name: floor collected test_qa_knowledge_capture_shell.py count at 52
         # 18 test functions - 17 parametrized x {bash, zsh, sh} (51) plus 1
         # static, shell-independent assertion (1) = 52 collected IDs. Adding
