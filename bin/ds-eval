@@ -52,10 +52,11 @@ Public API: ds-eval --repo P [P ...] [--since S] [--until U] [--base REF]
             did not list one of the item's PRs, never 0.
             [steps]: the 15 steps with the most fires (fires, distinct
             tickets, source and outcome counts; ids per bin/_steps.py),
-            then one line each for unmapped writeback sites, unresolved
-            ids, zero-fire instrumented steps (a real 0), the
-            uninstrumented step count (ABSENT, never 0) and id collisions:
-            21 lines at most.
+            then one line each for unmapped writeback sites and unresolved
+            ids, zero-fire instrumented steps whose source wrote rows in
+            the window (a real 0), instrumented steps whose source wrote
+            none (ABSENT), the uninstrumented step count (ABSENT, never 0)
+            and id collisions: 21 lines at most.
             [keepalive] (per repo): pings fired/passed/dropped/deleted/
             wrapped/unclassified, ping tokens and priced usd per outcome,
             returns after idle per gap bucket with and without a ping that
@@ -312,7 +313,8 @@ def print_sections(r: dict, top: int = DEFAULT_TOP) -> None:
 
 
 def _print_steps(r: dict) -> None:
-    """[steps]: a header, the top STEP_ROWS rows, five summary lines."""
+    """[steps]: a header, the top STEP_ROWS rows, five summary lines; a 0 is
+    called real only when its source wrote rows in the window."""
     s = r["steps"]
     rows = s["rows"]
     missing = f"  missing: {'; '.join(s['missing'])}" if s["missing"] else ""
@@ -322,10 +324,11 @@ def _print_steps(r: dict) -> None:
         outcomes = ", ".join(f"{k} {v}" for k, v in row["outcomes"].items())
         print(f"  {row['step']:<44} {row['fires']:>5} {row['tickets']:>5}  {row['source']}: {outcomes}")
     unmapped = ", ".join(f"{k} {v}" for k, v in s["unmapped"].items())
-    print(f"  unmapped sites: {unmapped or 'none'}")
-    print(f"  unresolved ids: {', '.join(s['unresolved']) or 'none'}")
+    print(f"  unmapped sites: {unmapped or 'none'}; unresolved ids: {', '.join(s['unresolved']) or 'none'}")
     zero = s["zero_fire_instrumented"]
     print(f"  zero-fire instrumented ({len(zero)}, a real 0): {', '.join(zero) or 'none'}")
+    silent = s["absent_instrumented"]
+    print(f"  no source rows in window ({len(silent)}, ABSENT, not 0): {', '.join(silent) or 'none'}")
     print(f"  uninstrumented: {s['uninstrumented_count']} steps have no step source; their count is ABSENT, not 0")
     print(f"  collisions: {', '.join(c['id'] for c in s['collisions']) or 'none'}")
 

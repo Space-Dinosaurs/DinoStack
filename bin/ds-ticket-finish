@@ -52,7 +52,8 @@
 #   skeptic_rounds, only when --risk-class is Elevated and the file's
 #   ticket_id matches; otherwise, or when the field is absent, null.
 #   `ledger` and `merge` append one `step_outcome` event on every exit
-#   (scripts/lib/step-outcome.sh, resolved from R once it is entered;
+#   (scripts/lib/step-outcome.sh, resolved from R, or the current directory
+#   before --repo parses; data.branch = B;
 #   `knowledge` is counted by its own knowledge_commit event):
 #     ledger  step implement-ticket/ticket-rework-ledger-write; outcome
 #             written | skipped (rework detection off, no ticket, or the
@@ -87,15 +88,15 @@
 
 usage() {
   echo "usage: ds-ticket-finish ledger|knowledge|merge --repo R --branch B [flags] (see the header of this file)" >&2
-  fin_step_outcome usage .
+  fin_step_outcome usage "${REPO:-.}"
   exit 2
 }
 
 # fin_step_outcome OUTCOME BASE [PR]
 fin_step_outcome() {
   case "$FIN_STEP" in
-    ledger) ds_step_outcome "$REPO_DIR/bin/ds-emit" "$2" ds-ticket-finish implement-ticket/ticket-rework-ledger-write "$1" "${TICKET_ID:--}" "${3:-}" ;;
-    merge) ds_step_outcome "$REPO_DIR/bin/ds-emit" "$2" ds-ticket-finish implement-ticket/phase-12 "$1" "${TICKET_ID:--}" "${3:-}" ;;
+    ledger) ds_step_outcome "$REPO_DIR/bin/ds-emit" "$2" ds-ticket-finish implement-ticket/ticket-rework-ledger-write "$1" "${TICKET_ID:--}" "${3:-}" "${BRANCH_NAME:-}" ;;
+    merge) ds_step_outcome "$REPO_DIR/bin/ds-emit" "$2" ds-ticket-finish implement-ticket/phase-12 "$1" "${TICKET_ID:--}" "${3:-}" "${BRANCH_NAME:-}" ;;
   esac
 }
 
@@ -757,7 +758,7 @@ while [ "$#" -gt 0 ]; do
   shift 2
 done
 [ -n "${REPO:-}" ] && [ -n "${BRANCH_NAME:-}" ] || usage
-cd "$REPO" || { fin_step_outcome usage .; exit 2; }
+cd "$REPO" || { fin_step_outcome usage "$REPO"; exit 2; }
 REPO="$(pwd)"
 
 case "$FIN_STEP" in

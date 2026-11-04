@@ -64,7 +64,9 @@
 #   `[phase: worktree-cleanup | HELD | ...]` line and never changes the
 #   exit code.
 #   Every exit appends one `step_outcome` event (scripts/lib/step-outcome.sh,
-#   resolved from R once it is entered), step implement-ticket/phase-8.
+#   resolved from R, or the current directory before --repo parses), step
+#   implement-ticket/phase-8, data.branch = B (no ticket flag exists, so
+#   /ds-evaluate joins the row to its ticket through the ledger's branch).
 #   Outcome enum, one per exit code: pushed (0) | push_failed (1) |
 #   usage (2) | commit_failed (3).
 #
@@ -106,13 +108,13 @@ fi
 
 # commit_exit CODE OUTCOME BASE
 commit_exit() {
-  ds_step_outcome "$REPO_DIR/bin/ds-emit" "$3" ds-ticket-commit implement-ticket/phase-8 "$2" -
+  ds_step_outcome "$REPO_DIR/bin/ds-emit" "$3" ds-ticket-commit implement-ticket/phase-8 "$2" - "" "${BRANCH_NAME:-}"
   exit "$1"
 }
 
 usage() {
   echo "usage: ds-ticket-commit --repo R --branch B [--worktree-path W] [--integration-worktree I] [--message M] [-- FILE...]" >&2
-  commit_exit 2 usage .
+  commit_exit 2 usage "${REPO:-.}"
 }
 
 unset REPO BRANCH_NAME WORKTREE_PATH INTEGRATION_WORKTREE COMMIT_MESSAGE
@@ -137,7 +139,7 @@ if [ "$#" -gt 0 ] && [ -z "${COMMIT_MESSAGE:-}" ]; then
   echo "ds-ticket-commit: --message is required when files are given" >&2
   commit_exit 2 usage "$REPO"
 fi
-cd "$REPO" || commit_exit 2 usage .
+cd "$REPO" || commit_exit 2 usage "$REPO"
 REPO="$(pwd)"
 
 # @harness:phase8-commit-and-telemetry

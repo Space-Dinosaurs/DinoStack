@@ -99,11 +99,13 @@ assert $? "inherited REPO/BRANCH_NAME are never read (exit 2 without flags)"
 "$CLI" merge --repo "$REPO0" >/dev/null 2>&1
 [ $? -eq 2 ]
 assert $? "missing --branch exits 2"
-[ "$(so_last "$SCRATCH/.agentic/events.jsonl")" = "2 implement-ticket/phase-12 usage null null" ]
-assert $? "each merge usage error emits one phase-12 usage step_outcome; the unknown step emits none"
+[ "$(so_last "$SCRATCH/.agentic/events.jsonl")" = "1 implement-ticket/phase-12 usage null null" ]
+assert $? "a merge usage error before --repo parses lands in the current directory; the unknown step emits none"
+[ "$(so_last "$REPO0/.agentic/events.jsonl")" = "1 implement-ticket/phase-12 usage null null" ]
+assert $? "a merge usage error with --repo given lands in that repo, not the current directory"
 "$CLI" ledger --repo "$SCRATCH/no-such-dir" --branch b >/dev/null 2>&1
-[ $? -eq 2 ] && [ "$(so_last "$SCRATCH/.agentic/events.jsonl")" = "3 implement-ticket/ticket-rework-ledger-write usage null null" ]
-assert $? "a ledger --repo that cannot be entered exits 2 with one ledger usage step_outcome"
+[ $? -eq 2 ] && [ "$(so_last "$SCRATCH/.agentic/events.jsonl")" = "2 implement-ticket/ticket-rework-ledger-write usage null null" ]
+assert $? "a ledger --repo that cannot be entered exits 2 with one ledger usage step_outcome (ds-emit default)"
 
 echo ""
 echo "== ledger: step_outcome lands in the primary checkout, also from a linked worktree =="

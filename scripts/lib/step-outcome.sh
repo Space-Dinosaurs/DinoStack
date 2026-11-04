@@ -7,7 +7,7 @@
 #          how they are counted: bin/_steps.py.
 #
 # Public API:
-#   ds_step_outcome EMIT BASE HELPER STEP OUTCOME TASK [PR]
+#   ds_step_outcome EMIT BASE HELPER STEP OUTCOME TASK [PR] [BRANCH]
 #     EMIT     path of bin/ds-emit; a missing file makes this a no-op.
 #     BASE     directory the primary checkout is resolved from
 #              (`git rev-parse --git-common-dir`); when that is not a git
@@ -17,6 +17,8 @@
 #     STEP     step id; OUTCOME one value of the helper's header enum.
 #     TASK     ticket id or `-` (null).
 #     PR       recorded as data.pr only when it is all digits.
+#     BRANCH   recorded as data.branch when non-empty; /ds-evaluate joins
+#              it to a ledger record when TASK and PR are absent.
 #
 # Upstream deps: git, bin/ds-emit.
 #
@@ -31,10 +33,14 @@
 
 ds_step_outcome() {
   local so_emit="$1" so_base="$2" so_helper="$3" so_step="$4" so_outcome="$5" so_task="$6" so_pr="${7:-}"
-  local so_gcd so_common so_json
+  local so_branch="${8:-}" so_gcd so_common so_json
   [ -f "$so_emit" ] || return 0
   so_json="{\"step\":\"$so_step\",\"outcome\":\"$so_outcome\",\"helper\":\"$so_helper\""
   case "$so_pr" in ''|*[!0-9]*) ;; *) so_json="$so_json,\"pr\":$so_pr" ;; esac
+  if [ -n "$so_branch" ]; then
+    so_branch="${so_branch//\\/\\\\}"
+    so_json="$so_json,\"branch\":\"${so_branch//\"/\\\"}\""
+  fi
   so_json="$so_json}"
   so_common=""
   if so_gcd=$(git -C "$so_base" rev-parse --git-common-dir 2>/dev/null) && [ -n "$so_gcd" ]; then

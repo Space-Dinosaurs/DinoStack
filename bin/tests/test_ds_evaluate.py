@@ -326,13 +326,15 @@ def _ev(event: str, data: dict, task=None, ts="2026-10-03T10:00:00.000Z", phase=
 
 def _step_fixture(tmp_path: Path, extra=()) -> Path:
     project = _git_init(tmp_path / "project")
-    so = lambda step, outcome, **kw: _ev("step_outcome", {"step": step, "outcome": outcome, "helper": "h", **kw})
+    helpers = {IT + "phase-10": "ds-ticket-ci", IT + "phase-8": "ds-ticket-commit"}
+    so = lambda step, outcome, **kw: _ev("step_outcome", {"step": step, "outcome": outcome,
+                                                          "helper": helpers.get(step, "h"), **kw})
     events = [
         _ev("spawn_start", {"source": "hook", "tier": "x"}, task="DS-1", phase="skeptic"),
         _ev("spawn_complete", {"source": "hook", "tier": "x"}, task="DS-1", phase="ci_loop"),
         {**so(IT + "phase-10", "failed", pr=501), "phase": "ci_loop"},
         so(IT + "phase-10", "passed", pr=999),
-        so(IT + "phase-8", "pushed"),
+        so(IT + "phase-8", "pushed", branch="feature/ds-2"),
         {**so(IT + "phase-8", "pushed"), "ts": "2026-09-20T10:00:00.000Z"},
         so(IT + "no-such-step", "x"),
         _ev("tracker_writeback", {"site": "W1", "outcome": "dispatched"}, task="DS-1"),
@@ -347,7 +349,7 @@ def _step_fixture(tmp_path: Path, extra=()) -> Path:
          "elevated_route": "single-review", "skeptic_rounds": None, "qa_status": "skipped:single-review path"},
         {"ticket_id": "DS-2", "pr_number": 502, "opened_ts": ts, "risk_class": "Elevated",
          "elevated_route": "full", "skeptic_rounds": 2, "qa_status": "FAIL"},
-        {"ticket_id": "DS-2", "pr_number": 502, "opened_ts": ts, "risk_class": "Elevated",
+        {"ticket_id": "DS-2", "pr_number": 502, "opened_ts": ts, "branch": "feature/ds-2", "risk_class": "Elevated",
          "elevated_route": "full", "skeptic_rounds": 3, "qa_status": "PASS"},
         {"ticket_id": "DS-3", "pr_number": 503, "opened_ts": ts, "risk_class": "Low",
          "skeptic_rounds": None, "qa_status": "skipped:Low path"},
@@ -365,7 +367,7 @@ def test_steps_json_counts_each_row_once_from_its_own_step_source(tmp_path):
     assert len(rows) == len(s["rows"])
     assert {k: (r["fires"], r["tickets"], r["source"], r["outcomes"]) for k, r in rows.items()} == {
         IT + "phase-10": (2, 1, "step_outcome", {"failed": 1, "passed": 1}),
-        IT + "phase-8": (1, 0, "step_outcome", {"pushed": 1}),
+        IT + "phase-8": (1, 1, "step_outcome", {"pushed": 1}),
         IT + "no-such-step": (1, 0, "step_outcome", {"x": 1}),
         IT + "tracker-writeback-w1": (1, 1, "tracker_writeback", {"dispatched": 1}),
         IT + "phase-11e": (1, 1, "knowledge_commit", {"committed": 1}),
@@ -376,19 +378,44 @@ def test_steps_json_counts_each_row_once_from_its_own_step_source(tmp_path):
         IT + "phase-6b": (4, 4, "ledger:qa_status",
                           {"PASS": 2, "skipped:Low path": 1, "skipped:single-review path": 1}),
     }
-    assert s["status"] == "OK" and s["missing"] == []
+    assert s["status"] == "PARTIAL" and s["missing"] == ["no rows in window from helper:ds-ticket-finish"]
     assert s["unmapped"] == {"W2": 1}
     assert s["unresolved"] == [IT + "no-such-step"]
-    assert {IT + "phase-12", IT + "ticket-rework-ledger-write"} <= set(s["zero_fire_instrumented"])
-    assert not set(s["zero_fire_instrumented"]) & set(rows)
+    assert s["zero_fire_instrumented"] == []
+    assert s["absent_instrumented"] == [IT + "phase-12", IT + "ticket-rework-ledger-write"]
     assert s["uninstrumented_count"] > 0 and s["collisions"] == []
+
+
+def test_steps_zero_is_real_only_when_its_source_wrote_rows_in_the_window(tmp_path):
+    project = _git_init(tmp_path / "project")
+    events = [
+        _ev("step_outcome", {"step": IT + "phase-10", "outcome": "passed", "helper": "ds-ticket-ci"}),
+        _ev("step_outcome", {"step": IT + "ticket-rework-ledger-write", "outcome": "skipped",
+                             "helper": "ds-ticket-finish"}),
+        _ev("step_outcome", {"step": IT + "phase-8", "outcome": "pushed", "helper": "ds-ticket-commit"},
+            ts="2026-09-20T10:00:00.000Z"),
+        _ev("tracker_writeback", {"site": "W1", "outcome": "dispatched"}, task="DS-1"),
+    ]
+    _write(project / ".agentic" / "events.jsonl", "".join(json.dumps(e) + "\n" for e in events))
+    repo = _dinostack(tmp_path)
+    s = _json(tmp_path, "--repo", str(repo), "--since", SINCE, "--until", UNTIL, cwd=project)["steps"]
+    assert s["zero_fire_instrumented"] == [IT + "phase-12"]
+    assert s["absent_instrumented"] == sorted([
+        IT + "phase-8", IT + "phase-11e", IT + "phase-6", IT + "phase-6b", RISK_STEP,
+        "04-risk-classification/elevated-routes"])
+    assert s["status"] == "PARTIAL"
+    proc = _run(tmp_path, "--repo", str(repo), "--since", SINCE, "--until", UNTIL, cwd=project)
+    block = proc.stdout.split("\n[steps]", 1)[1].split("\n\n", 1)[0]
+    assert "zero-fire instrumented (1, a real 0): " + IT + "phase-12\n" in block
+    assert IT + "phase-6b" not in block.split("zero-fire instrumented", 1)[1].split("\n", 1)[0]
 
 
 def test_steps_absent_inputs_are_absent_not_zero(tmp_path):
     project = _git_init(tmp_path / "project")
     s = _json(tmp_path, "--repo", str(_dinostack(tmp_path)), "--since", SINCE, "--until", UNTIL, cwd=project)["steps"]
     assert s["status"] == "ABSENT" and s["rows"] == []
-    assert s["missing"] == ["events.jsonl absent in every repo", "ticket-ledger.jsonl absent in every repo"]
+    assert s["missing"][:2] == ["events.jsonl absent in every repo", "ticket-ledger.jsonl absent in every repo"]
+    assert s["zero_fire_instrumented"] == [] and s["absent_instrumented"]
 
 
 def test_steps_text_block_is_at_most_21_lines(tmp_path):
@@ -397,16 +424,17 @@ def test_steps_text_block_is_at_most_21_lines(tmp_path):
     proc = _run(tmp_path, "--repo", str(_dinostack(tmp_path)), "--since", SINCE, "--until", UNTIL, cwd=project)
     assert proc.returncode == 0, proc.stderr
     block = proc.stdout.split("\n[steps]", 1)[1].split("\n\n", 1)[0].splitlines()
-    assert block[0].startswith("  OK  top 15 of 29 by fires")
+    assert block[0].startswith("  PARTIAL  top 15 of 29 by fires")
     assert len(block) == 21
     assert block[16:] == [
-        "  unmapped sites: W2 1",
-        "  unresolved ids: " + ", ".join(sorted([IT + "no-such-step"] + [f"{IT}fake-{i:02d}" for i in range(20)])),
-        block[18],
+        "  unmapped sites: W2 1; unresolved ids: "
+        + ", ".join(sorted([IT + "no-such-step"] + [f"{IT}fake-{i:02d}" for i in range(20)])),
+        "  zero-fire instrumented (0, a real 0): none",
+        "  no source rows in window (2, ABSENT, not 0): " + IT + "phase-12, " + IT + "ticket-rework-ledger-write",
         block[19],
         "  collisions: none",
     ]
-    assert block[18].startswith("  zero-fire instrumented (") and block[19].startswith("  uninstrumented: ")
+    assert block[19].startswith("  uninstrumented: ")
 
 
 # /ds-evaluate Step 2 block ------------------------------------------------------

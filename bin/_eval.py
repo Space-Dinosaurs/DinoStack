@@ -51,7 +51,8 @@ Public API:
         available (coverage < 1 then says the input set is a subset, and
         `missing` names what it excludes).
     steps: {status, missing, rows, unmapped, unresolved,
-        zero_fire_instrumented, uninstrumented_count, collisions}. rows are
+        zero_fire_instrumented, absent_instrumented, uninstrumented_count,
+        collisions}. rows are
         [{step, fires, source, outcomes{}, tickets}] by fires descending,
         built only from sources that record their own step (bin/_steps.py:
         step_outcome rows, the W1 and phase-11e sites, ledger fields), each
@@ -59,13 +60,16 @@ Public API:
         never read. Events count when `ts` is in the window, ledger records
         (latest per ticket_id and pr_number) when `opened_ts` is. `tickets`
         counts distinct tickets, by task_id, else a row's data.pr joined to a
-        ledger pr_number; a row that joins neither counts in fires only.
-        unmapped: {site: n} for writeback sites with no step. unresolved:
-        step ids no current heading produces. zero_fire_instrumented: steps
-        with a source and 0 fires (a real 0); uninstrumented_count: steps
-        with no source, whose count is ABSENT, never 0. status is ABSENT when
-        no repo has events.jsonl or ticket-ledger.jsonl, PARTIAL when one of
-        the two is absent everywhere.
+        ledger pr_number, else its data.branch joined to a ledger branch; a
+        row that joins none counts in fires only. unmapped: {site: n} for
+        writeback sites with no step. unresolved: step ids no current
+        heading produces. Of the instrumented steps with 0 fires,
+        zero_fire_instrumented are a real 0 (their source wrote rows in the
+        window, bin/_steps.py step_sources) and absent_instrumented are
+        ABSENT (it wrote none); uninstrumented_count: steps with no source,
+        also ABSENT, never 0. status is ABSENT when no source wrote a row in
+        the window, PARTIAL when `missing` names an absent file or a silent
+        source.
     keepalive: {repo: section}, one per repo (never pooled). A section is
         pings {fired, passed, dropped, deleted, wrapped, unclassified}
         (_transcripts.Turn.outcome, ping turns timestamped in the window);
@@ -1917,9 +1921,11 @@ def _steps_section(inputs, start, end) -> dict:
     step lives in bin/_steps.py."""
     derived = _STEPS.derive_steps(_BIN.parent)
     known = derived["steps"]
-    instrumented = _STEPS.instrumented_steps(_BIN.parent)
+    sources = _STEPS.step_sources(_BIN.parent)
+    instrumented = set(sources)
     acc: dict[str, dict] = {}
     unmapped: dict[str, int] = {}
+    live: set[str] = set()
 
     def add(step, outcome, source, ticket):
         a = acc.setdefault(step, {"fires": 0, "sources": set(), "outcomes": {}, "tickets": set()})
@@ -1935,25 +1941,31 @@ def _steps_section(inputs, start, end) -> dict:
             latest[(rec.get("ticket_id"), rec.get("pr_number"))] = rec
         ledger = list(latest.values())
         by_pr: dict[int, set] = {}
+        by_branch: dict[str, set] = {}
         for rec in ledger:
             pr = _as_int(rec.get("pr_number"))
             if pr is not None and rec.get("ticket_id"):
                 by_pr.setdefault(pr, set()).add(rec["ticket_id"])
+            if isinstance(rec.get("branch"), str) and rec.get("ticket_id"):
+                by_branch.setdefault(rec["branch"], set()).add(rec["ticket_id"])
         for ev in inp.get("step_rows", []):
             if not _in(_parse_ts(ev.get("ts")), start, end):
                 continue
+            live.add(_STEPS.row_source(ev))
             step, outcome, source = _STEPS.event_step(ev)
             if step == "unmapped":
                 unmapped[outcome] = unmapped.get(outcome, 0) + 1
                 continue
             ticket = ev.get("task_id") if isinstance(ev.get("task_id"), str) and ev.get("task_id") else None
             if ticket is None:
-                joined = by_pr.get(_as_int(ev["data"].get("pr")), set())
+                joined = (by_pr.get(_as_int(ev["data"].get("pr")), set())
+                          or by_branch.get(ev["data"].get("branch"), set()))
                 ticket = next(iter(joined)) if len(joined) == 1 else None
             add(step, outcome, source, ticket and (inp["repo"], ticket))
         for rec in ledger:
             if not _in(_parse_ts(rec.get("opened_ts")), start, end):
                 continue
+            live.add("ledger")
             ticket = rec.get("ticket_id") if isinstance(rec.get("ticket_id"), str) else None
             for step, outcome, source in _STEPS.ledger_outcomes(rec):
                 add(step, outcome, source, ticket and (inp["repo"], ticket))
@@ -1966,13 +1978,17 @@ def _steps_section(inputs, start, end) -> dict:
     missing = [f"{name} absent in every repo" for name, present in (
         ("events.jsonl", any(inp.get("events_present") for inp in inputs)),
         ("ticket-ledger.jsonl", any(inp.get("ledger") is not None for inp in inputs))) if not present]
+    zero = instrumented & set(known) - set(acc)
+    silent = sorted({sources[s] for s in zero} - live)
+    missing += [f"no rows in window from {src}" for src in silent]
     return {
-        "status": ABSENT if len(missing) == 2 else PARTIAL if missing else OK,
+        "status": ABSENT if not live else PARTIAL if missing else OK,
         "missing": missing,
         "rows": rows,
         "unmapped": dict(sorted(unmapped.items())),
         "unresolved": sorted({r["step"] for r in rows} - set(known) | instrumented - set(known)),
-        "zero_fire_instrumented": sorted(instrumented & set(known) - set(acc)),
+        "zero_fire_instrumented": sorted(s for s in zero if sources[s] in live),
+        "absent_instrumented": sorted(s for s in zero if sources[s] not in live),
         "uninstrumented_count": len(set(known) - instrumented),
         "collisions": derived["collisions"],
     }

@@ -13,6 +13,6 @@
 - `task_id`: correlation id when scoped to tasks.jsonl, nullable
 - `data`: free-form object for event-specific fields
 
-For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`, `tracker_writeback`, `conductor_overreach`), per-developer session log, pending-buffer, `session_uuid`, append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`. (`conductor_direct`, `session_total`, and `subagent_stop_internal` are no longer written to `events.jsonl`; legacy notes remain there for parsers.)
+For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`, `tracker_writeback`, `conductor_overreach`, `step_outcome`), per-developer session log, pending-buffer, `session_uuid`, append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`. (`conductor_direct`, `session_total`, and `subagent_stop_internal` are no longer written to `events.jsonl`; legacy notes remain there for parsers.)
 
 Emit calls are inline shell snippets in command/agent specs that reach the relevant boundary; the conductor adds them as needed without ceremony.

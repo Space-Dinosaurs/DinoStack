@@ -434,7 +434,7 @@ def _step_outcomes(events: Path) -> list[tuple]:
     if not events.exists():
         return []
     rows = [json.loads(line) for line in events.read_text().splitlines() if line.strip()]
-    return [(r["data"]["step"], r["data"]["outcome"], r["data"]["helper"], r["task_id"])
+    return [(r["data"]["step"], r["data"]["outcome"], r["data"]["helper"], r["data"].get("branch"))
             for r in rows if r["event"] == "step_outcome"]
 
 
@@ -442,7 +442,8 @@ def _step_outcomes(events: Path) -> list[tuple]:
 def test_cli_step_outcome_lands_in_primary_from_linked_worktree(tmp_path, shell):
     """Run from inside a linked worktree, every exit appends exactly one
     implement-ticket/phase-8 step_outcome to the PRIMARY checkout's
-    .agentic/events.jsonl. The fixture has no origin, so the push fails
+    .agentic/events.jsonl, carrying data.branch (the only key /ds-evaluate
+    can join a phase-8 row to its ticket by). The fixture has no origin, so the push fails
     (push_failed); a missing --branch is a usage error; files passed while
     the commit checkout is off the PR branch are commit_failed."""
     shell = _shell_or_skip(shell)
@@ -457,7 +458,8 @@ def test_cli_step_outcome_lands_in_primary_from_linked_worktree(tmp_path, shell)
 
     pushed = cli("--repo", str(wt), "--branch", fixture.branch_name)
     assert pushed.returncode == 1, pushed.stdout + pushed.stderr
-    assert _step_outcomes(primary) == [("implement-ticket/phase-8", "push_failed", "ds-ticket-commit", None)]
+    assert _step_outcomes(primary) == [
+        ("implement-ticket/phase-8", "push_failed", "ds-ticket-commit", fixture.branch_name)]
     assert not (wt / ".agentic" / "events.jsonl").exists()
 
     assert cli("--repo", str(wt)).returncode == 2

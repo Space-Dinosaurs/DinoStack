@@ -42,6 +42,13 @@ One step source per row: step_outcome -> data.step; tracker_writeback and
     knowledge_commit -> data.site; ledger records -> LEDGER_FIELD_TO_STEP.
     Spawn rows and the top-level `phase` field are never read.
 
+Real 0 vs ABSENT: each instrumented step has one source (step_sources):
+    `helper:<script>` (the bin/ds-ticket-* file its literal is in),
+    `site:<site>`, or `ledger`. A step with 0 fires is a real 0 only when
+    its source wrote at least one row in the window (row_source; ledger
+    records count by opened_ts); otherwise its count is ABSENT. A site step
+    is its own only source, so its 0 is always ABSENT.
+
 Public API:
     derive_steps(repo) -> {"steps": {id: {file, line, heading}},
                            "collisions": [{id, file, lines}]}
@@ -49,6 +56,8 @@ Public API:
                        | None
     ledger_outcomes(record) -> [(step, outcome, source)]
     helper_step_literals(repo) -> set[str]
+    step_sources(repo) -> {step: source}
+    row_source(row) -> source | None
     instrumented_steps(repo) -> set[str]
 
 Upstream deps: Python 3 stdlib.
@@ -189,8 +198,8 @@ def ledger_outcomes(record: dict) -> list[tuple[str, str, str]]:
     return out
 
 
-def helper_step_literals(repo) -> set[str]:
-    found: set[str] = set()
+def _helper_steps(repo) -> dict[str, str]:
+    found: dict[str, str] = {}
     for path in sorted((Path(repo) / "bin").glob("ds-ticket-*")):
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
@@ -198,9 +207,31 @@ def helper_step_literals(repo) -> set[str]:
             continue
         for line in text.splitlines():
             if "ds_step_outcome " in line and not line.lstrip().startswith("#"):
-                found.update(_LITERAL_RE.findall(line))
+                found.update({step: path.name for step in _LITERAL_RE.findall(line)})
     return found
 
 
+def helper_step_literals(repo) -> set[str]:
+    return set(_helper_steps(repo))
+
+
+def step_sources(repo) -> dict[str, str]:
+    out = {step: f"site:{site}" for site, step in SITE_TO_STEP.items()}
+    out.update({step: "ledger" for step in LEDGER_FIELD_TO_STEP.values()})
+    out.update({step: f"helper:{name}" for step, name in _helper_steps(repo).items()})
+    return out
+
+
+def row_source(row: dict) -> str | None:
+    data = row.get("data") if isinstance(row, dict) else None
+    if not isinstance(data, dict):
+        return None
+    if row.get("event") == "step_outcome":
+        return f"helper:{data.get('helper')}"
+    if row.get("event") in ("tracker_writeback", "knowledge_commit"):
+        return f"site:{data.get('site')}"
+    return None
+
+
 def instrumented_steps(repo) -> set[str]:
-    return set(SITE_TO_STEP.values()) | set(LEDGER_FIELD_TO_STEP.values()) | helper_step_literals(repo)
+    return set(step_sources(repo))
