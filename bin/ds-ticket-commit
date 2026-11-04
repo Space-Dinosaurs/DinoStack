@@ -63,12 +63,17 @@
 #   A worktree that ds-retire-carrier holds (its exit 3) prints a
 #   `[phase: worktree-cleanup | HELD | ...]` line and never changes the
 #   exit code.
+#   Every exit appends one `step_outcome` event (scripts/lib/step-outcome.sh,
+#   resolved from R once it is entered), step implement-ticket/phase-8.
+#   Outcome enum, one per exit code: pushed (0) | push_failed (1) |
+#   usage (2) | commit_failed (3).
 #
 # Upstream deps: bash or zsh, git, python3; ds-identity and ds-migrate on
 #                PATH (soft: absent means no Developer trailer / no
-#                defeated-negation check); bin/ds-resolve-worktree and
-#                bin/ds-retire-carrier under REPO_DIR (env REPO_DIR when set,
-#                else the checkout this file lives in).
+#                defeated-negation check); bin/ds-resolve-worktree,
+#                bin/ds-retire-carrier, bin/ds-emit and
+#                scripts/lib/step-outcome.sh under REPO_DIR (env REPO_DIR
+#                when set, else the checkout this file lives in).
 #
 # Downstream consumers: content/commands/ds-implement-ticket.md Phase 8;
 #                       bin/tests/test_phase8_telemetry_shell.py (extracts
@@ -83,9 +88,31 @@
 # Performance: a few dozen local git calls plus one push and one fetch.
 # ---------------------------------------------------------------------------
 
+# Resolved before the cd below, which would break a relative $0 or --repo.
+if [ -z "${REPO_DIR:-}" ]; then
+  SELF="$0"
+  while [ -L "$SELF" ]; do
+    SELF_DIR="$(cd "$(dirname "$SELF")" && pwd -P)"
+    SELF="$(readlink "$SELF")"
+    case "$SELF" in /*) ;; *) SELF="$SELF_DIR/$SELF" ;; esac
+  done
+  REPO_DIR="$(cd "$(dirname "$SELF")/.." && pwd -P)"
+fi
+if [ -f "$REPO_DIR/scripts/lib/step-outcome.sh" ]; then
+  . "$REPO_DIR/scripts/lib/step-outcome.sh"
+else
+  ds_step_outcome() { :; }
+fi
+
+# commit_exit CODE OUTCOME BASE
+commit_exit() {
+  ds_step_outcome "$REPO_DIR/bin/ds-emit" "$3" ds-ticket-commit implement-ticket/phase-8 "$2" -
+  exit "$1"
+}
+
 usage() {
   echo "usage: ds-ticket-commit --repo R --branch B [--worktree-path W] [--integration-worktree I] [--message M] [-- FILE...]" >&2
-  exit 2
+  commit_exit 2 usage .
 }
 
 unset REPO BRANCH_NAME WORKTREE_PATH INTEGRATION_WORKTREE COMMIT_MESSAGE
@@ -108,19 +135,9 @@ done
 [ -n "${REPO:-}" ] && [ -n "${BRANCH_NAME:-}" ] || usage
 if [ "$#" -gt 0 ] && [ -z "${COMMIT_MESSAGE:-}" ]; then
   echo "ds-ticket-commit: --message is required when files are given" >&2
-  exit 2
+  commit_exit 2 usage "$REPO"
 fi
-# Resolved before the cd below, which would break a relative $0 or --repo.
-if [ -z "${REPO_DIR:-}" ]; then
-  SELF="$0"
-  while [ -L "$SELF" ]; do
-    SELF_DIR="$(cd "$(dirname "$SELF")" && pwd -P)"
-    SELF="$(readlink "$SELF")"
-    case "$SELF" in /*) ;; *) SELF="$SELF_DIR/$SELF" ;; esac
-  done
-  REPO_DIR="$(cd "$(dirname "$SELF")/.." && pwd -P)"
-fi
-cd "$REPO" || exit 2
+cd "$REPO" || commit_exit 2 usage .
 REPO="$(pwd)"
 
 # @harness:phase8-commit-and-telemetry
@@ -320,11 +337,11 @@ fi
 
 if [ "$FEATURE_COMMIT_FAILED" = "true" ]; then
   echo "[phase: ticket-commit | feature-commit=FAILED | branch=$BRANCH_NAME] nothing pushed; fix the commit failure and re-run."
-  exit 3
+  commit_exit 3 commit_failed "$REPO"
 fi
 if [ "$PUSH_VERIFIED" = "true" ]; then
   echo "[phase: ticket-commit | push=verified | branch=$BRANCH_NAME]"
-  exit 0
+  commit_exit 0 pushed "$REPO"
 fi
 echo "[phase: ticket-commit | push=FAILED | branch=$BRANCH_NAME] origin does not hold the local tip; treat as BLOCKED (unpushed commit)."
-exit 1
+commit_exit 1 push_failed "$REPO"

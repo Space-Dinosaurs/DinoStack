@@ -37,8 +37,15 @@
 #   passing); 3 usage error; 4 the required-check set or `gh pr checks`
 #   unreadable (the latter on 5 consecutive polls).
 #   Never merges, pushes, or marks the PR ready.
+#   Every exit appends one `step_outcome` event (scripts/lib/step-outcome.sh,
+#   resolved from the current directory), step implement-ticket/phase-10,
+#   data.pr set once --pr parses. Outcome enum: passed | no_checks (both
+#   exit 0; no_checks is passed-by-default) | failed | timeout | usage |
+#   unreadable.
 #
-# Upstream deps: bash 3.2+ or zsh, gh, jq.
+# Upstream deps: bash 3.2+ or zsh, gh, jq; bin/ds-emit and
+#                scripts/lib/step-outcome.sh under REPO_DIR (env REPO_DIR
+#                when set, else the checkout this file lives in).
 #
 # Downstream consumers: content/commands/ds-implement-ticket.md Phases 10
 #                       and 10a; bin/tests/test_ticket_ci.sh,
@@ -52,9 +59,30 @@
 #              about 30 minutes.
 # ---------------------------------------------------------------------------
 
+if [ -z "${REPO_DIR:-}" ]; then
+  SELF="$0"
+  while [ -L "$SELF" ]; do
+    SELF_DIR="$(cd "$(dirname "$SELF")" && pwd -P)"
+    SELF="$(readlink "$SELF")"
+    case "$SELF" in /*) ;; *) SELF="$SELF_DIR/$SELF" ;; esac
+  done
+  REPO_DIR="$(cd "$(dirname "$SELF")/.." && pwd -P)"
+fi
+if [ -f "$REPO_DIR/scripts/lib/step-outcome.sh" ]; then
+  . "$REPO_DIR/scripts/lib/step-outcome.sh"
+else
+  ds_step_outcome() { :; }
+fi
+
+CI_PR=""
+ci_exit() {
+  ds_step_outcome "$REPO_DIR/bin/ds-emit" . ds-ticket-ci implement-ticket/phase-10 "$2" - "$CI_PR"
+  exit "$1"
+}
+
 usage() {
   echo "usage: ds-ticket-ci --pr N --gh-repo OWNER/REPO [--required NAME]... [--polls N] [--interval S]" >&2
-  exit 3
+  ci_exit 3 usage
 }
 
 is_count() {
@@ -63,10 +91,9 @@ is_count() {
 
 unreadable() {
   echo "[phase: ci-wait | result: unreadable | $1]"
-  exit 4
+  ci_exit 4 unreadable
 }
 
-CI_PR=""
 CI_GH_REPO=""
 CI_EXTRA=""
 CI_POLLS=60
@@ -88,7 +115,7 @@ is_count "$CI_PR" && [ -n "$CI_GH_REPO" ] || usage
 is_count "$CI_POLLS" && is_count "$CI_INTERVAL" || usage
 [ "$CI_POLLS" -gt 0 ] || usage
 
-CI_ERR_FILE=$(mktemp "${TMPDIR:-/tmp}/ds-ticket-ci.XXXXXX") || exit 4
+CI_ERR_FILE=$(mktemp "${TMPDIR:-/tmp}/ds-ticket-ci.XXXXXX") || ci_exit 4 unreadable
 trap 'rm -f "$CI_ERR_FILE"' EXIT
 
 # gh_read ARGS...: a one-shot gh read, retried once after a transient failure.
@@ -160,7 +187,7 @@ while [ "$CI_I" -lt "$CI_POLLS" ]; do
     CI_GREEN_TOTAL=""
     if [ "$CI_REQ_COUNT" -eq 0 ] && [ "$CI_ZERO_STREAK" -ge 4 ]; then
       echo "[phase: ci-wait | result: passed-by-default | no-checks]"
-      CI_RESULT=passed
+      CI_RESULT=no_checks
       break
     fi
     echo "Waiting for CI checks... ($CI_I/$CI_POLLS, none registered)"
@@ -194,13 +221,13 @@ if [ -z "$CI_RESULT" ] && [ -n "$CI_FAILED_NAMES" ]; then
   CI_RESULT=failed
 fi
 case "$CI_RESULT" in
-  passed)
-    exit 0
+  passed|no_checks)
+    ci_exit 0 "$CI_RESULT"
     ;;
   failed)
     echo "[phase: ci-wait | result: failed | failing-checks: $CI_FAILED_NAMES]"
-    exit 1
+    ci_exit 1 failed
     ;;
 esac
 echo "[phase: ci-wait | result: timeout | polls: $CI_POLLS | required not passing: ${CI_MISSING:-none}]"
-exit 2
+ci_exit 2 timeout

@@ -50,6 +50,12 @@ Public API: ds-eval --repo P [P ...] [--since S] [--until U] [--base REF]
             author, automated reviews such as /ds-review-pr included, or
             `, changes-requested n/a` when gh was disabled, failed, or
             did not list one of the item's PRs, never 0.
+            [steps]: the 15 steps with the most fires (fires, distinct
+            tickets, source and outcome counts; ids per bin/_steps.py),
+            then one line each for unmapped writeback sites, unresolved
+            ids, zero-fire instrumented steps (a real 0), the
+            uninstrumented step count (ABSENT, never 0) and id collisions:
+            21 lines at most.
             [keepalive] (per repo): pings fired/passed/dropped/deleted/
             wrapped/unclassified, ping tokens and priced usd per outcome,
             returns after idle per gap bucket with and without a ping that
@@ -100,6 +106,7 @@ def _load_eval():
 _EVAL = _load_eval()
 DEFAULT_SINCE = "14d"
 DEFAULT_TOP = 10
+STEP_ROWS = 15
 _DAYS_RE = re.compile(r"^(\d+)d$")
 _HOOK_INPUT_RE = re.compile(r"^hooks\[(.+)\]\.(\w+)$")
 
@@ -243,7 +250,7 @@ def _fmt_by_iteration(m: dict) -> str:
 
 
 def print_sections(r: dict, top: int = DEFAULT_TOP) -> None:
-    """The measured sections, [cost] through [mix]."""
+    """The measured sections, [cost] through [steps]."""
     print("\n[cost]")
     c = r["cost"]
     rec = c["reconciled"]
@@ -300,6 +307,27 @@ def print_sections(r: dict, top: int = DEFAULT_TOP) -> None:
             continue
         shares = ", ".join(f"{k} {v['share']:.0%}" for k, v in m["value"].items())
         print(f"  {key}: {m['status']}  {shares}")
+
+    _print_steps(r)
+
+
+def _print_steps(r: dict) -> None:
+    """[steps]: a header, the top STEP_ROWS rows, five summary lines."""
+    s = r["steps"]
+    rows = s["rows"]
+    missing = f"  missing: {'; '.join(s['missing'])}" if s["missing"] else ""
+    print(f"\n[steps]  {s['status']}  top {min(len(rows), STEP_ROWS)} of {len(rows)} by fires "
+          f"(fires / tickets / source: outcomes; ids per bin/_steps.py; --json for all){missing}")
+    for row in rows[:STEP_ROWS]:
+        outcomes = ", ".join(f"{k} {v}" for k, v in row["outcomes"].items())
+        print(f"  {row['step']:<44} {row['fires']:>5} {row['tickets']:>5}  {row['source']}: {outcomes}")
+    unmapped = ", ".join(f"{k} {v}" for k, v in s["unmapped"].items())
+    print(f"  unmapped sites: {unmapped or 'none'}")
+    print(f"  unresolved ids: {', '.join(s['unresolved']) or 'none'}")
+    zero = s["zero_fire_instrumented"]
+    print(f"  zero-fire instrumented ({len(zero)}, a real 0): {', '.join(zero) or 'none'}")
+    print(f"  uninstrumented: {s['uninstrumented_count']} steps have no step source; their count is ABSENT, not 0")
+    print(f"  collisions: {', '.join(c['id'] for c in s['collisions']) or 'none'}")
 
 
 def _print_keepalive(r: dict) -> None:

@@ -12,7 +12,10 @@
 #          resets the two-poll confirmation; a red check exits 1 naming it;
 #          no checks at all pass only with no required checks; repeated
 #          unreadable reads exit 4; the only fields requested are ones
-#          `gh pr checks` accepts; the script never marks ready or merges.
+#          `gh pr checks` accepts; the script never marks ready or merges;
+#          each exit appends exactly one phase-10 `step_outcome` row
+#          (passed, no_checks, failed, timeout, usage, unreadable), and a
+#          run from a linked worktree appends it to the primary checkout.
 #
 # Public API: none (standalone script; `bash bin/tests/test_ticket_ci.sh`).
 #
@@ -106,6 +109,16 @@ scenario() {
     i=$((i + 1))
     printf '%s\n' "$c" > "$FAKE/poll.$i"
   done
+  cd "$FAKE" || exit 1
+}
+
+# so_is <rows> <outcome> <pr|null>: $FAKE/.agentic/events.jsonl holds <rows>
+# step_outcome rows and the last is phase-10 with that outcome and pr.
+so_is() {
+  local f="$FAKE/.agentic/events.jsonl"
+  [ "$(grep -c '"event":"step_outcome"' "$f" 2>/dev/null)" = "$1" ] &&
+    [ "$(tail -1 "$f" | jq -r '[.data.step, .data.outcome, .data.helper, (.data.pr // "null"), .agent, .task_id] | map(tostring) | join(" ")')" \
+      = "implement-ticket/phase-10 $2 ds-ticket-ci $3 null null" ]
 }
 
 polls_made() { grep -c '^pr checks' "$FAKE/calls"; }
@@ -126,6 +139,8 @@ run_suite() {
   assert $? "required [lint,test,build] vs green [lint,docs,CodeQL]: timeout (exit 2), never passed"
   echo "$OUT" | grep -q 'required not passing: build, test'
   assert $? "the timeout breadcrumb names the required checks not passing"
+  so_is 1 timeout 7
+  assert $? "timeout emits one step_outcome: phase-10 timeout pr 7"
 
   scenario protected "$(checks lint=pass test=pass docs=pass)"
   echo "$branch_ltb" > "$FAKE/branch.json"
@@ -140,12 +155,16 @@ run_suite() {
   assert $? "rules and protection both unreadable, one green check: exit 4 before polling"
   echo "$OUT" | grep -q 'result: unreadable'
   assert $? "unreadable breadcrumb"
+  so_is 1 unreadable 7
+  assert $? "unreadable emits one step_outcome: phase-10 unreadable"
 
   scenario freeplan "$(checks lint=pass)"
   touch "$FAKE/rules.fail"
   "$SH" "$CLI" --pr 7 --gh-repo o/r --polls 4 --interval 0 >/dev/null 2>&1
   [ $? -eq 0 ]
   assert $? "rules 403 with protection readable and nothing required: a green PR passes"
+  so_is 1 passed 7
+  assert $? "a pass emits one step_outcome: phase-10 passed"
 
   scenario override "$(checks lint=pass test=pass)"
   touch "$FAKE/rules.fail" "$FAKE/branch.fail"
@@ -216,6 +235,8 @@ run_suite() {
   assert $? "a red check exits 1"
   echo "$OUT" | grep -q 'result: failed | failing-checks: b, c'
   assert $? "the failed breadcrumb names every fail and cancel check"
+  so_is 1 failed 7
+  assert $? "a red check emits one step_outcome: phase-10 failed pr 7"
   ! grep -q '^pr ready\|^pr merge' "$FAKE/calls"
   assert $? "a red check neither marks ready nor merges"
 
@@ -230,6 +251,8 @@ run_suite() {
   assert $? "no checks registered and none required: passed-by-default after 4 polls"
   echo "$OUT" | grep -q 'result: passed-by-default | no-checks'
   assert $? "passed-by-default breadcrumb"
+  so_is 1 no_checks 7
+  assert $? "passed-by-default emits one step_outcome: phase-10 no_checks, not passed"
 
   scenario nochecksrequired NOCHECKS
   echo "$rules_ltb" > "$FAKE/rules.json"
@@ -248,10 +271,29 @@ run_suite() {
   "$SH" "$CLI" --gh-repo o/r >/dev/null 2>&1
   [ $? -eq 3 ]
   assert $? "missing --pr exits 3"
+  so_is 1 usage null
+  assert $? "a usage error emits one step_outcome: phase-10 usage, no pr"
   "$SH" "$CLI" --pr 7 --gh-repo o/r --polls x >/dev/null 2>&1
   [ $? -eq 3 ]
   assert $? "a non-numeric --polls exits 3"
+  so_is 2 usage 7
+  assert $? "a second usage error adds exactly one more step_outcome"
 }
+
+echo ""
+echo "== linked worktree: the row lands in the primary checkout =="
+PRIMARY="$SCRATCH/primary"
+git init -q "$PRIMARY"
+git -C "$PRIMARY" -c user.name=spec -c user.email=spec@example.com commit -q --allow-empty -m init
+git -C "$PRIMARY" worktree add -q "$SCRATCH/linked" -b linked
+SH_NAME=worktree
+scenario linked "$(checks a=pass)"
+cd "$SCRATCH/linked" || exit 1
+"$CLI" --pr 9 --gh-repo o/r --polls 4 --interval 0 >/dev/null 2>&1
+[ $? -eq 0 ] && [ "$(grep -c '"step":"implement-ticket/phase-10"' "$PRIMARY/.agentic/events.jsonl" 2>/dev/null)" = 1 ] &&
+  [ ! -e "$SCRATCH/linked/.agentic/events.jsonl" ]
+assert $? "run from a linked worktree appends to the primary checkout's events.jsonl, not the worktree's"
+cd "$SCRATCH" || exit 1
 
 run_suite bash3 /bin/bash
 run_suite bash "$(command -v bash)"

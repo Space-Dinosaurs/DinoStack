@@ -5,7 +5,9 @@
 #          git repositories with local bare origins, and the merge step's
 #          carrier retirement (ticket carriers retired, this session's
 #          automatic holds re-evaluated, explicit and foreign-session holds
-#          left alone, exit code unaffected by holds). The moved blocks
+#          left alone, exit code unaffected by holds), and the `ledger` and
+#          `merge` steps' one `step_outcome` row per exit, written to the
+#          primary checkout even for a linked-worktree --repo. The moved blocks
 #          themselves are covered region by region in
 #          bin/tests/test_phase11e_knowledge_commit_shell.py,
 #          bin/tests/test_pr_delivery_record.py and
@@ -55,6 +57,14 @@ chmod +x "$SCRATCH/stub-bin/gh" "$SCRATCH/stub-bin/ds-pr-delivery-record"
 export PATH="$SCRATCH/stub-bin:$PATH"
 export REPO_DIR="$REPO_ROOT"
 unset AE_SESSION_ID
+cd "$SCRATCH" || exit 1
+
+# so_last <events-file>: "<rows> <step> <outcome> <pr> <task_id>" of its step_outcome rows.
+so_last() {
+  printf '%s %s' "$(grep -c '"event":"step_outcome"' "$1" 2>/dev/null)" \
+    "$(grep '"event":"step_outcome"' "$1" 2>/dev/null | tail -1 |
+      jq -r '[.data.step, .data.outcome, (.data.pr // "null"), .task_id] | map(tostring) | join(" ")')"
+}
 
 build_repo() {
   local name="$1"
@@ -89,6 +99,23 @@ assert $? "inherited REPO/BRANCH_NAME are never read (exit 2 without flags)"
 "$CLI" merge --repo "$REPO0" >/dev/null 2>&1
 [ $? -eq 2 ]
 assert $? "missing --branch exits 2"
+[ "$(so_last "$SCRATCH/.agentic/events.jsonl")" = "2 implement-ticket/phase-12 usage null null" ]
+assert $? "each merge usage error emits one phase-12 usage step_outcome; the unknown step emits none"
+"$CLI" ledger --repo "$SCRATCH/no-such-dir" --branch b >/dev/null 2>&1
+[ $? -eq 2 ] && [ "$(so_last "$SCRATCH/.agentic/events.jsonl")" = "3 implement-ticket/ticket-rework-ledger-write usage null null" ]
+assert $? "a ledger --repo that cannot be entered exits 2 with one ledger usage step_outcome"
+
+echo ""
+echo "== ledger: step_outcome lands in the primary checkout, also from a linked worktree =="
+REPOL="$(build_repo ledger)"
+"$CLI" ledger --repo "$REPOL" --branch b --ticket DS-3 --gh-repo o/r --rework-detection false >/dev/null 2>&1
+[ $? -eq 0 ] && [ "$(so_last "$REPOL/.agentic/events.jsonl")" = "1 implement-ticket/ticket-rework-ledger-write skipped null DS-3" ]
+assert $? "rework detection off: one ledger step_outcome, skipped"
+git -C "$REPOL" worktree add -q "$SCRATCH/ledger-linked" -b linked
+"$CLI" ledger --repo "$SCRATCH/ledger-linked" --branch linked --gh-repo o/r >/dev/null 2>&1
+[ "$(so_last "$REPOL/.agentic/events.jsonl")" = "2 implement-ticket/ticket-rework-ledger-write skipped null null" ] &&
+  [ ! -e "$SCRATCH/ledger-linked/.agentic/events.jsonl" ]
+assert $? "run against a linked worktree appends to the primary checkout's events.jsonl, not the worktree's"
 
 echo ""
 echo "== knowledge: new MEMORY.md rides a chore(knowledge) commit onto the PR branch =="
@@ -149,6 +176,8 @@ assert $? "explicit hold left alone"
 assert $? "another session's hold left alone"
 git -C "$REPOM" show-ref --verify --quiet "refs/heads/$BR"
 assert $? "retirement never deletes a branch"
+[ "$(so_last "$REPOM/.agentic/events.jsonl")" = "1 implement-ticket/phase-12 auto_merge_off 7 DS-2" ]
+assert $? "auto-merge off: one phase-12 step_outcome, auto_merge_off, with pr and ticket"
 
 echo ""
 echo "== merge: --auto-merge is the only source; config is never read here =="
@@ -159,9 +188,13 @@ assert $? "flag absent takes the no-merge branch even with config true"
 OUTC="$("$CLI" merge --repo "$REPOM" --branch "$BR" --gh-repo o/r --pr 7 --auto-merge true --base-branch main 2>&1)"
 echo "$OUTC" | grep -q "\[phase: auto-merge-skipped | isDraft="
 assert $? "--auto-merge true enters the auto-merge block (stubbed gh fails its draft gate)"
+[ "$(so_last "$REPOM/.agentic/events.jsonl")" = "3 implement-ticket/phase-12 skipped 7 null" ]
+assert $? "the auto-merge gate declining records phase-12 skipped"
 OUTN="$("$CLI" merge --repo "$REPOM" --branch "$BR" --gh-repo o/r --base-branch main 2>&1)"
 echo "$OUTN" | grep -q "\[phase: auto-merge-skipped | reason=no PR number\]"
 assert $? "no --pr skips the auto-merge block"
+[ "$(so_last "$REPOM/.agentic/events.jsonl")" = "4 implement-ticket/phase-12 no_pr null null" ]
+assert $? "no --pr records phase-12 no_pr"
 echo "$OUTN" | grep -q "\[phase: base-sync | status="
 assert $? "base sync still runs without --pr"
 
