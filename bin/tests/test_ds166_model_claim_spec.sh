@@ -98,7 +98,7 @@ else
   ENGINEER_MODEL_BLOCK="$(sed -n "${JQ_START},${JQ_END}p" "$DIT")"
   printf '%s' "$ENGINEER_MODEL_BLOCK" | grep -qF '.ticket_id == $t' \
     && _pass "ENGINEER_MODEL jq block scopes on .ticket_id == \$t" \
-    || _fail "ENGINEER_MODEL jq block no longer scopes on .ticket_id == \$t (whole-file grep would miss this - .ticket_id == \$t survives at :1048/2825/2834)"
+    || _fail "ENGINEER_MODEL jq block no longer scopes on .ticket_id == \$t (a whole-file grep would miss this whenever another jq in the file carries .ticket_id == \$t)"
   printf '%s' "$ENGINEER_MODEL_BLOCK" | grep -qF 'assigned_agent == "engineer"' \
     && _pass "ENGINEER_MODEL jq block filters on assigned_agent == \"engineer\"" \
     || _fail "ENGINEER_MODEL jq block no longer filters on assigned_agent == \"engineer\""
