@@ -3,11 +3,35 @@
 
 # Changelog
 
+## 2026-11-04
+
+### Features
+
+- **#1080** [count fires and outcomes per methodology step](https://github.com/Space-Dinosaurs/DinoStack/pull/1080) - tyson-solara6
+
+### Fixes
+
+- **#1079** [replace stale ds-implement-ticket.md line cites with heading refs](https://github.com/Space-Dinosaurs/DinoStack/pull/1079) - tyson-solara6
+
+### Documentation
+
+- **#1078** [drop stale Wave 1 regressions section](https://github.com/Space-Dinosaurs/DinoStack/pull/1078) - tyson-solara6
+
 ## 2026-11-03
 
 ### Features
 
 - **#1073** [condensed command with a single-session Low route](https://github.com/Space-Dinosaurs/DinoStack/pull/1073) - tyson-solara6
+
+### Fixes
+
+- **#1076** [tighten Low route restart and spawn wording](https://github.com/Space-Dinosaurs/DinoStack/pull/1076) - tyson-solara6
+- **#1075** [Low tickets delegate to an engineer again](https://github.com/Space-Dinosaurs/DinoStack/pull/1075) - tyson-solara6
+- **#1074** [Low route bound excludes telemetry; no pre-QA resume state](https://github.com/Space-Dinosaurs/DinoStack/pull/1074) - tyson-solara6
+
+### Maintenance
+
+- **#1077** [catch up non-Claude harnesses](https://github.com/Space-Dinosaurs/DinoStack/pull/1077) - tyson-solara6
 
 ## 2026-11-02
 
