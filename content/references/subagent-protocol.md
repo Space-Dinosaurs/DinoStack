@@ -126,7 +126,7 @@ The Subagent Protocol determines the outer orchestration: does this task get del
 The main agent's responsibility in the relationship between the two protocols:
 - Write and pass the adversarial brief to the Skeptic (verbatim — never softened)
 - Spawn a fresh Skeptic after each Worker return
-- Route Skeptic findings back to a new Worker if Critical or Major findings remain
+- Route Skeptic findings back to a Worker if Critical or Major findings remain: the sole implementation engineer via `SendMessage` when it can be resumed, else a new Worker
 - Accept output only after the Skeptic grants sign-off
 
 The Worker's responsibility:
@@ -196,7 +196,7 @@ These transitions apply to fix-pass Engineer spawns inside `/ds-implement-ticket
 |---|---|---|
 | `DONE` or `DONE_WITH_CONCERNS` | Normal progression. `DONE_WITH_CONCERNS` concerns become additional Skeptic brief context on the next iteration. | Increments normally |
 | `BLOCKED` | Treat as immediate `cap_reached` escalation regardless of current iteration count. Emit escalation format with `termination_reason: blocked` and wait for human direction. | NOT incremented |
-| `NEEDS_CONTEXT` | Conductor re-supplies missing context and re-spawns the Engineer with the same findings brief and added context. If the conductor cannot supply the needed context, escalate to the human. | NOT incremented |
+| `NEEDS_CONTEXT` | Conductor re-supplies missing context and re-spawns the Engineer with the same findings brief and added context (a resumed Engineer gets it by `SendMessage` instead). If the conductor cannot supply the needed context, escalate to the human. | NOT incremented |
 
 **Format re-invocations:** Format-noncompliant Skeptic re-invocations (skeptic-protocol.md Section 11 permits up to 3) do NOT increment the iteration counter. They are administrative retries, not new review rounds.
 

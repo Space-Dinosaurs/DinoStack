@@ -61,8 +61,9 @@ def test_no_conductor_implements_exception_remains():
 def test_every_low_fix_brief_carries_the_bound_check():
     section = _low_route_section()
     assert (
-        "a QA fix (Phase 6b), a Phase 7 fix and a CI fix (Phase 10a) a §Fix-pass delivery, "
-        "whose brief carries the ticket and its acceptance text and the bound check below"
+        "The first change, a restart and a CI fix (Phase 10a) are each a fresh spawn, and a QA fix "
+        "(Phase 6b) and a Phase 7 fix are each a §Fix-pass delivery; every such brief carries "
+        "the ticket and its acceptance text and the bound check below"
     ) in section, "a Low fix spawn must carry the bound check, not only the first spawn"
 
 
