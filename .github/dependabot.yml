@@ -10,10 +10,10 @@ updates:
     # same-PR action (bump all three packages + lockfile + rebuild slides). Single-
     # package automated bumps break the slides-sync CI gate.
     #
-    # This suppresses SECURITY updates as well as version updates. Every
-    # advisory scripts/ carries today remediates through @marp-team/marp-cli,
-    # so Dependabot will not open a PR for any of them - by this deliberate
-    # choice, not because the automation failed to see them. See the
+    # This suppresses SECURITY updates as well as version updates, so
+    # Dependabot will not open a PR for any advisory that remediates through
+    # @marp-team/* - by this deliberate choice, not because the automation
+    # failed to see it. See the
     # Retirement block in scripts/check-npm-audit.sh: its retirement test
     # cannot be run on an advisory whose remediating package is ignored here.
     ignore:
