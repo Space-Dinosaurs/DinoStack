@@ -44,6 +44,9 @@ Test groups:
       leaves a scratch HOME empty.
   15. test_list_takes_no_lock_and_creates_no_lock_file - `list` never
       creates the lock file or takes the exclusive lock.
+  16. test_phase11b_runs_wrap_part_d5 - /ds-implement-ticket Phase 11b
+      points at /ds-wrap Part D.5, and Part D.5 carries its
+      From `/ds-implement-ticket` note.
 
 Regression test obligation: content/references/regression-test-obligation.md
 Run with: python3 -m pytest bin/tests/test_agentic_feedback.py -x
@@ -612,6 +615,21 @@ def test_list_takes_no_lock_and_creates_no_lock_file():
         print("PASS test_list_takes_no_lock_and_creates_no_lock_file")
 
 
+def test_phase11b_runs_wrap_part_d5():
+    """(16) The ticket path's feedback capture stays wired at both ends."""
+    commands = Path(__file__).parent.parent.parent / "content" / "commands"
+    ticket = (commands / "ds-implement-ticket.md").read_text(encoding="utf-8")
+    start = ticket.index("## Phase 11b")
+    phase = ticket[start:ticket.index("## Phase 11d", start)]
+    assert "`/ds-wrap` Part D.5" in phase, "Phase 11b no longer runs /ds-wrap Part D.5"
+    wrap = (commands / "ds-wrap.md").read_text(encoding="utf-8")
+    start = wrap.index("**Part D.5")
+    part = wrap[start:wrap.index("**Part E", start)]
+    assert "**From `/ds-implement-ticket`.**" in part, "Part D.5 lost its /ds-implement-ticket note"
+
+    print("PASS test_phase11b_runs_wrap_part_d5")
+
+
 if __name__ == "__main__":
     test_append_valid_and_invalid_mixed()
     test_append_overwrites_caller_supplied_id_ts_status()
@@ -628,4 +646,5 @@ if __name__ == "__main__":
     test_fire_label_invalid_skips_item()
     test_list_creates_nothing_in_an_empty_home()
     test_list_takes_no_lock_and_creates_no_lock_file()
+    test_phase11b_runs_wrap_part_d5()
     print("All tests passed.")

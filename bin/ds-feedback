@@ -3,8 +3,9 @@
 Purpose: CLI for managing the home-dir feedback store (~/.agentic/feedback.jsonl)
          used to accumulate operator/agent friction signals (tool friction,
          process escalations, guardrail fires, operator corrections) captured
-         during /ds-wrap runs across projects, for later triage into tickets or
-         methodology fixes.
+         by /ds-wrap Part D.5, which /ds-implement-ticket Phase 11b also runs
+         (operator corrections only), across projects, for later triage into
+         tickets or methodology fixes.
 
 Public API:
   ds-feedback append --repo <path> --session-uuid <uuid> --file <path-to-json-array>
@@ -62,7 +63,10 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, sys, uuid, datetime,
                atomic_write).
 
 Downstream consumers: content/commands/ds-wrap.md Part D.5 (writes drafts via
-                      `append` at end of session); content/commands/ds-feedback-triage.md
+                      `append` at end of session, and from
+                      content/commands/ds-implement-ticket.md Phase 11b);
+                      content/commands/ds-evaluate.md (writes fire_label items
+                      via `append`); content/commands/ds-feedback-triage.md
                       (reads via `list`, updates status via `mark`); bin/_eval.py
                       (reads fire_label items via `list --status triaged --repo`).
 

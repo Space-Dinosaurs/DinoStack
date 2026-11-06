@@ -37,14 +37,14 @@
   <p>Agents hit friction all the time: a tool that keeps failing, a review loop that won't converge, a correction you had to make twice. Most of it is forgotten by the next session. DinoStack captures it instead. When a session wraps up, the agent turns that friction into draft reports, and you decide which ones become tickets in your own tracker.</p>
 
   <h2>What gets captured</h2>
-  <p>The capture step runs inside <code>/ds-wrap</code>, the command that closes out a session. It checks four signals:</p>
+  <p>The capture step runs inside <code>/ds-wrap</code>, the command that closes out a session. <code>/ds-implement-ticket</code> also runs it when a ticket's PR opens and its CI checks pass (Trivial and small Low-risk tickets excepted), checking operator corrections only. At <code>/ds-wrap</code> it checks four signals:</p>
   <ul>
     <li><strong>Tool friction:</strong> any time this session logged a tool failure that the agent worked around (a <code>tool_failure_workaround</code> event).</li>
     <li><strong>A stalled review loop:</strong> a Skeptic review loop that hit its round cap, stopped converging, or was blocked.</li>
     <li><strong>A guardrail firing:</strong> the guard that stops an agent from ending its turn to ask permission for an obvious next step, or a running repo-wide tally of enforcement-hook denials across every session in the repo.</li>
     <li><strong>Operator corrections:</strong> turns where you corrected or rejected what the agent did, quoted verbatim.</li>
   </ul>
-  <p>From these it drafts up to five reports, merging closely related candidates, each with a title, a short body, the evidence, and a severity, and saves it locally to <code>~/.agentic/feedback.jsonl</code>. A session with no friction writes nothing. The step can never break or delay the wrap: any error inside it is swallowed.</p>
+  <p>From these it drafts up to five reports, merging closely related candidates, each with a title, a short body, the evidence, and a severity, and saves it locally to <code>~/.agentic/feedback.jsonl</code>. A session with no friction writes nothing. Corrections are counted only since that session's previous capture. The step can never break or delay the wrap: any error inside it is swallowed.</p>
 
   <figure>
     <a class="figure-link" href="/blog/images/2026-11-06-feedback-capture-flow.svg"><img src="/blog/images/2026-11-06-feedback-capture-flow.svg" width="600" height="940" alt="Flow: four session friction signals (a tool failure the agent worked around, a stalled Skeptic review loop, a guardrail firing, operator corrections) feed /ds-wrap, which drafts reports with a title, body, evidence and severity. Drafts are saved locally to ~/.agentic/feedback.jsonl. A human greenlights items from each batch in /ds-feedback-triage, and only greenlit items become tickets in your own tracker."></a>
@@ -71,6 +71,8 @@
     <li><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/408">DinoStack PR #408</a>: wrap Part D.5 feedback capture and the triage command (then named <code>/feedback-triage</code>), merged 2026-07-02T19:44:32Z (commit <code>b2a498b87</code>)</li>
     <li><a href="https://code.claude.com/docs/en/whats-new/2026-w35">Claude Code What's New, Week 35 (August 24-28, 2026)</a>: Claude-drafted feedback, minimum version v2.1.238</li>
     <li><a href="https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md">Claude Code CHANGELOG</a>: lists the <code>SendFeedback</code> tool under v2.1.247, published to npm on 2026-08-26</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/commands/ds-implement-ticket.md"><code>content/commands/ds-implement-ticket.md</code></a>: Phase 11b runs <code>/ds-wrap</code> Part D.5 after CI passes</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/commands/ds-wrap.md"><code>content/commands/ds-wrap.md</code></a>: Part D.5's From <code>/ds-implement-ticket</code> note, and the signal 4 operator-correction item's window rule (only turns after the session's previous Part D.5 run)</li>
   </ul>
 </article>
 
