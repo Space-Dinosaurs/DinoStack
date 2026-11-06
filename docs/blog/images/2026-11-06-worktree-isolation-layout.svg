@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 790" width="600" height="790" role="img" aria-labelledby="t d">
+  <title id="t">The conductor's checkout and the engineers' isolated worktrees</title>
+  <desc id="d">The conductor works in the primary checkout, where it plans, spawns and reviews, and edits only exempt files. Each engineer gets its own worktree on its own branch, created from origin/main rather than from the conductor's checkout. Each engineer pushes its branch and the work goes to a PR. There is no in-place exception, even for Trivial changes.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9bb0cc"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="600" height="790" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="300" y="46" font-size="22" font-weight="700" fill="#ffffff">Who works where</text>
+
+    <rect x="30" y="76" width="540" height="146" rx="12" fill="#060B16" stroke="#b06bff" stroke-width="2"/>
+    <text x="300" y="116" font-size="22" font-weight="700" fill="#b06bff">Primary checkout</text>
+    <text x="300" y="152" font-size="19" fill="#eaf1fb">Conductor: plans, spawns, reviews</text>
+    <text x="300" y="186" font-size="19" fill="#9bb0cc">Edits exempt files only</text>
+
+    <rect x="180" y="262" width="240" height="60" rx="30" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="300" y="299" font-size="21" font-weight="700" fill="#18E0FF">origin/main</text>
+    <text x="300" y="250" font-size="17" fill="#6a7c97">not the conductor's checkout</text>
+
+    <line x1="240" y1="322" x2="162" y2="370" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <line x1="360" y1="322" x2="438" y2="370" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="30" y="376" width="255" height="170" rx="12" fill="#060B16" stroke="#3ad99a" stroke-width="2"/>
+    <text x="157" y="418" font-size="21" font-weight="700" fill="#3ad99a">Engineer A</text>
+    <text x="157" y="456" font-size="19" fill="#eaf1fb">own worktree</text>
+    <text x="157" y="486" font-size="19" fill="#eaf1fb">own branch</text>
+    <text x="157" y="516" font-size="17" fill="#9bb0cc">edits shippable files</text>
+
+    <rect x="315" y="376" width="255" height="170" rx="12" fill="#060B16" stroke="#3ad99a" stroke-width="2"/>
+    <text x="442" y="418" font-size="21" font-weight="700" fill="#3ad99a">Engineer B</text>
+    <text x="442" y="456" font-size="19" fill="#eaf1fb">own worktree</text>
+    <text x="442" y="486" font-size="19" fill="#eaf1fb">own branch</text>
+    <text x="442" y="516" font-size="17" fill="#9bb0cc">edits shippable files</text>
+
+    <line x1="157" y1="546" x2="157" y2="592" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <line x1="442" y1="546" x2="442" y2="592" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="30" y="596" width="255" height="66" rx="12" fill="#0A1020" stroke="#9bb0cc" stroke-width="2"/>
+    <text x="157" y="636" font-size="19" fill="#eaf1fb">push branch, PR</text>
+    <rect x="315" y="596" width="255" height="66" rx="12" fill="#0A1020" stroke="#9bb0cc" stroke-width="2"/>
+    <text x="442" y="636" font-size="19" fill="#eaf1fb">push branch, PR</text>
+
+    <text x="300" y="718" font-size="19" fill="#eaf1fb">No in-place exception,</text>
+    <text x="300" y="748" font-size="19" fill="#eaf1fb">even for a Trivial change.</text>
+  </g>
+</svg>

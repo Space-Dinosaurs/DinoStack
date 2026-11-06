@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 700" width="600" height="700" role="img" aria-labelledby="t d">
+  <title id="t">The shippable or exempt classifier, first match wins</title>
+  <desc id="d">Rule 1: anything under .agentic/ is exempt. Rule 2: anything under docs/planning/ is exempt. Rule 3: a conductor-direct print, decision or resolver run is exempt. Rule 4: any other tracked-file write is shippable and is delegated to a worktree-isolated engineer. On Claude Code in the DinoStack checkout, the enforce-shippable-edit.py hook backs this up.</desc>
+  <rect x="0" y="0" width="600" height="700" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif">
+    <text x="300" y="48" font-size="22" font-weight="700" fill="#ffffff" text-anchor="middle">Is this write shippable?</text>
+    <text x="300" y="80" font-size="18" fill="#9bb0cc" text-anchor="middle">Four rules, first match wins</text>
+
+    <rect x="30" y="106" width="540" height="96" rx="12" fill="#060B16" stroke="#3ad99a" stroke-width="2"/>
+    <circle cx="68" cy="154" r="20" fill="#0A1020" stroke="#3ad99a" stroke-width="2"/>
+    <text x="68" y="161" font-size="19" font-weight="700" fill="#3ad99a" text-anchor="middle">1</text>
+    <text x="104" y="161" font-size="19" fill="#eaf1fb">.agentic/**</text>
+    <rect x="432" y="132" width="122" height="44" rx="22" fill="#0A1020" stroke="#3ad99a" stroke-width="2"/>
+    <text x="493" y="160" font-size="17" font-weight="700" fill="#3ad99a" text-anchor="middle">EXEMPT</text>
+
+    <rect x="30" y="218" width="540" height="96" rx="12" fill="#060B16" stroke="#3ad99a" stroke-width="2"/>
+    <circle cx="68" cy="266" r="20" fill="#0A1020" stroke="#3ad99a" stroke-width="2"/>
+    <text x="68" y="273" font-size="19" font-weight="700" fill="#3ad99a" text-anchor="middle">2</text>
+    <text x="104" y="273" font-size="19" fill="#eaf1fb">docs/planning/**</text>
+    <rect x="432" y="244" width="122" height="44" rx="22" fill="#0A1020" stroke="#3ad99a" stroke-width="2"/>
+    <text x="493" y="272" font-size="17" font-weight="700" fill="#3ad99a" text-anchor="middle">EXEMPT</text>
+
+    <rect x="30" y="330" width="540" height="96" rx="12" fill="#060B16" stroke="#3ad99a" stroke-width="2"/>
+    <circle cx="68" cy="378" r="20" fill="#0A1020" stroke="#3ad99a" stroke-width="2"/>
+    <text x="68" y="385" font-size="19" font-weight="700" fill="#3ad99a" text-anchor="middle">3</text>
+    <text x="104" y="372" font-size="19" fill="#eaf1fb">Conductor-direct print,</text>
+    <text x="104" y="398" font-size="19" fill="#eaf1fb">decision or resolver run</text>
+    <rect x="432" y="356" width="122" height="44" rx="22" fill="#0A1020" stroke="#3ad99a" stroke-width="2"/>
+    <text x="493" y="384" font-size="17" font-weight="700" fill="#3ad99a" text-anchor="middle">EXEMPT</text>
+
+    <rect x="30" y="442" width="540" height="96" rx="12" fill="#060B16" stroke="#ff5d73" stroke-width="2"/>
+    <circle cx="68" cy="490" r="20" fill="#0A1020" stroke="#ff5d73" stroke-width="2"/>
+    <text x="68" y="497" font-size="19" font-weight="700" fill="#ff5d73" text-anchor="middle">4</text>
+    <text x="104" y="484" font-size="19" fill="#eaf1fb">Any other tracked-file</text>
+    <text x="104" y="510" font-size="19" fill="#eaf1fb">write</text>
+    <rect x="420" y="468" width="134" height="44" rx="22" fill="#0A1020" stroke="#ff5d73" stroke-width="2"/>
+    <text x="487" y="496" font-size="17" font-weight="700" fill="#ff5d73" text-anchor="middle">SHIPPABLE</text>
+
+    <text x="300" y="594" font-size="19" fill="#eaf1fb" text-anchor="middle">Shippable: delegate to a worktree engineer</text>
+    <text x="300" y="628" font-size="17" fill="#9bb0cc" text-anchor="middle">Claude Code backstop in the DinoStack checkout:</text>
+    <text x="300" y="656" font-size="17" fill="#9bb0cc" text-anchor="middle">hooks/enforce-shippable-edit.py</text>
+  </g>
+</svg>
