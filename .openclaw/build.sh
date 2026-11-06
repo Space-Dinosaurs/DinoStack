@@ -69,7 +69,7 @@ files on every session and the reference docs on the triggers described in agent
   selection, code comments, reuse, quality gates, resource use, and dependencies; detailed procedures load on trigger.
 
 - **rules/conventions.md** - writing style, project structure, session context and memory handling,
-  and git workflow including protected branches and worktree-per-feature conventions.
+  and git workflow including required PRs and worktree-per-feature conventions.
 
 ## Reference Docs (read on trigger - see Protocol Details in agent-methodology.md)
 

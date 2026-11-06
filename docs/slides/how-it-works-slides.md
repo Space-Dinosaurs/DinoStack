@@ -287,7 +287,7 @@ The main session agent classifies each task as <strong>Trivial</strong>, <strong
 **Trivial / Low**
 - Reads, memory answers, screenshots, diagnostic logging
 - Small, reversible edits
-- Trivial work and small single-concern changes go to an isolated engineer; other Low work is direct action
+- Trivial work and every shippable Low change go to an isolated engineer; only non-shippable Low work is direct action
 
 </div>
 <div>

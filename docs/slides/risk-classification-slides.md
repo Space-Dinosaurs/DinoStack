@@ -175,7 +175,7 @@ Delegate to a worktree-isolated engineer. No Skeptic. No brief file. The conduct
 </div>
 <div class="card" style="border-left-color: #18E0FF;">
 <strong>Low</strong>
-Direct action. Brief inline self-check only. No Skeptic. A small single-concern change gets one engineer.
+A shippable change gets one worktree-isolated engineer. Direct action with a brief inline self-check only on non-shippable work. No Skeptic.
 </div>
 <div class="card" style="border-left-color: #ff5d73;">
 <strong>Elevated</strong>
@@ -202,7 +202,7 @@ A fourth path exists: <strong>Elevated + Cleanup</strong> - Worker, then Skeptic
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
 | Trivial | Worktree-isolated engineer (no Skeptic, no brief) | None | Silent |
-| Low | Direct, or 1 engineer (small change) | Brief inline self-check | Silent |
+| Low | 1 engineer (shippable), else direct | Inline self-check on direct work | Silent |
 | Elevated | Worker (no risk surface, not rework: 1 engineer) | Fresh independent Skeptic (no risk surface: one pass) | Stated before starting |
 | Elevated + Cleanup (full route only) | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
 
