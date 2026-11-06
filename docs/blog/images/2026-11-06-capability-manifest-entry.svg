@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 760" width="600" height="760" role="img" aria-labelledby="t d">
+  <title id="t">One entry from the qa-engineer capability manifest</title>
+  <desc id="d">The qa-engineer's entry for @axe-core/playwright: the check is npm ls @axe-core/playwright, the install is npm install --no-save @axe-core/playwright, auto_install is true, and required_when is scenario.method == 'accessibility'. The check exits 0 when the tool is present. auto_install is allowed only for safe installs that touch the project's node_modules or user site-packages. required_when makes the tool required only for spawns with an accessibility scenario.</desc>
+  <rect x="0" y="0" width="600" height="760" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif">
+    <text x="300" y="46" font-size="22" font-weight="700" fill="#ffffff" text-anchor="middle">One manifest entry</text>
+    <text x="300" y="76" font-size="18" fill="#9bb0cc" text-anchor="middle">from the qa-engineer agent</text>
+
+    <rect x="30" y="98" width="540" height="252" rx="12" fill="#0A1020" stroke="#9bb0cc" stroke-width="2"/>
+    <g font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="17">
+      <text x="50" y="136" fill="#18E0FF">tool: <tspan fill="#eaf1fb">"@axe-core/playwright"</tspan></text>
+      <text x="50" y="170" fill="#18E0FF">check: <tspan fill="#eaf1fb">"npm ls @axe-core/playwright"</tspan></text>
+      <text x="50" y="204" fill="#18E0FF">install: <tspan fill="#eaf1fb">"npm install --no-save</tspan></text>
+      <text x="70" y="232" fill="#eaf1fb">@axe-core/playwright"</text>
+      <text x="50" y="266" fill="#18E0FF">auto_install: <tspan fill="#eaf1fb">true</tspan></text>
+      <text x="50" y="300" fill="#18E0FF">required_when:</text>
+      <text x="70" y="328" fill="#eaf1fb">"scenario.method == 'accessibility'"</text>
+    </g>
+
+    <rect x="30" y="374" width="540" height="100" rx="12" fill="#060B16" stroke="#3ad99a" stroke-width="2"/>
+    <text x="300" y="414" font-size="20" font-weight="700" fill="#3ad99a" text-anchor="middle">check</text>
+    <text x="300" y="448" font-size="18" fill="#eaf1fb" text-anchor="middle">A POSIX shell command; exit 0 means present</text>
+
+    <rect x="30" y="490" width="540" height="116" rx="12" fill="#060B16" stroke="#E9B521" stroke-width="2"/>
+    <text x="300" y="530" font-size="20" font-weight="700" fill="#E9B521" text-anchor="middle">auto_install</text>
+    <text x="300" y="562" font-size="18" fill="#eaf1fb" text-anchor="middle">Safe installs only: project node_modules</text>
+    <text x="300" y="588" font-size="18" fill="#eaf1fb" text-anchor="middle">or user site-packages, no lockfiles</text>
+
+    <rect x="30" y="622" width="540" height="110" rx="12" fill="#060B16" stroke="#b06bff" stroke-width="2"/>
+    <text x="300" y="662" font-size="20" font-weight="700" fill="#b06bff" text-anchor="middle">required_when</text>
+    <text x="300" y="696" font-size="18" fill="#eaf1fb" text-anchor="middle">Required only when the spawn has an</text>
+    <text x="300" y="720" font-size="18" fill="#eaf1fb" text-anchor="middle">accessibility scenario</text>
+  </g>
+</svg>

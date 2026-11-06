@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" width="600" height="900" role="img" aria-labelledby="t d">
+  <title id="t">The capability preflight before an agent spawn</title>
+  <desc id="d">Step 1: read the agent's capabilities block; if there is none, skip the preflight. Step 2: resolve each required_when predicate for this spawn. Step 3: run each check command, caching hits for 30 minutes and never caching misses. Step 4: auto-install safe misses and re-check. Step 5: report what is still missing. Then, in advisory mode, warn and spawn; in blocking mode, the default, refuse the spawn if a required tool is still missing.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9bb0cc"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="600" height="900" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif">
+    <text x="300" y="46" font-size="22" font-weight="700" fill="#ffffff" text-anchor="middle">Before every agent spawn</text>
+
+    <rect x="30" y="72" width="540" height="96" rx="12" fill="#060B16" stroke="#18E0FF" stroke-width="2"/>
+    <circle cx="70" cy="120" r="20" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="70" y="127" font-size="19" font-weight="700" fill="#18E0FF" text-anchor="middle">1</text>
+    <text x="108" y="112" font-size="19" fill="#eaf1fb">Read the capabilities block</text>
+    <text x="108" y="142" font-size="17" fill="#9bb0cc">No block: skip the preflight</text>
+    <line x1="300" y1="168" x2="300" y2="186" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="30" y="190" width="540" height="96" rx="12" fill="#060B16" stroke="#18E0FF" stroke-width="2"/>
+    <circle cx="70" cy="238" r="20" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="70" y="245" font-size="19" font-weight="700" fill="#18E0FF" text-anchor="middle">2</text>
+    <text x="108" y="230" font-size="19" fill="#eaf1fb">Resolve required_when</text>
+    <text x="108" y="260" font-size="17" fill="#9bb0cc">False: required becomes optional</text>
+    <line x1="300" y1="286" x2="300" y2="304" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="30" y="308" width="540" height="96" rx="12" fill="#060B16" stroke="#18E0FF" stroke-width="2"/>
+    <circle cx="70" cy="356" r="20" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="70" y="363" font-size="19" font-weight="700" fill="#18E0FF" text-anchor="middle">3</text>
+    <text x="108" y="348" font-size="19" fill="#eaf1fb">Run each check command</text>
+    <text x="108" y="378" font-size="17" fill="#9bb0cc">Hits cached 30 min; misses never</text>
+    <line x1="300" y1="404" x2="300" y2="422" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="30" y="426" width="540" height="96" rx="12" fill="#060B16" stroke="#18E0FF" stroke-width="2"/>
+    <circle cx="70" cy="474" r="20" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="70" y="481" font-size="19" font-weight="700" fill="#18E0FF" text-anchor="middle">4</text>
+    <text x="108" y="466" font-size="19" fill="#eaf1fb">Auto-install safe misses</text>
+    <text x="108" y="496" font-size="17" fill="#9bb0cc">Then re-check</text>
+    <line x1="300" y1="522" x2="300" y2="540" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="30" y="544" width="540" height="96" rx="12" fill="#060B16" stroke="#18E0FF" stroke-width="2"/>
+    <circle cx="70" cy="592" r="20" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="70" y="599" font-size="19" font-weight="700" fill="#18E0FF" text-anchor="middle">5</text>
+    <text x="108" y="584" font-size="19" fill="#eaf1fb">Report what is still missing</text>
+    <text x="108" y="614" font-size="17" fill="#9bb0cc">With the install command or hint</text>
+
+    <line x1="220" y1="640" x2="160" y2="682" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <line x1="380" y1="640" x2="440" y2="682" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="30" y="688" width="255" height="150" rx="12" fill="#060B16" stroke="#3ad99a" stroke-width="2"/>
+    <text x="157" y="728" font-size="21" font-weight="700" fill="#3ad99a" text-anchor="middle">advisory</text>
+    <text x="157" y="766" font-size="19" fill="#eaf1fb" text-anchor="middle">warn, then spawn</text>
+
+    <rect x="315" y="688" width="255" height="150" rx="12" fill="#060B16" stroke="#ff5d73" stroke-width="2"/>
+    <text x="442" y="728" font-size="21" font-weight="700" fill="#ff5d73" text-anchor="middle">blocking</text>
+    <text x="442" y="766" font-size="19" fill="#eaf1fb" text-anchor="middle">refuse the spawn</text>
+    <text x="442" y="798" font-size="17" fill="#9bb0cc" text-anchor="middle">the default</text>
+
+    <text x="300" y="876" font-size="17" fill="#9bb0cc" text-anchor="middle">Mode: capability_preflight_mode in .agentic/config.json</text>
+  </g>
+</svg>
