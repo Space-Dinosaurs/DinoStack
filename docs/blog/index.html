@@ -2,6 +2,10 @@
 <!--
   Blog authoring conventions:
   - One static HTML file per post, named YYYY-MM-DD-<slug>.html, styled by blog.css. No build step.
+  - Posts are feature-led: each one is about what a DinoStack feature does and why it matters.
+    A priority claim ("we shipped it first") is optional supporting context, only when verified,
+    with its sources, and never the headline or the angle.
+  - Every post ends with a Sources list, and every factual claim in it is verifiable.
   - Every post includes at least two images, saved under images/ and referenced with <img> tags
     carrying meaningful alt text. Diagrams must read in light and dark themes (draw an explicit
     background or explicit fills).
@@ -46,8 +50,8 @@
   <ul class="post-list">
     <li>
       <span class="post-date">2026-11-06</span>
-      <a class="post-title" href="2026-11-06-dinostack-had-the-super-agent-pattern-first.html">DinoStack already runs DeepSeek's "super agent" pattern, and has since September</a>
-      <p class="post-summary">How the cross-session conductor and ds-lane map onto DeepSeek's router-plus-workers design, and where DinoStack chose differently.</p>
+      <a class="post-title" href="2026-11-06-one-conversation-many-tickets.html">One conversation, many tickets: DinoStack's conductor and lanes</a>
+      <p class="post-summary">You talk to one conductor while several tickets run in parallel, each through the full ticket workflow: engineer, Skeptic review, QA, and a PR.</p>
     </li>
   </ul>
 </main>
