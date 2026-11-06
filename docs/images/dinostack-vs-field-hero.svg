@@ -23,7 +23,7 @@
     <text x="232" y="339" font-size="20" fill="#eaf1fb">Conductor and parallel lanes</text>
 
     <line x1="232" y1="378" x2="232" y2="410" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
-    <text x="246" y="400" font-size="18" fill="#9bb0cc" text-anchor="start">on the host harness</text>
+    <text x="246" y="400" font-size="20" fill="#9bb0cc" text-anchor="start">on the host harness</text>
 
     <rect x="20" y="414" width="424" height="150" rx="12" fill="#060B16" stroke="#9bb0cc" stroke-width="2"/>
     <text x="232" y="446" font-size="22" font-weight="700" fill="#ffffff">11 harness adapters</text>
@@ -41,21 +41,21 @@
 
     <rect x="464" y="64" width="216" height="576" rx="12" fill="#060B16" stroke="#6a7c97" stroke-width="2" stroke-dasharray="7 5"/>
     <text x="572" y="112" font-size="21" font-weight="700" fill="#ffffff">ICM / MWP</text>
-    <text x="572" y="138" font-size="18" fill="#9bb0cc">single-agent</text>
+    <text x="572" y="138" font-size="20" fill="#9bb0cc">single-agent</text>
     <line x1="484" y1="160" x2="660" y2="160" stroke="#6a7c97" stroke-width="1" opacity="0.6"/>
     <text x="572" y="200" font-size="21" font-weight="700" fill="#ffffff">GSD</text>
-    <text x="572" y="226" font-size="18" fill="#9bb0cc">solo, spec-driven</text>
+    <text x="572" y="226" font-size="20" fill="#9bb0cc">solo, spec-driven</text>
     <line x1="484" y1="248" x2="660" y2="248" stroke="#6a7c97" stroke-width="1" opacity="0.6"/>
     <text x="572" y="288" font-size="21" font-weight="700" fill="#ffffff">Ponytail</text>
-    <text x="572" y="314" font-size="18" fill="#9bb0cc">ruleset plugin</text>
+    <text x="572" y="314" font-size="20" fill="#9bb0cc">ruleset plugin</text>
     <line x1="484" y1="336" x2="660" y2="336" stroke="#6a7c97" stroke-width="1" opacity="0.6"/>
     <text x="572" y="376" font-size="21" font-weight="700" fill="#ffffff">ECC</text>
-    <text x="572" y="402" font-size="18" fill="#9bb0cc">harness toolkit</text>
+    <text x="572" y="402" font-size="20" fill="#9bb0cc">harness toolkit</text>
     <line x1="484" y1="424" x2="660" y2="424" stroke="#6a7c97" stroke-width="1" opacity="0.6"/>
     <text x="572" y="464" font-size="21" font-weight="700" fill="#ffffff">Prime Agent</text>
-    <text x="572" y="490" font-size="18" fill="#9bb0cc">a harness</text>
+    <text x="572" y="490" font-size="20" fill="#9bb0cc">a harness</text>
     <line x1="484" y1="512" x2="660" y2="512" stroke="#6a7c97" stroke-width="1" opacity="0.6"/>
     <text x="572" y="552" font-size="21" font-weight="700" fill="#ffffff">Letta</text>
-    <text x="572" y="578" font-size="18" fill="#9bb0cc">agent runtime</text>
+    <text x="572" y="578" font-size="20" fill="#9bb0cc">agent runtime</text>
   </g>
 </svg>

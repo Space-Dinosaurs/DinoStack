@@ -522,6 +522,12 @@
     gap: 16px;
   }
   @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
+  .two-col > *, .rel-grid > * { min-width: 0; }
+  @media (max-width: 600px) {
+    .section { overflow-wrap: anywhere; }
+    .node, .flow-box { white-space: normal; }
+    pre { max-width: 100%; overflow-x: auto; }
+  }
 
   .desc {
     font-size: 17px;
@@ -2398,8 +2404,8 @@
         <li>UI-only copy changes: Elevated (Skeptic runs)</li>
         <li>File renaming: Elevated (Skeptic runs)</li>
         <li>Targeted wording fixes to already-reviewed content: Elevated (Skeptic runs)</li>
-        <li>Diagnostic-only logging changes: Low (no Skeptic; the edit still goes to one worktree-isolated engineer)</li>
-        <li>Documentation-only file creation (new .md files that are pure lists/notes): Low (no Skeptic; the edit still goes to one worktree-isolated engineer)</li>
+        <li>Diagnostic-only logging changes: Low with inline self-check (no Skeptic); the edit goes to one worktree-isolated engineer</li>
+        <li>Documentation-only file creation (new .md files that are pure lists/notes): Low with inline self-check (no Skeptic); under <code>docs/planning/**</code> it is exempt and stays conductor-direct, and any other doc or shippable edit goes to one worktree-isolated engineer</li>
         <li>Small single-concern changes: Elevated (Skeptic runs)</li>
         <li>Elevated single-review route: removed (every Elevated task takes the full route)</li>
       </ul>
