@@ -136,10 +136,10 @@ Read `content/references/conventions-detail.md` §The Intent Layer for the artif
 6. Run `ds-base-sync "$REPO" "$BASE_BRANCH"` (PATH-guarded, non-blocking on any exit). See `content/references/base-branch-sync.md` §Call sites.
 7. Run worktree prune and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - both run ONCE at session start; on Claude Code the SessionStart hook launches the worktree reap (other harnesses: run `/ds-cleanup-worktrees` on demand). Then run `ds-retire-carrier --list-holds` and re-run each listed path, adding `--release` to an explicit hold only when its revisit event has occurred.
 
-**Subagent worktrees:** Each parallel subagent gets its own worktree at `.agentic/worktrees/<branch-name>` under the project root (gitignored via `/ds-init-project` Step 9's `.agentic/*` umbrella - see `content/project-scaffolding.yml`), branched from the conductor's current branch. The conductor merges each subagent branch back after sign-off.
+**Subagent worktrees:** Each parallel subagent gets its own worktree at `.agentic/worktrees/<branch-name>` under the project root (gitignored via `/ds-init-project` Step 9's `.agentic/*` umbrella - see `content/project-scaffolding.yml`), branched from `origin/main`. A continuation fix for an existing feature branch also starts there; cherry-pick or push its commit onto that branch's remote tip. The conductor merges each subagent branch back after sign-off.
 
 ```bash
-git worktree add .agentic/worktrees/<branch-name> -b <branch-name> HEAD
+git worktree add .agentic/worktrees/<branch-name> -b <branch-name> origin/main
 ```
 
 **Branch naming:** `feature/<name>`, `fix/<name>`, `chore/<name>`.
