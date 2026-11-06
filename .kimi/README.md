@@ -40,7 +40,7 @@ loading it guarantees the methodology is active.
 - **References**: Symlinked from `content/references/` into the skill directory.
 - **Sections**: Symlinked from `content/sections/` into the skill directory for easy access.
 - **Commands**: Symlinked from `content/commands/` into the skill directory. Invoked via `/skill:dinostack <command-name>` or by asking the agent to run a specific command.
-- **Hooks**: Sample hook configuration provided in README (user must add to `~/.kimi/config.toml` manually).
+- **Hooks**: `install.sh` wires the SessionStart hook in `~/.kimi/config.toml`; a sample PreToolUse and Stop configuration is provided below (add it to `~/.kimi/config.toml` manually).
 
 ## Install
 
@@ -125,6 +125,6 @@ sign of installer malfunction - only that the health check couldn't yet confirm 
 
 - **No custom slash commands**: Kimi Code CLI does not support user-defined slash commands. Commands are available as individual skills (`/skill:<command-name>`) or via the main skill (`/skill:dinostack <command>`), or through natural language requests.
 - **Agent definitions are reference material**: Kimi's `Agent` tool uses built-in subagent types (`coder`, `explore`, `plan`). The named agent roles from `content/agents/` are mapped to these types with detailed prompts rather than distinct subagent configurations.
-- **Hook scripts are manual**: Kimi requires hooks to be configured in `config.toml`. The installer does not modify `~/.kimi/config.toml` automatically.
+- **Only SessionStart is installer-wired**: `install.sh` wires the SessionStart hook in `~/.kimi/config.toml`; every other hook, Stop included, must be added to `config.toml` by hand.
 - **Global install symlinks SKILL.md**: `~/.kimi/skills/dinostack/SKILL.md` is an absolute symlink into this checkout's `.kimi/skills/dinostack/SKILL.md` (DS-185 round 3; previously a copy). A rebuild via `bash .kimi/build.sh` after editing `content/` propagates instantly through the symlink - re-running `install.sh` is only needed if the symlink itself is missing or stale (e.g. after a fresh clone).
-- **No `conductor_overreach` advisory**: Kimi Code CLI has no Stop hook mechanism, so the advisory conductor-overreach detector (`hooks/conductor-overreach-nudge.js`) has no equivalent here.
+- **No `conductor_overreach` advisory**: the advisory conductor-overreach detector (`hooks/conductor-overreach-nudge.js`) is a Claude Code Stop hook wired only by `.claude/install.sh`; neither `.kimi/install.sh` nor the sample Stop hook above runs it.

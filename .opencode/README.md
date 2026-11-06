@@ -10,9 +10,9 @@ DinoStack adapter for [OpenCode](https://opencode.ai).
 | Conditional rules | Skill (`SKILL.md`) | Skill (`.opencode/skills/<name>/SKILL.md`) |
 | Agent definitions | `~/.claude/agents/*.md` | `~/.config/opencode/agents/*.md` |
 | Slash commands | `~/.claude/commands/*.md` | `~/.config/opencode/commands/*.md` |
-| Lifecycle hooks | `settings.json` hooks | Not available (risk reminder embedded in skill) |
+| Lifecycle hooks | `settings.json` hooks | `plugins/session-context.ts` plugin (`session.idle`, `command.executed`, `session.created`); risk reminder embedded in skill |
 | Risk reminder | UserPromptSubmit hook | Embedded in skill content, read on every load |
-| Session context save | Stop hook (`stop-context.js`) | Not available |
+| Session context save | Stop hook (`stop-context.js`) | `session-context.ts` on every `session.idle`; finalization on `/ds-wrap` |
 
 ## What's adapted
 
@@ -34,6 +34,7 @@ This installs:
 - 13 named agent definitions into `~/.config/opencode/agents/`
 - 9 workflow commands into `~/.config/opencode/commands/`
 - Rule instructions wired into `~/.config/opencode/opencode.json`
+- The `session-context.ts` plugin into `~/.config/opencode/plugins/`
 
 It also configures the activation mode (opt-out or opt-in) and installs the pre-commit hook.
 
@@ -53,7 +54,7 @@ bash .opencode/uninstall.sh
 
 ## Limitations
 
-- **No lifecycle hooks**: OpenCode doesn't have a hook system. The risk classification reminder and session context save that Claude Code implements via `UserPromptSubmit` and `Stop` hooks are instead embedded in the skill content and AGENTS.md respectively. The session context save (`stop-context.js`) has no opencode equivalent.
+- **Hooks are a plugin**: the `session-context.ts` plugin writes this session's `.agentic/context.d/` shard and recomposes `.agentic/context.md` on every `session.idle`, runs loop-state and batch-state finalization when you invoke `/ds-wrap` (OpenCode exposes no guaranteed shutdown hook), and emits a skill-load instruction on `session.created` when `skill_auto_load: true` is set. The risk classification reminder that Claude Code delivers via `UserPromptSubmit` is embedded in the skill content instead.
 - **No `~/.claude/agentic-engineering.json` activation config**: The activation mode config is stored at `~/.config/opencode/agentic-engineering.json` instead.
 - **Agent tool restrictions differ**: Claude Code restricts tools via `tools:` frontmatter. OpenCode uses the `permission:` system. The adapter maps Write/Edit agents to `edit: allow` and read-only agents to `edit: deny` with restricted bash patterns.
 

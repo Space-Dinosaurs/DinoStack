@@ -179,7 +179,7 @@ The protocol is observational. The conductor narrates delegations as it runs - l
 - `QA engineer verifying acceptance criteria in the browser.`
 
 <div class="callout">
-No narration? The task was classified <strong>Direct action</strong> - handled in the main thread without a subagent. That is the protocol working, not off.
+No narration? The task was a <strong>Direct action</strong> (a read, an answer, or an exempt-artifact edit) handled in the main thread. That is the protocol working, not off.
 </div>
 
 ---
@@ -287,7 +287,7 @@ The main session agent classifies each task as <strong>Trivial</strong>, <strong
 **Trivial / Low**
 - Reads, memory answers, screenshots, diagnostic logging
 - Small, reversible edits
-- Trivial work and small single-concern changes go to an isolated engineer; other Low work is direct action
+- Trivial work and every shippable Low change go to an isolated engineer; only non-shippable Low work is direct action
 
 </div>
 <div>
