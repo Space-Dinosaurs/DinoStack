@@ -1,12 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1000" width="600" height="1000" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1110" width="600" height="1110" role="img" aria-labelledby="t d">
   <title id="t">The Skeptic review loop</title>
-  <desc id="d">A Worker implements. The conductor spawns a fresh Skeptic that receives only the adversarial brief, the Worker's output, and the resolved-issues list, never the Worker's reasoning. If no Critical or Major finding is open, sign-off is granted. Otherwise a new Worker fixes the findings and a new fresh Skeptic reviews again. The default cap is 3 rounds per unit; at the cap the conductor ships with the open non-Critical findings recorded as debt, or escalates to the human. An open Critical never ships. Only an operator grant reopens the loop past the cap.</desc>
+  <desc id="d">A Worker implements. The conductor spawns a fresh Skeptic that receives the adversarial brief, the Worker's output, the resolved-issues list, and the global-context inputs, never the Worker's reasoning. If no Critical or Major finding is open, sign-off is granted. Otherwise, on the full route a new Worker fixes the findings and a new fresh Skeptic reviews again; on the single-review route, one fix pass follows and the fixes are re-reviewed only after a Critical. The default cap is 3 rounds per unit, 2 on single-review; at the cap the conductor ships with the open non-Critical findings recorded as debt, or escalates to the human. An open Critical never ships. Only an operator grant reopens the loop past the cap.</desc>
   <defs>
     <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#9bb0cc"/>
     </marker>
   </defs>
-  <rect x="0" y="0" width="600" height="1000" rx="16" fill="#02050C"/>
+  <rect x="0" y="0" width="600" height="1110" rx="16" fill="#02050C"/>
   <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
     <rect x="60" y="24" width="400" height="76" rx="10" fill="#0A1020" stroke="#3ad99a" stroke-width="2"/>
     <text x="260" y="58" font-size="22" font-weight="700" fill="#ffffff">Worker</text>
@@ -15,40 +15,45 @@
     <line x1="260" y1="104" x2="260" y2="146" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
     <text x="274" y="132" font-size="18" fill="#eaf1fb" text-anchor="start">output</text>
 
-    <rect x="40" y="150" width="440" height="160" rx="10" fill="#0A1020" stroke="#ff5d73" stroke-width="2"/>
+    <rect x="40" y="150" width="440" height="188" rx="10" fill="#0A1020" stroke="#ff5d73" stroke-width="2"/>
     <text x="260" y="186" font-size="22" font-weight="700" fill="#ffffff">Fresh Skeptic</text>
-    <text x="260" y="216" font-size="18" fill="#9bb0cc">sees only: adversarial brief,</text>
-    <text x="260" y="242" font-size="18" fill="#9bb0cc">Worker output, resolved-issues list</text>
-    <text x="260" y="276" font-size="19" font-weight="700" fill="#ff5d73">never the Worker's reasoning</text>
+    <text x="260" y="216" font-size="18" fill="#9bb0cc">sees: adversarial brief, Worker output,</text>
+    <text x="260" y="242" font-size="18" fill="#9bb0cc">resolved-issues list, global-context</text>
+    <text x="260" y="268" font-size="18" fill="#9bb0cc">inputs (plan, qa_criteria, diff, ...)</text>
+    <text x="260" y="306" font-size="19" font-weight="700" fill="#ff5d73">never the Worker's reasoning</text>
 
-    <line x1="260" y1="314" x2="260" y2="356" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <line x1="260" y1="342" x2="260" y2="384" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
 
-    <rect x="60" y="360" width="400" height="84" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
-    <text x="260" y="396" font-size="21" font-weight="700" fill="#ffffff">Critical or Major</text>
-    <text x="260" y="424" font-size="21" font-weight="700" fill="#ffffff">still open?</text>
+    <rect x="60" y="388" width="400" height="84" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="260" y="424" font-size="21" font-weight="700" fill="#ffffff">Critical or Major</text>
+    <text x="260" y="452" font-size="21" font-weight="700" fill="#ffffff">still open?</text>
 
-    <line x1="260" y1="448" x2="260" y2="490" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
-    <text x="274" y="476" font-size="18" fill="#eaf1fb" text-anchor="start">no</text>
-    <rect x="110" y="494" width="300" height="56" rx="10" fill="#0A1020" stroke="#3ad99a" stroke-width="2"/>
-    <text x="260" y="530" font-size="20" font-weight="700" fill="#3ad99a">Sign-off granted</text>
+    <line x1="260" y1="476" x2="260" y2="518" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="274" y="504" font-size="18" fill="#eaf1fb" text-anchor="start">no</text>
+    <rect x="110" y="522" width="300" height="56" rx="10" fill="#0A1020" stroke="#3ad99a" stroke-width="2"/>
+    <text x="260" y="558" font-size="20" font-weight="700" fill="#3ad99a">Sign-off granted</text>
 
-    <path d="M462,402 L540,402 L540,600" fill="none" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
-    <text x="500" y="392" font-size="18" fill="#eaf1fb">yes</text>
+    <path d="M462,430 L540,430 L540,628" fill="none" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="500" y="420" font-size="18" fill="#eaf1fb">yes</text>
 
-    <rect x="300" y="604" width="280" height="84" rx="10" fill="#0A1020" stroke="#3ad99a" stroke-width="2"/>
-    <text x="440" y="640" font-size="20" font-weight="700" fill="#ffffff">New Worker</text>
-    <text x="440" y="668" font-size="18" fill="#9bb0cc">fixes the findings</text>
+    <rect x="300" y="632" width="280" height="84" rx="10" fill="#0A1020" stroke="#3ad99a" stroke-width="2"/>
+    <text x="440" y="668" font-size="20" font-weight="700" fill="#ffffff">New Worker</text>
+    <text x="440" y="696" font-size="18" fill="#9bb0cc">fixes the findings</text>
 
-    <path d="M300,646 L20,646 L20,230 L36,230" fill="none" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
-    <text x="160" y="636" font-size="18" fill="#eaf1fb">a NEW fresh Skeptic,</text>
-    <text x="160" y="676" font-size="18" fill="#eaf1fb">next round</text>
+    <path d="M300,674 L20,674 L20,244 L36,244" fill="none" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="160" y="664" font-size="18" fill="#eaf1fb">full route: a NEW</text>
+    <text x="160" y="702" font-size="18" fill="#eaf1fb">fresh Skeptic</text>
 
-    <rect x="30" y="730" width="540" height="244" rx="12" fill="#060B16" stroke="#E9B521" stroke-width="2"/>
-    <text x="300" y="768" font-size="21" font-weight="700" fill="#ffffff">Round cap: 3 rounds per unit</text>
-    <text x="300" y="806" font-size="18" fill="#eaf1fb">At the cap: ship with open non-Critical</text>
-    <text x="300" y="832" font-size="18" fill="#eaf1fb">findings recorded as debt, or escalate</text>
-    <text x="300" y="858" font-size="18" fill="#eaf1fb">to the human</text>
-    <text x="300" y="900" font-size="19" font-weight="700" fill="#ff5d73">An open Critical never ships</text>
-    <text x="300" y="944" font-size="18" fill="#eaf1fb">Only an operator grant reopens the loop</text>
+    <rect x="30" y="740" width="540" height="76" rx="10" fill="#0A1020" stroke="#b06bff" stroke-width="2"/>
+    <text x="300" y="772" font-size="18" fill="#eaf1fb">Single-review route: one fix pass;</text>
+    <text x="300" y="798" font-size="18" fill="#eaf1fb">re-reviewed only after a Critical</text>
+
+    <rect x="30" y="840" width="540" height="244" rx="12" fill="#060B16" stroke="#E9B521" stroke-width="2"/>
+    <text x="300" y="878" font-size="21" font-weight="700" fill="#ffffff">Round cap: 3 per unit (2 on single-review)</text>
+    <text x="300" y="916" font-size="18" fill="#eaf1fb">At the cap: ship with open non-Critical</text>
+    <text x="300" y="942" font-size="18" fill="#eaf1fb">findings recorded as debt, or escalate</text>
+    <text x="300" y="968" font-size="18" fill="#eaf1fb">to the human</text>
+    <text x="300" y="1010" font-size="19" font-weight="700" fill="#ff5d73">An open Critical never ships</text>
+    <text x="300" y="1054" font-size="18" fill="#eaf1fb">Only an operator grant reopens the loop</text>
   </g>
 </svg>

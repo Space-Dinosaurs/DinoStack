@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#02050C">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='10' fill='none' stroke='%2318E0FF' stroke-width='3'/></svg>">
 <title>One conversation, many tickets: DinoStack's conductor and lanes - DinoStack Blog</title>
-<meta name="description" content="DinoStack's conductor and ds-lane let you hold one conversation while several tickets run in parallel, each through the full ticket workflow.">
+<meta name="description" content="DinoStack's conductor and ds-lane let you hold one conversation while several tickets run in parallel, each through a ticket workflow scaled to its risk.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -47,22 +47,22 @@
   <p>It does no ticket work itself. Its state lives in one file, <code>.agentic/runbook-&lt;KEY&gt;.json</code>, which it reads first after a context compaction, so a long run survives one. And no message from the conductor ever tells a lane to skip its own Skeptic review, QA, or gates.</p>
 
   <figure>
-    <a class="figure-link" href="/blog/images/2026-11-06-conductor-lanes-architecture.svg"><img src="/blog/images/2026-11-06-conductor-lanes-architecture.svg" width="600" height="900" alt="Architecture: the operator talks to one conductor. The conductor fans out to N ds-lane sessions, each a headless claude -p or codex exec session running /ds-implement-ticket: an engineer in a worktree, then a Skeptic review loop, then QA, then a PR. Rulings go from the conductor to the lanes, and only decisions come back to the operator. Lanes never message each other."></a>
-    <figcaption>One conductor, up to 5 lanes by default, each running the full ticket workflow.</figcaption>
+    <a class="figure-link" href="/blog/images/2026-11-06-conductor-lanes-architecture.svg"><img src="/blog/images/2026-11-06-conductor-lanes-architecture.svg" width="600" height="900" alt="Architecture: the operator talks to one conductor. The conductor fans out to N ds-lane sessions, each a headless claude -p or codex exec session running /ds-implement-ticket scaled to the ticket's risk: an engineer in a worktree, a Skeptic review loop on Elevated tickets, QA where it applies, then a PR. Rulings go from the conductor to the lanes, and only decisions come back to the operator. Lanes never message each other."></a>
+    <figcaption>One conductor, up to 5 lanes by default, each running the ticket workflow its risk calls for.</figcaption>
   </figure>
 
   <h2>Lanes</h2>
-  <p><code>ds-lane</code> starts each lane as its own headless Claude Code or Codex session, picking the harness the conductor itself is running in. Up to 5 lanes run at once per repo by default (<code>DS_LANE_MAX</code>); the rest queue and start as slots free up. Each lane ends its work with a <code>LANE-DONE</code> or <code>LANE-BLOCKED</code> marker, so the conductor can tell a finished lane from a stuck one without reading its whole transcript. A lane stopped by a usage limit shows as blocked with the reset time, and resumes later in the exact session it left.</p>
+  <p><code>ds-lane</code> starts each lane as its own headless Claude Code or Codex session, picking the harness the conductor itself is running in. Up to 5 lanes run at once per repo by default (<code>DS_LANE_MAX</code>); the rest queue and start as slots free up. Each lane ends its work with a <code>LANE-DONE</code> or <code>LANE-BLOCKED</code> marker. A lane stopped by a usage limit shows as blocked with the reset time, and resumes later in the exact session it left.</p>
 
-  <h2>Every lane runs the full ticket workflow</h2>
-  <p>A lane is not a single worker. Each one runs <code>/ds-implement-ticket</code> end to end:</p>
+  <h2>Each lane runs the ticket workflow, scaled to risk</h2>
+  <p>A lane is not a single worker. Each one runs <code>/ds-implement-ticket</code>, which picks its route from the ticket's risk class:</p>
   <ul>
-    <li>an engineer working in an isolated worktree,</li>
-    <li>an adversarial Skeptic review loop with a round cap,</li>
-    <li>a QA agent checking the ticket's <code>qa_criteria</code>,</li>
-    <li>a PR, which can merge on its own once CI passes when auto-merge is turned on.</li>
+    <li><strong>Every route:</strong> an engineer working in an isolated worktree, the project's quality checks, and a PR, which can merge on its own once CI passes when auto-merge is turned on.</li>
+    <li><strong>Trivial:</strong> one engineer; no Skeptic review and no QA.</li>
+    <li><strong>Low:</strong> no Skeptic review; QA runs when the change is user-visible UI.</li>
+    <li><strong>Elevated:</strong> an adversarial Skeptic review loop with a round cap, plus QA where the project's QA gate applies.</li>
   </ul>
-  <p>Running five tickets in parallel therefore means five reviewed, QA-checked PRs, not five unreviewed diffs.</p>
+  <p>Running tickets in parallel does not lower that bar: no message from the conductor ever tells a lane to skip its own Skeptic review, QA, or gates.</p>
 
   <h2>Design choices</h2>
   <ul>
@@ -71,21 +71,26 @@
     <li><strong>Stalls are caught mechanically.</strong> The conductor runs <code>ds-lane wait</code>, which returns as soon as a lane finishes, blocks, or dies, with a 30-minute cron as a backstop, rather than asking a model to judge whether a lane looks stuck.</li>
   </ul>
 
-  <h2>Similar designs elsewhere</h2>
-  <p>DeepSeek published <code>dsh-superagent-prototype</code>, a research prototype built for DeepSeek Harness, on October 31, and AI LABS rebuilt the idea in Claude Code on November 5: a router agent that only dispatches, with workers in their own contexts. The prototype's README says it was adapted from DeepSeek's internal version and from the article <em>Exploring Super-agent Design: Towards a More Autonomous Agent System</em>, so the dates below are public release dates, not dates of origin. DinoStack's conductor shipped on September 29 (PR #954) and <code>ds-lane</code> on October 12 (PR #994), with Codex lanes following on October 14 (PR #1019). The <a href="/agentic-engineering-comparison.html">Ecosystem Comparison</a> sets the two designs side by side.</p>
+  <h2>The lane lifecycle</h2>
+  <p>The conductor watches its lanes with <code>ds-lane wait</code>, which returns as soon as a lane finishes, blocks, or dies, and a 30-minute cron is the backstop. A finished lane frees its slot and the next queued lane starts. A blocked or dead lane becomes a decision for you, and your ruling goes back to the same session.</p>
 
   <figure>
-    <a class="figure-link" href="/blog/images/2026-11-06-super-agent-timeline.svg"><img src="/blog/images/2026-11-06-super-agent-timeline.svg" width="600" height="560" alt="Public release dates: 2026-09-29 DinoStack cross-session conductor (PR #954); 2026-10-12 DinoStack ds-lane (PR #994); 2026-10-31 DeepSeek publishes dsh-superagent-prototype, adapted from an internal version; 2026-11-05 AI LABS rebuilds it in Claude Code."></a>
-    <figcaption>Public release dates. DeepSeek's prototype was adapted from an internal version.</figcaption>
+    <a class="figure-link" href="/blog/images/2026-11-06-lane-lifecycle.svg"><img src="/blog/images/2026-11-06-lane-lifecycle.svg" width="600" height="1040" alt="Lane lifecycle: the conductor runs ds-lane start, with up to 5 lanes at once by default and the rest queued. The lane runs /ds-implement-ticket. ds-lane wait returns when a lane is done, blocked, or dead, with a 30-minute cron as backstop. LANE-DONE: the lane exits and frees its slot, and the next queued lane starts. LANE-BLOCKED, or dead (exited without a marker): a decision for the operator, whose ruling goes back by ds-lane send while the lane is running, or ds-lane resume once it has exited, in the same session. Every message goes through the conductor."></a>
+    <figcaption>From start to done, or to a ruling and back.</figcaption>
   </figure>
+
+  <h2>Similar designs elsewhere</h2>
+  <p>DeepSeek has published a router-plus-workers research prototype, <a href="https://github.com/deepseek-ai/dsh-superagent-prototype"><code>dsh-superagent-prototype</code></a>, and AI LABS <a href="https://youtu.be/3DklR44DHnM">rebuilt the idea in Claude Code</a>. The <a href="/agentic-engineering-comparison.html">Ecosystem Comparison</a> sets the AI LABS rebuild beside DinoStack.</p>
 
   <h2>Sources</h2>
   <ul>
     <li><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/954">DinoStack PR #954</a>: optional cross-session runbook conductor, merged 2026-09-29 (commit <code>6798905cf</code>)</li>
     <li><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/994">DinoStack PR #994</a>: <code>ds-lane</code>, conductor-launched headless lanes, merged 2026-10-12 (commit <code>3b8f82373</code>)</li>
     <li><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/1019">DinoStack PR #1019</a>: lanes inherit the invoking harness, adding Codex lanes, merged 2026-10-14 (commit <code>ba027c12c</code>)</li>
-    <li><a href="https://github.com/deepseek-ai/dsh-superagent-prototype">deepseek-ai/dsh-superagent-prototype</a>: repository created 2026-10-31; its README describes the internal version and the article it was adapted from</li>
-    <li><a href="https://youtu.be/3DklR44DHnM">AI LABS, "Deepseek Just Released The Greatest Claude Code Workflow Ever"</a>: YouTube, 2026-11-05</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/commands/ds-implement-ticket.md"><code>content/commands/ds-implement-ticket.md</code></a>: the route table that scales the workflow by risk class</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/references/runbook-conductor.md"><code>content/references/runbook-conductor.md</code></a>: the conductor, lane watch, and ruling delivery</li>
+    <li><a href="https://github.com/deepseek-ai/dsh-superagent-prototype">deepseek-ai/dsh-superagent-prototype</a></li>
+    <li><a href="https://youtu.be/3DklR44DHnM">AI LABS, "Deepseek Just Released The Greatest Claude Code Workflow Ever"</a> (YouTube)</li>
   </ul>
 </article>
 

@@ -58,10 +58,10 @@
   <p>Friction is the most direct evidence of where your process or tooling is weak, and it is gone once the session ends. Capturing it at wrap time, with the evidence attached, turns it into a backlog you can act on. Because the tickets land in your own tracker, the fixes stay with the team that owns the process.</p>
 
   <h2>Similar features elsewhere</h2>
-  <p>Claude Code added Claude-drafted feedback, which drafts a report when a tool keeps failing, Claude can't help with a request, or you point out a mistake; you review drafts in <code>/feedback</code>, and nothing reaches Anthropic until you send it. It requires v2.1.238, published on 2026-08-20, 49 days after DinoStack's capture step merged on 2026-07-02. The difference is the destination: DinoStack files reports into your own tracker, and Claude Code sends them to Anthropic.</p>
+  <p>Claude Code added Claude-drafted feedback, which drafts a report when a tool keeps failing, Claude can't help with a request, or you point out a mistake; you review drafts in <code>/feedback</code>, and nothing reaches Anthropic until you send it. It shipped in v2.1.247, published on 2026-08-26, 55 days after DinoStack's capture step merged on 2026-07-02; Claude Code's docs list v2.1.238 as the minimum version. The difference is the destination: DinoStack files reports into your own tracker, and Claude Code sends them to Anthropic.</p>
 
   <figure>
-    <a class="figure-link" href="/blog/images/2026-11-06-feedback-capture-timeline.svg"><img src="/blog/images/2026-11-06-feedback-capture-timeline.svg" width="600" height="380" alt="Public release dates: 2026-07-02 DinoStack wrap-time feedback capture (PR #408); 2026-08-20 Claude Code v2.1.238, the minimum version for Claude-drafted feedback; 49 days apart."></a>
+    <a class="figure-link" href="/blog/images/2026-11-06-feedback-capture-timeline.svg"><img src="/blog/images/2026-11-06-feedback-capture-timeline.svg" width="600" height="380" alt="Public release dates: 2026-07-02 DinoStack wrap-time feedback capture (PR #408); 2026-08-26 Claude Code v2.1.247, which added Claude-drafted feedback; 55 days apart."></a>
     <figcaption>Public release dates for the two features.</figcaption>
   </figure>
 
@@ -69,8 +69,8 @@
   <ul>
     <li><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/403">DinoStack PR #403</a>: <code>bin/agentic-feedback</code>, the home-dir feedback store CLI, merged 2026-07-02 (commit <code>177d78a8f</code>)</li>
     <li><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/408">DinoStack PR #408</a>: wrap Part D.5 feedback capture and the triage command (then named <code>/feedback-triage</code>), merged 2026-07-02T19:44:32Z (commit <code>b2a498b87</code>)</li>
-    <li><a href="https://code.claude.com/docs/en/whats-new/2026-w35">Claude Code What's New, Week 35 (August 24-28, 2026)</a>: Claude-drafted feedback, requires v2.1.238 or later</li>
-    <li><a href="https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md">Claude Code CHANGELOG</a>: lists the <code>SendFeedback</code> tool under v2.1.247 (published 2026-08-26); v2.1.238 was published to npm on 2026-08-20</li>
+    <li><a href="https://code.claude.com/docs/en/whats-new/2026-w35">Claude Code What's New, Week 35 (August 24-28, 2026)</a>: Claude-drafted feedback, minimum version v2.1.238</li>
+    <li><a href="https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md">Claude Code CHANGELOG</a>: lists the <code>SendFeedback</code> tool under v2.1.247, published to npm on 2026-08-26</li>
   </ul>
 </article>
 

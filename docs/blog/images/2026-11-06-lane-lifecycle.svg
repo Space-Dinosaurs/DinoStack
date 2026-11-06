@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1040" width="600" height="1040" role="img" aria-labelledby="t d">
+  <title id="t">Lifecycle of a ds-lane lane</title>
+  <desc id="d">The conductor runs ds-lane start; lanes past the cap of 5 by default wait in a queue. The lane runs /ds-implement-ticket and ends its turn with LANE-DONE or LANE-BLOCKED, or exits without a marker and shows as dead. The conductor's ds-lane wait returns as soon as a lane is done, blocked or dead, with a 30-minute cron as a backstop. A done lane frees its slot so the next queued lane starts. A blocked or dead lane becomes an operator decision, and the ruling goes back by ds-lane send while the lane is still running, or ds-lane resume once it has exited.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9bb0cc"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="600" height="1040" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <rect x="90" y="24" width="420" height="96" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="300" y="60" font-size="22" font-weight="700" fill="#ffffff">ds-lane start</text>
+    <text x="300" y="88" font-size="18" fill="#9bb0cc">up to 5 lanes at once by default;</text>
+    <text x="300" y="110" font-size="18" fill="#9bb0cc">the rest wait in a queue</text>
+
+    <line x1="300" y1="124" x2="300" y2="162" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="90" y="166" width="420" height="72" rx="10" fill="#0A1020" stroke="#b06bff" stroke-width="2"/>
+    <text x="300" y="200" font-size="21" font-weight="700" fill="#ffffff">Lane runs</text>
+    <text x="300" y="226" font-size="18" fill="#9bb0cc">/ds-implement-ticket</text>
+
+    <line x1="300" y1="242" x2="300" y2="280" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="60" y="284" width="480" height="96" rx="10" fill="#0A1020" stroke="#E9B521" stroke-width="2"/>
+    <text x="300" y="318" font-size="21" font-weight="700" fill="#ffffff">ds-lane wait</text>
+    <text x="300" y="344" font-size="18" fill="#9bb0cc">returns when a lane is done, blocked,</text>
+    <text x="300" y="368" font-size="18" fill="#9bb0cc">or dead; a 30-minute cron is the backstop</text>
+
+    <path d="M200,384 L200,450" fill="none" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <path d="M400,384 L400,450" fill="none" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="30" y="454" width="250" height="110" rx="10" fill="#0A1020" stroke="#3ad99a" stroke-width="2"/>
+    <text x="155" y="492" font-size="21" font-weight="700" fill="#3ad99a">LANE-DONE</text>
+    <text x="155" y="520" font-size="18" fill="#eaf1fb">the lane exits</text>
+    <text x="155" y="544" font-size="18" fill="#eaf1fb">and frees its slot</text>
+
+    <rect x="320" y="454" width="250" height="110" rx="10" fill="#0A1020" stroke="#ff5d73" stroke-width="2"/>
+    <text x="445" y="492" font-size="21" font-weight="700" fill="#ff5d73">LANE-BLOCKED</text>
+    <text x="445" y="520" font-size="18" fill="#eaf1fb">or dead: exited</text>
+    <text x="445" y="544" font-size="18" fill="#eaf1fb">without a marker</text>
+
+    <line x1="155" y1="568" x2="155" y2="616" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <rect x="30" y="620" width="250" height="84" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="155" y="656" font-size="19" fill="#eaf1fb">next queued</text>
+    <text x="155" y="682" font-size="19" fill="#eaf1fb">lane starts</text>
+
+    <line x1="445" y1="568" x2="445" y2="616" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <rect x="320" y="620" width="250" height="84" rx="10" fill="#0A1020" stroke="#E9B521" stroke-width="2"/>
+    <text x="445" y="656" font-size="19" fill="#eaf1fb">a decision for</text>
+    <text x="445" y="682" font-size="19" fill="#eaf1fb">the operator</text>
+
+    <line x1="445" y1="708" x2="445" y2="756" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <rect x="200" y="760" width="370" height="140" rx="10" fill="#0A1020" stroke="#b06bff" stroke-width="2"/>
+    <text x="385" y="796" font-size="20" font-weight="700" fill="#ffffff">Ruling goes back</text>
+    <text x="385" y="826" font-size="18" fill="#eaf1fb">ds-lane send if it is running,</text>
+    <text x="385" y="852" font-size="18" fill="#eaf1fb">ds-lane resume once it exited,</text>
+    <text x="385" y="878" font-size="18" fill="#eaf1fb">in the same session</text>
+
+    <path d="M572,830 L588,830 L588,202 L514,202" fill="none" stroke="#9bb0cc" stroke-width="2.5" stroke-dasharray="7 5" marker-end="url(#ah)"/>
+    <text x="300" y="960" font-size="18" fill="#9bb0cc">Every message goes through the conductor;</text>
+    <text x="300" y="988" font-size="18" fill="#9bb0cc">lanes never message each other.</text>
+  </g>
+</svg>

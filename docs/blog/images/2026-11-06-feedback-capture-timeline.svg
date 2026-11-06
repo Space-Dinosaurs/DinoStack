@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 380" width="600" height="380" role="img" aria-labelledby="t d">
   <title id="t">Public release dates of agent-drafted feedback reports</title>
-  <desc id="d">Public release dates: 2026-07-02, DinoStack wrap-time feedback capture, PR 408. 2026-08-20, Claude Code v2.1.238, the minimum version for Claude-drafted feedback. 49 days apart.</desc>
+  <desc id="d">Public release dates: 2026-07-02, DinoStack wrap-time feedback capture, PR 408. 2026-08-26, Claude Code v2.1.247, which added Claude-drafted feedback. 55 days apart.</desc>
   <rect x="0" y="0" width="600" height="380" rx="16" fill="#02050C"/>
   <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="start">
     <text x="300" y="48" font-size="22" font-weight="700" fill="#ffffff" text-anchor="middle">Public release dates</text>
@@ -11,11 +11,11 @@
     <text x="104" y="134" font-size="19" fill="#eaf1fb">DinoStack wrap-time feedback capture</text>
     <text x="104" y="160" font-size="19" fill="#9bb0cc">PR #408</text>
 
-    <text x="104" y="216" font-size="19" fill="#9bb0cc">49 days</text>
+    <text x="104" y="216" font-size="19" fill="#9bb0cc">55 days</text>
 
     <circle cx="70" cy="290" r="12" fill="#E9B521"/>
-    <text x="104" y="286" font-size="22" font-weight="700" fill="#ffffff">2026-08-20</text>
-    <text x="104" y="314" font-size="19" fill="#eaf1fb">Claude Code v2.1.238:</text>
+    <text x="104" y="286" font-size="22" font-weight="700" fill="#ffffff">2026-08-26</text>
+    <text x="104" y="314" font-size="19" fill="#eaf1fb">Claude Code v2.1.247:</text>
     <text x="104" y="340" font-size="19" fill="#eaf1fb">Claude-drafted feedback</text>
   </g>
 </svg>
