@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#02050C">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='10' fill='none' stroke='%2318E0FF' stroke-width='3'/></svg>">
+<title>Outcome rubrics and qa_criteria: defining done before the work starts - DinoStack Blog</title>
+<meta name="description" content="How DinoStack writes down what done means before an engineer starts: verification commands, an operator-confirmed outcome rubric graded by the Skeptic, and a qa_criteria test plan.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/blog/blog.css">
+</head>
+<body>
+
+<nav class="side-nav" aria-label="Site">
+  <div class="side-nav-brand">
+    <img class="side-nav-logo" src="/images/dinostack-logo.svg" alt="DinoStack">
+  </div>
+  <a href="/"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
+  <hr class="side-nav-divider">
+  <a href="/blog/"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
+</nav>
+
+<nav class="mobile-nav" aria-label="Site">
+  <a href="/">Home</a>
+  <a href="/blog/">Blog</a>
+</nav>
+
+<article class="post">
+  <header class="doc-header">
+    <h1>Outcome rubrics and qa_criteria: defining done before the work starts</h1>
+    <p class="byline"><time datetime="2026-11-06">2026-11-06</time></p>
+  </header>
+
+  <p>DinoStack writes down what "done" means before an engineer starts, in fields a reviewer can check the work against. For Elevated work, three of them carry the weight: Verification, the outcome rubric, and <code>qa_criteria</code>.</p>
+
+  <h2>Where done gets written</h2>
+  <p>Planning artifacts are triggered mechanically, after the orchestration planner returns a unit count. Trivial and Low work needs none. Elevated work with 0 or 1 Elevated units uses the architect plan alone. 2 to 5 Elevated units need a Brief on top of the architect plan, and 6 or more, work spanning two or more tracks, or work spanning two or more sessions needs a full Plan. A task can be promoted to a heavier artifact mid-work, never demoted.</p>
+  <p>The Brief is meant to fit on one screen: the problem, up to four observable success criteria, non-goals, hard constraints, then the three fields this post is about. The architect plan has its own obligation: a <code>qa_criteria</code> block is mandatory on every Elevated plan, whether or not a Brief exists.</p>
+
+  <figure>
+    <a class="figure-link" href="/blog/images/2026-11-06-definition-of-done-fields.svg"><img src="/blog/images/2026-11-06-definition-of-done-fields.svg" width="600" height="760" alt="Three fields that define done. Verification answers which commands prove it: tests, gates, qa.md triggers and required regression tests, and cannot specify blocks sign-off. The outcome rubric answers what done means to you: up to 6 operator-confirmed pass or fail lines, each tagged deterministic or judgment. QA criteria answers how it is tested at runtime: a valid qa_skip plus rationale, or scenarios each with a method and the evidence expected, across mobile, tablet and desktop viewports."></a>
+    <figcaption>Verification names commands, the rubric states intent, and qa_criteria is the runtime test plan.</figcaption>
+  </figure>
+
+  <h2>Verification is not the rubric</h2>
+  <p><strong>Verification</strong> is a single line that cannot be skipped. It names the tests, gates, <code>qa.md</code> trigger patterns, and any regression tests the findings record requires. If verification cannot be specified at planning time, that is itself a planning gap, and the Brief is not eligible for Skeptic review until it is named.</p>
+  <p>The <strong>outcome rubric</strong> is different: it is your semantic definition of done, as at most 6 terse pass/fail lines that you confirm. Each line is tagged with a <code>verification_type</code>. A <code>deterministic</code> line names a gate that proves it, such as tests, lint, a schema check or an HTTP status. A <code>judgment</code> line is qualitative, such as "the new flow is coherent from an operator perspective", and is graded by the independent Skeptic. The rubric can be drafted by the <code>product-discovery</code> agent or by <code>/ds-brief</code>, which can also pull candidates out of a PRD's "Definition of Done" or "Acceptance Criteria" headings, capped at 6. Either way it is confirmed before the Brief is written. It is required for Elevated work and not for Trivial or Low.</p>
+
+  <h2>How the Skeptic grades a rubric</h2>
+  <ul>
+    <li>A rubric that is absent or empty on Elevated work is a <strong>Critical</strong> finding.</li>
+    <li>A line with no <code>verification_type</code> is a <strong>Major</strong> finding.</li>
+    <li>For a deterministic line, the Skeptic checks that the named gate was actually run and passed. A gate that was not run is Major.</li>
+    <li>A judgment line is graded adversarially and independently. The Skeptic must not treat it as self-certifying, and an unmet line is Major.</li>
+  </ul>
+  <p>Majors block sign-off unless the Worker documents a compelling reason to defer, so a rubric line nobody met cannot ship quietly.</p>
+
+  <figure>
+    <a class="figure-link" href="/blog/images/2026-11-06-outcome-rubric-grading.svg"><img src="/blog/images/2026-11-06-outcome-rubric-grading.svg" width="600" height="800" alt="How the Skeptic grades a rubric. If the rubric is not present on Elevated work, that is Critical. If a line has no verification_type, that is Major. A deterministic line is checked by asking whether the named gate, such as tests, lint, a schema check or an HTTP status, was run and passed. A judgment line is graded by the Skeptic adversarially and independently, never self-certifying. A line that is not met is Major, which blocks sign-off unless deferred with a reason."></a>
+    <figcaption>A judgment line is not a free pass: someone other than the author grades it.</figcaption>
+  </figure>
+
+  <h2>qa_criteria: the test plan, written before the code</h2>
+  <p><code>qa_criteria</code> is a YAML block that decides whether the <code>qa-engineer</code> runs, and that the <code>qa-engineer</code> treats as its authoritative test plan. It has two shapes:</p>
+  <ul>
+    <li><strong>A skip,</strong> where <code>qa_skip</code> is one of five values (<code>pure-backend-library</code>, <code>config-only</code>, <code>type-only-refactor</code>, <code>dep-bump-no-runtime-change</code>, <code>docs-only</code>) and <code>qa_skip_rationale</code> says why, in 200 characters or fewer. The architect may not write "n/a" instead.</li>
+    <li><strong>Scenarios,</strong> each with an id, one observable sentence describing it, a method, and the evidence expected. The method is one of seven: <code>browser</code>, <code>api</code>, <code>runtime-required</code>, <code>visual_conformance</code>, <code>accessibility</code>, <code>perceptual_diff</code> and <code>motion</code>. A viewport list picks from <code>mobile</code> (375x667), <code>tablet</code> (768x1024) and <code>desktop</code> (1440x900), defaulting to desktop only.</li>
+  </ul>
+  <p>The architect has rules for filling it in. Every UI-visible Elevated unit that runs QA needs an <code>accessibility</code> scenario, at WCAG AA by default. A UI-visible unit whose ticket has an Expected Result or visual spec needs a <code>visual_conformance</code> scenario. A clearly responsive change needs at least <code>[mobile, desktop]</code>. A missing <code>qa_criteria</code> block on Elevated work is a Critical finding, and an invalid <code>qa_skip</code> value is a Major one.</p>
+
+  <h2>When QA actually runs</h2>
+  <p>QA fires for every full-route Elevated unit unless <code>qa_skip</code> is one of the five values; a project having no <code>qa.md</code> is not a reason to skip it. When it fires, the <code>qa-engineer</code> runs in parallel with the Skeptic and sign-off requires both to pass. On the lighter single-review route, QA fires only for a user-visible UI change, with the acceptance text as its criteria. One practical caveat: <code>motion</code> scenarios need Playwright, because <code>agent-browser</code> cannot execute them.</p>
+
+  <h2>Plans close the loop</h2>
+  <p>A full Plan adds a verification gate with a "Rubric lines resolved" section: each deterministic line with its gate command and result, each judgment line with its grader, the Skeptic, and result. The gate cannot be skipped, and any "cannot specify" entry blocks Skeptic sign-off until the operator re-runs the architect, tightens the Brief, or descopes.</p>
+
+  <h2>Why it matters</h2>
+  <p>Writing done down first, as gate commands, operator-confirmed rubric lines and a runtime test plan, gives the reviewer and the QA agent something fixed to check against, and makes "done" mean the same thing before and after the work.</p>
+
+  <h2>Sources</h2>
+  <ul>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/references/planning-artifacts.md"><code>content/references/planning-artifacts.md</code></a>: the trigger table, the Brief template, Verification, Outcome rubric and QA criteria field guidance, and the verification gate template</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/agents/skeptic.md"><code>content/agents/skeptic.md</code></a>: step 3.5, the outcome rubric check and its severities</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/references/skeptic-protocol.md"><code>content/references/skeptic-protocol.md</code></a>: what a Major finding means for sign-off</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/agents/architect.md"><code>content/agents/architect.md</code></a>: the mandatory <code>qa_criteria</code> block and the accessibility, visual conformance and viewport rules</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/commands/ds-brief.md"><code>content/commands/ds-brief.md</code></a>: drafting and confirming the rubric, and extracting candidates from a PRD</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/sections/05-qa-gate.md"><code>content/sections/05-qa-gate.md</code></a>: when QA fires, and QA running concurrently with the Skeptic</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/AGENTS.md"><code>AGENTS.md</code></a>: the seven QA methods and the Playwright requirement for motion scenarios</li>
+  </ul>
+</article>
+
+</body>
+</html>

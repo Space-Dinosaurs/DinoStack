@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 760" width="600" height="760" role="img" aria-labelledby="t d">
+  <title id="t">Three fields that define done before work starts</title>
+  <desc id="d">Verification names the tests, gates and QA triggers that prove the work is done, and "cannot specify" blocks sign-off. The outcome rubric is up to 6 pass/fail lines confirmed by the operator, each tagged deterministic or judgment. QA criteria is a YAML block with either a valid qa_skip and its rationale, or a list of scenarios, each with a method and expected evidence.</desc>
+  <rect x="0" y="0" width="600" height="760" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="300" y="46" font-size="22" font-weight="700" fill="#ffffff">Done, written down first</text>
+    <text x="300" y="76" font-size="18" fill="#9bb0cc">Three fields, three different questions</text>
+
+    <rect x="30" y="100" width="540" height="190" rx="12" fill="#060B16" stroke="#18E0FF" stroke-width="2"/>
+    <text x="300" y="140" font-size="23" font-weight="700" fill="#18E0FF">Verification</text>
+    <text x="300" y="176" font-size="19" fill="#eaf1fb">Which commands prove it?</text>
+    <text x="300" y="212" font-size="18" fill="#9bb0cc">Tests, gates, qa.md triggers,</text>
+    <text x="300" y="238" font-size="18" fill="#9bb0cc">required regression tests</text>
+    <text x="300" y="270" font-size="17" fill="#9bb0cc">"Cannot specify" blocks sign-off</text>
+
+    <rect x="30" y="310" width="540" height="190" rx="12" fill="#060B16" stroke="#E9B521" stroke-width="2"/>
+    <text x="300" y="350" font-size="23" font-weight="700" fill="#E9B521">Outcome rubric</text>
+    <text x="300" y="386" font-size="19" fill="#eaf1fb">What does done mean to you?</text>
+    <text x="300" y="422" font-size="18" fill="#9bb0cc">Up to 6 operator-confirmed lines</text>
+    <text x="300" y="448" font-size="18" fill="#9bb0cc">each pass or fail</text>
+    <text x="300" y="480" font-size="17" fill="#9bb0cc">Tagged deterministic or judgment</text>
+
+    <rect x="30" y="520" width="540" height="210" rx="12" fill="#060B16" stroke="#3ad99a" stroke-width="2"/>
+    <text x="300" y="560" font-size="23" font-weight="700" fill="#3ad99a">QA criteria</text>
+    <text x="300" y="596" font-size="19" fill="#eaf1fb">How is it tested at runtime?</text>
+    <text x="300" y="632" font-size="18" fill="#9bb0cc">A valid qa_skip plus rationale,</text>
+    <text x="300" y="658" font-size="18" fill="#9bb0cc">or scenarios, each with a method</text>
+    <text x="300" y="684" font-size="18" fill="#9bb0cc">and the evidence expected</text>
+    <text x="300" y="712" font-size="17" fill="#9bb0cc">Viewports: mobile, tablet, desktop</text>
+  </g>
+</svg>
