@@ -234,7 +234,7 @@
     border-collapse: separate;
     border-spacing: 0;
     width: 100%;
-    min-width: 3440px; /* col1 Criterion (240px) + 16 data columns at 200px (DinoStack + 15 alternatives); 17 <th scope="col"> total */
+    min-width: 3640px; /* col1 Criterion (240px) + 17 data columns at 200px (DinoStack + 16 alternatives); 18 <th scope="col"> total */
     font-size: 14.5px;
   }
   caption { display: none; }
@@ -540,6 +540,13 @@
         <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Everything a classifier endpoint doesn't attempt: multi-step delegation, adversarial review, risk classification, worktree isolation, planning artifacts, process governance - JEV is complementary, not a DinoStack alternative</span></div>
       </div>
 
+      <div class="card">
+        <h3>DeepSeek super agent <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(AI LABS rebuild)</span></h3>
+        <p class="identity">AI LABS' Claude Code rebuild of DeepSeek's router-plus-workers design: one router that talks to you and hands out tasks, and workers that each do one task in their own context window, with per-ticket <code>rd.md</code>/<code>eval.md</code> files and a board. DeepSeek's own prototype, per its README, is a bundle for DeepSeek Harness that listens to GitHub and, optionally, Feishu</p>
+        <div class="row"><span class="label">Best at</span><span class="val">One agent to hand every task to instead of switching between sessions; a board where the operator marks tickets ready; a watchdog that checks every 10 minutes for stuck, looping, or waiting agents (all per AI LABS)</span></div>
+        <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Per-change risk classification, a fresh-context adversarial Skeptic on Elevated work with a round cap, and lint/typecheck/test quality gates, none of which the video states</span></div>
+      </div>
+
     </div>
   </div>
 </section>
@@ -569,6 +576,7 @@
             <th scope="col">ECC</th>
             <th scope="col">Ponytail</th>
             <th scope="col">JEV</th>
+            <th scope="col">DeepSeek super agent (AI LABS rebuild)</th>
           </tr>
         </thead>
         <tbody>
@@ -590,6 +598,7 @@
             <td>Additive toolkit installed INTO a harness, not a methodology: 68 scoped subagents with their own context and tool permissions (planner, code-reviewer, architect, language-specific reviewers, a11y-architect); no orchestration loop of its own</td>
             <td>Single agent, ruleset-modified; no roles. The ruleset is propagated into whatever subagents the host harness spawns, scoped by <code>PONYTAIL_SUBAGENT_MATCHER</code></td>
             <td>n/a (not a methodology) - a stateless per-call classifier endpoint with no agent topology of its own</td>
+            <td>AI LABS rebuild: a router on Opus that talks to you, never writes anything itself, and hands tasks to Sonnet workers that each do one task in their own context window; solo tickets run as subagents, team tickets as Claude Code agent teams; plus merger, checker, tester, reproducer, and watchdog agents. DeepSeek prototype (docs): a main session on the <code>dsh-superagent-router</code> preset and one <code>worker-&lt;ticket id&gt;</code> session per ticket on the <code>dsh-superagent-worker</code> preset</td>
           </tr>
           <tr>
             <th scope="row">Review stance</th>
@@ -609,6 +618,7 @@
             <td>Review agents are invocable skills the host harness can call on demand (planner, code-reviewer, architect, security review); no mandatory fresh-context gate, no risk taxonomy, no sign-off artifact; AgentShield audits agent config files, not agent output</td>
             <td>Self-review. <code>/ponytail-review</code> and <code>/ponytail-audit</code> are the same agent grading its own output against the ladder; no independent reviewer context exists</td>
             <td>n/a (not a methodology) - no review concept; it is a primitive other systems' review steps could call</td>
+            <td>AI LABS rebuild: the router checks every worker's results against the ticket's <code>eval.md</code>, and checker and tester agents test the app in a real browser with Vercel's agent-browser; a separate reviewer or sign-off step is not stated</td>
           </tr>
           <tr>
             <th scope="row">Substrate</th>
@@ -628,6 +638,7 @@
             <td>MIT OSS distribution repo (287 skills / 68 agents / 94 commands + rules, hooks, MCP configs) + AgentShield scanner + ECC 2.0 control plane + GitHub App; installs into an existing harness</td>
             <td>~100 lines of Markdown plus Node.js hooks and per-harness packaging; the ruleset is the product, the rest is adapter boilerplate</td>
             <td>Hosted inference endpoint (jev-1.13 model) behind an HTTP evaluate API, Python/JS SDKs, and a Claude Code/Codex skill; no folders or markdown</td>
+            <td>AI LABS rebuild: a ticket-writing skill, per-ticket <code>rd.md</code> and <code>eval.md</code> files, a board, and agents in Claude Code. DeepSeek prototype (README): an MIT-licensed bundle for DeepSeek Harness</td>
           </tr>
           <tr>
             <th scope="row">Infrastructure weight</th>
@@ -647,6 +658,7 @@
             <td>Medium: installed via Claude Code plugin or <code>npm i -g ecc-universal</code>; local-first ECC 2.0 control plane + hosted GitHub App; no servers/DB in the OSS core</td>
             <td>None at runtime, but a hard Node.js dependency: with no <code>node</code> on PATH the hooks silently degrade to near-no-op with no error</td>
             <td>None self-hosted - a hosted classifier endpoint called over HTTP; early access is waitlisted</td>
+            <td>AI LABS rebuild: a skill, agents, and a worktree per worker; the full setup is in AI Labs Pro. DeepSeek prototype (README): an agent for one GitHub repository that listens to GitHub and, optionally, Feishu, with a web panel that shows what needs a person</td>
           </tr>
           <tr>
             <th scope="row">Human-in-loop assumption</th>
@@ -666,6 +678,7 @@
             <td>Per-session enhancement inside the host harness; autonomy stays the host harness's plus ECC's context/memory/learning; no orchestration loop or lifecycle of its own</td>
             <td>Fully automatic once installed; the only operator control is the mode dial (lite/full/ultra/off), and even that is currently broken in Claude Code (issue #584)</td>
             <td>n/a (not a methodology) - a per-call API with no session or operator model</td>
+            <td>AI LABS rebuild: the operator marks the features to build as ready on the board; the router hands them out and only comes to the operator when there is a choice to make</td>
           </tr>
           <tr>
             <th scope="row">Core conviction</th>
@@ -685,6 +698,7 @@
             <td>Optimize the context window, persist everything else - performance, security, and learning as additive harness capability, not governance</td>
             <td>The best code is the code you never wrote; models over-build by default, and a ladder of &quot;do you actually need this&quot; stops them at the first rung that holds</td>
             <td>Judgment calls inside software should be typed decisions with calibrated probability and confidence, not generated text - fast and cheap enough (vendor-reported) to sit on the hot path of every agent loop</td>
+            <td>Per AI LABS: a person can only keep track of about three to five sessions at once, so hand every task to one router whose only job is to keep track of the workers and hand them tasks</td>
           </tr>
         </tbody>
       </table>
@@ -717,6 +731,7 @@
             <th scope="col">ECC</th>
             <th scope="col">Ponytail</th>
             <th scope="col">JEV</th>
+            <th scope="col">DeepSeek super agent (AI LABS rebuild)</th>
           </tr>
         </thead>
         <tbody>
@@ -738,6 +753,7 @@
             <td>Invocable review skills in the implementer's context; no mandatory fresh-context reviewer, no risk taxonomy, no sign-off gate; AgentShield audits config files, not output</td>
             <td>Low: single-agent ceiling. The one real quality guard is the NOT-lazy carve-out list, which measurably held a path-traversal check that a brevity-only prompt dropped</td>
             <td>n/a (not a methodology)</td>
+            <td>AI LABS rebuild: each ticket has an <code>eval.md</code> the router checks every worker's results against, and checker and tester agents test the app in a real browser; a fresh-context adversarial review is not stated</td>
           </tr>
           <tr>
             <th scope="row">Token cost</th>
@@ -757,6 +773,7 @@
             <td>Context-optimized by design ("optimize the context window, persist everything else"); instincts ranked for SessionStart injection; no published reduction numbers</td>
             <td>Measured and published: -22% tokens / -20% cost on its own rebuilt benchmark, -10.3% cost (p=0.004) in the independent JetBrains 80-task A/B; own README concedes a terse reasoning model deliberating the rungs can invert this (it does on GPT-5.5)</td>
             <td>Vendor-reported $0.042/M input tokens, free output; no methodology-level cost model - it is a per-call primitive, not a workflow</td>
+            <td>AI LABS rebuild: more tokens than a single session, per AI LABS: about 230,000 written and about 32.7 million read in a roughly one-hour run of three tickets, most of it agents reading parts of the conversation again at a lower cost; workers run on Sonnet to stay within usage limits</td>
           </tr>
           <tr>
             <th scope="row">Speed / latency</th>
@@ -776,6 +793,7 @@
             <td>Per-session additive layer with no orchestration loop, so no gating tax on the critical path</td>
             <td>Faster: -27% wall time on the rebuilt benchmark, -11% in JetBrains (wide variance); adds no orchestration steps and shortens only the writing phase, never the reading phase</td>
             <td>Vendor-reported ~70-500 ms per call, up to 40-200x faster than frontier-model calls on classification-style tasks</td>
+            <td>DeepSeek's own test, as AI LABS reports it (five runs each): the slowest task took 15.7 minutes with router and workers versus 29.5 minutes with a single session that could start subagents; the router, on a lighter model, answered in 6.4 s at about one message a minute and 1.6 s at about 40</td>
           </tr>
           <tr>
             <th scope="row">Parallelism</th>
@@ -795,6 +813,7 @@
             <td>None of its own - no orchestration loop; ECC 2.0 adds a worktree-lifecycle service and observability across harnesses</td>
             <td>Not addressed - orthogonal to concurrency; it modifies whatever the host agent does, one agent at a time</td>
             <td>Every question in a call is evaluated in parallel and in isolation, so adding questions doesn't add context rot the way stuffing more asks into one LLM prompt does; orthogonal to multi-agent concurrency</td>
+            <td>AI LABS rebuild: the board records which ticket each one is waiting on; in AI LABS' run, two solo tickets ran at the same time, and the merger combines each worker's worktree into the main branch</td>
           </tr>
           <tr>
             <th scope="row">Setup overhead</th>
@@ -814,6 +833,7 @@
             <td>Low: Claude Code plugin or <code>npm i -g ecc-universal</code>, selective install builder with profiles (core 8 / full 157)</td>
             <td>Lowest in this set: <code>/plugin marketplace add</code> + <code>/plugin install</code>, then trust three hooks. Skipping the <code>/hooks</code> step silently produces nothing, and uninstall leaves residue (config file, mode flag, a <code>statusLine</code> entry)</td>
             <td>Waitlisted early access; Python/JS SDKs, an HTTP evaluate endpoint, and a Claude Code/Codex agent skill</td>
+            <td>AI LABS rebuild: the full setup is in AI Labs Pro, a paid community ($25 a month); the free video walks through the pieces. DeepSeek prototype (README): setup has many steps, so your coding agent walks you through <code>SETUP.md</code></td>
           </tr>
           <tr>
             <th scope="row">Portability across harnesses</th>
@@ -833,6 +853,7 @@
             <td>Claude Code primary; ~15 harnesses behind adapters of varying maturity (most experimental/instruction-only per the support matrix); root AGENTS.md universal cross-tool file</td>
             <td>~20 harnesses in two tiers: 14 first-class plugin installs get the auto-injection hooks; 10 (Cursor, Windsurf, Cline, Copilot Chat, Aider, Kiro, Zed, Junie, Amp, Jules) get an instruction-only rule file competing for attention with everything else loaded</td>
             <td>Not harness-bound - a hosted API callable from any harness via SDK or HTTP, plus a shipped Claude Code/Codex skill</td>
+            <td>AI LABS rebuild: built in Claude Code, but per AI LABS it works with any AI coding agent; without agent teams, team tickets use subagents instead. DeepSeek prototype (README): packaged as a bundle for DeepSeek Harness</td>
           </tr>
           <tr>
             <th scope="row">Determinism / resumability</th>
@@ -852,6 +873,7 @@
             <td>Memory Vault persists markdown memory (project <code>.ecc/memory/</code>, user <code>~/.ecc/memory/</code>) with an MCP server; instincts ranked for SessionStart; no phase cursor</td>
             <td>Not addressed - no state, no phases, nothing to resume; the ruleset is stateless per session</td>
             <td>n/a (not a methodology) - stateless per call, no session or resume concept</td>
+            <td>DeepSeek prototype (docs): sessions, directories, and pending messages survive a restart, and interrupted work restarts with a recovery note</td>
           </tr>
         </tbody>
       </table>
@@ -889,6 +911,7 @@
             <th scope="col">ECC</th>
             <th scope="col">Ponytail</th>
             <th scope="col">JEV</th>
+            <th scope="col">DeepSeek super agent (AI LABS rebuild)</th>
           </tr>
         </thead>
         <tbody>
@@ -910,6 +933,7 @@
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no orchestration loop of its own; ECC 2.0 control plane adds observability and a worktree-lifecycle service, not an orchestrator)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(modifies a single agent; injects its ruleset into subagents the host spawns, but orchestrates nothing)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>n/a <span class="note">(not a methodology)</span></span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(AI LABS rebuild: an Opus router hands tasks to Sonnet workers, each in its own context window; team tickets run as Claude Code agent teams; merger, checker, tester, reproducer, and watchdog agents)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Risk classification</th>
@@ -929,6 +953,7 @@
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no risk taxonomy, no classification step)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no notion of per-change risk; the lite/full/ultra dial is a session-wide aggressiveness setting, not a per-change gate)</span></span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(a returned confidence score enables "confidence routing" - low-confidence answers routed to a human or bigger model - but this is a per-call knob, not a per-change risk taxonomy)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>Not stated <span class="note">(AI LABS rebuild: each ticket is marked solo or team, which picks subagents or agent teams; the video states no risk tier)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Independent Skeptic review</th>
@@ -948,6 +973,7 @@
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(review agents are invocable skills in the implementer's context, not a mandatory fresh-context gate; AgentShield audits config files, not output)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(<code>/ponytail-review</code> is self-review by the same agent that wrote the diff)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>n/a <span class="note">(not a methodology)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(AI LABS rebuild: the router checks every worker's results against <code>eval.md</code>, and checker and tester agents test the app in a real browser; an adversarial reviewer or sign-off artifact is not stated)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Planning artifacts</th>
@@ -967,6 +993,7 @@
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(plan-before-build is a skill the agent can invoke; no Brief/Plan/ADR artifact tiers, no Open-Questions gate)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no planning layer at all; the ruleset fires at write time)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>n/a <span class="note">(not a methodology)</span></span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(AI LABS rebuild: a ticket-writing skill turns each feature into an <code>rd.md</code> (what the feature needs to do) and an <code>eval.md</code> (how the agent checks it is done right); the board shows draft, ready, or done)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Intent layer / memory</th>
@@ -986,6 +1013,7 @@
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(confidence-scored instincts extracted from real sessions, ranked for SessionStart injection, auto-pruned/decayed when idle, <code>/evolve</code> clusters instincts into skills; cross-harness Memory Vault with MCP server)</span></span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(<code>ponytail:</code> corner-cut comments plus the <code>/ponytail-debt</code> harvest form a real, greppable deferred-work ledger - the one memory-shaped artifact it has; no cross-session memory otherwise)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>n/a <span class="note">(not a methodology - stateless; each call carries its own state payload with no persistence)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>Not stated <span class="note">(AI LABS rebuild: the video describes per-ticket files and a board, and states no cross-session memory)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Worktree isolation</th>
@@ -1005,6 +1033,7 @@
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no execution isolation or lifecycle of its own; ECC 2.0 adds a worktree-lifecycle service, not per-spawn isolation)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(worse than absent: the repo-wide <code>/ponytail-audit</code> simplification sweep is explicitly a &quot;keep a backup of your repository&quot; operation)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>n/a <span class="note">(not a methodology)</span></span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(AI LABS rebuild: a merger combines each worker's worktree into the main branch)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Quality gates</th>
@@ -1024,6 +1053,7 @@
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(TDD workflow, verification-loop skill, security-review and language-specific reviewer agents; invocable skills, not enforced gates)</span></span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(&quot;lazy code without its check is unfinished&quot; mandates one runnable check - an assert-based self-check or one small test file, with no test framework pulled in; no lint/typecheck/test obligation)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>n/a <span class="note">(not a gate on its own work; marketed as a guardrail/output-verification primitive other systems could call)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(AI LABS rebuild: per-ticket <code>eval.md</code> checks, and checker and tester agents test the app in a real browser with Vercel's agent-browser; lint, typecheck, or test gates are not stated)</span></span></td>
           </tr>
         </tbody>
       </table>
@@ -1080,6 +1110,9 @@
 
       <h3>JEV (TypeSafe)</h3>
       <p>Jev is TypeSafe AI's "System One model" (launched 2026-09-15): send it a state plus typed questions (Choice, Score, or Noul) and it returns typed answers with calibrated probability and confidence in roughly 70-500 ms (vendor-reported), with no autoregressive text generation at all. It is not a harness or a competitor to DinoStack - it is a candidate decision primitive a harness could call inside an agent loop, for exactly the call sites this doc's own risk-classification and tool/skill-selection concerns share: model routing, guardrail/output verification, and tool or skill selection. TypeSafe's own figures (speed, cost, and accuracy multipliers) are vendor-reported internal evals; The Register disputes the "hallucination-free" framing as an unfair comparison against a schema-constrained model, and Vercel's "saturated the eval" remains the only external data point. Related DinoStack tickets: DS-236, DS-237, and DS-238. <span class="win">DinoStack wins</span> on everything a classifier endpoint doesn't attempt - multi-agent orchestration, adversarial review, risk classification, worktree isolation, and planning artifacts - because JEV isn't a methodology to compare on those axes at all. The honest framing: DinoStack governs how agents are delegated, reviewed, and gated; JEV is a candidate cheap decision primitive that could sit inside such a loop.</p>
+
+      <h3>DeepSeek super agent (AI LABS rebuild)</h3>
+      <p>DeepSeek's "super agent" splits dispatch from work. Its README describes <code>dsh-superagent-prototype</code> as a research prototype, "not an official DeepSeek product", packaged as a bundle for DeepSeek Harness: an agent for one GitHub repository that listens to GitHub and, optionally, Feishu, opens a work item when someone allowed asks it for work, works on it in its own agent session and directory, and answers in the original conversation, for example with a pull request. Its docs name a <code>dsh-superagent-router</code> preset for the main session and a <code>dsh-superagent-worker</code> preset for each ticket's worker session. The README says the published code "is not identical to our internal version or the implementation described in <em>Exploring Super-agent Design: Towards a More Autonomous Agent System</em>". AI LABS' video rebuilds the idea in Claude Code, and the cells above describe that rebuild unless they say otherwise. Per the video description: a router on Opus with high effort talks to you, never writes anything itself, and hands tasks to Sonnet workers that each do one task in their own context window. A ticket-writing skill turns each feature into an <code>rd.md</code> (what the feature needs to do) and an <code>eval.md</code> (how the agent checks it is done right). A board shows whether each ticket is a draft, ready, or done, whether it runs solo (a subagent) or team (Claude Code agent teams), and which ticket it is waiting on; the operator marks features ready, and the router only comes back when there is a choice to make. The router checks every worker's results against <code>eval.md</code>. A merger combines each worker's worktree into the main branch, a checker and a tester test the app in a real browser with Vercel's agent-browser, a reproducer chases down bugs, and a Sonnet watchdog checks every 10 minutes for agents that are stuck, going in loops, or waiting on each other. AI LABS reports DeepSeek's test (the slowest task took 15.7 minutes with router and workers versus 29.5 with a single session) and its own run's usage (about 230,000 tokens written and 32.7 million read, more than a single session). The DinoStack counterparts: <code>/ds-ticket-triage</code> analyses ticket dependencies and conflicts and distributes tickets across parallel lanes; the runbook conductor (<code>content/references/runbook-conductor.md</code>) watches those lanes and re-runs triage wave by wave; <code>bin/ds-lane</code> starts each lane as a headless Claude Code or Codex session (default cap 5 per repo, <code>DS_LANE_MAX</code>); and each lane runs <code>/ds-implement-ticket</code>, whose route scales with the ticket's risk class: every route uses a worktree-isolated engineer and opens a PR, Low tickets add QA for user-visible UI changes, and Elevated tickets add the Skeptic loop (whose round cap only an operator grant reopens) and QA where it applies. <code>/ds-brief</code> with its Outcome rubric and the plan's <code>qa_criteria</code> block fill the <code>rd.md</code>/<code>eval.md</code> role, model tiers are set per agent in frontmatter, and the <code>debugger</code> agent reproduces and diagnoses failures. The mechanisms differ in four places: DinoStack lands one PR per lane rather than through a merger agent; it watches lanes mechanically, with <code>ds-lane wait</code> and a 30-minute cron backstop, rather than with a watchdog agent; lanes do not message each other, and rulings are routed through the conductor by <code>ds-lane send</code> or <code>ds-lane resume</code>; and state lives in the tracker plus <code>.agentic/runbook-&lt;KEY&gt;.json</code> rather than a board the operator edits. <span class="win">DinoStack wins</span> on per-change risk classification, a fresh-context adversarial Skeptic with a sign-off and a round cap on Elevated work, and lint/typecheck/test quality gates, none of which the video states.</p>
 
     </div>
   </div>
@@ -1139,6 +1172,9 @@
       <li><span class="src-title">ECC (ecc.tools)</span> <span class="desc">- an open-source additive agent-harness toolkit (ecc.tools / affaan-m/ECC)</span></li>
       <li><span class="src-title">Ponytail</span> <span class="desc">- DietrichGebert, a single-axis "lazy senior developer" ruleset plugin (github.com/DietrichGebert/ponytail, ponytail.dev)</span></li>
       <li><span class="src-title">JEV (TypeSafe AI)</span> <span class="desc">- Rob Shocks, "JEV Breakdown" (YouTube, 2026-09-17), cross-checked against TypeSafe's launch post and docs (typesafe.ai); all JEV figures are vendor-reported</span></li>
+      <li><span class="src-title">DeepSeek super agent</span> <span class="desc">- AI LABS, "Deepseek Just Released The Greatest Claude Code Workflow Ever" (YouTube, 2026-11-05, youtu.be/3DklR44DHnM), a Claude Code rebuild of DeepSeek's router-plus-workers setup</span></li>
+      <li><span class="src-title">dsh-superagent-prototype</span> <span class="desc">- DeepSeek, research prototype, README, and docs/003-execution.md (github.com/deepseek-ai/dsh-superagent-prototype)</span></li>
+      <li><span class="src-title">AI Labs Pro</span> <span class="desc">- ailabspro.io, the paid community that holds the full rebuild ($25 a month)</span></li>
     </ul>
   </div>
 </section>

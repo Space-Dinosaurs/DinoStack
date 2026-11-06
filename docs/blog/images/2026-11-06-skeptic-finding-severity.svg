@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 940" width="600" height="940" role="img" aria-labelledby="t d">
+  <title id="t">How Skeptic findings are handled by severity</title>
+  <desc id="d">Every finding is classified Critical, Major or Minor; an unclassified finding counts as Major. Critical blocks sign-off, earns its own round, and never ships at the cap. Major blocks sign-off unless the Worker documents a compelling reason to defer, and open Majors are batched into one fix round. Minor does not block sign-off by default and is applied by a fix agent with no follow-up review.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9bb0cc"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="600" height="940" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <rect x="110" y="24" width="380" height="84" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="300" y="60" font-size="22" font-weight="700" fill="#ffffff">Skeptic finding</text>
+    <text x="300" y="90" font-size="18" fill="#9bb0cc">unclassified counts as Major</text>
+
+    <path d="M108,66 L60,66 L60,760" fill="none" stroke="#9bb0cc" stroke-width="2.5"/>
+    <line x1="60" y1="210" x2="86" y2="210" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <line x1="60" y1="480" x2="86" y2="480" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <line x1="60" y1="760" x2="86" y2="760" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="90" y="132" width="480" height="236" rx="12" fill="#060B16" stroke="#ff5d73" stroke-width="2"/>
+    <text x="330" y="172" font-size="24" font-weight="700" fill="#ff5d73">Critical</text>
+    <text x="330" y="210" font-size="19" fill="#eaf1fb">Blocks sign-off</text>
+    <text x="330" y="240" font-size="19" fill="#eaf1fb">Earns its own round</text>
+    <text x="330" y="270" font-size="19" fill="#eaf1fb">Never ships at the cap</text>
+    <text x="330" y="314" font-size="17" fill="#9bb0cc">e.g. security hole, correctness</text>
+    <text x="330" y="340" font-size="17" fill="#9bb0cc">failure, data loss</text>
+
+    <rect x="90" y="392" width="480" height="256" rx="12" fill="#060B16" stroke="#E9B521" stroke-width="2"/>
+    <text x="330" y="432" font-size="24" font-weight="700" fill="#E9B521">Major</text>
+    <text x="330" y="470" font-size="19" fill="#eaf1fb">Blocks sign-off unless the Worker</text>
+    <text x="330" y="498" font-size="19" fill="#eaf1fb">documents a compelling reason</text>
+    <text x="330" y="526" font-size="19" fill="#eaf1fb">to defer</text>
+    <text x="330" y="560" font-size="19" fill="#eaf1fb">Batched into one fix round</text>
+    <text x="330" y="610" font-size="17" fill="#9bb0cc">e.g. a silent failure on an edge case</text>
+
+    <rect x="90" y="672" width="480" height="236" rx="12" fill="#060B16" stroke="#3ad99a" stroke-width="2"/>
+    <text x="330" y="712" font-size="24" font-weight="700" fill="#3ad99a">Minor</text>
+    <text x="330" y="750" font-size="19" fill="#eaf1fb">Does not block by default</text>
+    <text x="330" y="780" font-size="19" fill="#eaf1fb">Applied by a fix agent</text>
+    <text x="330" y="810" font-size="19" fill="#eaf1fb">No follow-up review</text>
+    <text x="330" y="860" font-size="17" fill="#9bb0cc">e.g. style, minor docs gaps</text>
+  </g>
+</svg>

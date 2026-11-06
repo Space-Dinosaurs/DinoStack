@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 940" width="600" height="940" role="img" aria-labelledby="t d">
+  <title id="t">DinoStack feedback capture flow</title>
+  <desc id="d">Four session friction signals (a tool failure the agent worked around, a stalled Skeptic review loop, a guardrail firing, and operator corrections) feed /ds-wrap, which drafts reports with a title, body, evidence and severity. Drafts are saved locally to ~/.agentic/feedback.jsonl. A human greenlights items from each batch in /ds-feedback-triage, and only greenlit items become tickets in your own tracker.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9bb0cc"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="600" height="940" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="300" y="46" font-size="22" font-weight="700" fill="#ffffff">Session friction signals</text>
+
+    <rect x="30" y="66" width="260" height="76" rx="8" fill="#0D1426" stroke="#ff5d73" stroke-width="2"/>
+    <text x="160" y="98" font-size="19" fill="#eaf1fb">Tool failure</text>
+    <text x="160" y="124" font-size="19" fill="#eaf1fb">worked around</text>
+    <rect x="310" y="66" width="260" height="76" rx="8" fill="#0D1426" stroke="#ff5d73" stroke-width="2"/>
+    <text x="440" y="98" font-size="19" fill="#eaf1fb">Stalled Skeptic</text>
+    <text x="440" y="124" font-size="19" fill="#eaf1fb">review loop</text>
+    <rect x="30" y="158" width="260" height="76" rx="8" fill="#0D1426" stroke="#ff5d73" stroke-width="2"/>
+    <text x="160" y="190" font-size="19" fill="#eaf1fb">A guardrail</text>
+    <text x="160" y="216" font-size="19" fill="#eaf1fb">firing</text>
+    <rect x="310" y="158" width="260" height="76" rx="8" fill="#0D1426" stroke="#ff5d73" stroke-width="2"/>
+    <text x="440" y="190" font-size="19" fill="#eaf1fb">Operator</text>
+    <text x="440" y="216" font-size="19" fill="#eaf1fb">corrections</text>
+
+    <line x1="300" y1="242" x2="300" y2="282" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="90" y="286" width="420" height="110" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="300" y="322" font-size="22" font-weight="700" fill="#ffffff">/ds-wrap drafts reports</text>
+    <text x="300" y="352" font-size="19" fill="#9bb0cc">title, body, evidence, severity</text>
+    <text x="300" y="380" font-size="18" fill="#9bb0cc">never breaks or delays the wrap</text>
+
+    <line x1="300" y1="400" x2="300" y2="440" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="90" y="444" width="420" height="96" rx="10" fill="#0A1020" stroke="#b06bff" stroke-width="2"/>
+    <text x="300" y="482" font-size="22" font-weight="700" fill="#ffffff">Saved locally</text>
+    <text x="300" y="514" font-size="19" fill="#9bb0cc">~/.agentic/feedback.jsonl</text>
+
+    <line x1="300" y1="544" x2="300" y2="584" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="90" y="588" width="420" height="110" rx="10" fill="#0A1020" stroke="#E9B521" stroke-width="2"/>
+    <text x="300" y="626" font-size="22" font-weight="700" fill="#ffffff">/ds-feedback-triage</text>
+    <text x="300" y="656" font-size="19" fill="#9bb0cc">a human greenlights</text>
+    <text x="300" y="682" font-size="19" fill="#9bb0cc">items from each batch</text>
+
+    <line x1="300" y1="702" x2="300" y2="762" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="314" y="740" font-size="18" fill="#eaf1fb" text-anchor="start">greenlit only</text>
+
+    <rect x="90" y="766" width="420" height="80" rx="10" fill="#0A1020" stroke="#3ad99a" stroke-width="2"/>
+    <text x="300" y="814" font-size="22" font-weight="700" fill="#ffffff">Ticket in your own tracker</text>
+
+    <text x="300" y="896" font-size="18" fill="#9bb0cc">Nothing becomes a ticket until a human approves it.</text>
+  </g>
+</svg>

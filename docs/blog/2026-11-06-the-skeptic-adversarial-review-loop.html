@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#02050C">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='10' fill='none' stroke='%2318E0FF' stroke-width='3'/></svg>">
+<title>The Skeptic: DinoStack's adversarial review loop - DinoStack Blog</title>
+<meta name="description" content="How DinoStack's Skeptic reviews every risky change: a fresh reviewer with no shared context, findings rated Critical, Major or Minor, a round cap, and briefs that may not prime the reviewer.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/blog/blog.css">
+</head>
+<body>
+
+<nav class="side-nav" aria-label="Site">
+  <div class="side-nav-brand">
+    <img class="side-nav-logo" src="/images/dinostack-logo.svg" alt="DinoStack">
+  </div>
+  <a href="/"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
+  <hr class="side-nav-divider">
+  <a href="/blog/"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
+</nav>
+
+<nav class="mobile-nav" aria-label="Site">
+  <a href="/">Home</a>
+  <a href="/blog/">Blog</a>
+</nav>
+
+<article class="post">
+  <header class="doc-header">
+    <h1>The Skeptic: DinoStack's adversarial review loop</h1>
+    <p class="byline"><time datetime="2026-11-06">2026-11-06</time></p>
+  </header>
+
+  <p>A model reviewing its own work tends to agree with itself. DinoStack's answer is the Skeptic: for every change classified as Elevated risk, a separate reviewer agent critiques the work before it ships. There is no self-review path for Elevated work.</p>
+
+  <h2>A fresh reviewer with no shared context</h2>
+  <p>The core idea is that a reviewer's value is its independence. A reviewer that has already heard the implementer's justifications is partly anchored to them. So each Skeptic is a fresh agent, never a continuation of an earlier round. It receives four things: the adversarial brief describing what to probe, the Worker's output, a list of issues already resolved in earlier rounds, and a global-context block (the plan, the <code>qa_criteria</code>, related files, the diff under review, and any factual claims the conductor makes). It never sees the Worker's reasoning. The Skeptic is also read-only: it can read, search, and run commands, but it cannot edit files or spawn other agents.</p>
+
+  <figure>
+    <a class="figure-link" href="/blog/images/2026-11-06-skeptic-review-loop.svg"><img src="/blog/images/2026-11-06-skeptic-review-loop.svg" width="600" height="1110" alt="Review loop: a Worker implements, and a fresh Skeptic reviews the output with the adversarial brief, the Worker's output, the resolved-issues list, and the global-context inputs, never the Worker's reasoning. If no Critical or Major finding is open, sign-off is granted. On the full route, a new Worker fixes the findings and a new fresh Skeptic reviews again; on the single-review route, fixes are re-reviewed only after a Critical. The cap is 3 rounds per unit by default, 2 on single-review; at the cap the conductor ships with open non-Critical findings recorded as debt, or escalates. An open Critical never ships, and only an operator grant reopens the loop past the cap."></a>
+    <figcaption>On the full route, each round gets a new Worker and a new Skeptic, until sign-off or the round cap.</figcaption>
+  </figure>
+
+  <h2>Critical, Major, Minor</h2>
+  <p>The Skeptic classifies every finding, and an unclassified finding counts as Major.</p>
+  <ul>
+    <li><strong>Critical</strong> blocks sign-off: security vulnerabilities, correctness failures, data-loss paths. A Critical earns a round of its own.</li>
+    <li><strong>Major</strong> blocks sign-off unless the Worker gives a compelling, documented reason to defer it: missing error handling on a critical path, an edge case that fails silently. Open Majors are batched into one fix round rather than one round each.</li>
+    <li><strong>Minor</strong> does not block sign-off by default. A fix agent applies Minors after sign-off, with no follow-up review.</li>
+  </ul>
+  <p>Sign-off is the plain statement that no Critical or Major finding is left unresolved.</p>
+
+  <figure>
+    <a class="figure-link" href="/blog/images/2026-11-06-skeptic-finding-severity.svg"><img src="/blog/images/2026-11-06-skeptic-finding-severity.svg" width="600" height="940" alt="Finding severity: every Skeptic finding is Critical, Major or Minor, and an unclassified finding counts as Major. Critical blocks sign-off, earns its own round, and never ships at the cap. Major blocks sign-off unless the Worker documents a compelling reason to defer, and is batched into one fix round. Minor does not block by default, is applied by a fix agent, and gets no follow-up review."></a>
+    <figcaption>What each severity means for sign-off and for how rounds are spent.</figcaption>
+  </figure>
+
+  <h2>A round cap, and an operator grant to go past it</h2>
+  <p>Review can go on forever if nothing stops it. By default a unit gets 3 Skeptic rounds. The lighter single-review route allows at most 2: if the first review has no Critical, one fix pass addresses the findings and the loop ends with no re-review; only a Critical earns a second review. At the cap the conductor does exactly one of two things: it ships, recording every unresolved non-Critical finding in the PR body as accepted debt, or it escalates to you with the cost so far. An unresolved Critical always blocks; the cap never ships one.</p>
+  <p>The cap is enforced by a hook, not by memory. <code>hooks/enforce-skeptic-round-cap.py</code> counts rounds per unit and denies the next Skeptic spawn once the cap is reached. Only an operator grant reopens it: a reply such as "grant", or the <code>skeptic-grant-</code> token the denial prints for that unit and round. Nothing the conductor writes to its own state file can lift the cap.</p>
+
+  <h2>Briefs may not prime the reviewer</h2>
+  <p>Independence is easy to undo by accident. If the conductor writes "look hard at the retry logic, I think the backoff resets on the wrong condition" into the Skeptic's brief, the reviewer starts from the conductor's conclusion. DinoStack bans that shape. A spawn brief may not carry the conductor's own hypothesis, suspicion, or attention-steer, whether stated as a fact, a suspicion, or a leading question. Two things that look similar are allowed, because they can be checked against something other than the conductor's say-so: a factual claim tagged with where it was verified, and content passed through with explicit attribution to a named agent, such as an engineer's own stated concerns. Every factual claim the conductor writes into a spawn brief carries a provenance tag, so the Skeptic can tell a verified fact from an unverified one.</p>
+
+  <h2>Why it matters</h2>
+  <p>The loop is built around the failure it is meant to catch: an implementer, human or model, quietly ratifying its own mistakes. A fresh reviewer, a severity scale tied to sign-off, a hard round cap, and briefs that cannot carry the conductor's conclusions together make the review independent in practice, not just in name.</p>
+
+  <h2>Sources</h2>
+  <ul>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/references/skeptic-protocol.md"><code>content/references/skeptic-protocol.md</code></a>: the Skeptic Protocol (core loop, round budget, findings classification, neutrality requirement)</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/agents/skeptic.md"><code>content/agents/skeptic.md</code></a>: the Skeptic agent definition and its read-only tool set</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/sections/04-risk-classification.md"><code>content/sections/04-risk-classification.md</code></a>: risk classification and the provenance test for spawn briefs</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/hooks/enforce-skeptic-round-cap.py"><code>hooks/enforce-skeptic-round-cap.py</code></a>: the hook that enforces the round cap and the operator grant</li>
+  </ul>
+</article>
+
+</body>
+</html>

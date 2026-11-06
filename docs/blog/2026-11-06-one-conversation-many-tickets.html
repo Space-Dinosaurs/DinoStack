@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#02050C">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='10' fill='none' stroke='%2318E0FF' stroke-width='3'/></svg>">
+<title>One conversation, many tickets: DinoStack's conductor and lanes - DinoStack Blog</title>
+<meta name="description" content="DinoStack's conductor and ds-lane let you hold one conversation while several tickets run in parallel, each through a ticket workflow scaled to its risk.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/blog/blog.css">
+</head>
+<body>
+
+<nav class="side-nav" aria-label="Site">
+  <div class="side-nav-brand">
+    <img class="side-nav-logo" src="/images/dinostack-logo.svg" alt="DinoStack">
+  </div>
+  <a href="/"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
+  <hr class="side-nav-divider">
+  <a href="/blog/"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
+</nav>
+
+<nav class="mobile-nav" aria-label="Site">
+  <a href="/">Home</a>
+  <a href="/blog/">Blog</a>
+</nav>
+
+<article class="post">
+  <header class="doc-header">
+    <h1>One conversation, many tickets: DinoStack's conductor and lanes</h1>
+    <p class="byline"><time datetime="2026-11-06">2026-11-06</time></p>
+  </header>
+
+  <p>Running several tickets at once usually means several terminal windows, each waiting on you. DinoStack's conductor and lanes turn that into one conversation. You talk to a single conductor session. It starts each ticket as its own headless session, watches them, and comes back to you only when one of them needs a decision.</p>
+
+  <h2>The conductor</h2>
+  <p>The conductor starts from a <code>/ds-ticket-triage</code> plan, which analyses the tickets' dependencies and conflicts and splits them into parallel lanes. From there the conductor:</p>
+  <ul>
+    <li>starts each lane and watches all of them,</li>
+    <li>relays your rulings to the lanes they concern,</li>
+    <li>surfaces a blocked or failed lane to you as a decision, and holds risky actions until you rule,</li>
+    <li>re-runs triage over the remaining tickets when a wave is done, and presents the next wave.</li>
+  </ul>
+  <p>It does no ticket work itself. Its state lives in one file, <code>.agentic/runbook-&lt;KEY&gt;.json</code>, which it reads first after a context compaction, so a long run survives one.</p>
+
+  <figure>
+    <a class="figure-link" href="/blog/images/2026-11-06-conductor-lanes-architecture.svg"><img src="/blog/images/2026-11-06-conductor-lanes-architecture.svg" width="600" height="900" alt="Architecture: the operator talks to one conductor. The conductor fans out to N ds-lane sessions, each a headless claude -p or codex exec session running /ds-implement-ticket scaled to the ticket's risk: an engineer in a worktree, a Skeptic review loop on Elevated tickets, QA where it applies, then a PR. Rulings go from the conductor to the lanes, and only decisions come back to the operator. Lanes never message each other."></a>
+    <figcaption>One conductor, up to 5 lanes by default, each running the ticket workflow its risk calls for.</figcaption>
+  </figure>
+
+  <h2>Lanes</h2>
+  <p><code>ds-lane</code> starts each lane as its own headless Claude Code or Codex session, picking the harness the conductor itself is running in. Up to 5 lanes run at once per repo by default (<code>DS_LANE_MAX</code>), and <code>ds-lane start</code> refuses a new lane at that cap; the conductor holds the rest in its queue and starts them as slots free up. Each lane ends its work with a <code>LANE-DONE</code> or <code>LANE-BLOCKED</code> marker. A lane stopped by a usage limit shows as blocked with the reset time, and resumes later in the exact session it left.</p>
+
+  <h2>Each lane runs the ticket workflow, scaled to risk</h2>
+  <p>A lane is not a single worker. Each one runs <code>/ds-implement-ticket</code>, which picks its route from the ticket's risk class:</p>
+  <ul>
+    <li><strong>Every route:</strong> an engineer working in an isolated worktree, the project's quality checks, and a PR, which can merge on its own once CI passes when auto-merge is turned on.</li>
+    <li><strong>Trivial:</strong> one engineer; no Skeptic review and no QA.</li>
+    <li><strong>Low:</strong> no Skeptic review; QA runs when the change is user-visible UI.</li>
+    <li><strong>Elevated:</strong> an adversarial Skeptic review loop with a round cap, plus QA where the project's QA gate applies.</li>
+  </ul>
+  <p>Running tickets in parallel does not lower that bar: no message from the conductor ever tells a lane to skip its own Skeptic review, QA, or gates.</p>
+
+  <h2>Design choices</h2>
+  <ul>
+    <li><strong>Lanes don't talk to each other.</strong> Every message goes through the conductor, which delivers it with <code>ds-lane send</code> or <code>ds-lane resume</code>.</li>
+    <li><strong>Each lane opens its own PR.</strong> There is no separate merge step to coordinate.</li>
+    <li><strong>Stalls are caught mechanically.</strong> The conductor runs <code>ds-lane wait</code>, which returns as soon as a lane finishes, blocks, or dies, with a 30-minute cron as a backstop, rather than asking a model to judge whether a lane looks stuck.</li>
+  </ul>
+
+  <h2>The lane lifecycle</h2>
+  <p>A finished lane frees its slot, and the conductor starts the next lane in its queue. A blocked or dead lane becomes a decision for you, and your ruling goes back to the same session.</p>
+
+  <figure>
+    <a class="figure-link" href="/blog/images/2026-11-06-lane-lifecycle.svg"><img src="/blog/images/2026-11-06-lane-lifecycle.svg" width="600" height="1040" alt="Lane lifecycle: the conductor runs ds-lane start, which refuses a new lane past 5 running by default; the conductor queues the rest. The lane runs /ds-implement-ticket. ds-lane wait returns when a lane is done, blocked, or dead, with a 30-minute cron as backstop. LANE-DONE: the lane exits and frees its slot, and the conductor starts the next queued lane. LANE-BLOCKED, or dead (exited without a marker): a decision for the operator, whose ruling goes back by ds-lane send while the lane is running, or ds-lane resume once it has exited, in the same session. Every message goes through the conductor."></a>
+    <figcaption>From start to done, or to a ruling and back.</figcaption>
+  </figure>
+
+  <h2>Similar designs elsewhere</h2>
+  <p>DeepSeek has published a router-plus-workers research prototype, <a href="https://github.com/deepseek-ai/dsh-superagent-prototype"><code>dsh-superagent-prototype</code></a>, and AI LABS <a href="https://youtu.be/3DklR44DHnM">rebuilt the idea in Claude Code</a>. The <a href="/agentic-engineering-comparison.html">Ecosystem Comparison</a> sets the AI LABS rebuild beside DinoStack.</p>
+
+  <h2>Sources</h2>
+  <ul>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/954">DinoStack PR #954</a>: optional cross-session runbook conductor, merged 2026-09-29 (commit <code>6798905cf</code>)</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/994">DinoStack PR #994</a>: <code>ds-lane</code>, conductor-launched headless lanes, merged 2026-10-12 (commit <code>3b8f82373</code>)</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/1019">DinoStack PR #1019</a>: lanes inherit the invoking harness, adding Codex lanes, merged 2026-10-14 (commit <code>ba027c12c</code>)</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/commands/ds-implement-ticket.md"><code>content/commands/ds-implement-ticket.md</code></a>: the route table that scales the workflow by risk class</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/references/runbook-conductor.md"><code>content/references/runbook-conductor.md</code></a>: the conductor, lane watch, and ruling delivery</li>
+    <li><a href="https://github.com/deepseek-ai/dsh-superagent-prototype">deepseek-ai/dsh-superagent-prototype</a></li>
+    <li><a href="https://youtu.be/3DklR44DHnM">AI LABS, "Deepseek Just Released The Greatest Claude Code Workflow Ever"</a> (YouTube)</li>
+  </ul>
+</article>
+
+</body>
+</html>
