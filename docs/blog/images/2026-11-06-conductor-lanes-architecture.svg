@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" width="960" height="620" role="img" aria-labelledby="t d">
+  <title id="t">DinoStack conductor and ds-lane architecture</title>
+  <desc id="d">The operator talks to one conductor session. The conductor fans out to N ds-lane sessions, each a headless Claude Code or Codex session running /ds-implement-ticket: an engineer in an isolated worktree, then a Skeptic review loop, then QA, then a PR. Rulings flow from the conductor to the lanes, and only decisions flow back to the operator.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9bb0cc"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="960" height="620" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <rect x="380" y="28" width="200" height="56" rx="10" fill="#0A1020" stroke="#E9B521" stroke-width="2"/>
+    <text x="480" y="62" font-size="20" font-weight="700" fill="#ffffff">Operator</text>
+
+    <line x1="455" y1="88" x2="455" y2="140" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+    <line x1="505" y1="140" x2="505" y2="88" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+    <text x="445" y="120" font-size="14" fill="#eaf1fb" text-anchor="end">rulings</text>
+    <text x="515" y="120" font-size="14" fill="#eaf1fb" text-anchor="start">decisions only</text>
+
+    <rect x="330" y="144" width="300" height="64" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="480" y="172" font-size="20" font-weight="700" fill="#ffffff">Conductor</text>
+    <text x="480" y="194" font-size="13" fill="#9bb0cc">one session, does no ticket work itself</text>
+
+    <path d="M480,212 L480,240 L170,240 L170,268" fill="none" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+    <text x="325" y="232" font-size="13" fill="#eaf1fb">rulings down, decisions up</text>
+    <path d="M480,240 L480,268" fill="none" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+    <path d="M480,240 L790,240 L790,268" fill="none" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+
+    <g>
+      <rect x="40" y="272" width="260" height="320" rx="12" fill="#060B16" stroke="#b06bff" stroke-width="2"/>
+      <text x="170" y="298" font-size="17" font-weight="700" fill="#ffffff">ds-lane 1</text>
+      <text x="170" y="318" font-size="12" fill="#9bb0cc">headless claude -p or codex exec</text>
+      <text x="170" y="336" font-size="12" fill="#9bb0cc">running /ds-implement-ticket</text>
+      <rect x="64" y="350" width="212" height="44" rx="8" fill="#0D1426" stroke="#3ad99a" stroke-width="1.5"/>
+      <text x="170" y="377" font-size="14" fill="#eaf1fb">Engineer in a worktree</text>
+      <line x1="170" y1="394" x2="170" y2="408" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+      <rect x="64" y="412" width="212" height="44" rx="8" fill="#0D1426" stroke="#ff5d73" stroke-width="1.5"/>
+      <text x="170" y="439" font-size="14" fill="#eaf1fb">Skeptic review loop</text>
+      <line x1="170" y1="456" x2="170" y2="470" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+      <rect x="64" y="474" width="212" height="44" rx="8" fill="#0D1426" stroke="#E9B521" stroke-width="1.5"/>
+      <text x="170" y="501" font-size="14" fill="#eaf1fb">QA</text>
+      <line x1="170" y1="518" x2="170" y2="532" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+      <rect x="64" y="536" width="212" height="44" rx="8" fill="#0D1426" stroke="#18E0FF" stroke-width="1.5"/>
+      <text x="170" y="563" font-size="14" fill="#eaf1fb">PR</text>
+    </g>
+
+    <g>
+      <rect x="350" y="272" width="260" height="320" rx="12" fill="#060B16" stroke="#b06bff" stroke-width="2"/>
+      <text x="480" y="298" font-size="17" font-weight="700" fill="#ffffff">ds-lane 2</text>
+      <text x="480" y="318" font-size="12" fill="#9bb0cc">headless claude -p or codex exec</text>
+      <text x="480" y="336" font-size="12" fill="#9bb0cc">running /ds-implement-ticket</text>
+      <rect x="374" y="350" width="212" height="44" rx="8" fill="#0D1426" stroke="#3ad99a" stroke-width="1.5"/>
+      <text x="480" y="377" font-size="14" fill="#eaf1fb">Engineer in a worktree</text>
+      <line x1="480" y1="394" x2="480" y2="408" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+      <rect x="374" y="412" width="212" height="44" rx="8" fill="#0D1426" stroke="#ff5d73" stroke-width="1.5"/>
+      <text x="480" y="439" font-size="14" fill="#eaf1fb">Skeptic review loop</text>
+      <line x1="480" y1="456" x2="480" y2="470" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+      <rect x="374" y="474" width="212" height="44" rx="8" fill="#0D1426" stroke="#E9B521" stroke-width="1.5"/>
+      <text x="480" y="501" font-size="14" fill="#eaf1fb">QA</text>
+      <line x1="480" y1="518" x2="480" y2="532" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+      <rect x="374" y="536" width="212" height="44" rx="8" fill="#0D1426" stroke="#18E0FF" stroke-width="1.5"/>
+      <text x="480" y="563" font-size="14" fill="#eaf1fb">PR</text>
+    </g>
+
+    <g>
+      <rect x="660" y="272" width="260" height="320" rx="12" fill="#060B16" stroke="#b06bff" stroke-width="2" stroke-dasharray="7 5"/>
+      <text x="790" y="298" font-size="17" font-weight="700" fill="#ffffff">ds-lane N</text>
+      <text x="790" y="318" font-size="12" fill="#9bb0cc">up to 5 at once by default</text>
+      <text x="790" y="336" font-size="12" fill="#9bb0cc">same flow as every lane</text>
+      <rect x="684" y="350" width="212" height="44" rx="8" fill="#0D1426" stroke="#3ad99a" stroke-width="1.5"/>
+      <text x="790" y="377" font-size="14" fill="#eaf1fb">Engineer in a worktree</text>
+      <line x1="790" y1="394" x2="790" y2="408" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+      <rect x="684" y="412" width="212" height="44" rx="8" fill="#0D1426" stroke="#ff5d73" stroke-width="1.5"/>
+      <text x="790" y="439" font-size="14" fill="#eaf1fb">Skeptic review loop</text>
+      <line x1="790" y1="456" x2="790" y2="470" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+      <rect x="684" y="474" width="212" height="44" rx="8" fill="#0D1426" stroke="#E9B521" stroke-width="1.5"/>
+      <text x="790" y="501" font-size="14" fill="#eaf1fb">QA</text>
+      <line x1="790" y1="518" x2="790" y2="532" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+      <rect x="684" y="536" width="212" height="44" rx="8" fill="#0D1426" stroke="#18E0FF" stroke-width="1.5"/>
+      <text x="790" y="563" font-size="14" fill="#eaf1fb">PR</text>
+    </g>
+
+    <text x="480" y="610" font-size="12" fill="#9bb0cc">Lanes never message each other: every message goes through the conductor.</text>
+  </g>
+</svg>

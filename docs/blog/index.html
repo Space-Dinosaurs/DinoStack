@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<!--
+  Blog authoring conventions:
+  - One static HTML file per post, named YYYY-MM-DD-<slug>.html, styled by blog.css. No build step.
+  - Every post includes at least two images, saved under images/ and referenced with <img> tags
+    carrying meaningful alt text. Diagrams must read in light and dark themes (draw an explicit
+    background or explicit fills).
+  - Add each new post to the list below, newest first.
+  - Plain hyphens only, never em dashes.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#02050C">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='10' fill='none' stroke='%2318E0FF' stroke-width='3'/></svg>">
+<title>Blog - DinoStack</title>
+<meta name="description" content="Posts from the DinoStack project.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="blog.css">
+</head>
+<body>
+
+<nav class="side-nav" aria-label="Site">
+  <div class="side-nav-brand">
+    <img class="side-nav-logo" src="../images/dinostack-logo.svg" alt="DinoStack">
+  </div>
+  <a href="../index.html"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
+  <hr class="side-nav-divider">
+  <a href="index.html" class="active" aria-current="page"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
+</nav>
+
+<nav class="mobile-nav" aria-label="Site">
+  <a href="../index.html">Home</a>
+  <a href="index.html" aria-current="page">Blog</a>
+</nav>
+
+<div class="doc-header">
+  <h1>Blog</h1>
+  <p class="subtitle">Notes from the DinoStack project.</p>
+</div>
+
+<main>
+  <ul class="post-list">
+    <li>
+      <span class="post-date">2026-11-06</span>
+      <a class="post-title" href="2026-11-06-dinostack-had-the-super-agent-pattern-first.html">DinoStack already runs DeepSeek's "super agent" pattern, and has since September</a>
+      <p class="post-summary">How the cross-session conductor and ds-lane map onto DeepSeek's router-plus-workers design, and where DinoStack chose differently.</p>
+    </li>
+  </ul>
+</main>
+
+</body>
+</html>
