@@ -72,7 +72,7 @@
   <h2>The trade-off, stated plainly</h2>
   <p>Between catch-ups, <code>main</code> carries non-Claude generated files that lag <code>content/</code>. If you use one of those adapters, here is what that means:</p>
   <ul>
-    <li>Outside <code>DS_ALL_HARNESSES=1</code>, the non-Claude installers do not run their build. They install the committed files, so your checkout stays clean and <code>ds-update</code> keeps working.</li>
+    <li>Outside <code>DS_ALL_HARNESSES=1</code>, the non-Claude installers do not run their build. They install the committed files, so your checkout stays clean and <code>ds-update</code> keeps working. The one exception is Kimi, whose installer still builds its gitignored per-command skills, which are never committed.</li>
     <li>You get a mix: files the adapter links straight into <code>content/</code> are current, generated files are as old as the last catch-up, and a link to a <code>content/</code> file that was renamed or deleted since then dangles until the next one.</li>
     <li>The Codex installer warns when its source is stale, or when its staged build failed, and installs the committed files.</li>
     <li>To build and install a non-Claude adapter from current <code>content/</code>, run its installer with <code>DS_ALL_HARNESSES=1</code>. That dirties your checkout until the catch-up merges.</li>

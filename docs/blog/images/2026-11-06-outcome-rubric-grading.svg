@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 800" width="600" height="800" role="img" aria-labelledby="t d">
-  <title id="t">How the Skeptic grades an outcome rubric on Elevated work</title>
-  <desc id="d">If the rubric is absent on Elevated work, that is a Critical finding. A rubric line with no verification_type is a Major finding. For a deterministic line, the Skeptic checks that the named gate was run and passed; if it was not, that is Major. For a judgment line, the Skeptic grades it adversarially and independently, never treating it as self-certifying; an unmet line is Major.</desc>
+  <title id="t">How the Skeptic grades an outcome rubric on an Elevated Brief</title>
+  <desc id="d">If the rubric is absent on an Elevated Brief, that is a Critical finding. A rubric line with no verification_type is a Major finding. For a deterministic line, the Skeptic checks that the named gate was run and passed; if it was not, that is Major. For a judgment line, the Skeptic grades it adversarially and independently, never treating it as self-certifying; an unmet line is Major.</desc>
   <defs>
     <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#9bb0cc"/>
@@ -12,7 +12,7 @@
 
     <rect x="30" y="74" width="350" height="90" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
     <text x="205" y="112" font-size="19" fill="#eaf1fb">Rubric present on</text>
-    <text x="205" y="140" font-size="19" fill="#eaf1fb">Elevated work?</text>
+    <text x="205" y="140" font-size="19" fill="#eaf1fb">an Elevated Brief?</text>
     <line x1="380" y1="119" x2="420" y2="119" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
     <text x="400" y="107" font-size="17" fill="#9bb0cc">no</text>
     <rect x="424" y="89" width="146" height="60" rx="30" fill="#060B16" stroke="#ff5d73" stroke-width="2"/>
