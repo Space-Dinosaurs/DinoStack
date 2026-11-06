@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 280" width="960" height="280" role="img" aria-labelledby="t d">
+  <title id="t">Timeline of agent-drafted feedback reports</title>
+  <desc id="d">2026-07-02: DinoStack wrap-time feedback capture and feedback triage, PR 408. 2026-08-20: Claude Code v2.1.238, the minimum version for Claude-drafted feedback. 49 days apart.</desc>
+  <rect x="0" y="0" width="960" height="280" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <line x1="120" y1="140" x2="840" y2="140" stroke="#9bb0cc" stroke-width="3"/>
+    <text x="480" y="128" font-size="14" fill="#9bb0cc">49 days</text>
+
+    <circle cx="200" cy="140" r="11" fill="#18E0FF"/>
+    <text x="200" y="100" font-size="18" font-weight="700" fill="#ffffff">2026-07-02</text>
+    <text x="200" y="186" font-size="15" fill="#eaf1fb">DinoStack</text>
+    <text x="200" y="208" font-size="15" fill="#eaf1fb">wrap-time feedback capture</text>
+    <text x="200" y="230" font-size="13" fill="#9bb0cc">PR #408</text>
+
+    <circle cx="760" cy="140" r="11" fill="#E9B521"/>
+    <text x="760" y="100" font-size="18" font-weight="700" fill="#ffffff">2026-08-20</text>
+    <text x="760" y="186" font-size="15" fill="#eaf1fb">Claude Code v2.1.238</text>
+    <text x="760" y="208" font-size="15" fill="#eaf1fb">Claude-drafted feedback</text>
+  </g>
+</svg>

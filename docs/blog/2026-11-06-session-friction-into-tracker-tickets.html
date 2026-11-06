@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#02050C">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='10' fill='none' stroke='%2318E0FF' stroke-width='3'/></svg>">
+<title>From session friction to tracker tickets: DinoStack's feedback capture - DinoStack Blog</title>
+<meta name="description" content="At the end of each session, DinoStack's agents turn the friction they hit into draft reports, and a human triages them into tickets in your own tracker.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="blog.css">
+</head>
+<body>
+
+<nav class="side-nav" aria-label="Site">
+  <div class="side-nav-brand">
+    <img class="side-nav-logo" src="../images/dinostack-logo.svg" alt="DinoStack">
+  </div>
+  <a href="../index.html"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
+  <hr class="side-nav-divider">
+  <a href="index.html"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
+</nav>
+
+<nav class="mobile-nav" aria-label="Site">
+  <a href="../index.html">Home</a>
+  <a href="index.html">Blog</a>
+</nav>
+
+<article class="post">
+  <header class="doc-header">
+    <h1>From session friction to tracker tickets: DinoStack's feedback capture</h1>
+    <p class="byline"><time datetime="2026-11-06">2026-11-06</time></p>
+  </header>
+
+  <p>Agents hit friction all the time: a tool that keeps failing, a review loop that won't converge, a correction you had to make twice. Most of it is forgotten by the next session. DinoStack captures it instead. When a session wraps up, the agent turns that friction into draft reports, and you decide which ones become tickets in your own tracker.</p>
+
+  <h2>What gets captured</h2>
+  <p>The capture step runs inside <code>/ds-wrap</code>, the command that closes out a session. It checks four signals:</p>
+  <ul>
+    <li><strong>Repeated tool failures:</strong> a tool that failed and had to be worked around.</li>
+    <li><strong>A stalled review loop:</strong> a Skeptic review loop that hit its round cap, stopped converging, or was blocked.</li>
+    <li><strong>A guardrail firing:</strong> for example the guard that stops an agent from ending its turn to ask permission for an obvious next step.</li>
+    <li><strong>Operator corrections:</strong> turns where you corrected or rejected what the agent did, quoted verbatim.</li>
+  </ul>
+  <p>For each one it drafts a report with a title, a short body, the evidence, and a severity, and saves it locally to <code>~/.agentic/feedback.jsonl</code>. A session with no friction writes nothing. The step can never break or delay the wrap: any error inside it is swallowed.</p>
+
+  <figure>
+    <img src="images/2026-11-06-feedback-capture-flow.svg" width="960" height="440" alt="Flow: four session friction signals (repeated tool failures, a stalled Skeptic review loop, a guardrail firing, operator corrections) feed /ds-wrap, which drafts reports with a title, body, evidence and severity. Drafts are saved locally to ~/.agentic/feedback.jsonl. A human greenlights items from each batch in /ds-feedback-triage, and only greenlit items become tickets in your own tracker.">
+    <figcaption>From friction to ticket, with a human approval step before anything is filed.</figcaption>
+  </figure>
+
+  <h2>A human decides what gets filed</h2>
+  <p>The drafts pile up across every project on your machine. When you have time, run <code>/ds-feedback-triage</code>. It shows the open drafts grouped by scope (the methodology itself, or the project you were working in) and ordered by severity, and creates tracker tickets only for the items you explicitly greenlight. Ticket creation is batch, never automatic.</p>
+
+  <h2>Why it matters</h2>
+  <p>Friction is the most direct evidence of where your process or tooling is weak, and it is gone once the session ends. Capturing it at wrap time, with the evidence attached, turns it into a backlog you can act on. Because the tickets land in your own tracker, the fixes stay with the team that owns the process.</p>
+
+  <h2>Similar features elsewhere</h2>
+  <p>Claude Code added Claude-drafted feedback, which drafts a report when a tool keeps failing, Claude can't help with a request, or you point out a mistake; you review drafts in <code>/feedback</code>, and nothing reaches Anthropic until you send it. It requires v2.1.238, published on 2026-08-20, 49 days after DinoStack's capture step merged on 2026-07-02. The difference is the destination: DinoStack files reports into your own tracker, and Claude Code sends them to Anthropic.</p>
+
+  <figure>
+    <img src="images/2026-11-06-feedback-capture-timeline.svg" width="960" height="280" alt="Timeline: 2026-07-02 DinoStack wrap-time feedback capture (PR #408); 2026-08-20 Claude Code v2.1.238, the minimum version for Claude-drafted feedback; 49 days apart.">
+    <figcaption>Release dates for the two features.</figcaption>
+  </figure>
+
+  <h2>Sources</h2>
+  <ul>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/403">DinoStack PR #403</a>: <code>bin/agentic-feedback</code>, the home-dir feedback store CLI, merged 2026-07-02 (commit <code>177d78a8f</code>)</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/408">DinoStack PR #408</a>: wrap Part D.5 feedback capture and the triage command (then named <code>/feedback-triage</code>), merged 2026-07-02T19:44:32Z (commit <code>b2a498b87</code>)</li>
+    <li><a href="https://code.claude.com/docs/en/whats-new/2026-w35">Claude Code What's New, Week 35 (August 24-28, 2026)</a>: Claude-drafted feedback, requires v2.1.238 or later</li>
+    <li><a href="https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md">Claude Code CHANGELOG</a>: lists the <code>SendFeedback</code> tool under v2.1.247 (published 2026-08-26); v2.1.238 was published to npm on 2026-08-20</li>
+  </ul>
+</article>
+
+</body>
+</html>
