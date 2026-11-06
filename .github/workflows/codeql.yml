@@ -94,5 +94,9 @@ jobs:
         with:
           node-version: '22'
 
+      # npm 10.9.9 and 11.3.0 report a non-breaking fixAvailable for advisories that have none (measured on @eslint/config-array).
+      - name: Install npm 11.19.0
+        run: npm install -g npm@11.19.0
+
       - name: Audit both manifests for actionable advisories
         run: bash scripts/check-npm-audit.sh

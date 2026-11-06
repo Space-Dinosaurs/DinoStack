@@ -24,20 +24,19 @@
 #
 #          THE FAILURE PREDICATE IS ACTIONABILITY, NOT SEVERITY. A gate that
 #          fails on `npm audit`'s exit code, or on --audit-level=high, would
-#          red-line main permanently today: scripts/ carries 4 high-severity
-#          advisories rooted in extract-zip, whose newest published version is
-#          2.0.1 and whose advisories cover `*` (verified against the registry
-#          - there is no patched extract-zip at any version). A permanently
+#          red-line main permanently whenever a transitive dependency carries
+#          an advisory with no patched version at any release. A permanently
 #          red gate is a gate that gets ignored or ripped out, so it would be
 #          a compensating control in name only.
 #
-#          npm nonetheless reports fixAvailable as a TRUTHY OBJECT for all
-#          four of those, because it can propose a top-level remediation:
-#          downgrading @marp-team/marp-cli from >=2.5.0 to 2.4.0, flagged
-#          isSemVerMajor: true. So "fixAvailable is truthy" is NOT the
-#          actionability test either - it also red-lines main today. The test
-#          that actually separates the two populations is whether the fix is
-#          NON-BREAKING:
+#          npm nonetheless reports fixAvailable as a TRUTHY OBJECT for such
+#          an advisory whenever it can propose a top-level remediation, such
+#          as a downgrade of a parent package flagged isSemVerMajor: true
+#          (example, measured 2026-11-06, not a live count: every advisory in
+#          scripts/ proposed one, e.g. @marp-team/marp-cli@0.12.1). So
+#          "fixAvailable is truthy" is NOT the actionability test either. The
+#          test that actually separates the two populations is whether the
+#          fix is NON-BREAKING:
 #
 #            fixAvailable === false/absent  -> unfixable. Standing condition.
 #            fixAvailable === true          -> ACTIONABLE. Plain `npm audit fix`.
@@ -80,9 +79,8 @@
 #           `ignore` rules suppress security updates as well as version
 #           updates, so an advisory whose remediating package is ignored can
 #           never produce the update PR the test looks for. .github/
-#           dependabot.yml ignores @marp-team/* on /scripts, and every
-#           advisory scripts/ carries today remediates through
-#           @marp-team/marp-cli. For that population the test is guaranteed
+#           dependabot.yml ignores @marp-team/* on /scripts, so for any
+#           advisory that remediates through @marp-team/* the test is guaranteed
 #           to answer "no update PR was open" - because of a deliberate
 #           config choice, NOT because the automation failed to reach the
 #           advisory. Answering the retirement question on that evidence
