@@ -91,7 +91,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 ### Step-by-step
 
-0. **Assess risk.** If Low, act directly with a brief inline self-check. If Elevated, declare the risk signal and proceed with the loop below.
+0. **Assess risk.** If Low, delegate a shippable edit to one worktree-isolated `engineer` with no Skeptic. If Elevated, declare the risk signal and proceed with the loop below.
 
 1. **Primary agent spawns Worker** (background, general-purpose) with:
    - The task description and all relevant context

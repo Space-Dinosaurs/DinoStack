@@ -97,9 +97,9 @@ change gets. Present:
 
   > How strict should the review workflow be in this project? This sets the risk profile.
   >
-  >   relaxed - Single-file behavioral edits and small UI-only changes run directly with a
-  >             self-check. Lighter review, faster iteration. Good for solo/early projects.
-  >   default - Single-file behavioral edits run directly; multi-file, new-file, shared, or
+  >   relaxed - Single-file behavioral edits and small UI-only changes are Low: one
+  >             engineer, no Skeptic. Lighter review, faster iteration. Good for solo/early projects.
+  >   default - Single-file behavioral edits are Low (no Skeptic); multi-file, new-file, shared, or
   >             risky changes get a Worker + independent Skeptic. (This is the default.)
   >   strict  - The broadest review coverage: even UI-copy tweaks, renames, and wording fixes
   >             get Worker + Skeptic. Use when correctness matters most.

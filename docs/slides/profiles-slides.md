@@ -259,7 +259,7 @@ If you're not sure which profile to use, stay on default. It gives you two Low o
 - UI-only copy changes: **Elevated** (Skeptic runs)
 - File renaming: **Elevated** (Skeptic runs)
 - Targeted wording fixes to already-reviewed content: **Elevated** (Skeptic runs)
-- Diagnostic logging, doc-only file creation: **Low + self-check**, one engineer (`docs/planning/**` stays direct)
+- Diagnostic logging, doc-only file creation: **Low**, one engineer (`docs/planning/**` stays direct)
 - Small single-concern changes: **Elevated** (Skeptic runs); no single-review route
 
 </div>

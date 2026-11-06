@@ -610,7 +610,7 @@ search for the section covering "04-risk-classification.md".
 
 For behavior-visible Elevated units that are not in the exclusion set above (UI changes, behavioral feature additions), the Skeptic SHOULD read the diff AND the QA evidence. When both are present, the Skeptic may use QA evidence as the primary signal for UI correctness claims, but diff review remains required for logic, side effects, and security surface.
 
-For Low or Trivial units, the Skeptic applies its inline self-check. QA is not spawned for Trivial units; QA for Low units follows the standard flow above.
+For Low or Trivial units, no Skeptic runs. QA is not spawned for Trivial units; QA for Low units follows the standard flow above.
 
 **Reading 'diff is secondary' as 'diff is optional' on any Elevated unit is a protocol violation.** The diff obligation is unconditional for Elevated units; only the ordering and primary-signal weight differ by risk class.
 
@@ -865,7 +865,7 @@ Read `content/references/conventions-detail.md` §The Intent Layer for the artif
 
 ## Git Workflow
 
-**Conductor never edits shippable artifacts directly - including Trivial one-line changes.** Every shippable change is delegated to a worktree-isolated `engineer` branched from `origin/main`. The conductor edits only exempt artifacts in its own checkout. Worktrees are exclusively for subagents.
+**Conductor never edits shippable artifacts directly - including Trivial one-line changes.** Every shippable change is delegated to a worktree-isolated `engineer` branched from `origin/$BASE_BRANCH`. The conductor edits only exempt artifacts in its own checkout. Worktrees are exclusively for subagents.
 
 **Shippable/exempt classifier (4-rule precedence, first match wins):**
 1. `.agentic/**` -> EXEMPT (conductor sole-writer).
@@ -891,15 +891,15 @@ Read `content/references/conventions-detail.md` §The Intent Layer for the artif
 6. Run `ds-base-sync "$REPO" "$BASE_BRANCH"` (PATH-guarded, non-blocking on any exit). See `content/references/base-branch-sync.md` §Call sites.
 7. Run worktree prune and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - both run ONCE at session start; on Claude Code the SessionStart hook launches the worktree reap (other harnesses: run `/ds-cleanup-worktrees` on demand). Then run `ds-retire-carrier --list-holds` and re-run each listed path, adding `--release` to an explicit hold only when its revisit event has occurred.
 
-**Subagent worktrees:** Each parallel subagent gets its own worktree at `.agentic/worktrees/<branch-name>` under the project root (gitignored via `/ds-init-project` Step 9's `.agentic/*` umbrella - see `content/project-scaffolding.yml`), branched from `origin/main`. A continuation fix for an existing feature branch also starts there; cherry-pick or push its commit onto that branch's remote tip. The conductor merges each subagent branch back after sign-off.
+**Subagent worktrees:** Each parallel subagent gets its own worktree at `.agentic/worktrees/<branch-name>` under the project root (gitignored via `/ds-init-project` Step 9's `.agentic/*` umbrella - see `content/project-scaffolding.yml`), branched from `origin/$BASE_BRANCH`. A continuation fix for an existing feature branch also starts there; cherry-pick or push its commit onto that branch's remote tip. The conductor merges each subagent branch back after sign-off.
 
 ```bash
-git worktree add .agentic/worktrees/<branch-name> -b <branch-name> origin/main
+git worktree add .agentic/worktrees/<branch-name> -b <branch-name> "origin/$BASE_BRANCH"
 ```
 
 **Branch naming:** `feature/<name>`, `fix/<name>`, `chore/<name>`.
 
-**Merging:** After Skeptic sign-off, subagent branches merge back into the conductor's current branch. The conductor's branch (not the individual subagent branch) then opens a PR into `main`. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
+**Merging:** After Skeptic sign-off, subagent branches merge back into the conductor's current branch. The conductor's branch (not the individual subagent branch) then opens a PR into `$BASE_BRANCH`. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
 
 **PR delivery records (all team PRs).** Follow `content/references/delivery-record.md`: provisional at creation, refresh after owner push/rebase and before merge/new queue; suspend queued head advancement first. Publish separate human approval, protocol review, CI, QA and UAT evidence with SHA coverage, reasons and unfinished owners. Every merge/new queue (including authorized `--admin`) requires successful publication and `--match-head-commit` using its published_sha; failure blocks that action. Existing approval authority and review/QA exemptions remain in force.
 
