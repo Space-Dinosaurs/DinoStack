@@ -10,22 +10,22 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="blog.css">
+<link rel="stylesheet" href="/blog/blog.css">
 </head>
 <body>
 
 <nav class="side-nav" aria-label="Site">
   <div class="side-nav-brand">
-    <img class="side-nav-logo" src="../images/dinostack-logo.svg" alt="DinoStack">
+    <img class="side-nav-logo" src="/images/dinostack-logo.svg" alt="DinoStack">
   </div>
-  <a href="../index.html"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
+  <a href="/"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
   <hr class="side-nav-divider">
-  <a href="index.html"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
+  <a href="/blog/"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
 </nav>
 
 <nav class="mobile-nav" aria-label="Site">
-  <a href="../index.html">Home</a>
-  <a href="index.html">Blog</a>
+  <a href="/">Home</a>
+  <a href="/blog/">Blog</a>
 </nav>
 
 <article class="post">
@@ -40,7 +40,7 @@
   <p>The core idea is that a reviewer's value is its independence. A reviewer that has already heard the implementer's justifications is partly anchored to them. So each Skeptic is a fresh agent, never a continuation of an earlier round. It receives three things: the adversarial brief describing what to probe, the Worker's output, and a list of issues already resolved in earlier rounds. It never sees the Worker's reasoning. The Skeptic is also read-only: it can read, search, and run commands, but it cannot edit files or spawn other agents.</p>
 
   <figure>
-    <img src="images/2026-11-06-skeptic-review-loop.svg" width="960" height="520" alt="Review loop: a Worker implements, and a fresh Skeptic reviews the output with only the adversarial brief, the Worker's output, and the resolved-issues list, never the Worker's reasoning. If no Critical or Major finding is open, sign-off is granted. Otherwise a new Worker fixes the findings and a new fresh Skeptic reviews again. The cap is 3 rounds per unit by default; at the cap the conductor ships with open non-Critical findings recorded as debt, or escalates. An open Critical never ships, and only an operator grant reopens the loop past the cap.">
+    <a class="figure-link" href="/blog/images/2026-11-06-skeptic-review-loop.svg"><img src="/blog/images/2026-11-06-skeptic-review-loop.svg" width="600" height="1000" alt="Review loop: a Worker implements, and a fresh Skeptic reviews the output with only the adversarial brief, the Worker's output, and the resolved-issues list, never the Worker's reasoning. If no Critical or Major finding is open, sign-off is granted. Otherwise a new Worker fixes the findings and a new fresh Skeptic reviews again. The cap is 3 rounds per unit by default; at the cap the conductor ships with open non-Critical findings recorded as debt, or escalates. An open Critical never ships, and only an operator grant reopens the loop past the cap."></a>
     <figcaption>Each round gets a new Worker and a new Skeptic, until sign-off or the round cap.</figcaption>
   </figure>
 
@@ -54,7 +54,7 @@
   <p>Sign-off is the plain statement that no Critical or Major finding is left unresolved.</p>
 
   <figure>
-    <img src="images/2026-11-06-skeptic-finding-severity.svg" width="960" height="400" alt="Finding severity: every Skeptic finding is Critical, Major or Minor, and an unclassified finding counts as Major. Critical blocks sign-off, earns its own round, and never ships at the cap. Major blocks sign-off unless the Worker documents a compelling reason to defer, and is batched into one fix round. Minor does not block by default, is applied by a fix agent, and gets no follow-up review.">
+    <a class="figure-link" href="/blog/images/2026-11-06-skeptic-finding-severity.svg"><img src="/blog/images/2026-11-06-skeptic-finding-severity.svg" width="600" height="940" alt="Finding severity: every Skeptic finding is Critical, Major or Minor, and an unclassified finding counts as Major. Critical blocks sign-off, earns its own round, and never ships at the cap. Major blocks sign-off unless the Worker documents a compelling reason to defer, and is batched into one fix round. Minor does not block by default, is applied by a fix agent, and gets no follow-up review."></a>
     <figcaption>What each severity means for sign-off and for how rounds are spent.</figcaption>
   </figure>
 

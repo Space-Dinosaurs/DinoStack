@@ -1,30 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 300" width="960" height="300" role="img" aria-labelledby="t d">
-  <title id="t">Timeline of the router-plus-workers pattern</title>
-  <desc id="d">2026-09-29: DinoStack cross-session conductor, PR 954. 2026-10-12: DinoStack ds-lane, PR 994. 2026-10-31: DeepSeek releases dsh-superagent-prototype. 2026-11-05: AI LABS rebuilds it in Claude Code.</desc>
-  <rect x="0" y="0" width="960" height="300" rx="16" fill="#02050C"/>
-  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
-    <line x1="60" y1="150" x2="900" y2="150" stroke="#9bb0cc" stroke-width="3"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 560" width="600" height="560" role="img" aria-labelledby="t d">
+  <title id="t">Public release dates of router-plus-workers designs</title>
+  <desc id="d">Public release dates: 2026-09-29, DinoStack cross-session conductor, PR 954. 2026-10-12, DinoStack ds-lane, PR 994. 2026-10-31, DeepSeek publishes dsh-superagent-prototype, adapted from an internal version. 2026-11-05, AI LABS rebuilds it in Claude Code.</desc>
+  <rect x="0" y="0" width="600" height="560" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="start">
+    <text x="300" y="48" font-size="22" font-weight="700" fill="#ffffff" text-anchor="middle">Public release dates</text>
+    <line x1="70" y1="90" x2="70" y2="520" stroke="#9bb0cc" stroke-width="3"/>
 
-    <circle cx="140" cy="150" r="11" fill="#18E0FF"/>
-    <text x="140" y="110" font-size="18" font-weight="700" fill="#ffffff">2026-09-29</text>
-    <text x="140" y="196" font-size="15" fill="#eaf1fb">DinoStack</text>
-    <text x="140" y="218" font-size="15" fill="#eaf1fb">cross-session conductor</text>
-    <text x="140" y="240" font-size="13" fill="#9bb0cc">PR #954</text>
+    <circle cx="70" cy="110" r="12" fill="#18E0FF"/>
+    <text x="104" y="106" font-size="22" font-weight="700" fill="#ffffff">2026-09-29</text>
+    <text x="104" y="134" font-size="19" fill="#eaf1fb">DinoStack cross-session conductor (PR #954)</text>
 
-    <circle cx="370" cy="150" r="11" fill="#18E0FF"/>
-    <text x="370" y="110" font-size="18" font-weight="700" fill="#ffffff">2026-10-12</text>
-    <text x="370" y="196" font-size="15" fill="#eaf1fb">DinoStack</text>
-    <text x="370" y="218" font-size="15" fill="#eaf1fb">ds-lane</text>
-    <text x="370" y="240" font-size="13" fill="#9bb0cc">PR #994</text>
+    <circle cx="70" cy="220" r="12" fill="#18E0FF"/>
+    <text x="104" y="216" font-size="22" font-weight="700" fill="#ffffff">2026-10-12</text>
+    <text x="104" y="244" font-size="19" fill="#eaf1fb">DinoStack ds-lane (PR #994)</text>
 
-    <circle cx="600" cy="150" r="11" fill="#E9B521"/>
-    <text x="600" y="110" font-size="18" font-weight="700" fill="#ffffff">2026-10-31</text>
-    <text x="600" y="196" font-size="15" fill="#eaf1fb">DeepSeek</text>
-    <text x="600" y="218" font-size="15" fill="#eaf1fb">dsh-superagent-prototype</text>
+    <circle cx="70" cy="330" r="12" fill="#E9B521"/>
+    <text x="104" y="326" font-size="22" font-weight="700" fill="#ffffff">2026-10-31</text>
+    <text x="104" y="354" font-size="19" fill="#eaf1fb">DeepSeek publishes dsh-superagent-prototype,</text>
+    <text x="104" y="380" font-size="19" fill="#eaf1fb">adapted from an internal version</text>
 
-    <circle cx="830" cy="150" r="11" fill="#E9B521"/>
-    <text x="830" y="110" font-size="18" font-weight="700" fill="#ffffff">2026-11-05</text>
-    <text x="830" y="196" font-size="15" fill="#eaf1fb">AI LABS video</text>
-    <text x="830" y="218" font-size="15" fill="#eaf1fb">rebuilt in Claude Code</text>
+    <circle cx="70" cy="460" r="12" fill="#E9B521"/>
+    <text x="104" y="456" font-size="22" font-weight="700" fill="#ffffff">2026-11-05</text>
+    <text x="104" y="484" font-size="19" fill="#eaf1fb">AI LABS rebuilds it in Claude Code</text>
   </g>
 </svg>

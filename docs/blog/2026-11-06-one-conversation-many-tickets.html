@@ -10,22 +10,22 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="blog.css">
+<link rel="stylesheet" href="/blog/blog.css">
 </head>
 <body>
 
 <nav class="side-nav" aria-label="Site">
   <div class="side-nav-brand">
-    <img class="side-nav-logo" src="../images/dinostack-logo.svg" alt="DinoStack">
+    <img class="side-nav-logo" src="/images/dinostack-logo.svg" alt="DinoStack">
   </div>
-  <a href="../index.html"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
+  <a href="/"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
   <hr class="side-nav-divider">
-  <a href="index.html"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
+  <a href="/blog/"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
 </nav>
 
 <nav class="mobile-nav" aria-label="Site">
-  <a href="../index.html">Home</a>
-  <a href="index.html">Blog</a>
+  <a href="/">Home</a>
+  <a href="/blog/">Blog</a>
 </nav>
 
 <article class="post">
@@ -47,7 +47,7 @@
   <p>It does no ticket work itself. Its state lives in one file, <code>.agentic/runbook-&lt;KEY&gt;.json</code>, which it reads first after a context compaction, so a long run survives one. And no message from the conductor ever tells a lane to skip its own Skeptic review, QA, or gates.</p>
 
   <figure>
-    <img src="images/2026-11-06-conductor-lanes-architecture.svg" width="960" height="620" alt="Architecture: the operator talks to one conductor. The conductor fans out to N ds-lane sessions, each a headless claude -p or codex exec session running /ds-implement-ticket: an engineer in a worktree, then a Skeptic review loop, then QA, then a PR. Rulings go from the conductor to the lanes, and only decisions come back to the operator. Lanes never message each other.">
+    <a class="figure-link" href="/blog/images/2026-11-06-conductor-lanes-architecture.svg"><img src="/blog/images/2026-11-06-conductor-lanes-architecture.svg" width="600" height="900" alt="Architecture: the operator talks to one conductor. The conductor fans out to N ds-lane sessions, each a headless claude -p or codex exec session running /ds-implement-ticket: an engineer in a worktree, then a Skeptic review loop, then QA, then a PR. Rulings go from the conductor to the lanes, and only decisions come back to the operator. Lanes never message each other."></a>
     <figcaption>One conductor, up to 5 lanes by default, each running the full ticket workflow.</figcaption>
   </figure>
 
@@ -72,11 +72,11 @@
   </ul>
 
   <h2>Similar designs elsewhere</h2>
-  <p>DeepSeek released <code>dsh-superagent-prototype</code>, a research prototype built for DeepSeek Harness, on October 31, and AI LABS rebuilt the idea in Claude Code on November 5: a router agent that only dispatches, with workers in their own contexts. DinoStack's conductor shipped on September 29 (PR #954) and <code>ds-lane</code> on October 12 (PR #994), with Codex lanes following on October 14 (PR #1019). The <a href="../agentic-engineering-comparison.html">Ecosystem Comparison</a> sets the two designs side by side.</p>
+  <p>DeepSeek published <code>dsh-superagent-prototype</code>, a research prototype built for DeepSeek Harness, on October 31, and AI LABS rebuilt the idea in Claude Code on November 5: a router agent that only dispatches, with workers in their own contexts. The prototype's README says it was adapted from DeepSeek's internal version and from the article <em>Exploring Super-agent Design: Towards a More Autonomous Agent System</em>, so the dates below are public release dates, not dates of origin. DinoStack's conductor shipped on September 29 (PR #954) and <code>ds-lane</code> on October 12 (PR #994), with Codex lanes following on October 14 (PR #1019). The <a href="/agentic-engineering-comparison.html">Ecosystem Comparison</a> sets the two designs side by side.</p>
 
   <figure>
-    <img src="images/2026-11-06-super-agent-timeline.svg" width="960" height="300" alt="Timeline: 2026-09-29 DinoStack cross-session conductor (PR #954); 2026-10-12 DinoStack ds-lane (PR #994); 2026-10-31 DeepSeek releases dsh-superagent-prototype; 2026-11-05 AI LABS rebuilds it in Claude Code.">
-    <figcaption>Release dates for the designs mentioned above.</figcaption>
+    <a class="figure-link" href="/blog/images/2026-11-06-super-agent-timeline.svg"><img src="/blog/images/2026-11-06-super-agent-timeline.svg" width="600" height="560" alt="Public release dates: 2026-09-29 DinoStack cross-session conductor (PR #954); 2026-10-12 DinoStack ds-lane (PR #994); 2026-10-31 DeepSeek publishes dsh-superagent-prototype, adapted from an internal version; 2026-11-05 AI LABS rebuilds it in Claude Code."></a>
+    <figcaption>Public release dates. DeepSeek's prototype was adapted from an internal version.</figcaption>
   </figure>
 
   <h2>Sources</h2>
@@ -84,7 +84,7 @@
     <li><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/954">DinoStack PR #954</a>: optional cross-session runbook conductor, merged 2026-09-29 (commit <code>6798905cf</code>)</li>
     <li><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/994">DinoStack PR #994</a>: <code>ds-lane</code>, conductor-launched headless lanes, merged 2026-10-12 (commit <code>3b8f82373</code>)</li>
     <li><a href="https://github.com/Space-Dinosaurs/DinoStack/pull/1019">DinoStack PR #1019</a>: lanes inherit the invoking harness, adding Codex lanes, merged 2026-10-14 (commit <code>ba027c12c</code>)</li>
-    <li><a href="https://github.com/deepseek-ai/dsh-superagent-prototype">deepseek-ai/dsh-superagent-prototype</a>: repository created 2026-10-31</li>
+    <li><a href="https://github.com/deepseek-ai/dsh-superagent-prototype">deepseek-ai/dsh-superagent-prototype</a>: repository created 2026-10-31; its README describes the internal version and the article it was adapted from</li>
     <li><a href="https://youtu.be/3DklR44DHnM">AI LABS, "Deepseek Just Released The Greatest Claude Code Workflow Ever"</a>: YouTube, 2026-11-05</li>
   </ul>
 </article>

@@ -10,22 +10,22 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="blog.css">
+<link rel="stylesheet" href="/blog/blog.css">
 </head>
 <body>
 
 <nav class="side-nav" aria-label="Site">
   <div class="side-nav-brand">
-    <img class="side-nav-logo" src="../images/dinostack-logo.svg" alt="DinoStack">
+    <img class="side-nav-logo" src="/images/dinostack-logo.svg" alt="DinoStack">
   </div>
-  <a href="../index.html"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
+  <a href="/"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
   <hr class="side-nav-divider">
-  <a href="index.html"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
+  <a href="/blog/"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
 </nav>
 
 <nav class="mobile-nav" aria-label="Site">
-  <a href="../index.html">Home</a>
-  <a href="index.html">Blog</a>
+  <a href="/">Home</a>
+  <a href="/blog/">Blog</a>
 </nav>
 
 <article class="post">
@@ -39,7 +39,7 @@
   <h2>What gets captured</h2>
   <p>The capture step runs inside <code>/ds-wrap</code>, the command that closes out a session. It checks four signals:</p>
   <ul>
-    <li><strong>Repeated tool failures:</strong> a tool that failed and had to be worked around.</li>
+    <li><strong>Tool friction:</strong> any time this session logged a tool failure that the agent worked around (a <code>tool_failure_workaround</code> event).</li>
     <li><strong>A stalled review loop:</strong> a Skeptic review loop that hit its round cap, stopped converging, or was blocked.</li>
     <li><strong>A guardrail firing:</strong> for example the guard that stops an agent from ending its turn to ask permission for an obvious next step.</li>
     <li><strong>Operator corrections:</strong> turns where you corrected or rejected what the agent did, quoted verbatim.</li>
@@ -47,7 +47,7 @@
   <p>For each one it drafts a report with a title, a short body, the evidence, and a severity, and saves it locally to <code>~/.agentic/feedback.jsonl</code>. A session with no friction writes nothing. The step can never break or delay the wrap: any error inside it is swallowed.</p>
 
   <figure>
-    <img src="images/2026-11-06-feedback-capture-flow.svg" width="960" height="440" alt="Flow: four session friction signals (repeated tool failures, a stalled Skeptic review loop, a guardrail firing, operator corrections) feed /ds-wrap, which drafts reports with a title, body, evidence and severity. Drafts are saved locally to ~/.agentic/feedback.jsonl. A human greenlights items from each batch in /ds-feedback-triage, and only greenlit items become tickets in your own tracker.">
+    <a class="figure-link" href="/blog/images/2026-11-06-feedback-capture-flow.svg"><img src="/blog/images/2026-11-06-feedback-capture-flow.svg" width="600" height="940" alt="Flow: four session friction signals (a tool failure the agent worked around, a stalled Skeptic review loop, a guardrail firing, operator corrections) feed /ds-wrap, which drafts reports with a title, body, evidence and severity. Drafts are saved locally to ~/.agentic/feedback.jsonl. A human greenlights items from each batch in /ds-feedback-triage, and only greenlit items become tickets in your own tracker."></a>
     <figcaption>From friction to ticket, with a human approval step before anything is filed.</figcaption>
   </figure>
 
@@ -61,8 +61,8 @@
   <p>Claude Code added Claude-drafted feedback, which drafts a report when a tool keeps failing, Claude can't help with a request, or you point out a mistake; you review drafts in <code>/feedback</code>, and nothing reaches Anthropic until you send it. It requires v2.1.238, published on 2026-08-20, 49 days after DinoStack's capture step merged on 2026-07-02. The difference is the destination: DinoStack files reports into your own tracker, and Claude Code sends them to Anthropic.</p>
 
   <figure>
-    <img src="images/2026-11-06-feedback-capture-timeline.svg" width="960" height="280" alt="Timeline: 2026-07-02 DinoStack wrap-time feedback capture (PR #408); 2026-08-20 Claude Code v2.1.238, the minimum version for Claude-drafted feedback; 49 days apart.">
-    <figcaption>Release dates for the two features.</figcaption>
+    <a class="figure-link" href="/blog/images/2026-11-06-feedback-capture-timeline.svg"><img src="/blog/images/2026-11-06-feedback-capture-timeline.svg" width="600" height="380" alt="Public release dates: 2026-07-02 DinoStack wrap-time feedback capture (PR #408); 2026-08-20 Claude Code v2.1.238, the minimum version for Claude-drafted feedback; 49 days apart."></a>
+    <figcaption>Public release dates for the two features.</figcaption>
   </figure>
 
   <h2>Sources</h2>

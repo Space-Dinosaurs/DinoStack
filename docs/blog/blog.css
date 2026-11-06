@@ -165,10 +165,11 @@ code {
 .post li { margin-bottom: 6px; }
 
 .post figure { margin: 28px 0; }
+.post figure .figure-link { display: block; max-width: 600px; }
 .post figure img {
   display: block;
   width: 100%;
-  max-width: 100%;
+  max-width: 600px;
   height: auto;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
