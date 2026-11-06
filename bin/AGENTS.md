@@ -65,7 +65,7 @@ sunset (external cron jobs and shell aliases reference it).
 
 ## Downstream consumers
 
-`content/commands/` slash-command specs; adapter install scripts (`.claude/install.sh`, `.codex/install.sh`, etc.) that symlink these onto `PATH`; `hooks/stop-context.js` for `ds-identity` helpers; Activation preflight Step 6 for `ds-migrate`; `content/commands/ds-wrap.md` Part D.5, `content/commands/ds-feedback-triage.md` and `bin/_eval.py` for `ds-feedback`.
+`content/commands/` slash-command specs; adapter install scripts (`.claude/install.sh`, `.codex/install.sh`, etc.) that symlink these onto `PATH`; `hooks/stop-context.js` for `ds-identity` helpers; Activation preflight Step 6 for `ds-migrate`; `content/commands/ds-wrap.md` Part D.5 (also run by `ds-implement-ticket.md` Phase 11b), `content/commands/ds-evaluate.md`, `content/commands/ds-feedback-triage.md` and `bin/_eval.py` for `ds-feedback`.
 
 ## Failure-mode discipline
 

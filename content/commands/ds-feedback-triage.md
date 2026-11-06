@@ -5,10 +5,11 @@
 Standalone, operator-run batch triage of the home-dir feedback store
 (`~/.agentic/feedback.jsonl`) - the accumulated backlog of tool-friction,
 process-escalation, guardrail-fire, and operator-correction signals that
-`/ds-wrap` Part D.5 appends at the end of sessions across every project on this
-machine. This command reads the open backlog, presents it grouped for
-review, and creates tracker tickets ONLY for items the operator explicitly
-greenlights. Ticket creation is the single deliberate human-in-the-loop
+`/ds-wrap` Part D.5 appends at the end of sessions, and operator corrections
+when a ticket's PR opens and passes CI under `/ds-implement-ticket`, across
+every project on this machine. This command reads the open backlog, presents
+it grouped for review, and creates tracker tickets ONLY for items the operator
+explicitly greenlights. Ticket creation is the single deliberate human-in-the-loop
 point in this command - batch, never automatic.
 
 Conductor-direct throughout: a read-queue -> greenlight -> create-ticket
