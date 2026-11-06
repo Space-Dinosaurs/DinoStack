@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" width="960" height="400" role="img" aria-labelledby="t d">
+  <title id="t">How Skeptic findings are handled by severity</title>
+  <desc id="d">Every finding is classified Critical, Major or Minor; an unclassified finding counts as Major. Critical blocks sign-off and earns its own round. Major blocks sign-off unless the Worker documents a compelling reason to defer, and open Majors are batched into one fix round. Minor does not block sign-off by default and is applied by a fix agent with no follow-up review.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9bb0cc"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="960" height="400" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <rect x="330" y="28" width="300" height="64" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="480" y="56" font-size="17" font-weight="700" fill="#ffffff">Skeptic finding</text>
+    <text x="480" y="78" font-size="13" fill="#9bb0cc">unclassified counts as Major</text>
+
+    <path d="M480,94 L480,118 L160,118 L160,146" fill="none" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+    <path d="M480,118 L480,146" fill="none" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+    <path d="M480,118 L800,118 L800,146" fill="none" stroke="#9bb0cc" stroke-width="2" marker-end="url(#ah)"/>
+
+    <rect x="40" y="150" width="240" height="210" rx="12" fill="#060B16" stroke="#ff5d73" stroke-width="2"/>
+    <text x="160" y="184" font-size="19" font-weight="700" fill="#ff5d73">Critical</text>
+    <text x="160" y="218" font-size="14" fill="#eaf1fb">Blocks sign-off</text>
+    <text x="160" y="246" font-size="14" fill="#eaf1fb">Earns its own round</text>
+    <text x="160" y="274" font-size="14" fill="#eaf1fb">Never ships at the cap</text>
+    <text x="160" y="318" font-size="12" fill="#9bb0cc">e.g. security hole,</text>
+    <text x="160" y="336" font-size="12" fill="#9bb0cc">correctness failure, data loss</text>
+
+    <rect x="360" y="150" width="240" height="210" rx="12" fill="#060B16" stroke="#E9B521" stroke-width="2"/>
+    <text x="480" y="184" font-size="19" font-weight="700" fill="#E9B521">Major</text>
+    <text x="480" y="218" font-size="14" fill="#eaf1fb">Blocks sign-off unless the</text>
+    <text x="480" y="238" font-size="14" fill="#eaf1fb">Worker documents a</text>
+    <text x="480" y="258" font-size="14" fill="#eaf1fb">compelling reason to defer</text>
+    <text x="480" y="286" font-size="14" fill="#eaf1fb">Batched into one fix round</text>
+    <text x="480" y="326" font-size="12" fill="#9bb0cc">e.g. a silent failure on an edge case</text>
+
+    <rect x="680" y="150" width="240" height="210" rx="12" fill="#060B16" stroke="#3ad99a" stroke-width="2"/>
+    <text x="800" y="184" font-size="19" font-weight="700" fill="#3ad99a">Minor</text>
+    <text x="800" y="218" font-size="14" fill="#eaf1fb">Does not block by default</text>
+    <text x="800" y="246" font-size="14" fill="#eaf1fb">Applied by a fix agent</text>
+    <text x="800" y="274" font-size="14" fill="#eaf1fb">No follow-up review</text>
+    <text x="800" y="326" font-size="12" fill="#9bb0cc">e.g. style, minor docs gaps</text>
+  </g>
+</svg>
