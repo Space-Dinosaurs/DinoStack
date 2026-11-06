@@ -179,7 +179,7 @@ The protocol is observational. The conductor narrates delegations as it runs - l
 - `QA engineer verifying acceptance criteria in the browser.`
 
 <div class="callout">
-No narration? The task was classified <strong>Direct action</strong> - handled in the main thread without a subagent. That is the protocol working, not off.
+No narration? The task was a <strong>Direct action</strong> (a read, an answer, or an exempt-artifact edit) handled in the main thread. That is the protocol working, not off.
 </div>
 
 ---
