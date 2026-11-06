@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 640" width="600" height="640" role="img" aria-labelledby="t d">
+  <title id="t">How each guard is switched on and off</title>
+  <desc id="d">The abdication guard is opt-in: it runs only when abdication_guard_enabled is true in .agentic/config.json, which the shipped template sets, and an environment kill switch turns it off. The turn-shape guard is on unless turn_shape_guard_enabled is false, and also has an environment kill switch. The Skeptic round cap has no toggle and no kill switch; only an operator grant lets a unit past it. All three fail open on errors, except that the round cap denies a granted round when it cannot record it.</desc>
+  <rect x="0" y="0" width="600" height="640" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="300" y="46" font-size="22" font-weight="700" fill="#ffffff">On, off, and the way past</text>
+
+    <rect x="30" y="74" width="540" height="150" rx="12" fill="#060B16" stroke="#ff5d73" stroke-width="2"/>
+    <text x="300" y="114" font-size="22" font-weight="700" fill="#ff5d73">Abdication guard</text>
+    <text x="300" y="150" font-size="19" fill="#eaf1fb">Opt-in: config key must be true</text>
+    <text x="300" y="182" font-size="17" fill="#9bb0cc">The shipped template sets it</text>
+    <text x="300" y="206" font-size="17" fill="#9bb0cc">Env kill switch turns it off</text>
+
+    <rect x="30" y="242" width="540" height="150" rx="12" fill="#060B16" stroke="#b06bff" stroke-width="2"/>
+    <text x="300" y="282" font-size="22" font-weight="700" fill="#b06bff">Turn-shape guard</text>
+    <text x="300" y="318" font-size="19" fill="#eaf1fb">On unless the config key is false</text>
+    <text x="300" y="350" font-size="17" fill="#9bb0cc">Absent config counts as on</text>
+    <text x="300" y="374" font-size="17" fill="#9bb0cc">Env kill switch turns it off</text>
+
+    <rect x="30" y="410" width="540" height="150" rx="12" fill="#060B16" stroke="#E9B521" stroke-width="2"/>
+    <text x="300" y="450" font-size="22" font-weight="700" fill="#E9B521">Skeptic round cap</text>
+    <text x="300" y="486" font-size="19" fill="#eaf1fb">No toggle, no kill switch</text>
+    <text x="300" y="518" font-size="17" fill="#9bb0cc">Past the cap: an operator grant</text>
+    <text x="300" y="542" font-size="17" fill="#9bb0cc">The conductor cannot lift it</text>
+
+    <text x="300" y="604" font-size="18" fill="#9bb0cc">Errors fail open, with one round-cap exception.</text>
+  </g>
+</svg>

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#02050C">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='10' fill='none' stroke='%2318E0FF' stroke-width='3'/></svg>">
+<title>Hook-enforced guards: rules the harness applies, not rules the agent remembers - DinoStack Blog</title>
+<meta name="description" content="How three DinoStack hooks turn methodology rules into mechanical checks: the abdication guard, the turn-shape guard, and the Skeptic round cap.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/blog/blog.css">
+</head>
+<body>
+
+<nav class="side-nav" aria-label="Site">
+  <div class="side-nav-brand">
+    <img class="side-nav-logo" src="/images/dinostack-logo.svg" alt="DinoStack">
+  </div>
+  <a href="/"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
+  <hr class="side-nav-divider">
+  <a href="/blog/"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
+</nav>
+
+<nav class="mobile-nav" aria-label="Site">
+  <a href="/">Home</a>
+  <a href="/blog/">Blog</a>
+</nav>
+
+<article class="post">
+  <header class="doc-header">
+    <h1>Hook-enforced guards: rules the harness applies, not rules the agent remembers</h1>
+    <p class="byline"><time datetime="2026-11-06">2026-11-06</time></p>
+  </header>
+
+  <p>A rule an agent has to remember is a rule it can forget, or argue itself out of. DinoStack's Skeptic round cap shows what that costs. Before a hook enforced it, the cap was enforced only by "the conductor tracks re-route count in-context", and a single session ran 12 Skeptic rounds and 13 spawns on one unit with no mechanism firing. DinoStack's answer is to move rules that can be checked mechanically into Claude Code lifecycle hooks, which the harness runs on every matching event whether or not the agent remembers the rule. This post covers three of them.</p>
+
+  <figure>
+    <a class="figure-link" href="/blog/images/2026-11-06-hook-guard-events.svg"><img src="/blog/images/2026-11-06-hook-guard-events.svg" width="600" height="820" alt="Where the guards fire. When the conductor spawns a Skeptic, on the PreToolUse event, the Skeptic round cap allows 3 rounds per unit and then denies, and only an operator grant reopens it. When the conductor ends its turn, on the main session's Stop event, two guards read the final message: the abdication guard checks for permission-seeking, stalled defaults and co-equal ballots, and the turn-shape guard checks for unwarranted turns and prose in status turns, with decision-item sprawl only logged. A block sends a directive back to the model."></a>
+    <figcaption>One guard sits in front of a spawn; two read the conductor's final message.</figcaption>
+  </figure>
+
+  <h2>The abdication guard</h2>
+  <p>DinoStack expects the conductor to proceed with an obvious, non-destructive next step rather than end its turn asking permission. <code>hooks/enforce-no-abdication.py</code> is a Stop hook, scoped to the main session so it governs the conductor and not its Workers, that reads the final message and blocks the stop on any of three shapes:</p>
+  <ul>
+    <li>a permission-seeking question about a next step;</li>
+    <li>an announced default, such as "proceeding with X unless you say otherwise", followed by no action at all in that turn. This one fires only on positive proof of a stall: the hook must read the transcript, find the start of the current turn, and see zero tool calls since then;</li>
+    <li>an <code>## Operator decisions</code> block that offers two or more items without a recommendation, a co-equal ballot written as prose.</li>
+  </ul>
+  <p>The block does not simply say "proceed". The hook cannot tell a derivable default wearing permission-seeking language from a genuine hard stop, so its directive offers two exits: proceed now, in the same turn, if the step is non-destructive and a default is derivable; or, if a real stop condition holds, such as an irreversible action, information only you have, or an operator-only grant, say so explicitly and wait. Detection is deliberately biased toward missing a case rather than firing falsely, and a counter caps consecutive blocks at 2 per user message so it cannot loop.</p>
+  <p>This guard is opt-in. It runs only when <code>abdication_guard_enabled</code> is explicitly <code>true</code> in <code>.agentic/config.json</code>; the shipped config template and <code>/ds-init-project</code> set it, so a scaffolded project is covered and a project without the file is not. <code>AE_ABDICATION_GUARD_DISABLE=1</code> turns it off.</p>
+
+  <h2>The turn-shape guard</h2>
+  <p>The first pillar of DinoStack's vision is to guard operator attention: surface decisions and work-stoppages, not status. A conductor turn is warranted only when it carries one of four warrants: an answer to your message, an operator decision, a stoppage (a <code>Waiting:</code> line), or a completion. Everything else, such as an agent spawned, an agent returned or CI going green, is a silent continue with no turn written. <code>hooks/enforce-turn-shape.py</code> checks the final message against that contract, with three checks in different postures:</p>
+  <ul>
+    <li><strong>Zero-warrant turns block,</strong> but only when the turn is unprompted. The check never fires on the first turn after a genuine operator message, or on answer-shaped prose.</li>
+    <li><strong>Execution turns block when they carry prose.</strong> A turn that makes a decision, stops or completes, without answering you, must be a short structured block: an identity line, up to three status lines, then any <code>## Operator decisions</code>, and nothing else.</li>
+    <li><strong>Decision-item sprawl is advisory</strong> and only logged.</li>
+  </ul>
+  <p>Some rules are deliberately left out. Answer relevance and editorial addenda stay as prose enforced by review, because every candidate mechanization reduces to a growing phrase blocklist or to a semantic judgment the project's own design principles rule out. Unlike the abdication guard, this one is on by default: it runs unless <code>turn_shape_guard_enabled</code> is <code>false</code>, and a missing config file counts as on. <code>AE_TURN_SHAPE_GUARD_DISABLE=1</code> turns it off.</p>
+
+  <h2>The Skeptic round cap</h2>
+  <p><code>hooks/enforce-skeptic-round-cap.py</code> runs before every Skeptic spawn and allows 3 rounds per unit. It keys the count on the stable unit key that must lead the "Diff under review" line of every Skeptic brief, not on the conductor's git branch: the conductor stays on <code>main</code> while engineers work in worktrees, so a branch key would let one unit's rounds exhaust another's budget. A brief whose "Diff under review" line carries no valid key is denied.</p>
+  <p>Past the cap, only you can reopen it. A plain reply such as "grant" lifts the cap for the rest of the session, up to 6 rounds per unit; past that, each grant allows exactly one more round, and the <code>skeptic-grant-</code> token the denial prints works for that unit and round. Nothing the conductor writes to the hook's state file reopens it. There is no config toggle and no kill switch.</p>
+
+  <figure>
+    <a class="figure-link" href="/blog/images/2026-11-06-hook-guard-switches.svg"><img src="/blog/images/2026-11-06-hook-guard-switches.svg" width="600" height="640" alt="How each guard is switched. Abdication guard: opt-in, the config key must be true; the shipped template sets it, and an environment kill switch turns it off. Turn-shape guard: on unless the config key is false, absent config counts as on, and an environment kill switch turns it off. Skeptic round cap: no toggle and no kill switch; past the cap only an operator grant helps, and the conductor cannot lift it. Errors fail open, with one round-cap exception."></a>
+    <figcaption>The three guards have three different defaults; check your config before relying on one.</figcaption>
+  </figure>
+
+  <h2>Fail open, and log every fire</h2>
+  <p>Every DinoStack hook fails open: a parse error, a missing file or an unexpected payload exits without denying anything, because an enforcement gap is preferable to a blanket block. The round cap has the one deliberate exception: it denies a round allowed by an operator grant when it cannot record it, since allowing it would let one grant re-allow every retry. Every <code>enforce-*.py</code> hook also appends a line to <code>.agentic/.enforcement-fires.jsonl</code>, and the abdication guard logs every verdict, plain allows included, so its allow-to-deny ratio can be measured rather than guessed. Logging is strictly observation and never changes a verdict.</p>
+
+  <h2>Why it matters</h2>
+  <p>The record behind these hooks is the argument for them. The round cap existed as prose while one unit ran 12 rounds, and advisory enforcement of the execution-turn shape shipped three times without the prose going away before the check was made blocking. Hooks run on every turn and every spawn regardless. The guards here are also honest about their limits: they fail open, say which cases they cannot see, and leave judgment calls to review rather than pretending a phrase match can make them.</p>
+  <p>One scope note: these are Claude Code lifecycle hooks. Other adapters carry their own hand-authored hook files, so check the adapter you use before assuming a guard is live there.</p>
+
+  <h2>Sources</h2>
+  <ul>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/hooks/enforce-no-abdication.py"><code>hooks/enforce-no-abdication.py</code></a>: the three classifiers, the two-exit directive, the loop guard, the opt-in config key and kill switch</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/hooks/enforce-turn-shape.py"><code>hooks/enforce-turn-shape.py</code></a>: the three checks and their postures, the deliberately unmechanized rules, the default-on config key and kill switch</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/references/conductor-turn-format.md"><code>content/references/conductor-turn-format.md</code></a>: the four warrants and the execution-turn shape</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/hooks/enforce-skeptic-round-cap.py"><code>hooks/enforce-skeptic-round-cap.py</code></a>: the 12-round incident, the cap of 3, unit keying, operator grants and the session ceiling of 6</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/docs/overview/vision.md"><code>docs/overview/vision.md</code></a>: the "Guard operator attention" pillar</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/AGENTS.md"><code>AGENTS.md</code></a>: hand-authored hook files in the adapter directories</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/hooks/AGENTS.md"><code>hooks/AGENTS.md</code></a>: the hook table, fail-open discipline, its round-cap exception, and fire logging</li>
+  </ul>
+</article>
+
+</body>
+</html>
