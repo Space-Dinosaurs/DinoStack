@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 740" width="600" height="740" role="img" aria-labelledby="t d">
+  <title id="t">Claude Code first, then a catch-up PR for the other adapters</title>
+  <desc id="d">A methodology PR rebuilds and checks only the .claude adapter. Between catch-ups, the other 10 adapters' generated files lag content/ on main, and their installers install the committed files. Then an on-demand catch-up chore PR, on a branch starting chore/adapter-catch-up, rebuilds every adapter, with DS_ALL_HARNESSES=1 turning the non-Claude builds and checks back on.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9bb0cc"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="600" height="740" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="300" y="46" font-size="22" font-weight="700" fill="#ffffff">Claude Code first, the rest later</text>
+
+    <rect x="30" y="74" width="540" height="160" rx="12" fill="#060B16" stroke="#18E0FF" stroke-width="2"/>
+    <text x="300" y="114" font-size="22" font-weight="700" fill="#18E0FF">Methodology PR</text>
+    <text x="300" y="152" font-size="19" fill="#eaf1fb">Rebuilds and checks .claude only</text>
+    <text x="300" y="186" font-size="18" fill="#9bb0cc">bash .claude/build.sh</text>
+    <text x="300" y="212" font-size="17" fill="#9bb0cc">CI always checks .claude for drift</text>
+    <line x1="300" y1="234" x2="300" y2="270" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="30" y="274" width="540" height="160" rx="12" fill="#060B16" stroke="#E9B521" stroke-width="2"/>
+    <text x="300" y="314" font-size="22" font-weight="700" fill="#E9B521">Between catch-ups</text>
+    <text x="300" y="352" font-size="19" fill="#eaf1fb">Other 10 adapters lag content/</text>
+    <text x="300" y="386" font-size="18" fill="#9bb0cc">Installers install the committed files</text>
+    <text x="300" y="412" font-size="17" fill="#9bb0cc">so ds-update keeps working</text>
+    <line x1="300" y1="434" x2="300" y2="470" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="30" y="474" width="540" height="170" rx="12" fill="#060B16" stroke="#3ad99a" stroke-width="2"/>
+    <text x="300" y="514" font-size="22" font-weight="700" fill="#3ad99a">Catch-up chore PR</text>
+    <text x="300" y="552" font-size="19" fill="#eaf1fb">Rebuilds every adapter</text>
+    <text x="300" y="586" font-size="18" fill="#9bb0cc">branch chore/adapter-catch-up-*</text>
+    <text x="300" y="614" font-size="18" fill="#9bb0cc">CI sets DS_ALL_HARNESSES=1</text>
+
+    <text x="300" y="690" font-size="19" fill="#eaf1fb">One switch turns the non-Claude</text>
+    <text x="300" y="718" font-size="19" fill="#eaf1fb">builds and checks back on.</text>
+  </g>
+</svg>
