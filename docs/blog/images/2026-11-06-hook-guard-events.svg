@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 820" width="600" height="820" role="img" aria-labelledby="t d">
+  <title id="t">Where the three guards fire</title>
+  <desc id="d">Before a Skeptic spawn, on the PreToolUse event, the round cap allows 3 rounds per unit, denies the next spawn, and only an operator grant reopens it. When the conductor ends a turn, on the Stop event, two guards read the final message: the abdication guard looks for permission-seeking, stalled defaults and co-equal ballots, and the turn-shape guard looks for unwarranted turns and prose in status turns, with decision-item sprawl only logged. A blocking guard sends a directive back to the model instead of letting the turn end.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9bb0cc"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="600" height="820" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="300" y="46" font-size="22" font-weight="700" fill="#ffffff">Where the guards fire</text>
+
+    <rect x="30" y="74" width="540" height="64" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="300" y="104" font-size="20" font-weight="700" fill="#18E0FF">Conductor spawns a Skeptic</text>
+    <text x="300" y="128" font-size="17" fill="#9bb0cc">PreToolUse event</text>
+    <line x1="300" y1="138" x2="300" y2="174" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="30" y="178" width="540" height="150" rx="12" fill="#060B16" stroke="#E9B521" stroke-width="2"/>
+    <text x="300" y="218" font-size="22" font-weight="700" fill="#E9B521">Skeptic round cap</text>
+    <text x="300" y="254" font-size="19" fill="#eaf1fb">3 rounds per unit, then deny</text>
+    <text x="300" y="288" font-size="19" fill="#eaf1fb">Only an operator grant reopens it</text>
+
+    <rect x="30" y="368" width="540" height="64" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="300" y="398" font-size="20" font-weight="700" fill="#18E0FF">Conductor ends its turn</text>
+    <text x="300" y="422" font-size="17" fill="#9bb0cc">Stop event, main session</text>
+    <line x1="220" y1="432" x2="160" y2="470" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <line x1="380" y1="432" x2="440" y2="470" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="30" y="476" width="255" height="200" rx="12" fill="#060B16" stroke="#ff5d73" stroke-width="2"/>
+    <text x="157" y="516" font-size="21" font-weight="700" fill="#ff5d73">Abdication</text>
+    <text x="157" y="554" font-size="19" fill="#eaf1fb">permission-seeking</text>
+    <text x="157" y="586" font-size="19" fill="#eaf1fb">stalled defaults</text>
+    <text x="157" y="618" font-size="19" fill="#eaf1fb">co-equal ballots</text>
+
+    <rect x="315" y="476" width="255" height="200" rx="12" fill="#060B16" stroke="#b06bff" stroke-width="2"/>
+    <text x="442" y="516" font-size="21" font-weight="700" fill="#b06bff">Turn shape</text>
+    <text x="442" y="554" font-size="19" fill="#eaf1fb">unwarranted turns</text>
+    <text x="442" y="586" font-size="19" fill="#eaf1fb">prose in status turns</text>
+    <text x="442" y="626" font-size="17" fill="#9bb0cc">item sprawl: log only</text>
+
+    <line x1="157" y1="676" x2="230" y2="716" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <line x1="442" y1="676" x2="370" y2="716" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <rect x="30" y="720" width="540" height="72" rx="12" fill="#0A1020" stroke="#9bb0cc" stroke-width="2"/>
+    <text x="300" y="764" font-size="19" fill="#eaf1fb">Block: a directive goes back to the model</text>
+  </g>
+</svg>

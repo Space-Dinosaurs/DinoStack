@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#02050C">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='10' fill='none' stroke='%2318E0FF' stroke-width='3'/></svg>">
+<title>Risk classification: Trivial, Low and Elevated - DinoStack Blog</title>
+<meta name="description" content="How DinoStack sizes the process to the change: every task is classified Trivial, Low or Elevated before it starts, and the class decides which agents spawn and how much review the work gets.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/blog/blog.css">
+</head>
+<body>
+
+<nav class="side-nav" aria-label="Site">
+  <div class="side-nav-brand">
+    <img class="side-nav-logo" src="/images/dinostack-logo.svg" alt="DinoStack">
+  </div>
+  <a href="/"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
+  <hr class="side-nav-divider">
+  <a href="/blog/"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
+</nav>
+
+<nav class="mobile-nav" aria-label="Site">
+  <a href="/">Home</a>
+  <a href="/blog/">Blog</a>
+</nav>
+
+<article class="post">
+  <header class="doc-header">
+    <h1>Risk classification: Trivial, Low and Elevated</h1>
+    <p class="byline"><time datetime="2026-11-06">2026-11-06</time></p>
+  </header>
+
+  <p>A typo fix and an auth change should not get the same process. DinoStack makes the choice explicit. Before any task starts, it gets a brief risk assessment and lands in one of three classes: Trivial, Low or Elevated. The class decides who does the work, who reviews it, and whether QA runs.</p>
+
+  <h2>Three classes</h2>
+  <ul>
+    <li><strong>Trivial</strong> requires every Trivial signal to hold: exactly one file (or one file plus its colocated test or snapshot); no change to control flow, data flow, state shape, API surface or types; no shared design tokens, theme files, config, env or CI; nothing a downstream consumer imports; reversible with a one-line revert; and no security, auth, permissions, billing or PII surface. A hardcoded color, a button label, alt text or a typo fix qualifies. Any single disqualifier pushes the task to Elevated, and some changes are explicitly not Trivial even when they feel small: a theme or token file, anything touching two or more files, copy on legal, pricing or compliance surfaces, and renames, even local ones.</li>
+    <li><strong>Low</strong> covers clearly reversible reads, exploration whose output is understanding rather than a decision, diagnostic-only logging, and a set of named overrides. One of them, in the default profile, is the small single-concern change: exactly one production source file, plus optional test, fixture, snapshot and documentation files, under 100 changed lines in total, with every other exclusion of the single-file override still holding.</li>
+    <li><strong>Elevated</strong> is triggered by any single Elevated signal. Elevated work gets a Worker plus a fresh, independent Skeptic, and the class is declared before work starts, in a fixed format: <code>Risk: Elevated - [specific signal]</code>, then the tier, then "Applying adversarial review."</li>
+  </ul>
+
+  <h2>The tie-break leans up</h2>
+  <p>When in doubt, the task is Elevated. That default is overridden only when a named Low or Trivial override's full definition, including every exclusion clause, is affirmatively satisfied and no other Elevated signal is present. "Provably small" means the override can be named and each exclusion checked against the diff, not a general impression that the change looks safe. The methodology also rules out talking yourself down later: once a task meets an Elevated signal, the conductor classifies it and spawns immediately, and may not re-evaluate at each step because an edit "feels straightforward" or "is just text."</p>
+  <p>Risk applies to the task, not the individual tool call. A read that confirms a known fact is Low. A run of reads, greps and shell commands whose goal is to understand something (tracing behavior, finding a root cause, mapping blast radius) is an Elevated investigation, even if each step looks harmless on its own, and it goes to a named agent such as the investigator or debugger.</p>
+
+  <figure>
+    <a class="figure-link" href="/blog/images/2026-11-06-risk-class-decision.svg"><img src="/blog/images/2026-11-06-risk-class-decision.svg" width="600" height="900" alt="Decision flow: if every Trivial signal holds, the task is Trivial. If not, and a named Low override is fully satisfied with no Elevated signal present, it is Low. Otherwise it is Elevated, which means a Worker plus a fresh Skeptic. An Elevated task takes the single-review route when the profile is default or relaxed, the task is not rework, and no risk surface is touched; otherwise it takes the full route. When in doubt, classify as Elevated."></a>
+    <figcaption>Each step down the chart is a more expensive process; the default when unsure is down.</figcaption>
+  </figure>
+
+  <h2>Two Elevated routes</h2>
+  <p>Not every Elevated task needs the full machinery. An Elevated task takes the <strong>single-review</strong> route only when all three hold: the profile is <code>default</code> or <code>relaxed</code>, the task is not rework, and it touches no risk surface. A risk surface is security, auth, crypto, payments or secrets; an irreversible operation; novel architecture; high blast radius, which includes any change to a shared module with 5 or more importers; an LLM prompt, or a gate or its threshold; release, deploy or production state; or a public-API change such as an exported symbol, a route, a CLI flag or a config key a downstream consumer reads. When it is unclear, the task takes the <strong>full</strong> route.</p>
+  <p>The single-review route is one worktree-isolated engineer, then one Skeptic pass whose findings are fixed once. Fixes are re-reviewed only after a Critical finding, and QA fires only for a user-visible UI change, with the acceptance text as its criteria.</p>
+
+  <h2>The routes in the ticket workflow</h2>
+  <p><code>/ds-implement-ticket</code> runs the classification on every ticket and turns it into a route:</p>
+  <ul>
+    <li><strong>Trivial:</strong> one worktree engineer on a lightweight contract; no investigator, architect, planner, Skeptic or QA.</li>
+    <li><strong>Low</strong> (the small single-concern override): one worktree engineer with the override's bounds in its brief; no investigator, architect, planner or Skeptic. A QA pass still runs after a user-visible UI change, with the acceptance text as criteria.</li>
+    <li><strong>Elevated single-review:</strong> one engineer on the Elevated contract, no investigator, architect or planner, and one Skeptic pass.</li>
+    <li><strong>Elevated full:</strong> the whole workflow, including an architect plan that must carry a <code>qa_criteria</code> block, the Skeptic loop, and the QA gate.</li>
+  </ul>
+  <p>Two details keep this honest. Every path that skips QA writes down why, rather than leaving the field empty. And rework has a floor: a ticket that is being reworked is at least Elevated, overriding any Low override, and rework tickets take the full route.</p>
+
+  <figure>
+    <a class="figure-link" href="/blog/images/2026-11-06-risk-class-routes.svg"><img src="/blog/images/2026-11-06-risk-class-routes.svg" width="600" height="780" alt="What each route spawns. Trivial: one worktree engineer, with no Skeptic, no brief file and no QA. Low: one worktree engineer with its bounds in the brief, no Skeptic, and QA only for user-visible UI. Elevated single-review: one engineer and one Skeptic pass, re-reviewed only after a Critical. Elevated full: an architect plan, Workers and a Skeptic loop, with QA unless a valid qa_skip applies."></a>
+    <figcaption>The four routes, from the lightest to the heaviest.</figcaption>
+  </figure>
+
+  <h2>Profiles move the line</h2>
+  <p>A project can choose one of three risk profiles, and the default is <code>default</code>. <code>relaxed</code> adds Low overrides, for example bounded behavioral edits across 2 or 3 tightly connected files totaling 30 changed lines or fewer. <code>strict</code> removes them: the small single-concern change, file renaming, UI-only copy changes and targeted wording fixes all become Elevated, and the single-review route goes away, so every Elevated task takes the full route.</p>
+
+  <h2>Reclassifying when the work disagrees</h2>
+  <p>A classification is made before the work, so it can be wrong. If a Low task reveals Elevated signals partway through, it stops, is reclassified Elevated, and gets adversarial review from that point. A single-review task whose diff touches a risk surface continues on the full route. A Trivial engineer that discovers its "one-file color tweak" actually lives in a shared token file must stop and report so the conductor can reclassify. In the ticket workflow, the engineer on a Low or single-review route works to bounds stated in its brief; when the diff breaks one, or the engineer, conductor or Skeptic finds a risk-surface touch, the diff is pushed to the ticket's branch, work stops, and the ticket re-enters planning on the full route with that diff as the architect's input.</p>
+
+  <h2>Why it matters</h2>
+  <p>The cost of review should track the cost of being wrong. Risk classification gives a one-line change one engineer and no ceremony, gives a risky change a plan, a fresh reviewer and QA, and decides between them by named signals checked against the diff rather than by how simple a change looks.</p>
+
+  <h2>Sources</h2>
+  <ul>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/sections/04-risk-classification.md"><code>content/sections/04-risk-classification.md</code></a>: the three classes, Trivial and Low signals, the tie-break, Elevated routes and risk surfaces, profiles, mid-task reclassification, and the declaration format</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/commands/ds-implement-ticket.md"><code>content/commands/ds-implement-ticket.md</code></a>: the risk classification declaration, the route table, the rework floor, escalation, and Phase 3's architect plan</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/sections/02-delegation.md"><code>content/sections/02-delegation.md</code></a>: the spawn threshold and the no re-deliberation rule</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/sections/05-qa-gate.md"><code>content/sections/05-qa-gate.md</code></a>: when QA fires on the full and single-review routes</li>
+  </ul>
+</article>
+
+</body>
+</html>

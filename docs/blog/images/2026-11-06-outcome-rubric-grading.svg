@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 800" width="600" height="800" role="img" aria-labelledby="t d">
+  <title id="t">How the Skeptic grades an outcome rubric on an Elevated Brief</title>
+  <desc id="d">If the rubric is absent on an Elevated Brief, that is a Critical finding. A rubric line with no verification_type is a Major finding. For a deterministic line, the Skeptic checks that the named gate was run and passed; if it was not, that is Major. For a judgment line, the Skeptic grades it adversarially and independently, never treating it as self-certifying; an unmet line is Major.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9bb0cc"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="600" height="800" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="300" y="46" font-size="22" font-weight="700" fill="#ffffff">How the Skeptic grades a rubric</text>
+
+    <rect x="30" y="74" width="350" height="90" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="205" y="112" font-size="19" fill="#eaf1fb">Rubric present on</text>
+    <text x="205" y="140" font-size="19" fill="#eaf1fb">an Elevated Brief?</text>
+    <line x1="380" y1="119" x2="420" y2="119" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="400" y="107" font-size="17" fill="#9bb0cc">no</text>
+    <rect x="424" y="89" width="146" height="60" rx="30" fill="#060B16" stroke="#ff5d73" stroke-width="2"/>
+    <text x="497" y="126" font-size="19" font-weight="700" fill="#ff5d73">Critical</text>
+    <line x1="205" y1="164" x2="205" y2="204" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="228" y="190" font-size="17" fill="#9bb0cc" text-anchor="start">yes</text>
+
+    <rect x="30" y="208" width="350" height="90" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="205" y="246" font-size="19" fill="#eaf1fb">Each line tagged with</text>
+    <text x="205" y="274" font-size="19" fill="#eaf1fb">a verification_type?</text>
+    <line x1="380" y1="253" x2="420" y2="253" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="400" y="241" font-size="17" fill="#9bb0cc">no</text>
+    <rect x="424" y="223" width="146" height="60" rx="30" fill="#060B16" stroke="#E9B521" stroke-width="2"/>
+    <text x="497" y="260" font-size="19" font-weight="700" fill="#E9B521">Major</text>
+    <line x1="150" y1="298" x2="120" y2="344" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <line x1="260" y1="298" x2="400" y2="344" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="30" y="350" width="255" height="250" rx="12" fill="#060B16" stroke="#3ad99a" stroke-width="2"/>
+    <text x="157" y="390" font-size="21" font-weight="700" fill="#3ad99a">deterministic</text>
+    <text x="157" y="430" font-size="19" fill="#eaf1fb">Was the named</text>
+    <text x="157" y="458" font-size="19" fill="#eaf1fb">gate run, and</text>
+    <text x="157" y="486" font-size="19" fill="#eaf1fb">did it pass?</text>
+    <text x="157" y="540" font-size="17" fill="#9bb0cc">tests, lint, schema</text>
+    <text x="157" y="566" font-size="17" fill="#9bb0cc">check, HTTP status</text>
+
+    <rect x="315" y="350" width="255" height="250" rx="12" fill="#060B16" stroke="#b06bff" stroke-width="2"/>
+    <text x="442" y="390" font-size="21" font-weight="700" fill="#b06bff">judgment</text>
+    <text x="442" y="430" font-size="19" fill="#eaf1fb">Graded by the</text>
+    <text x="442" y="458" font-size="19" fill="#eaf1fb">Skeptic, adversarially</text>
+    <text x="442" y="486" font-size="19" fill="#eaf1fb">and independently</text>
+    <text x="442" y="540" font-size="17" fill="#9bb0cc">never self-certifying</text>
+
+    <line x1="157" y1="600" x2="230" y2="650" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <line x1="442" y1="600" x2="370" y2="650" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <rect x="30" y="656" width="540" height="110" rx="12" fill="#0A1020" stroke="#E9B521" stroke-width="2"/>
+    <text x="300" y="700" font-size="20" font-weight="700" fill="#E9B521">Not met: Major</text>
+    <text x="300" y="736" font-size="18" fill="#9bb0cc">Blocks sign-off unless deferred with a reason</text>
+  </g>
+</svg>

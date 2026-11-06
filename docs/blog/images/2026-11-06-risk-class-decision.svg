@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" width="600" height="900" role="img" aria-labelledby="t d">
+  <title id="t">How a task is classified Trivial, Low or Elevated, and which Elevated route it takes</title>
+  <desc id="d">If every Trivial signal holds, the task is Trivial. Otherwise, if a named Low override is fully satisfied and no Elevated signal is present, it is Low. Otherwise it is Elevated: a Worker plus a fresh Skeptic. An Elevated task takes the single-review route when the profile is default or relaxed, it is not rework, and it touches no risk surface; otherwise it takes the full route. When in doubt, classify as Elevated.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9bb0cc"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="600" height="900" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="300" y="46" font-size="22" font-weight="700" fill="#ffffff">Classifying a task</text>
+
+    <rect x="24" y="76" width="350" height="104" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="199" y="120" font-size="19" fill="#eaf1fb">Does every Trivial</text>
+    <text x="199" y="148" font-size="19" fill="#eaf1fb">signal hold?</text>
+    <line x1="374" y1="128" x2="416" y2="128" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="395" y="116" font-size="17" fill="#9bb0cc">yes</text>
+    <rect x="420" y="98" width="156" height="60" rx="30" fill="#060B16" stroke="#3ad99a" stroke-width="2"/>
+    <text x="498" y="135" font-size="20" font-weight="700" fill="#3ad99a">Trivial</text>
+    <line x1="199" y1="180" x2="199" y2="222" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="222" y="208" font-size="17" fill="#9bb0cc" text-anchor="start">no</text>
+
+    <rect x="24" y="226" width="350" height="134" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="199" y="268" font-size="19" fill="#eaf1fb">Is a named Low override</text>
+    <text x="199" y="296" font-size="19" fill="#eaf1fb">fully satisfied, with no</text>
+    <text x="199" y="324" font-size="19" fill="#eaf1fb">Elevated signal present?</text>
+    <line x1="374" y1="293" x2="416" y2="293" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="395" y="281" font-size="17" fill="#9bb0cc">yes</text>
+    <rect x="420" y="263" width="156" height="60" rx="30" fill="#060B16" stroke="#18E0FF" stroke-width="2"/>
+    <text x="498" y="300" font-size="20" font-weight="700" fill="#18E0FF">Low</text>
+    <line x1="199" y1="360" x2="199" y2="402" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="222" y="388" font-size="17" fill="#9bb0cc" text-anchor="start">no</text>
+
+    <rect x="24" y="406" width="552" height="70" rx="10" fill="#060B16" stroke="#E9B521" stroke-width="2"/>
+    <text x="300" y="449" font-size="20" font-weight="700" fill="#E9B521">Elevated: Worker + fresh Skeptic</text>
+    <line x1="199" y1="476" x2="199" y2="518" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+
+    <rect x="24" y="522" width="350" height="134" rx="10" fill="#0A1020" stroke="#18E0FF" stroke-width="2"/>
+    <text x="199" y="564" font-size="19" fill="#eaf1fb">Profile default or relaxed,</text>
+    <text x="199" y="592" font-size="19" fill="#eaf1fb">not rework, and no risk</text>
+    <text x="199" y="620" font-size="19" fill="#eaf1fb">surface touched?</text>
+    <line x1="374" y1="589" x2="416" y2="589" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="395" y="577" font-size="17" fill="#9bb0cc">yes</text>
+    <rect x="420" y="559" width="156" height="60" rx="30" fill="#060B16" stroke="#E9B521" stroke-width="2"/>
+    <text x="498" y="595" font-size="18" font-weight="700" fill="#E9B521">single-review</text>
+    <line x1="199" y1="656" x2="199" y2="698" stroke="#9bb0cc" stroke-width="2.5" marker-end="url(#ah)"/>
+    <text x="222" y="684" font-size="17" fill="#9bb0cc" text-anchor="start">no</text>
+
+    <rect x="24" y="702" width="350" height="60" rx="30" fill="#060B16" stroke="#ff5d73" stroke-width="2"/>
+    <text x="199" y="739" font-size="20" font-weight="700" fill="#ff5d73">full route</text>
+
+    <text x="300" y="824" font-size="19" fill="#9bb0cc">When in doubt, classify as Elevated.</text>
+    <text x="300" y="856" font-size="17" fill="#6a7c97">Risk surface: security, irreversible ops, public API, ...</text>
+  </g>
+</svg>

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 780" width="600" height="780" role="img" aria-labelledby="t d">
+  <title id="t">What each risk route spawns in /ds-implement-ticket</title>
+  <desc id="d">Trivial: one worktree engineer with no Skeptic, no brief file and no QA. Low, under the small single-concern override: one worktree engineer with its bounds in the brief and no Skeptic; QA still runs for a user-visible UI change. Elevated single-review: one engineer and one Skeptic pass, with a re-review only after a Critical. Elevated full: an architect plan, Workers, a Skeptic loop, and QA unless a valid qa_skip applies.</desc>
+  <rect x="0" y="0" width="600" height="780" rx="16" fill="#02050C"/>
+  <g font-family="'Nunito Sans', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="300" y="48" font-size="22" font-weight="700" fill="#ffffff">What each route spawns</text>
+
+    <rect x="30" y="80" width="540" height="150" rx="12" fill="#060B16" stroke="#3ad99a" stroke-width="2"/>
+    <text x="300" y="122" font-size="24" font-weight="700" fill="#3ad99a">Trivial</text>
+    <text x="300" y="162" font-size="19" fill="#eaf1fb">One worktree engineer</text>
+    <text x="300" y="194" font-size="19" fill="#9bb0cc">No Skeptic, no brief file, no QA</text>
+
+    <rect x="30" y="250" width="540" height="150" rx="12" fill="#060B16" stroke="#18E0FF" stroke-width="2"/>
+    <text x="300" y="292" font-size="24" font-weight="700" fill="#18E0FF">Low</text>
+    <text x="300" y="332" font-size="19" fill="#eaf1fb">One worktree engineer, bounds in its brief</text>
+    <text x="300" y="364" font-size="19" fill="#9bb0cc">No Skeptic; QA only for user-visible UI</text>
+
+    <rect x="30" y="420" width="540" height="150" rx="12" fill="#060B16" stroke="#E9B521" stroke-width="2"/>
+    <text x="300" y="462" font-size="24" font-weight="700" fill="#E9B521">Elevated, single-review</text>
+    <text x="300" y="502" font-size="19" fill="#eaf1fb">One engineer, one Skeptic pass</text>
+    <text x="300" y="534" font-size="19" fill="#9bb0cc">Re-review only after a Critical</text>
+
+    <rect x="30" y="590" width="540" height="150" rx="12" fill="#060B16" stroke="#ff5d73" stroke-width="2"/>
+    <text x="300" y="632" font-size="24" font-weight="700" fill="#ff5d73">Elevated, full</text>
+    <text x="300" y="672" font-size="19" fill="#eaf1fb">Architect plan, Workers, Skeptic loop</text>
+    <text x="300" y="704" font-size="19" fill="#9bb0cc">QA unless a valid qa_skip applies</text>
+  </g>
+</svg>

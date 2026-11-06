@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#02050C">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='10' fill='none' stroke='%2318E0FF' stroke-width='3'/></svg>">
+<title>Capability preflight: checking an agent's tools before it starts - DinoStack Blog</title>
+<meta name="description" content="How DinoStack checks, before every agent spawn, that the tools the agent declares for this task are installed, installs the safe ones automatically, and by default refuses the spawn when a required tool is missing.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/blog/blog.css">
+</head>
+<body>
+
+<nav class="side-nav" aria-label="Site">
+  <div class="side-nav-brand">
+    <img class="side-nav-logo" src="/images/dinostack-logo.svg" alt="DinoStack">
+  </div>
+  <a href="/"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
+  <hr class="side-nav-divider">
+  <a href="/blog/"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
+</nav>
+
+<nav class="mobile-nav" aria-label="Site">
+  <a href="/">Home</a>
+  <a href="/blog/">Blog</a>
+</nav>
+
+<article class="post">
+  <header class="doc-header">
+    <h1>Capability preflight: checking an agent's tools before it starts</h1>
+    <p class="byline"><time datetime="2026-11-06">2026-11-06</time></p>
+  </header>
+
+  <p>An agent that finds out partway through a task that a tool it needs is missing has spent the run getting there. DinoStack moves that discovery to the start. Before every agent spawn, the conductor reads the target agent's <code>capabilities:</code> block, if it has one, and checks that the tools it declares for this particular task are available in the current environment.</p>
+
+  <h2>A manifest in each agent</h2>
+  <p>An agent definition under <code>content/agents/</code> may carry a <code>capabilities:</code> block with <code>required</code> and <code>optional</code> entries. Each entry names a <code>tool</code> and a <code>check</code>, a POSIX shell command that exits 0 when the tool is present. It can also carry an <code>install</code> command, a human-readable <code>install_hint</code>, an <code>auto_install</code> flag, and a <code>required_when</code> predicate. An agent with no block at all is a complete no-op, which keeps adoption incremental: an agent that has not declared a manifest is never blocked.</p>
+
+  <figure>
+    <a class="figure-link" href="/blog/images/2026-11-06-capability-manifest-entry.svg"><img src="/blog/images/2026-11-06-capability-manifest-entry.svg" width="600" height="760" alt="One manifest entry from the qa-engineer agent: tool @axe-core/playwright, check npm ls @axe-core/playwright, install npm install --no-save @axe-core/playwright, auto_install true, and required_when scenario.method == 'accessibility'. The check is a POSIX shell command where exit 0 means present. auto_install is for safe installs only, into the project's node_modules or user site-packages, never lockfiles. required_when makes the tool required only when the spawn has an accessibility scenario."></a>
+    <figcaption>A real entry from <code>content/agents/qa-engineer.md</code>, with what each field does.</figcaption>
+  </figure>
+
+  <h2>Required only when the task needs it</h2>
+  <p>A QA agent does not need an accessibility engine for every job, so a requirement can be conditional. <code>required_when</code> is a small fixed grammar, with no arbitrary code: <code>scenario.method == 'X'</code>, <code>scenario.method in ['X', 'Y']</code>, and <code>brief.has_field('name')</code>, joined with <code>&amp;&amp;</code> and <code>||</code>. The scenario predicates read the spawn's <code>qa_criteria</code>. When the predicate is false for a spawn, the entry is downgraded to optional, warn-on-miss, for that spawn only. A spawn with no Brief evaluates every <code>brief.has_field()</code> as false.</p>
+  <p>The <code>qa-engineer</code> manifest shows the pattern. <code>@axe-core/playwright</code> is required only for an <code>accessibility</code> scenario, <code>pixelmatch</code> and <code>pngjs</code> only for <code>perceptual_diff</code>, and <code>playwright-python</code> only for <code>motion</code>. <code>agent-browser</code>, <code>chrome-devtools-mcp</code> and a running Storybook server are optional.</p>
+
+  <h2>Safe auto-install, and nothing else</h2>
+  <p><code>auto_install: true</code> is restricted to commands whose only side effect is changing the project's <code>node_modules/</code>, <code>~/.local/</code>, or pip <code>--user</code> site-packages: <code>npm install --no-save &lt;pkg&gt;</code> and <code>pip install --user &lt;pkg&gt;</code>. It is forbidden for anything that downloads browser binaries (such as <code>playwright install chromium</code>, about 150MB), global npm installs, anything needing <code>sudo</code>, and anything that changes <code>package.json</code>, a lockfile, <code>requirements.txt</code> or <code>pyproject.toml</code>. Those use <code>install_hint</code> instead, which is shown to you as an action item and never run automatically.</p>
+
+  <h2>The flow</h2>
+  <p>For an agent with a manifest, the preflight resolves each <code>required_when</code> against the spawn, runs each <code>check</code>, auto-installs safe misses and re-checks them, then reports what is still missing. Hits are cached in <code>.agentic/.capability-cache.json</code> for 30 minutes. Misses are never cached, so a tool you install mid-session is picked up on the next spawn with no cache to clear. When anything is missing, the report names the agent, the mode, and each missing tool with its install command or hint. The reference's own example:</p>
+  <ul>
+    <li><code>qa-engineer preflight: blocking</code></li>
+    <li><code>required missing: @axe-core/playwright</code>, install: <code>npm install --no-save @axe-core/playwright</code></li>
+    <li><code>optional missing: agent-browser</code>, install: <code>npm install -g agent-browser</code></li>
+  </ul>
+  <p>A clean check prints nothing.</p>
+
+  <figure>
+    <a class="figure-link" href="/blog/images/2026-11-06-capability-preflight-flow.svg"><img src="/blog/images/2026-11-06-capability-preflight-flow.svg" width="600" height="900" alt="The preflight before every agent spawn. 1: read the capabilities block; with no block, skip the preflight. 2: resolve required_when; when false, a required entry becomes optional. 3: run each check command; hits are cached for 30 minutes, misses never. 4: auto-install safe misses, then re-check. 5: report what is still missing, with the install command or hint. Then advisory mode warns and spawns, and blocking mode, the default, refuses the spawn. The mode is capability_preflight_mode in .agentic/config.json."></a>
+    <figcaption>The last step depends on the mode, and the default is to block.</figcaption>
+  </figure>
+
+  <h2>Blocking by default</h2>
+  <p>The mode is <code>capability_preflight_mode</code> in <code>.agentic/config.json</code>. In <code>advisory</code> mode the conductor warns, naming the agent, the tool and the install command, then spawns anyway. In <code>blocking</code> mode it refuses the spawn when a required tool is still missing after auto-install. <code>blocking</code> is the default, and any missing or unrecognized value falls back to it. Projects seeded before blocking became the default, with <code>advisory</code> in their config, keep that value.</p>
+
+  <h2>Caveats</h2>
+  <ul>
+    <li>Checks must be POSIX <code>/bin/sh</code> commands. Windows users run through WSL or Git Bash; a check written in PowerShell syntax fails silently and counts as a miss.</li>
+    <li>The preflight is a procedure the conductor follows, written down in the methodology; its reference describes itself as prose that does not execute.</li>
+    <li>It covers only what an agent's manifest declares. A tool nobody listed is never checked.</li>
+  </ul>
+
+  <h2>Why it matters</h2>
+  <p>A missing tool is cheapest to find before an agent starts. The preflight makes each agent's needs explicit, scales them to the task, installs only what is safe to install without asking, and by default stops a spawn that would fail for lack of a tool, with the command that fixes it.</p>
+
+  <h2>Sources</h2>
+  <ul>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/sections/06-capability-preflight.md"><code>content/sections/06-capability-preflight.md</code></a>: when the preflight runs, and advisory versus blocking mode</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/references/capability-preflight.md"><code>content/references/capability-preflight.md</code></a>: the YAML schema, the <code>required_when</code> grammar, auto-install constraints, the preflight flow, output format, cache schema, and POSIX precondition</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/agents/qa-engineer.md"><code>content/agents/qa-engineer.md</code></a>: the populated <code>capabilities:</code> block used as the example</li>
+  </ul>
+</article>
+
+</body>
+</html>

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#02050C">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='10' fill='none' stroke='%2318E0FF' stroke-width='3'/></svg>">
+<title>Worktree-isolated engineers: why the conductor never edits shippable files - DinoStack Blog</title>
+<meta name="description" content="Why DinoStack's conductor delegates every shippable change, even a one-line fix, to an engineer in its own git worktree branched from origin, and what that isolation prevents.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&family=Nunito+Sans:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/blog/blog.css">
+</head>
+<body>
+
+<nav class="side-nav" aria-label="Site">
+  <div class="side-nav-brand">
+    <img class="side-nav-logo" src="/images/dinostack-logo.svg" alt="DinoStack">
+  </div>
+  <a href="/"><span class="nav-dot" style="background: var(--text-muted);"></span> Home</a>
+  <hr class="side-nav-divider">
+  <a href="/blog/"><span class="nav-dot" style="background: var(--cyan);"></span> Blog</a>
+</nav>
+
+<nav class="mobile-nav" aria-label="Site">
+  <a href="/">Home</a>
+  <a href="/blog/">Blog</a>
+</nav>
+
+<article class="post">
+  <header class="doc-header">
+    <h1>Worktree-isolated engineers: why the conductor never edits shippable files</h1>
+    <p class="byline"><time datetime="2026-11-06">2026-11-06</time></p>
+  </header>
+
+  <p>In DinoStack the main session agent is a conductor, not an implementer. It decomposes the work, delegates it to specialist subagents, and synthesizes what they report, staying available to you the whole time. One rule makes that division concrete: the conductor never edits shippable files directly, not even for a Trivial one-line change. Every shippable change goes to an <code>engineer</code> working in its own git worktree, branched from <code>origin/main</code>.</p>
+
+  <h2>What counts as shippable</h2>
+  <p>"Shippable" is decided by a four-rule classifier, and the first match wins:</p>
+  <ul>
+    <li>Anything under <code>.agentic/</code> is exempt; the conductor is its sole writer.</li>
+    <li>Anything under <code>docs/planning/</code> is exempt: Briefs, Plans and ADRs. Every other doc is shippable, by name.</li>
+    <li>A conductor-direct print, decision or resolver run is exempt.</li>
+    <li>Any other write to a tracked file is shippable, and is delegated to a worktree-isolated engineer: with no Skeptic and no brief for a Trivial change, with the full Worker and Skeptic loop for an Elevated one.</li>
+  </ul>
+
+  <figure>
+    <a class="figure-link" href="/blog/images/2026-11-06-shippable-classifier.svg"><img src="/blog/images/2026-11-06-shippable-classifier.svg" width="600" height="700" alt="The shippable classifier, four rules where the first match wins. Rule 1: .agentic/ is exempt. Rule 2: docs/planning/ is exempt. Rule 3: a conductor-direct print, decision or resolver run is exempt. Rule 4: any other tracked-file write is shippable and goes to a worktree engineer. On Claude Code in the DinoStack checkout, hooks/enforce-shippable-edit.py backs this up."></a>
+    <figcaption>Only the first three rules let the conductor write; everything else is an engineer's job.</figcaption>
+  </figure>
+
+  <h2>A hook backs the rule</h2>
+  <p>On Claude Code, <code>hooks/enforce-shippable-edit.py</code> turns this prose into a hard gate inside the DinoStack checkout. It runs before every Write, Edit and MultiEdit and denies one issued directly by the conductor against a shippable file in the repo, while allowing the same edit from an engineer subagent. It has stated limits. The instruction-layer files <code>AGENTS.md</code>, <code>MEMORY.md</code> and <code>CLAUDE.md</code> are exempt at any depth, because <code>/wrap</code> writes them and runs its own Skeptic review; a conductor hand-edit to them outside <code>/wrap</code> is unguarded by design. It fails open on any error, and <code>AE_SHIPPABLE_GUARD_DISABLE=1</code> turns it off.</p>
+
+  <h2>Why every engineer gets its own worktree</h2>
+  <p>Worktree isolation is mandatory for every concurrent <code>engineer</code>, <code>qa-engineer</code> and <code>release-orchestrator</code> spawn. The main worktree is reserved for the conductor's branch and its untracked scaffolding under <code>.agentic/</code>. A subagent running in the main worktree can stage and commit those conductor-side files into its own commit, and two parallel spawns sharing one working tree contaminate each other's commits. Neither failure breaks a test. It shows up later, as a reviewer asking why one of the conductor's <code>.agentic/</code> state files is in the PR.</p>
+  <p>There is no in-place exception. A Trivial change runs in an isolated worktree too. It keeps its lightweight posture, with no Skeptic and no brief; only the place where the edit happens moves off the primary checkout.</p>
+
+  <figure>
+    <a class="figure-link" href="/blog/images/2026-11-06-worktree-isolation-layout.svg"><img src="/blog/images/2026-11-06-worktree-isolation-layout.svg" width="600" height="790" alt="Who works where. The conductor works in the primary checkout, planning, spawning and reviewing, and edits exempt files only. Engineers A and B each get their own worktree and their own branch, created from origin/main rather than from the conductor's checkout, and each edits shippable files there. Each pushes its branch and opens a PR. There is no in-place exception, even for a Trivial change."></a>
+    <figcaption>Each engineer starts from origin, not from whatever is sitting in the conductor's checkout.</figcaption>
+  </figure>
+
+  <h2>Branched from origin, and what that implies</h2>
+  <p>Because each worktree branches from the base branch on <code>origin</code>, a file that is missing from that tree is missing from the worktree too. Gitignored and untracked paths are the common case: a planning doc under <code>docs/planning/</code>, a local design folder, a scratch directory. A subagent that cannot read a cited path, and is not told so, will sometimes invent the content rather than stop. So before citing such a path in a brief, the conductor checks that it is absent from <code>origin</code> with <code>git ls-tree</code>, and restates the text in the brief instead, naming which copy is authoritative.</p>
+  <p>On Claude Code two more hooks guard the boundary from the engineer's side. <code>enforce-worktree-read.py</code> denies a worktree-isolated subagent's Read that reaches back into the primary checkout instead of its own worktree. <code>enforce-worktree-write.py</code> does the same for writes, which catches a subagent that has silently fallen back to the primary checkout: it still looks like a subagent, so the shippable-edit guard would let it through. Both fail open and have their own kill switches.</p>
+
+  <h2>Fresh engineers for fix passes</h2>
+  <p>When a Skeptic, QA or CI finding needs a fix, it goes to a new implementer, never back to the finished one. Resuming the old agent carries its whole transcript into the fix pass, which is how fix passes die of context exhaustion. The new engineer gets the findings verbatim, the pushed branch and its head SHA, after the conductor has confirmed the work is actually on <code>origin</code>.</p>
+
+  <h2>Cleaning up without losing work</h2>
+  <p>When an engineer's work is complete, meaning its review gates have returned and it will get no further work, the conductor retires the checkout with <code>ds-retire-carrier</code>. It removes the checkout only, never the branch, and only when the checkout is unlocked, clean, has no git operation in progress, holds no protected ignored content, and every commit it holds stays reachable afterwards from a local branch, a reflog or a live <code>origin</code> branch. Otherwise it records a hold with an owner, a reason and a revisit event. Deleting the branch is a separate step with its own proof, and no cleanup step deletes a branch just because a PR merged.</p>
+
+  <h2>Why it matters</h2>
+  <p>Agents that share a working tree share their mistakes. Giving every engineer its own worktree from <code>origin</code>, and keeping the conductor out of shippable files, means each PR contains one engineer's work and nothing else, and leaves the conductor free to keep talking to you while that work runs.</p>
+
+  <h2>Sources</h2>
+  <ul>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/rules/conventions.md"><code>content/rules/conventions.md</code></a>, Git Workflow: the never-edit-shippable rule, the four-rule classifier, and the mechanical backstop</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/sections/02-delegation.md"><code>content/sections/02-delegation.md</code></a>: the conductor role, mandatory worktree isolation, the no in-place exception rule, readable paths in briefs, and fresh fix-pass spawns</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/sections/04-risk-classification.md"><code>content/sections/04-risk-classification.md</code></a>: the provenance test's <code>git ls-tree</code> absence check</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/content/references/worktree-lifecycle.md"><code>content/references/worktree-lifecycle.md</code></a>: carrier lifecycle, <code>ds-retire-carrier</code>, holds, and branch deletion</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/hooks/enforce-shippable-edit.py"><code>hooks/enforce-shippable-edit.py</code></a> and <a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/hooks/AGENTS.md"><code>hooks/AGENTS.md</code></a>: the shippable-edit, worktree-read and worktree-write guards, and fail-open discipline</li>
+  </ul>
+</article>
+
+</body>
+</html>
