@@ -44,7 +44,7 @@
     <li>surfaces a blocked or failed lane to you as a decision, and holds risky actions until you rule,</li>
     <li>re-runs triage over the remaining tickets when a wave is done, and presents the next wave.</li>
   </ul>
-  <p>It does no ticket work itself. Its state lives in one file, <code>.agentic/runbook-&lt;KEY&gt;.json</code>, which it reads first after a context compaction, so a long run survives one. And no message from the conductor ever tells a lane to skip its own Skeptic review, QA, or gates.</p>
+  <p>It does no ticket work itself. Its state lives in one file, <code>.agentic/runbook-&lt;KEY&gt;.json</code>, which it reads first after a context compaction, so a long run survives one.</p>
 
   <figure>
     <a class="figure-link" href="/blog/images/2026-11-06-conductor-lanes-architecture.svg"><img src="/blog/images/2026-11-06-conductor-lanes-architecture.svg" width="600" height="900" alt="Architecture: the operator talks to one conductor. The conductor fans out to N ds-lane sessions, each a headless claude -p or codex exec session running /ds-implement-ticket scaled to the ticket's risk: an engineer in a worktree, a Skeptic review loop on Elevated tickets, QA where it applies, then a PR. Rulings go from the conductor to the lanes, and only decisions come back to the operator. Lanes never message each other."></a>
@@ -52,7 +52,7 @@
   </figure>
 
   <h2>Lanes</h2>
-  <p><code>ds-lane</code> starts each lane as its own headless Claude Code or Codex session, picking the harness the conductor itself is running in. Up to 5 lanes run at once per repo by default (<code>DS_LANE_MAX</code>); the rest queue and start as slots free up. Each lane ends its work with a <code>LANE-DONE</code> or <code>LANE-BLOCKED</code> marker. A lane stopped by a usage limit shows as blocked with the reset time, and resumes later in the exact session it left.</p>
+  <p><code>ds-lane</code> starts each lane as its own headless Claude Code or Codex session, picking the harness the conductor itself is running in. Up to 5 lanes run at once per repo by default (<code>DS_LANE_MAX</code>), and <code>ds-lane start</code> refuses a new lane at that cap; the conductor holds the rest in its queue and starts them as slots free up. Each lane ends its work with a <code>LANE-DONE</code> or <code>LANE-BLOCKED</code> marker. A lane stopped by a usage limit shows as blocked with the reset time, and resumes later in the exact session it left.</p>
 
   <h2>Each lane runs the ticket workflow, scaled to risk</h2>
   <p>A lane is not a single worker. Each one runs <code>/ds-implement-ticket</code>, which picks its route from the ticket's risk class:</p>
@@ -72,10 +72,10 @@
   </ul>
 
   <h2>The lane lifecycle</h2>
-  <p>The conductor watches its lanes with <code>ds-lane wait</code>, which returns as soon as a lane finishes, blocks, or dies, and a 30-minute cron is the backstop. A finished lane frees its slot and the next queued lane starts. A blocked or dead lane becomes a decision for you, and your ruling goes back to the same session.</p>
+  <p>A finished lane frees its slot, and the conductor starts the next lane in its queue. A blocked or dead lane becomes a decision for you, and your ruling goes back to the same session.</p>
 
   <figure>
-    <a class="figure-link" href="/blog/images/2026-11-06-lane-lifecycle.svg"><img src="/blog/images/2026-11-06-lane-lifecycle.svg" width="600" height="1040" alt="Lane lifecycle: the conductor runs ds-lane start, with up to 5 lanes at once by default and the rest queued. The lane runs /ds-implement-ticket. ds-lane wait returns when a lane is done, blocked, or dead, with a 30-minute cron as backstop. LANE-DONE: the lane exits and frees its slot, and the next queued lane starts. LANE-BLOCKED, or dead (exited without a marker): a decision for the operator, whose ruling goes back by ds-lane send while the lane is running, or ds-lane resume once it has exited, in the same session. Every message goes through the conductor."></a>
+    <a class="figure-link" href="/blog/images/2026-11-06-lane-lifecycle.svg"><img src="/blog/images/2026-11-06-lane-lifecycle.svg" width="600" height="1040" alt="Lane lifecycle: the conductor runs ds-lane start, which refuses a new lane past 5 running by default; the conductor queues the rest. The lane runs /ds-implement-ticket. ds-lane wait returns when a lane is done, blocked, or dead, with a 30-minute cron as backstop. LANE-DONE: the lane exits and frees its slot, and the conductor starts the next queued lane. LANE-BLOCKED, or dead (exited without a marker): a decision for the operator, whose ruling goes back by ds-lane send while the lane is running, or ds-lane resume once it has exited, in the same session. Every message goes through the conductor."></a>
     <figcaption>From start to done, or to a ruling and back.</figcaption>
   </figure>
 

@@ -41,10 +41,10 @@
   <ul>
     <li><strong>Tool friction:</strong> any time this session logged a tool failure that the agent worked around (a <code>tool_failure_workaround</code> event).</li>
     <li><strong>A stalled review loop:</strong> a Skeptic review loop that hit its round cap, stopped converging, or was blocked.</li>
-    <li><strong>A guardrail firing:</strong> for example the guard that stops an agent from ending its turn to ask permission for an obvious next step.</li>
+    <li><strong>A guardrail firing:</strong> the guard that stops an agent from ending its turn to ask permission for an obvious next step, or a running repo-wide tally of enforcement-hook denials across every session in the repo.</li>
     <li><strong>Operator corrections:</strong> turns where you corrected or rejected what the agent did, quoted verbatim.</li>
   </ul>
-  <p>For each one it drafts a report with a title, a short body, the evidence, and a severity, and saves it locally to <code>~/.agentic/feedback.jsonl</code>. A session with no friction writes nothing. The step can never break or delay the wrap: any error inside it is swallowed.</p>
+  <p>From these it drafts up to five reports, merging closely related candidates, each with a title, a short body, the evidence, and a severity, and saves it locally to <code>~/.agentic/feedback.jsonl</code>. A session with no friction writes nothing. The step can never break or delay the wrap: any error inside it is swallowed.</p>
 
   <figure>
     <a class="figure-link" href="/blog/images/2026-11-06-feedback-capture-flow.svg"><img src="/blog/images/2026-11-06-feedback-capture-flow.svg" width="600" height="940" alt="Flow: four session friction signals (a tool failure the agent worked around, a stalled Skeptic review loop, a guardrail firing, operator corrections) feed /ds-wrap, which drafts reports with a title, body, evidence and severity. Drafts are saved locally to ~/.agentic/feedback.jsonl. A human greenlights items from each batch in /ds-feedback-triage, and only greenlit items become tickets in your own tracker."></a>
@@ -61,7 +61,7 @@
   <p>Claude Code added Claude-drafted feedback, which drafts a report when a tool keeps failing, Claude can't help with a request, or you point out a mistake; you review drafts in <code>/feedback</code>, and nothing reaches Anthropic until you send it. It shipped in v2.1.247, published on 2026-08-26, 55 days after DinoStack's capture step merged on 2026-07-02; Claude Code's docs list v2.1.238 as the minimum version. The difference is the destination: DinoStack files reports into your own tracker, and Claude Code sends them to Anthropic.</p>
 
   <figure>
-    <a class="figure-link" href="/blog/images/2026-11-06-feedback-capture-timeline.svg"><img src="/blog/images/2026-11-06-feedback-capture-timeline.svg" width="600" height="380" alt="Public release dates: 2026-07-02 DinoStack wrap-time feedback capture (PR #408); 2026-08-26 Claude Code v2.1.247, which added Claude-drafted feedback; 55 days apart."></a>
+    <a class="figure-link" href="/blog/images/2026-11-06-feedback-capture-timeline.svg"><img src="/blog/images/2026-11-06-feedback-capture-timeline.svg" width="600" height="500" alt="Public release dates: 2026-07-02 DinoStack wrap-time feedback capture (PR #408); 2026-08-20 Claude Code v2.1.238, the minimum version in Claude Code's docs; 2026-08-26 Claude Code v2.1.247, whose changelog adds the SendFeedback tool, 55 days after 2026-07-02."></a>
     <figcaption>Public release dates for the two features.</figcaption>
   </figure>
 
