@@ -19,7 +19,7 @@ updates:
     ignore:
       - dependency-name: "@marp-team/*"
 
-  # Root has one direct dependency (eslint ^8.57.1, currently EOL), so PR volume
+  # Root has one direct dependency (eslint), so PR volume
   # here is low. This entry keeps that dependency current; it does not by itself
   # prevent a repeat of the transitive js-yaml/brace-expansion drift that motivated
   # it. That class is governed by security alerts, which are independent of

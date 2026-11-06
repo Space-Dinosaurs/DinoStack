@@ -153,10 +153,10 @@ expect "actionable advisory (fixAvailable === true) fails the gate" \
   "$F_TRUE" 1 "ACTIONABLE"
 
 # --- Scenario 3: breaking-only passes -------------------------------------
-# This is the exact shape scripts/package-lock.json carries on main today:
-# four high-severity advisories whose only remedy is a semver-major
-# downgrade of @marp-team/marp-cli. The gate MUST pass, or main is red
-# permanently and the gate gets ignored or ripped out.
+# A recorded snapshot of scripts/package-lock.json's audit: advisories whose
+# only remedy is a semver-major downgrade of @marp-team/marp-cli. The gate
+# MUST pass on this shape, or main is red permanently and the gate gets
+# ignored or ripped out.
 F_BREAKING="$(write_fixture breaking '{
   "auditReportVersion": 2,
   "vulnerabilities": {
