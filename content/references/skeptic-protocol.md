@@ -56,7 +56,7 @@ Before starting any task, the main agent performs a brief risk assessment. The c
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
 | Trivial | Worktree-isolated `engineer` (no Skeptic, no brief file) | None | Silent |
-| Low | Direct action (small single-concern change: one `engineer`) | Brief inline self-check | Silent |
+| Low | Shippable edit: one worktree-isolated `engineer`; non-shippable work: conductor-direct | No Skeptic; the engineer checks its diff against the override's bounds | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated, single-review route | One worktree-isolated engineer; no architect or planner | One Skeptic pass; fixes re-reviewed only after a Critical | Stated before starting |
 | Elevated + Cleanup (full route only) | Worker | Skeptic → `/simplify` → Skeptic (narrow) | Stated before starting |
@@ -91,7 +91,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 ### Step-by-step
 
-0. **Assess risk.** If Low, act directly with a brief inline self-check. If Elevated, declare the risk signal and proceed with the loop below.
+0. **Assess risk.** If Low, delegate a shippable edit to one worktree-isolated `engineer` with no Skeptic. If Elevated, declare the risk signal and proceed with the loop below.
 
 1. **Primary agent spawns Worker** (background, general-purpose) with:
    - The task description and all relevant context
@@ -690,7 +690,7 @@ Workers are decomposed into focused atomic units ("one agent, one task, one prom
 
 - **Independent elevated units:** one Skeptic per unit. The diff is small, review is fast, findings are high-signal.
 - **Interdependent elevated units** (cross-file or cross-component consistency required): one Skeptic reviewing the combined diff from all related Workers. This integration Skeptic replaces per-unit Skeptics for these units. The most dangerous bugs emerge from interactions between components - a per-unit Skeptic cannot see them.
-- **Low-risk units:** no Skeptic. Direct action with self-check.
+- **Low-risk units:** no Skeptic. A shippable edit goes to one worktree-isolated `engineer`.
 - **Merge-update pass:** when a base-branch merge or rebase resolved conflicts in files the PR changed, those resolutions are always in Skeptic scope, never waived as "just a merge". The Skeptic brief includes the conflict-resolved hunks (for a merge commit, `git show --remerge-diff <merge-sha>` (git 2.36+); for a rebase, `git range-diff <old-base>..<old-tip> <new-base>..<new-tip>`) and the base branch's version of those files, and the Skeptic reviews each resolution against the base branch's behavior there.
 
 The integration Skeptic receives the same adversarial brief (Section 7) and follows the same sign-off format (Section 11). The only difference is scope: it reviews the combined output of multiple focused Workers rather than a single Worker's output.

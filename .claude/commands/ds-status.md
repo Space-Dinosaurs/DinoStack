@@ -51,12 +51,12 @@ DEPRECATED example (only shown when a legacy preset key is present at some scope
 
 What this means
   Active here: yes. The methodology governs how work gets done in this project.
-  Profile 'default': single-file behavioral edits run directly with a self-check;
+  Profile 'default': single-file behavioral edits are Low (one engineer, no Skeptic);
     multi-file changes, new files, shared utilities, config, and anything risky
     spawn a Worker plus an independent Skeptic review.
   (relaxed: single-file behavioral edits, small pure-UI multi-file changes, AND
     bounded 2-3-file behavioral edits (connectivity-bound, <=30 changed lines,
-    zero other Elevated signals) run directly - lighter review, faster iteration.)
+    zero other Elevated signals) are Low - lighter review, faster iteration.)
   (strict: UI-copy tweaks, file renames, and targeted wording fixes are all treated
     as Elevated and get Worker + Skeptic - broadest review coverage.)
 

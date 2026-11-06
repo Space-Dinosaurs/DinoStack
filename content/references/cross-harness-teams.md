@@ -66,8 +66,7 @@ no prompt, no degraded mode. Cross-harness is additive and fully opt-in.
 - Orchestration-planner, investigator, or architect roles -- these run in the
   conductor's own context because they produce plans the conductor reasons over
   directly.
-- Any spawn that the conductor would classify as direct-action (Low or
-  diagnostic-only) -- those stay conductor-direct.
+- Low-risk work (diagnostic-only included) -- it uses native delegation.
 - Spawns where `ds-team discover` marks the target harness absent.
   (Authentication errors are not a discover state -- they surface at dispatch
   time from the harness's own stderr/exit code.)

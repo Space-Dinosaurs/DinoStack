@@ -38,7 +38,7 @@ Per-project markers (Section 2) override global values.
   In `default` and `relaxed`, non-rework Elevated work touching no risk surface takes the
   single-review route (one engineer, one Skeptic pass).
 - **`strict`** - UI-only copy changes, file renaming, targeted wording fixes,
-  and small single-concern code changes are Elevated; diagnostic-only and docs-only changes require a self-check;
+  and small single-concern code changes are Elevated;
   the single-review route is removed.
 
 ---

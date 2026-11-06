@@ -46,7 +46,7 @@ Real instance to calibrate against: `METHODOLOGY.md §Risk Classification > Low 
 
 Candidate if more than two conditional branches are expressed in a single prose block without a structural separator (table, sub-heading, or bullet). The reader must hold all branches in working memory to understand any single path.
 
-Real instance to calibrate against: `METHODOLOGY.md §Risk Classification > Low signals` - it packs four distinct direct-action overrides (documentation creation, wording fixes, file renaming, UI copy changes) into a single paragraph, each with their own conditions and carve-outs. That is the calibration specimen for R2 density. The clean spawn-threshold enumeration in `METHODOLOGY.md §Delegation > spawn-threshold table` is NOT an R2 candidate - it uses structural separation (table) correctly. Confidence: MEDIUM.
+Real instance to calibrate against: `METHODOLOGY.md §Risk Classification > Low signals` - it packs four distinct Low overrides (documentation creation, wording fixes, file renaming, UI copy changes) into a single paragraph, each with their own conditions and carve-outs. That is the calibration specimen for R2 density. The clean spawn-threshold enumeration in `METHODOLOGY.md §Delegation > spawn-threshold table` is NOT an R2 candidate - it uses structural separation (table) correctly. Confidence: MEDIUM.
 
 **Signal R3 - imperative pseudocode in prose.**
 
