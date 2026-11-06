@@ -1,6 +1,6 @@
 ## Risk Classification
 
-Perform a brief risk assessment before starting any task. Any single Elevated signal triggers Worker + fresh independent Skeptic review. Low risk permits direct action with a brief inline self-check. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
+Perform a brief risk assessment before starting any task. Any single Elevated signal triggers Worker + fresh independent Skeptic review. Low risk drops the Skeptic, not the delegation: every shippable edit still goes to one worktree-isolated `engineer`. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
 **Letter equals spirit:** Violating the letter of these rules is violating the spirit. "I followed the intent" after skipping a required step is not a defense. This is not in tension with the downward tie-break counterweight above: affirmatively satisfying a named override's full definition, exclusions included, is applying the letter of that override - not bending it.
 
@@ -13,7 +13,7 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
 | Trivial | Delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly | None (no Skeptic, no brief file) | Silent |
-| Low | Direct action; a small single-concern code change goes to one worktree-isolated `engineer` | Brief inline self-check; that engineer checks its diff against the override's bounds | Silent |
+| Low | Delegate the shippable edit to one worktree-isolated `engineer`; only non-shippable work (reads, answers, `.agentic/**`, `docs/planning/**`) is conductor-direct | No Skeptic; the engineer checks its diff against the override's bounds | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated, single-review route | One worktree-isolated engineer; no architect or planner | One Skeptic pass; fixes re-reviewed only after a Critical | Stated before starting |
 | Elevated + Cleanup (full route only) | Worker | Skeptic -> `/simplify` -> Skeptic (narrow) | Stated before starting |
@@ -113,7 +113,7 @@ implementation request.
 - **UI-only copy changes** are treated as **Elevated**; the Low override is removed.
 - **File renaming** is treated as **Elevated**; the Low override is removed.
 - **Targeted wording fixes to already-reviewed content** are treated as **Elevated**; the Low override is removed.
-- **Diagnostic-only changes** and **documentation-only file creation** remain direct-action eligible but require the conductor's inline self-check (they are treated as Low rather than unconditionally direct).
+- **Diagnostic-only changes** and **documentation-only file creation** stay **Low**.
 - **Small single-concern code changes** are treated as **Elevated**; the Low override is removed.
 - **Elevated single-review route** is removed; every Elevated task takes the full route.
 

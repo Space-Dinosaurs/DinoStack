@@ -80,12 +80,14 @@ escalate to human (describe what information is needed to close the diagnosis)
 
 When the debugger returns `Confidence: Low`, do not proceed to engineer. The debugger's output will describe what specific information (logs, env values, reproduction steps, access to a running system) would close the diagnosis. Surface this to the user and wait for direction before re-spawning the debugger or proceeding to fix.
 
-### Quick change (Low risk, 1-2 lines, no Elevated signals)
+### Low change (named Low override, no Elevated signals)
 
 ```
-direct action (no agents needed)
+solo engineer Worker, isolation: "worktree"
     ↓
-self-check
+engineer checks its diff against the override's bounds
+    ↓
+done (no Skeptic)
 ```
 
 ### Trivial change (single-file cosmetic or copy change, no logic impact)

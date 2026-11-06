@@ -97,7 +97,7 @@ Spawning debugger on the failing test...
 QA engineer verifying acceptance criteria in the browser...
 ```
 
-If you see none of this, the task was classified as a small, reversible direct action and handled without spawning subagents. That's the protocol working correctly on a cheap task - not a sign that it's off.
+If you see none of this, the task needed no shippable edit (a read, an answer, a status check) and was handled without spawning subagents. That's the protocol working correctly on a cheap task - not a sign that it's off.
 
 **Or install manually via install.sh directly:**
 

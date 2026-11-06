@@ -11,7 +11,7 @@
 
 For behavior-visible Elevated units that are not in the exclusion set above (UI changes, behavioral feature additions), the Skeptic SHOULD read the diff AND the QA evidence. When both are present, the Skeptic may use QA evidence as the primary signal for UI correctness claims, but diff review remains required for logic, side effects, and security surface.
 
-For Low or Trivial units, the Skeptic applies its inline self-check. QA is not spawned for Trivial units (direct action path); QA for Low units follows the standard flow above.
+For Low or Trivial units, the Skeptic applies its inline self-check. QA is not spawned for Trivial units; QA for Low units follows the standard flow above.
 
 **Reading 'diff is secondary' as 'diff is optional' on any Elevated unit is a protocol violation.** The diff obligation is unconditional for Elevated units; only the ordering and primary-signal weight differ by risk class.
 

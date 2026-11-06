@@ -91,9 +91,9 @@ When the conductor spawns workers for a multi-unit plan with task-state tracking
 
 ### Rule 3 — Spawn threshold
 
-**Elevated risk → spawn Worker + fresh independent Skeptic. Low risk → direct action (a small single-concern code change goes to one `engineer`; see `content/sections/04-risk-classification.md`). Trivial risk → delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow).** The Skeptic Protocol defines two Elevated tiers (Elevated and Elevated + Cleanup); the main agent selects the appropriate path per The Skeptic Protocol Sections 0 and 12.
+**Elevated risk → spawn Worker + fresh independent Skeptic. Low risk → delegate the shippable edit to one worktree-isolated `engineer`, no Skeptic (see `content/sections/04-risk-classification.md`). Trivial risk → delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow).** The Skeptic Protocol defines two Elevated tiers (Elevated and Elevated + Cleanup); the main agent selects the appropriate path per The Skeptic Protocol Sections 0 and 12.
 
-The delegation decision is driven by risk, not by counting tool calls. Assess risk first (see The Skeptic Protocol Section 0). If any Elevated signal is present, delegate to a Worker and apply adversarial review. If all signals are Low, direct action is appropriate. Trivial requires ALL qualifying signals to hold simultaneously - any single disqualifier pushes the task to Elevated.
+The delegation decision is driven by risk, not by counting tool calls. Assess risk first (see The Skeptic Protocol Section 0). If any Elevated signal is present, delegate to a Worker and apply adversarial review. If all signals are Low, skip the Skeptic; a shippable edit still goes to one worktree-isolated `engineer`. Trivial requires ALL qualifying signals to hold simultaneously - any single disqualifier pushes the task to Elevated.
 
 "Looks simple" is not a Low signal. The uncertainty rule applies: when in doubt, classify as Elevated and spawn a Worker. When in doubt between Trivial and Elevated, choose Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
@@ -212,11 +212,8 @@ These transitions apply to fix-pass Engineer spawns inside `/ds-implement-ticket
 - `ds-memory query` / `ds-memory turns` — read-only, instant; lightweight memory retrieval
 - Taking a screenshot or browser snapshot
 - Synthesizing and explaining results that subagents have already returned
-- A one or two-line edit to a single file, where the correct output is immediately apparent without reading any other file, **and no Elevated risk signals are present**
 
 These actions do not block meaningfully and do not benefit from delegation. Delegating them adds latency and context overhead with no quality gain.
-
-When uncertain whether an edit meets the "immediately apparent without reading any other file" criterion — or when any Elevated signal is present — delegate.
 
 ---
 
@@ -252,7 +249,6 @@ chat-advice override for the canonical pre-read, candidate-branch, and fail-clos
 | Answer a question from context in memory | Yes - but a recommendation is Elevated unless the relaxed ephemeral chat-advice override fully qualifies | No |
 | Take a screenshot or snapshot | Yes | No |
 | Synthesize already-returned subagent results | Yes - but a recommendation is Elevated unless the relaxed ephemeral chat-advice override fully qualifies | No |
-| 1–2 line edit, single file, correct output apparent, no Elevated signals | Yes | No |
 | Trivial risk (ALL qualifying signals hold) - any subagent state | No (delegate to worktree-isolated `engineer`; no Skeptic; no brief file) | No |
 | Security / auth / crypto / payments / secrets | No | **Yes** |
 | Irreversible operation (delete, migration, schema change, force push) | No | **Yes** |
@@ -272,11 +268,7 @@ chat-advice override for the canonical pre-read, candidate-branch, and fail-clos
 | Configuration changes | No | **Yes** |
 | Anything where a mistake costs time or data | No | **Yes** |
 
-**Clarification - Trivial vs. the "1-2 line edit" row:** For cosmetic, copy, or Tailwind-class edits, the Trivial disqualifier checklist (ALL signals must hold) takes precedence over the older "1-2 line edit" row. A conductor must not bypass the Trivial disqualifier gate by invoking the "1-2 line" row - if an edit looks cosmetic, run the Trivial checklist first. Only if ALL Trivial signals hold does the Trivial path apply. If any disqualifier is present (e.g., the file is a shared token file, or the change touches 2+ files), the task is Elevated regardless of line count.
-
 **Default rule:** when in doubt, classify as Elevated and spawn a Worker. Direct action is the narrow exception. **Downward tie-break counterweight:** same rule as the "### Rule 3 — Spawn threshold" section above - the default is overridden only when a named Low or Trivial override's full definition, including every exclusion clause, is affirmatively satisfied and zero other Elevated signals are present.
-
-**Footnote — new file creation:** The 1–2 line direct-action exception applies exclusively to modifications of existing files. New file creation always requires a Worker regardless of line count. This footnote is distinct from the new-file colocated-test qualifier on the "New file creation" signal above (Section 3 table): that qualifier governs whether new-file creation triggers Elevated risk classification at all; this footnote governs only the separate 1–2 line direct-action carve-out for edits to existing files, which never applies to new files regardless of any qualifier above.
 
 ---
 
@@ -319,7 +311,7 @@ The only legitimate use of foreground is a direct-action case (Rule 7) whose res
 The standard orchestration sequence:
 
 1. **Decompose** - break the user's request into atomic units. Each unit should be a single concern that one focused Worker can implement correctly without needing context from other units' implementation details. "One agent, one task, one prompt."
-2. **Classify risk per unit** - each atomic unit gets its own risk classification. Some may be Low (direct action), some Elevated (Worker + Skeptic).
+2. **Classify risk per unit** - each atomic unit gets its own risk classification. Some may be Low (no Skeptic), some Elevated (Worker + Skeptic).
 3. **Spawn in parallel** - launch all independent Workers simultaneously (background). Sequence units that depend on each other's output.
 4. **Stay available** - tell the user what is running and what to expect; answer any follow-up questions directly.
 5. **Review with appropriate scope** - apply "decompose implementation, not review" (see below).
@@ -331,7 +323,7 @@ Workers are decomposed for focus. Skeptic review is scoped for effectiveness:
 
 - **Independent elevated units:** each gets its own Skeptic reviewing that unit's diff. Small diffs produce high-signal reviews.
 - **Interdependent elevated units** (changes that must be consistent across files or components): separate focused Workers implement each piece, but **one Skeptic reviews the combined diff**. This integration Skeptic replaces per-unit Skeptics for these units - do not run both. Cross-cutting risks live in the interactions, not in individual files.
-- **Low-risk units:** direct action with self-check. No Skeptic.
+- **Low-risk units:** no Skeptic. A shippable edit goes to one worktree-isolated `engineer`.
 
 **Heuristic for interdependence:** if a bug in unit A would only be detectable by examining unit B's implementation, or if unit A's correctness depends on assumptions about unit B's interface, the units are interdependent and need an integration Skeptic.
 
@@ -441,7 +433,7 @@ Two track agents spawned in parallel in the same directory. Track A checks out i
 
 **Priming any spawn brief with conductor hypotheses** - Injecting a conductor-composed suspicion, hypothesis, or attention-steer ("look hard at X, I think it's wrong") into a Skeptic spawn brief or Global-context field 7 - or, per the wider rule, into any other Global-context field or the resolved-issues preflight, tagged or untagged - or, per the general rule stated at Section 11 'Spawn-brief provenance' below, into any other subagent's spawn prompt at all - engineer, investigator, architect, qa-engineer, or any other role - tagged or untagged. This is the inverse failure to softening: instead of weakening the brief, it manufactures findings where the conductor guessed and suppresses independent discovery everywhere else. There is no carve-out for an operator-attributed steer - see `content/references/skeptic-protocol.md` Section 7 "Scope of the ban: every field, every form, tagged or untagged" for the full Skeptic-specific elaboration (Section 11 below is the general rule this elaborates), the falsifiability distinction from subagent-sourced content, and why no legitimate capability is lost.
 
-**Treating small edits as self-verifying** — Deciding that a small change doesn't need delegation because "it's only a couple of lines." The 1–2 line threshold for direct action applies only when the correct output is immediately apparent without reading any other file and no Elevated signals are present. Any edit involving Elevated signals must be delegated regardless of size.
+**Treating small edits as self-verifying** - Deciding that a small change doesn't need delegation because "it's only a couple of lines." The conductor never edits a shippable file, whatever its size; every such edit goes to a worktree-isolated `engineer`.
 
 ---
 
@@ -457,7 +449,7 @@ The two protocols are complementary and operate at different levels of the agent
 | When it activates | On every non-trivial task | On Elevated-risk tasks: code, file changes, or synthesis producing an artifact that drives decisions or action. Two Elevated tiers exist (Elevated and Elevated + Cleanup); the main agent selects based on implementation scope (see Skeptic Protocol Sections 0 and 12). Trivial-risk tasks bypass the Skeptic Protocol entirely. |
 | Relationship | Outer frame | Inner review loop, orchestrated by main agent |
 
-**Risk vocabulary recognized by this protocol:** Trivial (single-file cosmetic or copy change, no logic impact, no Skeptic), Low (direct action with self-check, no Skeptic), Elevated (Worker + Skeptic), Elevated + Cleanup (Worker + Skeptic + /simplify + narrow Skeptic). When in doubt between any two tiers, choose the higher tier.
+**Risk vocabulary recognized by this protocol:** Trivial (single-file cosmetic or copy change, no logic impact, no Skeptic), Low (no Skeptic; a shippable edit goes to one worktree-isolated engineer), Elevated (Worker + Skeptic), Elevated + Cleanup (Worker + Skeptic + /simplify + narrow Skeptic). When in doubt between any two tiers, choose the higher tier.
 
 The Subagent Protocol does not replace The Skeptic Protocol — it provides the orchestration context in which The Skeptic Protocol is invoked. After a Worker returns, the main agent drives the Skeptic loop: spawning fresh Skeptics, routing findings, and iterating until sign-off. Workers cannot spawn subagents (platform constraint) — the main agent is the sole orchestrator of both protocols.
 
