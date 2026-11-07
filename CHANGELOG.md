@@ -3,6 +3,23 @@
 
 # Changelog
 
+## 2026-11-06
+
+### Features
+
+- **#1086** [capture operator-correction feedback at Phase 11b](https://github.com/Space-Dinosaurs/DinoStack/pull/1086) - tyson-solara6
+
+### Fixes
+
+- **#1087** [align Low-risk routing and worktree base-branch wording with the canonical rule](https://github.com/Space-Dinosaurs/DinoStack/pull/1087) - tyson-solara6
+- **#1082** [run npm-audit under npm 11.19.0 to remove a false-positive actionable advisory](https://github.com/Space-Dinosaurs/DinoStack/pull/1082) - tyson-solara6
+
+### Documentation
+
+- **#1085** [six feature posts - risk classification, worktrees, hook guards, preflight, rubrics, adapters](https://github.com/Space-Dinosaurs/DinoStack/pull/1085) - tyson-solara6
+- **#1084** [landing-page accuracy audit, comparison hero image and full-width layout](https://github.com/Space-Dinosaurs/DinoStack/pull/1084) - tyson-solara6
+- **#1081** [add a docs-site blog and DeepSeek super agent comparison](https://github.com/Space-Dinosaurs/DinoStack/pull/1081) - tyson-solara6
+
 ## 2026-11-04
 
 ### Features
