@@ -681,7 +681,11 @@ Public API (CLI):
   --strict-ignored        Round-3 escape hatch back to the round-2 default:
                           gate 8 (PROTECTED CONTENT) becomes a fail-safe
                           ALLOWLIST again - block unless every ignored path
-                          is covered by `_IGNORED_ALLOWLIST_*` (see gate 8
+                          is covered by `_IGNORED_ALLOWLIST_*` or by the
+                          primary checkout's `.agentic/config.json` key
+                          `worktree_cleanup_strict_allowlist` (a malformed
+                          key warns and falls back to the built-in list;
+                          the protected denylist still wins; see gate 8
                           above and `_PROTECTED_CONTENT_DIR_PREFIXES`'s own
                           comment for the operator-decision rationale this
                           flag exists to preserve). Applies UNIFORMLY,
@@ -1611,14 +1615,97 @@ def _worktree_list(repo: str) -> str:
     return proc.stdout
 
 
-def _is_allowlisted_ignored_path(rel_path: str) -> bool:
+_STRICT_ALLOWLIST_CONFIG_KEY = "worktree_cleanup_strict_allowlist"
+
+
+def _repo_strict_allowlist(repo: str) -> Tuple[str, ...]:
+    """Extra `--strict-ignored` allowlist patterns from the PRIMARY
+    checkout's `.agentic/config.json` (the first `git worktree list` entry,
+    so a carrier's own config never applies; a bare repository has no
+    primary checkout and yields ()). A missing file or key yields ().
+    Unparseable JSON, a value that is not a list of non-empty strings, or
+    any pattern that is absolute, contains `..`, or has an empty or `.`
+    segment prints a WARNING and yields () - fail closed to the built-in
+    list, never a partial list."""
+    try:
+        first_entry = _worktree_list(repo).split("\n\n", 1)[0].splitlines()
+    except RuntimeError:
+        return ()
+    if not first_entry or not first_entry[0].startswith("worktree ") or "bare" in first_entry:
+        return ()
+    config_path = os.path.join(first_entry[0][len("worktree "):], ".agentic", "config.json")
+    if not os.path.isfile(config_path):
+        return ()
+    try:
+        with open(config_path, encoding="utf-8") as handle:
+            config = json.load(handle)
+    except (OSError, ValueError, RecursionError) as exc:
+        print(f"WARNING: {config_path} unreadable ({exc}); using the built-in strict allowlist only", file=sys.stderr)
+        return ()
+    if not isinstance(config, dict) or _STRICT_ALLOWLIST_CONFIG_KEY not in config:
+        return ()
+    patterns = config[_STRICT_ALLOWLIST_CONFIG_KEY]
+    if (not isinstance(patterns, list)
+            or not all(isinstance(p, str) and p.strip("/") for p in patterns)
+            or any(p.startswith("/") or os.path.isabs(p) or ".." in p
+                   or {"", "."} & set(p.strip("/").split("/")) for p in patterns)):
+        print(f"WARNING: {_STRICT_ALLOWLIST_CONFIG_KEY} in {config_path} must be a list of relative patterns "
+              f"without '..', '.' or empty segments; using the built-in strict allowlist only", file=sys.stderr)
+        return ()
+    return tuple(patterns)
+
+
+def _matches_config_allowlist(parts: List[str], patterns: Tuple[str, ...]) -> bool:
+    prefixes = ["/".join(parts[:i]) for i in range(1, len(parts) + 1)]
+    for pattern in patterns:
+        stripped = pattern.strip("/")
+        candidates = prefixes if "/" in stripped else parts
+        if any(fnmatch.fnmatch(candidate, stripped) for candidate in candidates):
+            return True
+    return False
+
+
+def _is_allowlisted_ignored_path(
+    rel_path: str,
+    extra_patterns: Tuple[str, ...] = (),
+    worktree_path: Optional[str] = None,
+) -> bool:
     """`--strict-ignored` mode (round-3): True when `rel_path` is covered
-    by the ephemeral/regenerable allowlist - i.e. safe to ignore."""
+    by the ephemeral/regenerable allowlist - i.e. safe to ignore.
+
+    `extra_patterns` come from `_repo_strict_allowlist`: a pattern with no
+    `/` matches any path component; a pattern with `/` matches the path or
+    any of its parent prefixes, so it covers everything beneath it. A path
+    covered only by `extra_patterns` still blocks when
+    `_is_protected_ignored_path` says it, or (for git's collapsed
+    `dir/` form) anything beneath it, is protected."""
     parts = rel_path.strip("/").split("/")
     if any(part in _IGNORED_ALLOWLIST_DIR_NAMES for part in parts):
         return True
     basename = parts[-1] if parts else rel_path
-    return any(fnmatch.fnmatch(basename, pattern) for pattern in _IGNORED_ALLOWLIST_PATTERNS)
+    if any(fnmatch.fnmatch(basename, pattern) for pattern in _IGNORED_ALLOWLIST_PATTERNS):
+        return True
+    if not extra_patterns or not _matches_config_allowlist(parts, extra_patterns):
+        return False
+    if _is_protected_ignored_path(rel_path, worktree_path):
+        return False
+    return not (rel_path.endswith("/") and _collapsed_dir_holds_protected(rel_path, worktree_path))
+
+
+def _collapsed_dir_holds_protected(rel_dir: str, worktree_path: Optional[str]) -> bool:
+    """True when any path under the collapsed ignored directory `rel_dir`
+    is protected, or when it cannot be fully listed (fail closed)."""
+    if worktree_path is None:
+        return True
+    walk_errors: List[OSError] = []
+    for dirpath, dirnames, filenames in os.walk(os.path.join(worktree_path, rel_dir.strip("/")),
+                                                onerror=walk_errors.append):
+        sub = os.path.relpath(dirpath, worktree_path).replace(os.sep, "/")
+        if any(_is_protected_ignored_path(f"{sub}/{name}/", worktree_path) for name in dirnames):
+            return True
+        if any(_is_protected_ignored_path(f"{sub}/{name}", worktree_path) for name in filenames):
+            return True
+    return bool(walk_errors)
 
 
 def _is_agentic_disposable(sub_parts: List[str], *, is_dir: bool) -> bool:
@@ -1784,16 +1871,20 @@ def _unquote_porcelain_path(raw: str) -> str:
     return out.decode("utf-8", errors="surrogateescape")
 
 
-def _git_status_and_ignored(worktree_path: str, strict_ignored: bool) -> Tuple[str, List[str]]:
+def _git_status_and_ignored(
+    worktree_path: str,
+    strict_ignored: bool,
+    extra_allow: Tuple[str, ...] = (),
+) -> Tuple[str, List[str]]:
     """Single combined `git status --porcelain --ignored=matching` call.
     Returns (dirty_status, offending_ignored_paths). dirty_status is
     "clean" | "dirty" - a git error fails CLOSED as "dirty" (never a
     silent "clean" on an indeterminate read). `offending_ignored_paths` is
     the list of ignored relative paths that BLOCK removal under the active
-    mode: everything NOT on the ephemeral allowlist when `strict_ignored`
-    is True (round-2 behavior), or everything matching the protected
-    denylist when `strict_ignored` is False (round-3 default - see
-    `_is_protected_ignored_path`'s docstring and the operator-decision
+    mode: everything NOT on the ephemeral allowlist (built-in list plus
+    `extra_allow`) when `strict_ignored` is True (round-2 behavior), or
+    everything matching the protected denylist when `strict_ignored` is
+    False (round-3 default - see `_is_protected_ignored_path`'s docstring and the operator-decision
     comment on `_PROTECTED_CONTENT_DIR_PREFIXES` above).
 
     DS-219: the raw `!! `-prefixed path is passed through
@@ -1813,7 +1904,10 @@ def _git_status_and_ignored(worktree_path: str, strict_ignored: bool) -> Tuple[s
             continue
         if line.startswith("!! "):
             rel = _unquote_porcelain_path(line[3:])
-            blocked = (not _is_allowlisted_ignored_path(rel)) if strict_ignored else _is_protected_ignored_path(rel, worktree_path)
+            if strict_ignored:
+                blocked = not _is_allowlisted_ignored_path(rel, extra_allow, worktree_path)
+            else:
+                blocked = _is_protected_ignored_path(rel, worktree_path)
             if blocked:
                 offenders.append(rel)
         else:
@@ -3488,6 +3582,7 @@ def evaluate_entry(
     strict_ignored: bool,
     activity_window_hours: float = 3.0,
     no_origin_reachable_evidence: bool = False,
+    extra_allow: Tuple[str, ...] = (),
 ) -> Dict:
     """Resolves one worktree entry. `outcome` is one of: SKIP_UNMANAGED,
     SKIP_MISSING, SKIP_MISSING_LOCKED, SKIP_SELF, SKIP_LIVE_CWD, SKIP_TOO_YOUNG,
@@ -3568,7 +3663,7 @@ def evaluate_entry(
     if activity_hours is None or activity_hours < activity_window_hours:
         return {**base, "outcome": "SKIP_RECENT_ACTIVITY"}
 
-    dirty_status, ignored_offenders = _git_status_and_ignored(entry.path, strict_ignored)
+    dirty_status, ignored_offenders = _git_status_and_ignored(entry.path, strict_ignored, extra_allow)
     facts, pr_query_errored = _build_facts(repo, entry, dirty_status, base_ref, gh_ok, allow_network)
     disposition_kwargs = {}
     if no_origin_reachable_evidence:
@@ -3653,6 +3748,7 @@ def _evaluate_entries(
     guard exists.
     """
     host_is_linked_worktree = _host_is_linked_worktree(repo)
+    extra_allow = _repo_strict_allowlist(repo) if strict_ignored else ()
     results: List[Dict] = []
     for idx, entry in enumerate(entries):
         is_main = idx == 0
@@ -3678,6 +3774,7 @@ def _evaluate_entries(
                 strict_ignored,
                 activity_window_hours,
                 no_origin_reachable_evidence,
+                extra_allow,
             )
         )
     return results

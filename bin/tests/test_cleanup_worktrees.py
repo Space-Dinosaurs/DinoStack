@@ -1142,6 +1142,142 @@ def test_strict_ignored_leaves_agentic_events_jsonl_blocking_unchanged(tmp_path)
 
 
 # --------------------------------------------------------------------------
+# 15d. `worktree_cleanup_strict_allowlist` in the PRIMARY checkout's
+#      `.agentic/config.json` extends the `--strict-ignored` allowlist; the
+#      protected denylist stays a floor beneath it, and a malformed key
+#      fails closed to the built-in list.
+# --------------------------------------------------------------------------
+
+
+def _write_strict_allowlist(checkout: Path, value) -> None:
+    (checkout / ".agentic").mkdir(exist_ok=True)
+    text = value if isinstance(value, str) else json.dumps({"worktree_cleanup_strict_allowlist": value})
+    (checkout / ".agentic" / "config.json").write_text(text)
+
+
+def test_strict_allowlist_config_extends(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(
+        repo, ".agentic/\n.turbo/\npkg/src/generated/*\npkg/out/exact.txt\nnext-env.d.ts\n"
+    )
+    wt = add_worktree(repo, ".claude/worktrees/agent-codegen", "worktree-agent-codegen", push=False)
+    (wt / ".turbo").mkdir()
+    (wt / ".turbo" / "cache.bin").write_text("c\n")
+    (wt / "pkg" / "src" / "generated").mkdir(parents=True)
+    (wt / "pkg" / "src" / "generated" / "a.ts").write_text("export {}\n")
+    (wt / "pkg" / "out").mkdir(parents=True)
+    (wt / "pkg" / "out" / "exact.txt").write_text("x\n")
+    (wt / "apps" / "web").mkdir(parents=True)
+    (wt / "apps" / "web" / "next-env.d.ts").write_text("/// ref\n")
+
+    before = outcomes(run_reap(repo, dry_run=True, extra=["--strict-ignored"]).stdout)[str(wt)]
+    assert before.startswith("SKIP_PROTECTED_CONTENT"), before
+
+    _write_strict_allowlist(repo, [".turbo", "*/src/generated", "pkg/out/exact.txt", "next-env.d.ts"])
+    proc = run_reap(repo, dry_run=True, extra=["--strict-ignored"])
+    assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(wt)] == "REMOVE (ancestor-of-base)"
+
+    _write_strict_allowlist(repo, [".turbo", "*/src/generated", "next-env.d.ts"])
+    partial = outcomes(run_reap(repo, dry_run=True, extra=["--strict-ignored"]).stdout)[str(wt)]
+    assert partial.startswith("SKIP_PROTECTED_CONTENT") and "pkg/out/exact.txt" in partial, partial
+
+
+def test_strict_allowlist_slash_pattern_covers_descendants(tmp_path):
+    allowed = ds_cleanup_worktrees._is_allowlisted_ignored_path
+    patterns = ("a/src/generated",)
+    (tmp_path / "a" / "src" / "generated").mkdir(parents=True)
+    (tmp_path / "a" / "src" / "generated" / "x.ts").write_text("x\n")
+    assert allowed("a/src/generated/", patterns, str(tmp_path))
+    assert allowed("a/src/generated/x.ts", patterns)
+    assert allowed("a/src/generated/deep/y.ts", patterns)
+    assert not allowed("a/src/generated2/x.ts", patterns)
+    assert not allowed("b/a/src/generated/x.ts", patterns)
+    assert allowed("x/.turbo/y", (".turbo",))
+
+
+def test_strict_allowlist_config_cannot_unprotect(tmp_path):
+    allowed = ds_cleanup_worktrees._is_allowlisted_ignored_path
+    patterns = ("*", "*.local", ".env*", "docs/planning", ".agentic")
+    for rel in (".env.local", "pkg/.env", "docs/planning/plan.md", "docs/planning/", ".agentic/plan.md"):
+        assert not allowed(rel, patterns), rel
+    assert allowed("pkg/out.bin", patterns)
+
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".agentic/\n.env.local\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-env", "worktree-agent-env", push=False)
+    (wt / ".env.local").write_text("SECRET=1\n")
+    _write_strict_allowlist(repo, ["*"])
+    result = outcomes(run_reap(repo, dry_run=True, extra=["--strict-ignored"]).stdout)[str(wt)]
+    assert result.startswith("SKIP_PROTECTED_CONTENT") and ".env.local" in result, result
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "{not json",
+        json.dumps({"worktree_cleanup_strict_allowlist": ".turbo"}),
+        [".turbo", 1],
+        [".turbo", ""],
+        [".turbo", "/"],
+        [".turbo", "/abs/path"],
+        [".turbo", "../outside"],
+        [".turbo", "a/../b"],
+        [".turbo", "./pkg/gen"],
+        [".turbo", "pkg//gen"],
+        [".turbo", "."],
+        pytest.param("[" * 200000 + "]" * 200000, id="deep-nesting"),
+    ],
+)
+def test_strict_allowlist_config_malformed_fails_closed(tmp_path, capsys, value):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    _write_strict_allowlist(repo, value)
+    assert ds_cleanup_worktrees._repo_strict_allowlist(str(repo)) == ()
+    assert "WARNING" in capsys.readouterr().err
+
+
+def test_strict_allowlist_config_ignored_in_carrier(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".agentic/\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-own-config", "worktree-agent-own-config", push=False)
+    _write_strict_allowlist(wt, [".turbo"])
+    assert ds_cleanup_worktrees._repo_strict_allowlist(str(wt)) == ()
+    assert ds_cleanup_worktrees._repo_strict_allowlist(str(repo)) == ()
+    _write_strict_allowlist(repo, ["*/src/generated"])
+    assert ds_cleanup_worktrees._repo_strict_allowlist(str(wt)) == ("*/src/generated",)
+
+
+def test_strict_allowlist_config_bare_repo_reads_nothing(tmp_path):
+    _repo, origin = init_repo_with_origin(tmp_path)
+    wt = tmp_path / "bare-wt"
+    _git(origin, "worktree", "add", "-q", "--detach", str(wt), "main")
+    _write_strict_allowlist(origin.parent, ["*"])
+    _write_strict_allowlist(origin, ["*"])
+    assert ds_cleanup_worktrees._repo_strict_allowlist(str(wt)) == ()
+
+
+def test_strict_allowlist_config_collapsed_dir_keeps_protected(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".agentic/\nsecrets/\ndocs/\npkg/out/\ncache-x/\ngen/\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-collapsed", "worktree-agent-collapsed", push=False)
+    for rel in ("secrets/.env.local", "docs/planning/plan.md", "pkg/out/.env", "cache-x/deep/x.local", "gen/a.ts"):
+        (wt / rel).parent.mkdir(parents=True, exist_ok=True)
+        (wt / rel).write_text("x\n")
+    protected = {"secrets/", "docs/", "pkg/out/", "cache-x/"}
+
+    _status, offenders = ds_cleanup_worktrees._git_status_and_ignored(str(wt), True)
+    assert set(offenders) == protected | {"gen/"}
+    for patterns in (("*",), ("secrets", "docs", "pkg", "cache-x", "gen"), ("pkg/out", "*/out", "gen")):
+        _status, offenders = ds_cleanup_worktrees._git_status_and_ignored(str(wt), True, patterns)
+        assert set(offenders) == protected, patterns
+    assert not ds_cleanup_worktrees._is_allowlisted_ignored_path("secrets/", ("*",))
+
+    _write_strict_allowlist(repo, ["*"])
+    result = outcomes(run_reap(repo, dry_run=True, extra=["--strict-ignored"]).stdout)[str(wt)]
+    assert result.startswith("SKIP_PROTECTED_CONTENT") and "secrets/" in result, result
+
+
+# --------------------------------------------------------------------------
 # 16. (round-2 Major 4) --count-only prints only entries=N, works even
 #     against a repo with NO origin remote at all - proving zero network
 #     dependency (a non-count-only run against this same fixture would

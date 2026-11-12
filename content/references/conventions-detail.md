@@ -129,6 +129,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `deferred_wrap_timeout_minutes` - integer, default `10`. Maximum minutes a single deferred-wrap job may run before the daemon aborts it. Only consulted when `deferred_wrap_daemon` is `true`.
 - `deferred_wrap_inprogress_reclaim_minutes` - integer, default `30`. Minutes after which an in-progress job whose heartbeat has gone stale is reclaimed and re-queued by the daemon. Only consulted when `deferred_wrap_daemon` is `true`.
 - `deferred_wrap_pending_ttl_days` - integer, default `7`. Days a pending deferred-wrap job is retained before the daemon expires it. Only consulted when `deferred_wrap_daemon` is `true`.
+- `worktree_cleanup_strict_allowlist` - list of strings, default `[]`, not seeded. Extra ignored-path patterns that do not block worktree removal under the strict allowlist (`ds-cleanup-worktrees --strict-ignored`, and `ds-retire-carrier` on a detached checkout); read from the primary checkout only. A pattern without `/` matches any path component, one with `/` matches that path and everything beneath it. Never unprotects the protected denylist, including inside a matched directory; a malformed value warns and the built-in list is used alone. Full rules: `docs/configuration-reference.md`.
 
 The file is operator-tunable but optional and graceful: if absent, every toggle takes its default and nothing breaks.
 
