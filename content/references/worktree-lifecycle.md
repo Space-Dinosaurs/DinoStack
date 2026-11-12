@@ -147,7 +147,7 @@ A carrier is any linked checkout created for one job. Its purpose, not its path,
 
 **Exempt:** scratch an agent creates and discards within one step, holding only copies (the Skeptic's scratch checkout, `/ds-wrap` Part G's knowledge-commit worktree), follows its own procedure.
 
-**Backstop and fallback:** the evidence-gated sweep (`bin/ds-cleanup-worktrees`) is unchanged and does not read holds. If `ds-retire-carrier` is not on PATH (the adapter installer has not re-run since this update), call `<dinostack checkout>/bin/ds-retire-carrier` or re-run the installer; never substitute a raw `git worktree remove`.
+**Backstop and fallback:** the evidence-gated sweep (`bin/ds-cleanup-worktrees`) is unchanged and does not read holds. If `ds-retire-carrier` is not on PATH (the adapter installer has not re-run since this update), call `<dinostack checkout>/bin/ds-retire-carrier` or re-run the installer; never substitute a raw `git worktree remove`. A raw remove deletes in place for seconds to minutes on a large tree, and a kill partway (session end, timeout) leaves the checkout registered with ignored files gone and, late enough, its `.git` link and tracked files gone too. `ds-retire-carrier` instead runs `git worktree move` into `<git-common-dir>/ds-worktree-trash/` (git's own refusals apply: main worktree, locked, submodule or gitlink, invalid), renames the entry to `*.doomed`, unregisters it, and returns; a detached process deletes only `*.doomed` entries. A kill before the move changes nothing. A kill inside git's own move can leave the directory in trash while git still registers the old path; the next sweep marks that directory `.doomed` and reaps it without running any git command on it (its admin id may already belong to a new worktree, so no `git status` or `worktree repair` touches it), and its prune drops the stale registration. A kill after the move leaves a registered staged entry the next sweep finishes; after the `.doomed` rename, an entry that may still be registered (prunable) with no reaper started, which the next sweep prunes and reaps; after the unregister, only `*.doomed` content the next reaper deletes. The sweep prints a `NOTE:` for any trash it has not yet deleted. A tree that is not clean at that moment, sits on another device, or that git refuses to move falls back to the synchronous `git worktree remove`, which can still be killed partway.
 
 ## Isolation worktree cleanup commands
 
@@ -426,7 +426,9 @@ one of its own linked worktrees.
 mechanism was built to find EXISTING orphaned, unregistered worktree
 directories on disk (no git object/ref/admin entry survives to verify
 "nothing unrecoverable" against). The only mechanism added is
-source-hardening: `_salvage_and_remove` now attempts an active repair
+source-hardening: on its synchronous fallback path (taken only when the
+move into `ds-worktree-trash` is not, see §Carrier lifecycle by purpose
+"Backstop and fallback"), `_salvage_and_remove` attempts an active repair
 (an `rmtree` retry) when `git worktree remove` reports success but leaves
 the directory present on disk, guarded by a defensive floor that refuses
 to `rmtree` a path resolving to or containing `repo_root`. A residual

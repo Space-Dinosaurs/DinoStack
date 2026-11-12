@@ -288,7 +288,8 @@ def _fake_git_dir_remove_fails(tmp_path: Path) -> Path:
     the REAL `git` binary (resolved once, at generation time, via
     `shutil.which` - so the stub's own `exec` call can never recurse into
     itself even though its directory is prepended onto PATH ahead of the
-    real `git`)."""
+    real `git`). It also refuses `worktree move`, so removal takes the
+    synchronous `git worktree remove` fallback instead of `_trash_remove`."""
     real_git = shutil.which("git")
     assert real_git, "real `git` must be on PATH to build this stub"
     bin_dir = tmp_path / "fakegitbin"
@@ -301,6 +302,10 @@ def _fake_git_dir_remove_fails(tmp_path: Path) -> Path:
         '  if [ "${args[$i]}" = "worktree" ] && [ "${args[$((i+1))]}" = "remove" ]; then\n'
         '    echo "fatal: simulated worktree remove failure" >&2\n'
         "    exit 1\n"
+        "  fi\n"
+        '  if [ "${args[$i]}" = "worktree" ] && [ "${args[$((i+1))]}" = "move" ]; then\n'
+        '    echo "fatal: simulated worktree move refusal" >&2\n'
+        "    exit 128\n"
         "  fi\n"
         "done\n"
         f'exec "{real_git}" "$@"\n'
@@ -4359,6 +4364,7 @@ def test_salvage_and_remove_refuses_to_rmtree_repo_root(tmp_path, monkeypatch):
     stub_dir = _fake_git_dir_worktree_remove_always_reports_success(tmp_path)
     monkeypatch.setenv("PATH", f"{stub_dir}{os.pathsep}{os.environ.get('PATH', '')}")
     mod = _load_module_directly()
+    monkeypatch.setattr(mod, "_trash_remove", lambda *_a: None)
     outcome = mod._salvage_and_remove(str(repo), str(repo), None)
     assert outcome["removed"] is False, outcome
     assert outcome["already_unregistered"] is True, outcome
@@ -4405,7 +4411,8 @@ def _fake_git_dir_remove_succeeds_but_leaves_undeletable_directory(tmp_path: Pat
     real `OSError` INSIDE the CLI subprocess - a failure a test-process
     `monkeypatch` on `shutil.rmtree` could never reach. The calling test
     MUST `chmod 700` the leftover back before teardown, or pytest's
-    `tmp_path` fixture cleanup will fail to remove it."""
+    `tmp_path` fixture cleanup will fail to remove it. It also refuses
+    `worktree move`, so the CLI takes the synchronous fallback."""
     real_git = shutil.which("git")
     assert real_git, "real `git` must be on PATH to build this stub"
     bin_dir = tmp_path / "fakegitbin-undeletable"
@@ -4427,6 +4434,9 @@ def _fake_git_dir_remove_succeeds_but_leaves_undeletable_directory(tmp_path: Pat
         '    fi\n'
         '    exit $rc\n'
         '  fi\n'
+        '  if [ "${args[$i]}" = "worktree" ] && [ "${args[$((i+1))]}" = "move" ]; then\n'
+        '    exit 128\n'
+        '  fi\n'
         'done\n'
         f'exec "{real_git}" "$@"\n'
     )
@@ -4440,6 +4450,7 @@ def test_partial_removal_is_repaired_by_rmtree_retry(tmp_path, monkeypatch):
     stub_dir = _fake_git_dir_remove_succeeds_but_leaves_directory(tmp_path)
     monkeypatch.setenv("PATH", f"{stub_dir}{os.pathsep}{os.environ.get('PATH', '')}")
     mod = _load_module_directly()
+    monkeypatch.setattr(mod, "_trash_remove", lambda *_a: None)
     outcome = mod._salvage_and_remove(str(repo), str(wt), "worktree-agent-partial")
     assert outcome["removed"] is True, outcome
     assert not wt.exists()
@@ -4454,6 +4465,7 @@ def test_partial_removal_repair_failure_reports_unregistered_accurately(tmp_path
     stub_dir = _fake_git_dir_remove_succeeds_but_leaves_directory(tmp_path)
     monkeypatch.setenv("PATH", f"{stub_dir}{os.pathsep}{os.environ.get('PATH', '')}")
     mod = _load_module_directly()
+    monkeypatch.setattr(mod, "_trash_remove", lambda *_a: None)
     monkeypatch.setattr(mod.shutil, "rmtree", lambda *_a, **_k: (_ for _ in ()).throw(OSError("simulated")))
     outcome = mod._salvage_and_remove(str(repo), str(wt), "worktree-agent-partial-fail")
     assert outcome["removed"] is False, outcome
@@ -4981,3 +4993,429 @@ def test_merge_commit_with_own_content_is_not_content_subsumed(tmp_path):
     proc = run_reap(repo, no_gh=False, gh_dir=_fake_gh_dir(tmp_path))
     assert proc.returncode == 0, proc.stderr
     assert outcomes(proc.stdout)[str(wt)].startswith("SKIP_UNPROVEN"), proc.stdout
+
+
+# --------------------------------------------------------------------------
+# Trash removal (`_trash_remove`): `git worktree move` into
+# <common>/ds-worktree-trash/, rename to *.doomed, unregister, detached delete.
+# --------------------------------------------------------------------------
+
+
+def _git_rc(repo: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+
+
+def _common_dir(repo: Path) -> Path:
+    out = _git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip()
+    return Path(os.path.realpath(out))
+
+
+def _registered(repo: Path) -> set:
+    out = _git(repo, "worktree", "list", "--porcelain").stdout
+    return {os.path.realpath(line[len("worktree "):]) for line in out.splitlines() if line.startswith("worktree ")}
+
+
+def _make_nested_gitlink(wt: Path) -> None:
+    nested = wt / "inner"
+    nested.mkdir()
+    _git(nested, "init", "-q", "-b", "main")
+    _git(nested, "config", "user.email", "spec@example.com")
+    _git(nested, "config", "user.name", "spec")
+    (nested / "f.txt").write_text("x\n")
+    _git(nested, "add", "f.txt")
+    _git(nested, "commit", "-q", "-m", "inner")
+    _git(wt, "add", "inner")
+    _git(wt, "commit", "-q", "-m", "gitlink")
+
+
+def test_git_worktree_move_refusals(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    dest = tmp_path / "moved"
+
+    locked = add_worktree(repo, ".claude/worktrees/locked", "pin-locked")
+    _git(repo, "worktree", "lock", str(locked))
+    assert _git_rc(repo, "worktree", "move", str(locked), str(dest)).returncode != 0
+    assert locked.is_dir()
+
+    gitlink = add_worktree(repo, ".claude/worktrees/gitlink", "pin-gitlink")
+    _make_nested_gitlink(gitlink)
+    assert _git_rc(repo, "worktree", "move", str(gitlink), str(dest)).returncode != 0
+    assert gitlink.is_dir()
+
+    modules = add_worktree(repo, ".claude/worktrees/modules", "pin-modules")
+    private = Path(_git(modules, "rev-parse", "--absolute-git-dir").stdout.strip())
+    (private / "modules").mkdir()
+    assert _git_rc(repo, "worktree", "move", str(modules), str(dest)).returncode != 0
+    assert modules.is_dir()
+
+    foreign = add_worktree(repo, ".claude/worktrees/foreign", "pin-foreign")
+    shutil.rmtree(foreign)
+    foreign.mkdir()
+    (foreign / "keep.txt").write_text("not a worktree\n")
+    assert _git_rc(repo, "worktree", "move", str(foreign), str(dest)).returncode != 0
+    assert (foreign / "keep.txt").is_file()
+
+    assert _git_rc(repo, "worktree", "move", str(repo), str(dest)).returncode != 0
+    assert not dest.exists()
+
+    gone = add_worktree(repo, ".claude/worktrees/gone", "pin-gone")
+    shutil.rmtree(gone)
+    assert _git_rc(repo, "worktree", "remove", str(gone)).returncode == 0
+    assert os.path.realpath(gone) not in _registered(repo)
+
+
+def _trash(repo: Path) -> Path:
+    return _common_dir(repo) / "ds-worktree-trash"
+
+
+def _trash_names(repo: Path) -> list:
+    trash = _trash(repo)
+    return sorted(p.name for p in trash.iterdir() if p.is_dir()) if trash.is_dir() else []
+
+
+def _record_reaper(monkeypatch, mod) -> list:
+    calls = []
+    monkeypatch.setattr(mod, "_launch_trash_reaper", lambda common: calls.append(common) or True)
+    return calls
+
+
+def _wait_until(predicate, seconds: float = 10.0) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.1)
+    return predicate()
+
+
+def test_trash_remove_unregisters_before_delete(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, "node_modules/\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-trash", "worktree-agent-trash")
+    (wt / "node_modules" / "pkg").mkdir(parents=True)
+    (wt / "node_modules" / "pkg" / "index.js").write_text("x\n")
+    mod = _load_module_directly()
+    calls = _record_reaper(monkeypatch, mod)
+
+    assert mod._trash_remove(str(repo), str(wt)) is True
+    assert not wt.exists()
+    assert os.path.realpath(wt) not in _registered(repo)
+    assert _git_rc(repo, "rev-parse", "--verify", "refs/heads/worktree-agent-trash").returncode == 0
+    names = _trash_names(repo)
+    assert len(names) == 1 and names[0].endswith(".doomed"), names
+    assert (_trash(repo) / names[0] / "node_modules" / "pkg" / "index.js").is_file()
+    assert not any(p.startswith(str(_trash(repo))) for p in _registered(repo))
+    assert calls == [str(_common_dir(repo))]
+
+
+def test_trash_remove_refuses_nested_repo(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-nested", "worktree-agent-nested")
+    _make_nested_gitlink(wt)
+    mod = _load_module_directly()
+    calls = _record_reaper(monkeypatch, mod)
+
+    assert mod._trash_remove(str(repo), str(wt)) is None
+    assert (wt / "inner" / "f.txt").is_file()
+    assert os.path.realpath(wt) in _registered(repo)
+    assert _trash_names(repo) == [] and calls == []
+
+
+def test_trash_remove_rechecks_clean(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    untracked = add_worktree(repo, ".claude/worktrees/agent-untracked", "worktree-agent-untracked")
+    (untracked / "new.txt").write_text("new\n")
+    modified = add_worktree(repo, ".claude/worktrees/agent-modified", "worktree-agent-modified")
+    (modified / "README.md").write_text("changed\n")
+    mod = _load_module_directly()
+    _record_reaper(monkeypatch, mod)
+
+    for wt in (untracked, modified):
+        assert mod._trash_remove(str(repo), str(wt)) is None
+        assert os.path.realpath(wt) in _registered(repo)
+    assert (untracked / "new.txt").is_file()
+    assert (modified / "README.md").read_text() == "changed\n"
+    assert _trash_names(repo) == []
+
+
+def test_trash_remove_repo_root_floor(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    mod = _load_module_directly()
+    _record_reaper(monkeypatch, mod)
+    monkeypatch.setattr(mod, "_is_clean_for_trash", lambda _p: True)
+    seen = []
+    real_run = mod._run
+
+    def recording_run(args, *a, **k):
+        seen.append(list(args))
+        return real_run(args, *a, **k)
+
+    monkeypatch.setattr(mod, "_run", recording_run)
+    for path in (repo, tmp_path):
+        assert mod._trash_remove(str(repo), str(path)) is None
+    assert not [a for a in seen if "move" in a], seen
+    assert repo.is_dir() and _trash_names(repo) == []
+
+
+def test_trash_remove_exdev_falls_back(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-exdev", "worktree-agent-exdev")
+    mod = _load_module_directly()
+    _record_reaper(monkeypatch, mod)
+    real_stat = os.stat
+
+    def fake_stat(path, *a, **k):
+        st = real_stat(path, *a, **k)
+        if os.path.realpath(path) == os.path.realpath(wt):
+            fields = list(st)
+            fields[2] = st.st_dev + 1  # stat_result order: mode, ino, dev, ...
+            return os.stat_result(fields)
+        return st
+
+    monkeypatch.setattr(mod.os, "stat", fake_stat)
+    assert mod._trash_remove(str(repo), str(wt)) is None
+    monkeypatch.undo()
+    assert wt.is_dir() and os.path.realpath(wt) in _registered(repo)
+    assert _trash_names(repo) == []
+
+
+def test_concurrent_prune_counts_as_success(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-race", "worktree-agent-race")
+    mod = _load_module_directly()
+    _record_reaper(monkeypatch, mod)
+    real_run = mod._run
+
+    def racing_run(args, *a, **k):
+        if "worktree" in args and args[args.index("worktree") + 1] == "remove":
+            _git(repo, "worktree", "prune")
+        return real_run(args, *a, **k)
+
+    monkeypatch.setattr(mod, "_run", racing_run)
+    assert mod._trash_remove(str(repo), str(wt)) is True
+    assert not wt.exists()
+    assert not any(p.startswith(str(_trash(repo))) for p in _registered(repo))
+
+
+def test_trash_remove_doomed_rename_taken_by_other_session(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-taken", "worktree-agent-taken")
+    mod = _load_module_directly()
+    _record_reaper(monkeypatch, mod)
+    real_run = mod._run
+    state = {"done": False}
+
+    def run_then_other_session_finishes(args, *a, **k):
+        proc = real_run(args, *a, **k)
+        if not state["done"] and "worktree" in args and args[args.index("worktree") + 1] == "move":
+            state["done"] = True
+            assert mod._finish_staged_trash(str(repo)) == 1
+        return proc
+
+    monkeypatch.setattr(mod, "_run", run_then_other_session_finishes)
+    outcome = mod._salvage_then_git_remove(str(repo), str(wt), "worktree-agent-taken")
+    assert outcome["removed"] is True and outcome["already_unregistered"] is False, outcome
+    assert outcome["detail"] == "", outcome
+    names = _trash_names(repo)
+    assert len(names) == 1 and names[0].endswith(".doomed"), names
+    assert not any(p.startswith(str(_trash(repo))) for p in _registered(repo))
+
+
+def test_trash_remove_doomed_rename_failure_maps_to_removed(tmp_path, monkeypatch, capsys):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-norename", "worktree-agent-norename")
+    mod = _load_module_directly()
+    _record_reaper(monkeypatch, mod)
+    real_rename = os.rename
+
+    def failing_rename(src, dst, *a, **k):
+        if str(dst).endswith(".doomed"):
+            raise PermissionError(13, "simulated")
+        return real_rename(src, dst, *a, **k)
+
+    monkeypatch.setattr(mod.os, "rename", failing_rename)
+    outcome = mod._salvage_then_git_remove(str(repo), str(wt), "worktree-agent-norename")
+    monkeypatch.undo()
+    assert outcome["removed"] is True and outcome["already_unregistered"] is False, outcome
+    assert "ds-worktree-trash" in outcome["detail"], outcome
+    assert "could not mark it .doomed" in capsys.readouterr().err
+    assert not wt.exists()
+    names = _trash_names(repo)
+    assert len(names) == 1 and not names[0].endswith(".doomed"), names
+    staged = _trash(repo) / names[0]
+    assert str(staged) in _registered(repo)
+    assert mod._finish_staged_trash(str(repo)) == 1
+    assert _trash_names(repo) == [names[0] + ".doomed"]
+    assert str(staged) not in _registered(repo)
+
+
+def test_reaper_only_deletes_doomed(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    mod = _load_module_directly()
+    trash = _trash(repo)
+    trash.mkdir()
+    doomed = trash / "old.doomed"
+    (doomed / "deep").mkdir(parents=True)
+    (doomed / "deep" / "f.txt").write_text("x\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-staged", "worktree-agent-staged")
+    staged = trash / "staged-1"
+    _git(repo, "worktree", "move", str(wt), str(staged))
+    (trash / "keep.doomed.txt").write_text("not a doomed directory\n")
+
+    assert mod._launch_trash_reaper(str(_common_dir(repo))) is True
+    assert _wait_until(lambda: not doomed.exists()), "reaper did not delete the .doomed entry"
+    assert (staged / "README.md").is_file()
+    assert str(staged) in _registered(repo)
+    assert (trash / "keep.doomed.txt").is_file()
+
+
+def test_reaper_refuses_symlinked_trash(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    mod = _load_module_directly()
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "victim.doomed").mkdir(parents=True)
+    (elsewhere / "victim.doomed" / "f.txt").write_text("x\n")
+    _trash(repo).symlink_to(elsewhere)
+
+    assert mod._launch_trash_reaper(str(_common_dir(repo))) is False
+    wt = add_worktree(repo, ".claude/worktrees/agent-symlink", "worktree-agent-symlink")
+    _record_reaper(monkeypatch, mod)
+    assert mod._trash_remove(str(repo), str(wt)) is None
+    time.sleep(0.5)
+    assert (elsewhere / "victim.doomed" / "f.txt").is_file()
+    assert wt.is_dir() and sorted(p.name for p in elsewhere.iterdir()) == ["victim.doomed"]
+
+
+def test_reaper_survives_caller_group_kill(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, "node_modules/\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-groupkill", "worktree-agent-groupkill")
+    for d in range(40):
+        pkg = wt / "node_modules" / f"p{d}"
+        pkg.mkdir(parents=True)
+        for f in range(100):
+            (pkg / f"f{f}.js").write_text("x\n")
+    retire = Path(__file__).resolve().parent.parent / "ds-retire-carrier"
+    proc = subprocess.Popen(
+        [sys.executable, str(retire), "--repo", str(repo), str(wt)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
+    )
+    out, err = proc.communicate(timeout=50)
+    try:
+        os.killpg(proc.pid, 9)
+    except ProcessLookupError:
+        pass
+    assert proc.returncode == 0, out + err
+    assert not wt.exists()
+    assert _wait_until(lambda: not any(n.endswith(".doomed") for n in _trash_names(repo))), _trash_names(repo)
+
+
+def _mid_move_entry(repo: Path, wt: Path, name: str) -> Path:
+    """A kill inside git's own move: the directory is renamed into trash
+    but the admin gitdir still points at the old path."""
+    _trash(repo).mkdir(exist_ok=True)
+    dest = _trash(repo) / name
+    os.rename(wt, dest)
+    return dest
+
+
+def test_sweep_finishes_staged_trash(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    trash = _trash(repo)
+    trash.mkdir()
+    staged_wt = add_worktree(repo, ".claude/worktrees/agent-s1", "worktree-agent-s1")
+    staged = trash / "s1-1-1"
+    _git(repo, "worktree", "move", str(staged_wt), str(staged))
+    mid = _mid_move_entry(repo, add_worktree(repo, ".claude/worktrees/agent-s2", "worktree-agent-s2"), "s2-1-1")
+    dirty_wt = add_worktree(repo, ".claude/worktrees/agent-s3", "worktree-agent-s3")
+    dirty = trash / "s3-1-1"
+    _git(repo, "worktree", "move", str(dirty_wt), str(dirty))
+    (dirty / "work.txt").write_text("uncommitted\n")
+    unreg_wt = add_worktree(repo, ".claude/worktrees/agent-s4", "worktree-agent-s4")
+    renamed = trash / "s4-1-1"
+    _git(repo, "worktree", "move", str(unreg_wt), str(renamed))
+    os.rename(renamed, str(renamed) + ".doomed")
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    assert "NOTE: 3 trash entr(ies) awaiting deletion, 1 staged, in " in proc.stdout, proc.stdout
+    assert " unregistered (" not in proc.stdout, proc.stdout
+    registered = _registered(repo)
+    assert not {str(staged), str(mid), str(renamed)} & registered
+    assert not staged.exists() and not mid.exists()
+    assert str(dirty) in registered and (dirty / "work.txt").is_file()
+    for branch in ("worktree-agent-s1", "worktree-agent-s2", "worktree-agent-s3", "worktree-agent-s4"):
+        assert _git_rc(repo, "rev-parse", "--verify", f"refs/heads/{branch}").returncode == 0
+    assert _wait_until(lambda: _trash_names(repo) == ["s3-1-1"]), _trash_names(repo)
+
+
+def test_finish_staged_trash_never_takes_over_reused_admin_id(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    old = add_worktree(repo, ".claude/worktrees/feat", "feat-old")
+    mid = _mid_move_entry(repo, old, "feat-1-1")
+    _git(repo, "worktree", "prune")
+    live = add_worktree(repo, ".agentic/worktrees/feat", "feat-new")
+    (live / "untracked.txt").write_text("live work\n")
+    admin = _common_dir(repo) / "worktrees" / "feat"
+    assert os.path.realpath((admin / "gitdir").read_text().strip()) == os.path.realpath(live / ".git")
+    index_before = (admin / "index").read_bytes()
+    mod = _load_module_directly()
+    _record_reaper(monkeypatch, mod)
+    seen = []
+    real_run = mod._run
+
+    def recording_run(args, *a, **k):
+        seen.append(list(args))
+        return real_run(args, *a, **k)
+
+    monkeypatch.setattr(mod, "_run", recording_run)
+    assert mod._finish_staged_trash(str(repo)) == 1
+    assert not [a for a in seen if str(mid) in a], seen
+    assert (admin / "index").read_bytes() == index_before
+    assert os.path.realpath((admin / "gitdir").read_text().strip()) == os.path.realpath(live / ".git")
+    assert os.path.realpath(live) in _registered(repo)
+    assert _git_rc(live, "status", "--porcelain").stdout == "?? untracked.txt\n"
+    assert _trash_names(repo) == ["feat-1-1.doomed"]
+
+
+def test_finish_staged_trash_reaps_entry_unregistered_by_plain_prune(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    trash = _trash(repo)
+    trash.mkdir()
+    staged = trash / "staged-1-1"
+    _git(repo, "worktree", "move", str(add_worktree(repo, ".claude/worktrees/st", "st")), str(staged))
+    mid = _mid_move_entry(repo, add_worktree(repo, ".claude/worktrees/mm", "mm"), "mm-1-1")
+    busy = _mid_move_entry(repo, add_worktree(repo, ".claude/worktrees/busy", "busy"), "busy-1-1")
+    _git(repo, "worktree", "prune")
+    assert str(staged) in _registered(repo)
+    assert not {str(mid), str(busy)} & _registered(repo)
+    holder = subprocess.Popen(["sleep", "30"], cwd=str(busy))
+    try:
+        mod = _load_module_directly()
+        _record_reaper(monkeypatch, mod)
+        assert mod._finish_staged_trash(str(repo)) == 2
+        assert _trash_names(repo) == ["busy-1-1", "mm-1-1.doomed", "staged-1-1.doomed"]
+        assert not {str(staged), str(mid), str(busy)} & _registered(repo)
+    finally:
+        holder.kill()
+        holder.wait(timeout=10)
+    for branch in ("st", "mm", "busy"):
+        assert _git_rc(repo, "rev-parse", "--verify", f"refs/heads/{branch}").returncode == 0
+
+
+def test_sweep_reports_pending_trash(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    trash = _trash(repo)
+    (trash / "a.doomed" / "x").mkdir(parents=True)
+    (trash / "orphan" / "y").mkdir(parents=True)
+
+    proc = run_reap(repo, dry_run=True)
+    assert proc.returncode == 0, proc.stderr
+    assert (
+        f"NOTE: 1 trash entr(ies) awaiting deletion, 0 staged, 1 unregistered "
+        f"(deleted by the next live sweep unless in use), in {trash}"
+    ) in proc.stdout, proc.stdout
+    assert (trash / "a.doomed" / "x").is_dir() and (trash / "orphan" / "y").is_dir()
+
+    empty = run_reap(init_repo_with_origin(tmp_path, "clean")[0], dry_run=True)
+    assert "trash entr(ies)" not in empty.stdout, empty.stdout
