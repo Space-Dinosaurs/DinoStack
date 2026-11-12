@@ -104,13 +104,21 @@ Failure modes: every indeterminate read fails closed to a hold, never a
                worktree remove` refuses working trees that contain
                submodules, so the refusal is recorded as a hold.
                Killed during removal: before gate 8's `git worktree move`
-               nothing has changed; after it, the checkout is either a
-               staged entry in `<common>/ds-worktree-trash/` that the next
-               `ds-cleanup-worktrees` sweep finishes, or unregistered
-               `*.doomed` content the next reaper deletes - never a
-               registered, partly deleted checkout. Only the synchronous
-               fallback (`git worktree remove`, when the move is not
-               taken) can still be killed partway.
+               nothing has changed. A kill inside git's own move can leave
+               the directory in `<common>/ds-worktree-trash/` while git
+               still registers the old path; the next sweep marks that
+               directory `.doomed` and reaps it without running any git
+               command on it, and its prune drops the old path's stale
+               registration. After the move the checkout is
+               a registered staged entry the next `ds-cleanup-worktrees`
+               sweep finishes; after the `.doomed` rename it may still be
+               registered (prunable, its path missing) with no reaper
+               started yet, which the next sweep prunes and reaps; after
+               the unregister only `*.doomed` content remains for the
+               next reaper. The checkout's path is never left registered
+               and partly deleted on this path; the synchronous fallback
+               (`git worktree remove`, when the move is not taken) still
+               can be.
 
 Performance: about a dozen local git calls; object-existence checks are
              batched into one `cat-file --batch-check` per SHA set

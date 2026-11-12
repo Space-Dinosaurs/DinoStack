@@ -805,7 +805,7 @@ hr {
 
 <p>Trigger: the carrier's completion. Phase 8 runs it right after the engineer's push.</p>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">ds-retire-carrier &lt;worktree-path&gt;
-<span class="hljs-comment"># exit 0: checkout moved to trash, deleted by a detached process; branch kept</span>
+<span class="hljs-comment"># exit 0: checkout removed (usually moved to trash, deleted in background); branch kept</span>
 <span class="hljs-comment"># exit 3: hold recorded (owner, reason, revisit event)</span>
 ds-retire-carrier --list-holds        <span class="hljs-comment"># open holds, at /ds-wrap Step 5 and session start</span>
 </code></pre>

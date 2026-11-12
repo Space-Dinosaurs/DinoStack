@@ -3188,36 +3188,48 @@ def _trash_remove(repo: str, worktree_path: str) -> Optional[bool]:
 
 
 def _finish_staged_trash(repo: str) -> int:
-    """Finishes trash entries a kill left between `git worktree move` and
-    the `.doomed` rename. A non-`.doomed` directory in the trash that is not
-    registered at its trash path but still has a `.git` link (a kill inside
-    git's own move, after the directory rename and before the admin gitdir
-    rewrite) is first reconnected with `git worktree repair`. Each
-    registered, unlocked, clean entry with no live process cwd in it is
-    then renamed to `.doomed` and unregistered. A dirty, locked or occupied
-    entry is left in place for the sweep's NOTE to report. Must run before
-    the sweep's `git worktree prune`, which would otherwise unregister a
-    mid-move entry without marking it. Returns the number finished."""
+    """Finishes trash entries a kill left before the `.doomed` rename.
+
+    Registered at its trash path (a kill between `git worktree move` and
+    the rename): renamed to `.doomed` and unregistered when unlocked, clean
+    and with no live process cwd in it; a dirty, locked or occupied entry is
+    left for the sweep's NOTE to report.
+
+    Not registered at its trash path (a kill inside git's own move, before
+    it rewrote the admin gitdir, usually unregistered since by a prune):
+    renamed to `.doomed` when no live process cwd is in it, with no git
+    command run against it. Only `_trash_remove` puts directories here,
+    after its clean check and git's move refusals, so the content is a
+    tree already chosen for deletion. Its `.git` file may name an admin id
+    a live worktree has since reused, so no `git status` or `worktree
+    repair` may run on it, and deleting it removes only that file, never
+    the admin dir. Returns the number finished."""
     common = _common_dir_abs(repo)
     trash = _trash_dir(common) if common else None
     if trash is None:
         return 0
-    registered = _registered_worktrees(repo)
-    if registered is None:
-        return 0
     try:
         names = sorted(os.listdir(trash))
     except OSError:
+        return 0
+    registered = _registered_worktrees(repo)
+    if registered is None:
         return 0
     finished = 0
     for name in names:
         entry = os.path.join(trash, name)
         if name.endswith(_DOOMED_SUFFIX) or not os.path.isdir(entry) or os.path.islink(entry):
             continue
-        if entry not in registered and os.path.isfile(os.path.join(entry, ".git")):
-            _run(["git", "-C", repo, "worktree", "repair", entry])
-            registered = _registered_worktrees(repo) or {}
-        if entry not in registered or registered[entry]:
+        if entry not in registered:
+            if _live_cwd_holders(entry) != []:
+                continue
+            try:
+                os.rename(entry, entry + _DOOMED_SUFFIX)
+            except OSError:
+                continue
+            finished += 1
+            continue
+        if registered[entry]:
             continue
         if not _is_clean_for_trash(entry) or _live_cwd_holders(entry) != []:
             continue
@@ -5422,7 +5434,8 @@ def _run_repo(
 
     if trash_doomed or trash_staged or trash_orphaned:
         orphan_clause = (
-            f", {trash_orphaned} unregistered (left for manual review)" if trash_orphaned else ""
+            f", {trash_orphaned} unregistered (deleted by the next live sweep unless in use)"
+            if trash_orphaned else ""
         )
         print(
             f"NOTE: {trash_doomed} trash entr(ies) awaiting deletion, {trash_staged} staged"

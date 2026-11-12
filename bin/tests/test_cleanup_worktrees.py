@@ -5339,7 +5339,7 @@ def test_sweep_finishes_staged_trash(tmp_path):
     proc = run_reap(repo, dry_run=False)
     assert proc.returncode == 0, proc.stderr
     assert "NOTE: 3 trash entr(ies) awaiting deletion, 1 staged, in " in proc.stdout, proc.stdout
-    assert "unregistered (left for manual review)" not in proc.stdout, proc.stdout
+    assert " unregistered (" not in proc.stdout, proc.stdout
     registered = _registered(repo)
     assert not {str(staged), str(mid), str(renamed)} & registered
     assert not staged.exists() and not mid.exists()
@@ -5347,6 +5347,60 @@ def test_sweep_finishes_staged_trash(tmp_path):
     for branch in ("worktree-agent-s1", "worktree-agent-s2", "worktree-agent-s3", "worktree-agent-s4"):
         assert _git_rc(repo, "rev-parse", "--verify", f"refs/heads/{branch}").returncode == 0
     assert _wait_until(lambda: _trash_names(repo) == ["s3-1-1"]), _trash_names(repo)
+
+
+def test_finish_staged_trash_never_takes_over_reused_admin_id(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    old = add_worktree(repo, ".claude/worktrees/feat", "feat-old")
+    mid = _mid_move_entry(repo, old, "feat-1-1")
+    _git(repo, "worktree", "prune")
+    live = add_worktree(repo, ".agentic/worktrees/feat", "feat-new")
+    (live / "untracked.txt").write_text("live work\n")
+    admin = _common_dir(repo) / "worktrees" / "feat"
+    assert os.path.realpath((admin / "gitdir").read_text().strip()) == os.path.realpath(live / ".git")
+    index_before = (admin / "index").read_bytes()
+    mod = _load_module_directly()
+    _record_reaper(monkeypatch, mod)
+    seen = []
+    real_run = mod._run
+
+    def recording_run(args, *a, **k):
+        seen.append(list(args))
+        return real_run(args, *a, **k)
+
+    monkeypatch.setattr(mod, "_run", recording_run)
+    assert mod._finish_staged_trash(str(repo)) == 1
+    assert not [a for a in seen if str(mid) in a], seen
+    assert (admin / "index").read_bytes() == index_before
+    assert os.path.realpath((admin / "gitdir").read_text().strip()) == os.path.realpath(live / ".git")
+    assert os.path.realpath(live) in _registered(repo)
+    assert _git_rc(live, "status", "--porcelain").stdout == "?? untracked.txt\n"
+    assert _trash_names(repo) == ["feat-1-1.doomed"]
+
+
+def test_finish_staged_trash_reaps_entry_unregistered_by_plain_prune(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    trash = _trash(repo)
+    trash.mkdir()
+    staged = trash / "staged-1-1"
+    _git(repo, "worktree", "move", str(add_worktree(repo, ".claude/worktrees/st", "st")), str(staged))
+    mid = _mid_move_entry(repo, add_worktree(repo, ".claude/worktrees/mm", "mm"), "mm-1-1")
+    busy = _mid_move_entry(repo, add_worktree(repo, ".claude/worktrees/busy", "busy"), "busy-1-1")
+    _git(repo, "worktree", "prune")
+    assert str(staged) in _registered(repo)
+    assert not {str(mid), str(busy)} & _registered(repo)
+    holder = subprocess.Popen(["sleep", "30"], cwd=str(busy))
+    try:
+        mod = _load_module_directly()
+        _record_reaper(monkeypatch, mod)
+        assert mod._finish_staged_trash(str(repo)) == 2
+        assert _trash_names(repo) == ["busy-1-1", "mm-1-1.doomed", "staged-1-1.doomed"]
+        assert not {str(staged), str(mid), str(busy)} & _registered(repo)
+    finally:
+        holder.kill()
+        holder.wait(timeout=10)
+    for branch in ("st", "mm", "busy"):
+        assert _git_rc(repo, "rev-parse", "--verify", f"refs/heads/{branch}").returncode == 0
 
 
 def test_sweep_reports_pending_trash(tmp_path):
@@ -5359,7 +5413,7 @@ def test_sweep_reports_pending_trash(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert (
         f"NOTE: 1 trash entr(ies) awaiting deletion, 0 staged, 1 unregistered "
-        f"(left for manual review), in {trash}"
+        f"(deleted by the next live sweep unless in use), in {trash}"
     ) in proc.stdout, proc.stdout
     assert (trash / "a.doomed" / "x").is_dir() and (trash / "orphan" / "y").is_dir()
 
