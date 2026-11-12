@@ -32,7 +32,8 @@ Public API (CLI):
   in-progress marker in it (denylist); 4 dirty, or a tracked path flagged
   skip-worktree or assume-unchanged present on disk (its edits are
   invisible to status); 5 protected ignored content
-  (detached carriers use the strict allowlist, `.agentic/` offenders
+  (detached carriers use the strict allowlist, extended by the primary's
+  `.agentic/config.json` `worktree_cleanup_strict_allowlist`, `.agentic/` offenders
   re-filtered through the protected denylist; any ignored path that is, or
   contains, a `.git` entry - a separate repository - also holds); 6 another registered
   worktree lies under PATH (removal would delete it); 7 pins: every commit
@@ -59,7 +60,8 @@ Public API (CLI):
 
 Upstream deps: git (subprocess, via PATH); bin/ds-cleanup-worktrees
                (`_git_status_and_ignored`, `_is_protected_ignored_path`,
-               `_salvage_and_remove`, `_live_cwd_holders`, loaded by resolved path so a
+               `_repo_strict_allowlist`, `_salvage_and_remove`,
+               `_live_cwd_holders`, loaded by resolved path so a
                PATH-symlink invocation still finds it); bin/_lib.py `_run`;
                env `AE_SESSION_ID` / `CLAUDE_CODE_SESSION_ID` (owner default).
 
@@ -137,6 +139,7 @@ _cleanup_loader.exec_module(_cleanup)
 
 _git_status_and_ignored = _cleanup._git_status_and_ignored
 _is_protected_ignored_path = _cleanup._is_protected_ignored_path
+_repo_strict_allowlist = _cleanup._repo_strict_allowlist
 _salvage_and_remove = _cleanup._salvage_and_remove
 _live_cwd_holders = _cleanup._live_cwd_holders
 
@@ -740,7 +743,8 @@ def _retire(args: argparse.Namespace) -> int:
             raise
 
         detached = branch is None
-        status, offenders = _git_status_and_ignored(path, detached)
+        extra_allow = _repo_strict_allowlist(primary) if detached else ()
+        status, offenders = _git_status_and_ignored(path, detached, extra_allow)
         if status != "clean":
             print(f"WARNING: worktree {path} has uncommitted changes; skipping cleanup")
             raise Hold("uncommitted changes", REVISIT["content"])

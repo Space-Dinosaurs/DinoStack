@@ -62,7 +62,7 @@ a warning is printed.
 ## 3. Project: `.agentic/config.json`
 
 Committed to the repo. Seeded with defaults by `/ds-init-project`. Absent file =
-all defaults, no behavior change. The 25 behavioral toggles plus 6 tuning
+all defaults, no behavior change. The 25 behavioral toggles plus 7 tuning
 parameters are listed below. The file also carries a `scaffolding_version` key
 that is installer/migration-managed (used by `/ds-migrate-project` as the
 source-of-truth stamp for "has this project been migrated to vN") - do not edit
@@ -109,6 +109,7 @@ it manually.
 | `deferred_wrap_timeout_minutes` | `10` | int | Max time for a single wrap job before timeout |
 | `deferred_wrap_inprogress_reclaim_minutes` | `30` | int | Time before an in-progress job is reclaimed |
 | `deferred_wrap_pending_ttl_days` | `7` | int | Days before a pending job expires |
+| `worktree_cleanup_strict_allowlist` | `[]` (not seeded) | list of strings | Extra ignored-path patterns that do not block worktree removal under the strict allowlist (`ds-cleanup-worktrees --strict-ignored`, and `ds-retire-carrier` on a detached checkout). A pattern without `/` matches any path component (`.turbo`); a pattern with `/` matches that path and everything beneath it (`*/src/generated`). Read from the primary checkout only. Never unprotects authored `.agentic/` files, `docs/planning/`, `.env*` or `*.local`; a non-list value, an absolute pattern or one containing `..` prints a WARNING and the built-in list is used alone. Does not change which files the pre-removal archive skips |
 
 ### Cache keepalive
 
