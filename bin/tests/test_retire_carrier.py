@@ -315,6 +315,23 @@ def test_detached_config_allowlisted_codegen_retires(fx: Fixture) -> None:
     assert ".env.local" in last(fx)["reason"]
 
 
+# f4. A collapsed ignored directory (`secrets/`) matched by a config pattern
+# still holds when it contains protected content.
+def test_detached_config_collapsed_dir_with_protected_held(fx: Fixture) -> None:
+    (fx.repo / ".gitignore").write_text(GITIGNORE + "secrets/\n")
+    git(fx.repo, "commit", "-q", "-am", "ignore secrets")
+    config = fx.repo / ".agentic" / "config.json"
+    config.parent.mkdir(exist_ok=True)
+    config.write_text(json.dumps({"worktree_cleanup_strict_allowlist": ["*"]}))
+    det = fx.add("det-f4")
+    (det / "secrets").mkdir()
+    (det / "secrets" / ".env.local").write_text("SECRET=1\n")
+    proc = fx.run(str(det))
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert "secrets/" in last(fx)["reason"]
+    assert (det / "secrets" / ".env.local").read_text() == "SECRET=1\n"
+
+
 # g. In-progress markers are a denylist; unknown files such as CLAUDE_BASE pass.
 def test_g_bisect_held_claude_base_passes(fx: Fixture) -> None:
     wt = fx.add("br-g", branch="feature/g")
