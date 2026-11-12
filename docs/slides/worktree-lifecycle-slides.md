@@ -248,7 +248,7 @@ Trigger: the carrier's completion. Phase 8 runs it right after the engineer's pu
 
 ```bash
 ds-retire-carrier <worktree-path>
-# exit 0: checkout removed, branch kept
+# exit 0: checkout moved to trash, deleted by a detached process; branch kept
 # exit 3: hold recorded (owner, reason, revisit event)
 ds-retire-carrier --list-holds        # open holds, at /ds-wrap Step 5 and session start
 ```

@@ -904,3 +904,31 @@ def test_ll2_head_moved_during_fetch_held(fx: Fixture) -> None:
     assert rc == 3
     assert last(fx)["reason"].startswith("HEAD moved during inspection")
     assert wt.exists()
+
+
+# mm. Retire returns once the tree is moved to trash and marked .doomed;
+# deletion is left to the detached reaper.
+def test_retire_returns_with_content_doomed(fx: Fixture) -> None:
+    wt = fx.add("br-mm", branch="feature/mm")
+    (wt / "node_modules" / "pkg").mkdir(parents=True)
+    (wt / "node_modules" / "pkg" / "index.js").write_text("x\n")
+    tool = _load("ds_retire_carrier_for_test", TOOL)
+    calls = []
+    tool._cleanup._launch_trash_reaper = lambda common: calls.append(common) or True
+    cwd = os.getcwd()
+    os.chdir(fx.tmp)
+    try:
+        rc = tool.main([str(wt)])
+    finally:
+        os.chdir(cwd)
+    assert rc == 0
+    assert last(fx)["kind"] == "retired"
+    assert not wt.exists() and str(wt) not in fx.registered()
+    assert git(fx.repo, "rev-parse", "--verify", "refs/heads/feature/mm").returncode == 0
+    common = Path(os.path.realpath(fx.repo / ".git"))
+    trash = common / "ds-worktree-trash"
+    entries = [p for p in trash.iterdir() if p.is_dir()]
+    assert len(entries) == 1 and entries[0].name.endswith(".doomed"), entries
+    assert (entries[0] / "node_modules" / "pkg" / "index.js").is_file()
+    assert not [p for p in fx.registered() if p.startswith(str(trash))]
+    assert calls == [str(common)]

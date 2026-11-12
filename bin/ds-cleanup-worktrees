@@ -932,15 +932,11 @@ manufactured false callers and inverted the fence scan (see
 `bin/tests/caller_scan.py`'s `SHELL_INFO`).
 
 Upstream deps: Python 3 stdlib only (argparse, fnmatch, json, os, re, shutil,
-               sys, time, pathlib, collections, typing - `subprocess` is
-               deliberately NOT among them since the shared `_run` move:
-               every subprocess call in this file routes through the `_run`
-               imported from bin/_lib.py, and no attribute access on the
-               `subprocess` module survives anywhere in this file. This
-               sentence deliberately never writes that module name
-               immediately followed by a dot, so a grep for that two-token
-               sequence over this file returns zero and remains a valid
-               check of the claim instead of matching the claim itself).
+               subprocess, sys, time, pathlib, collections, typing - every
+               waited-for subprocess call in this file routes through the
+               `_run` imported from bin/_lib.py; `subprocess` is used
+               directly only by `_launch_trash_reaper`, whose detached
+               `Popen(start_new_session=True)` `_run` cannot express).
                `git`
                (CLI) and, unless --no-gh, `gh` (CLI, for the PR-state leg -
                degrades gracefully when absent or unauthenticated). DS-217's
@@ -1201,6 +1197,7 @@ import os
 import re
 import shutil
 import stat
+import subprocess
 import sys
 import tarfile
 import time
@@ -3043,6 +3040,222 @@ def _append_archive_manifest(
         print(f"WARNING: could not append to {manifest}: {exc}", file=sys.stderr)
 
 
+_TRASH_DIRNAME = "ds-worktree-trash"
+_DOOMED_SUFFIX = ".doomed"
+
+# Runs detached in its own session: forks once more so the launcher can reap
+# its direct child, then deletes only `*.doomed` directories under the trash
+# root, serialized by an flock so concurrent launches do not duplicate work.
+_REAPER_SOURCE = """
+import fcntl, os, shutil, sys
+if os.fork():
+    os._exit(0)
+root = sys.argv[1]
+if os.path.realpath(root) != root:
+    sys.exit(0)
+with open(os.path.join(root, ".reaper.lock"), "a") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    while True:
+        try:
+            names = [n for n in os.listdir(root) if n.endswith(".doomed")]
+        except OSError:
+            break
+        doomed = [os.path.join(root, n) for n in names]
+        doomed = [p for p in doomed if os.path.isdir(p) and not os.path.islink(p)]
+        if not doomed:
+            break
+        for path in doomed:
+            shutil.rmtree(path, ignore_errors=True)
+        if all(os.path.lexists(p) for p in doomed):
+            break
+"""
+
+
+def _common_dir_abs(repo: str) -> Optional[str]:
+    proc = _run(["git", "-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir"])
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    return os.path.realpath(proc.stdout.strip())
+
+
+def _trash_dir(common_dir: str) -> Optional[str]:
+    """`<realpath common>/ds-worktree-trash` when it is a real directory at
+    that exact realpath (a symlinked trash dir is refused), else None."""
+    trash = os.path.join(os.path.realpath(common_dir), _TRASH_DIRNAME)
+    if os.path.realpath(trash) != trash or not os.path.isdir(trash):
+        return None
+    return trash
+
+
+def _registered_worktrees(repo: str) -> Optional[Dict[str, bool]]:
+    """realpath -> locked, for every entry `git worktree list` registers."""
+    proc = _run(["git", "-C", repo, "worktree", "list", "--porcelain"])
+    if proc.returncode != 0:
+        return None
+    try:
+        entries = parse_porcelain(proc.stdout)
+    except ValueError:
+        return None
+    return {os.path.realpath(e.path): e.locked for e in entries}
+
+
+def _is_clean_for_trash(worktree_path: str) -> bool:
+    proc = _run(["git", "-C", worktree_path, "status", "--porcelain=v1",
+                 "--untracked-files=normal", "--ignore-submodules=none"])
+    return proc.returncode == 0 and proc.stdout == ""
+
+
+def _launch_trash_reaper(common_dir: str) -> bool:
+    """Starts a detached process (new session, so it survives its caller's
+    process group being killed) that deletes `<trash>/*.doomed` and nothing
+    else. Refuses any root other than `<realpath common>/ds-worktree-trash`
+    itself. Returns True when the process was started."""
+    trash = _trash_dir(common_dir)
+    if trash is None:
+        return False
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-I", "-c", _REAPER_SOURCE, trash],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            cwd="/", start_new_session=True, close_fds=True,
+        )
+        proc.wait(timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return True
+
+
+def _trash_remove(repo: str, worktree_path: str) -> Optional[bool]:
+    """Removal that is safe to kill: `git worktree move` into
+    `<common>/ds-worktree-trash/<basename>-<ns>-<pid>` (git runs its own
+    refusals: main worktree, lock, submodule or gitlink, invalid worktree),
+    rename that to `*.doomed`, unregister it with `git worktree remove` on
+    the now-missing path, then delete in a detached reaper. Nothing is ever
+    renamed back out of trash.
+
+    Returns None when the fast path was not taken (the caller runs the
+    plain synchronous `git worktree remove`): no `os.setsid`, the path is
+    or contains the repo root, the tree is not clean, it is on a different
+    device from the common dir, the trash dir cannot be created or is a
+    symlink, or git refused the move. True when the path is gone and no
+    entry for it or its trash entry is registered. False when the move
+    succeeded but a trash entry is still registered (the `.doomed` rename
+    or the unregister failed); the next sweep finishes or prunes it.
+
+    A kill before the move changes nothing; between the move and the
+    rename it leaves a registered staged entry `_finish_staged_trash`
+    finishes; after the rename only `*.doomed` content remains."""
+    if not hasattr(os, "setsid"):
+        return None
+    target = os.path.realpath(worktree_path)
+    norm_repo = os.path.realpath(repo)
+    if target == norm_repo or norm_repo.startswith(target.rstrip("/") + "/"):
+        return None
+    if not _is_clean_for_trash(worktree_path):
+        return None
+    common = _common_dir_abs(repo)
+    if common is None:
+        return None
+    trash = os.path.join(common, _TRASH_DIRNAME)
+    try:
+        if os.stat(worktree_path).st_dev != os.stat(common).st_dev:
+            return None
+        os.makedirs(trash, exist_ok=True)
+    except OSError:
+        return None
+    if _trash_dir(common) is None:
+        return None
+    entry = os.path.join(trash, f"{os.path.basename(target)}-{time.time_ns()}-{os.getpid()}")
+    if _run(["git", "-C", repo, "worktree", "move", worktree_path, entry]).returncode != 0:
+        return None
+    try:
+        os.rename(entry, entry + _DOOMED_SUFFIX)
+    except FileNotFoundError:
+        pass  # another session's _finish_staged_trash renamed it first
+    except OSError as exc:
+        print(f"WARNING: moved {worktree_path} to {entry} but could not mark it {_DOOMED_SUFFIX} ({exc}); "
+              "the next ds-cleanup-worktrees sweep finishes it", file=sys.stderr)
+        return False
+    if not os.path.lexists(entry):
+        _run(["git", "-C", repo, "worktree", "remove", entry])
+    _launch_trash_reaper(common)
+    registered = _registered_worktrees(repo)
+    if registered is None or target in registered or entry in registered:
+        print(f"WARNING: moved {worktree_path} to {entry}{_DOOMED_SUFFIX} but {entry} is still registered; "
+              "the next ds-cleanup-worktrees sweep prunes it", file=sys.stderr)
+        return False
+    return True
+
+
+def _finish_staged_trash(repo: str) -> int:
+    """Finishes trash entries a kill left between `git worktree move` and
+    the `.doomed` rename. A non-`.doomed` directory in the trash that is not
+    registered at its trash path but still has a `.git` link (a kill inside
+    git's own move, after the directory rename and before the admin gitdir
+    rewrite) is first reconnected with `git worktree repair`. Each
+    registered, unlocked, clean entry with no live process cwd in it is
+    then renamed to `.doomed` and unregistered. A dirty, locked or occupied
+    entry is left in place for the sweep's NOTE to report. Must run before
+    the sweep's `git worktree prune`, which would otherwise unregister a
+    mid-move entry without marking it. Returns the number finished."""
+    common = _common_dir_abs(repo)
+    trash = _trash_dir(common) if common else None
+    if trash is None:
+        return 0
+    registered = _registered_worktrees(repo)
+    if registered is None:
+        return 0
+    try:
+        names = sorted(os.listdir(trash))
+    except OSError:
+        return 0
+    finished = 0
+    for name in names:
+        entry = os.path.join(trash, name)
+        if name.endswith(_DOOMED_SUFFIX) or not os.path.isdir(entry) or os.path.islink(entry):
+            continue
+        if entry not in registered and os.path.isfile(os.path.join(entry, ".git")):
+            _run(["git", "-C", repo, "worktree", "repair", entry])
+            registered = _registered_worktrees(repo) or {}
+        if entry not in registered or registered[entry]:
+            continue
+        if not _is_clean_for_trash(entry) or _live_cwd_holders(entry) != []:
+            continue
+        try:
+            os.rename(entry, entry + _DOOMED_SUFFIX)
+        except OSError:
+            continue
+        _run(["git", "-C", repo, "worktree", "remove", entry])
+        finished += 1
+    return finished
+
+
+def _trash_counts(repo: str) -> Tuple[Optional[str], int, int, int]:
+    """(trash dir, `.doomed` entries, registered staged entries,
+    unregistered non-`.doomed` entries) for the sweep's NOTE."""
+    common = _common_dir_abs(repo)
+    trash = _trash_dir(common) if common else None
+    if trash is None:
+        return None, 0, 0, 0
+    registered = _registered_worktrees(repo) or {}
+    doomed = staged = orphaned = 0
+    try:
+        names = os.listdir(trash)
+    except OSError:
+        return trash, 0, 0, 0
+    for name in names:
+        entry = os.path.join(trash, name)
+        if not os.path.isdir(entry) or os.path.islink(entry):
+            continue
+        if name.endswith(_DOOMED_SUFFIX):
+            doomed += 1
+        elif entry in registered:
+            staged += 1
+        else:
+            orphaned += 1
+    return trash, doomed, staged, orphaned
+
+
 def _salvage_and_remove(
     repo: str,
     worktree_path: str,
@@ -3067,6 +3280,12 @@ def _salvage_and_remove(
     (`_archive_ignored_files`); after a successful removal that left an
     archive (that tgz or the caller's `bundle`) it appends a MANIFEST.tsv row.
 
+    Removal itself tries `_trash_remove` first (move into
+    `<common>/ds-worktree-trash`, rename to `*.doomed`, unregister, detached
+    delete), so a kill never leaves a registered, partly deleted tree. Only
+    when that returns None does the synchronous `git worktree remove` below
+    run, with its rmtree repair.
+
     Returns a dict with keys:
       `ignored_archive_failed` - True when `_archive_ignored_files` failed;
                           nothing else ran and `git worktree remove` was
@@ -3084,7 +3303,12 @@ def _salvage_and_remove(
       `removed`         - True when `git worktree remove` succeeded AND the
                           directory is actually gone from disk afterward
                           (either because git removed it, or because a
-                          same-invocation `rmtree` repair removed it).
+                          same-invocation `rmtree` repair removed it), or
+                          when `_trash_remove` moved the tree into trash.
+                          Its `False` result (moved, but a trash entry is
+                          still registered) also maps to True, with
+                          `detail` naming the trash directory: the path is
+                          gone and the next sweep finishes the entry.
       `already_unregistered` - True only when git already deregistered the
                           worktree (`git worktree remove` returned rc==0)
                           and content STILL remains on disk when this
@@ -3151,6 +3375,11 @@ def _salvage_then_git_remove(
             return {"salvage_failed": False, "head_moved": True, "salvaged": salvaged, "removed": False,
                     "already_unregistered": False,
                     "detail": f"HEAD is {current}, not the bundled {expected_head}"}
+    trashed = _trash_remove(repo, worktree_path)
+    if trashed is not None:
+        detail = "" if trashed else f"moved to trash but still registered there; see {_TRASH_DIRNAME}"
+        return {"salvage_failed": False, "salvaged": salvaged, "removed": True,
+                "already_unregistered": False, "detail": detail}
     proc = _run(["git", "-C", repo, "worktree", "remove", worktree_path])
     if proc.returncode == 0:
         if Path(worktree_path).exists():
@@ -5002,7 +5231,11 @@ def _run_repo(
     pruned_admin = 0
     if not args.dry_run:
         pruned_admin = sum(1 for r in results if r["outcome"] in ("SKIP_MISSING", "SKIP_MISSING_LOCKED"))
+        _finish_staged_trash(repo)
         _run(["git", "-C", repo, "worktree", "prune"])
+    trash_dir, trash_doomed, trash_staged, trash_orphaned = _trash_counts(repo)
+    if trash_doomed and not args.dry_run:
+        _launch_trash_reaper(os.path.dirname(trash_dir))
 
     mode_parts = []
     if degraded:
@@ -5185,6 +5418,15 @@ def _run_repo(
             "`git worktree list` does not know about them, so no gate in this tool ever "
             "evaluates them and no run can ever reclaim them. This is a report only: nothing "
             f"was touched and no removal is proposed. {hint} Then decide case by case."
+        )
+
+    if trash_doomed or trash_staged or trash_orphaned:
+        orphan_clause = (
+            f", {trash_orphaned} unregistered (left for manual review)" if trash_orphaned else ""
+        )
+        print(
+            f"NOTE: {trash_doomed} trash entr(ies) awaiting deletion, {trash_staged} staged"
+            f"{orphan_clause}, in {trash_dir}"
         )
 
     if args.dry_run and salvage_would:

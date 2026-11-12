@@ -103,6 +103,14 @@ Failure modes: every indeterminate read fails closed to a hold, never a
                at `<common>/worktrees/<id>/modules/<name>`, and `git
                worktree remove` refuses working trees that contain
                submodules, so the refusal is recorded as a hold.
+               Killed during removal: before gate 8's `git worktree move`
+               nothing has changed; after it, the checkout is either a
+               staged entry in `<common>/ds-worktree-trash/` that the next
+               `ds-cleanup-worktrees` sweep finishes, or unregistered
+               `*.doomed` content the next reaper deletes - never a
+               registered, partly deleted checkout. Only the synchronous
+               fallback (`git worktree remove`, when the move is not
+               taken) can still be killed partway.
 
 Performance: about a dozen local git calls; object-existence checks are
              batched into one `cat-file --batch-check` per SHA set
@@ -111,7 +119,14 @@ Performance: about a dozen local git calls; object-existence checks are
              finds an unpinned commit. Gate 5's nested-repository check
              walks each ignored directory until it meets a `.git` entry,
              so a large ignored tree (node_modules) costs a full walk.
-             Loading bin/ds-cleanup-worktrees costs ~0.1 s.
+             Loading bin/ds-cleanup-worktrees costs ~0.1 s. Gate 8 returns
+             once `_salvage_and_remove` has moved a clean checkout into
+             `<common>/ds-worktree-trash/` (a same-device rename) and
+             unregistered it; deletion runs in a detached process in its
+             own session, so it survives this process group being
+             killed. A checkout on another device than the common dir,
+             or one git refuses to move, is removed synchronously by
+             `git worktree remove` (about 100 us per file measured).
 """
 
 from __future__ import annotations
