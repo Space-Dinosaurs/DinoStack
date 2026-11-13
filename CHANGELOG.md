@@ -3,6 +3,16 @@
 
 # Changelog
 
+## 2026-11-12
+
+### Features
+
+- **#1088** [repo-configurable strict allowlist](https://github.com/Space-Dinosaurs/DinoStack/pull/1088) - tyson-solara6
+
+### Fixes
+
+- **#1089** [make worktree removal safe to kill](https://github.com/Space-Dinosaurs/DinoStack/pull/1089) - tyson-solara6
+
 ## 2026-11-06
 
 ### Features
