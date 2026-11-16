@@ -184,9 +184,7 @@ def _pid_alive(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    except PermissionError:
-        return True
-    except OSError:
+    except (OSError, OverflowError):
         return True
     return True
 
@@ -377,13 +375,13 @@ def _sweep(candidates: List[Dict]) -> bool:
     return bad
 
 
-def _repo_dir(home: Path) -> Optional[Path]:
+def _repo_dir() -> Optional[Path]:
     config = Path(os.path.expanduser("~/.agentic/agentic-engineering-config.json"))
     try:
         value = json.loads(config.read_text(encoding="utf-8")).get("repo_dir") or ""
     except (OSError, ValueError, AttributeError):
         value = ""
-    candidate = Path(value) if value else home / "DinoStack"
+    candidate = Path(value) if value else Path(os.path.expanduser("~/DinoStack"))
     return candidate if candidate.is_dir() else None
 
 
@@ -394,7 +392,7 @@ def _info_items(home: Path, tmpdir: str, scratch_root: str) -> List[Dict]:
     ]
     for projects in sorted(home.glob(".claude*/projects")):
         items.append(("transcripts", projects, "never swept; Claude Code session transcripts"))
-    repo = _repo_dir(home)
+    repo = _repo_dir()
     if repo is not None:
         for rel in (".claude/worktrees", ".agentic/worktrees"):
             items.append(("worktrees", repo / rel, "never swept; run ds-cleanup-worktrees --dry-run --explain"))

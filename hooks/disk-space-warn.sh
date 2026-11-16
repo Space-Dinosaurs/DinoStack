@@ -23,16 +23,17 @@
 #                       MANAGED_HOOK_BASENAMES.
 # Failure modes: always exits 0. The throttle stamp
 #                (~/.agentic/disk-warn.stamp) is touched before df runs, so a
-#                failing df, an unwritable HOME or a missing python3 stays
-#                silent for the next 30 minutes rather than retrying on
-#                every tool call.
+#                failing df or a missing python3 stays silent for the next 30
+#                minutes rather than retrying on every tool call. An
+#                unwritable HOME leaves no stamp: the hook is silent but
+#                retries its find and mkdir on every tool call.
 # Performance: on the throttled path (every tool call but one per 30 min)
 #              one bash and one find process.
 
 _disk_space_warn() {
   local raw="${AE_DISK_WARN_FREE_GB:-50}" threshold=50
   if [[ "$raw" =~ ^(0|[1-9][0-9]{0,5})$ ]]; then
-    threshold=$((10#$raw))
+    threshold=$raw
   fi
   [[ "$threshold" -eq 0 ]] && return 0
 

@@ -154,7 +154,7 @@ def test_scratchpads(env, capsys, monkeypatch):
     _mkdir(proj / UUID_B)
     _mkdir(proj / UUID_C)
     _mkdir(proj / "not-a-uuid")
-    _mkdir(proj / UUID_A.upper().replace("-", "_"))
+    upper = _mkdir(proj / UUID_A.upper().replace("-", "_"))
     young = _mkdir(proj / "99999999-2222-3333-4444-555555555555", seconds=6 * 24 * 3600)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", UUID_B)
     transcript = env["home"] / ".claude-alt" / "projects" / "x" / f"{UUID_C}.jsonl"
@@ -168,6 +168,8 @@ def test_scratchpads(env, capsys, monkeypatch):
     assert c[young.name]["reason"] == "too_young"
     assert "not-a-uuid" not in c
     assert (proj / "not-a-uuid").is_dir()
+    assert upper.name not in c
+    assert upper.is_dir()
     assert (proj / UUID_B).is_dir() and (proj / UUID_C).is_dir()
 
 
@@ -227,6 +229,14 @@ def test_leftovers(env, capsys):
     assert c[young.name]["reason"] == "too_young"
     assert live.is_dir() and young.is_dir()
     assert sorted(p.name for p in proj.iterdir()) == []
+
+
+def test_overflowing_leftover_pid_kept(env, capsys):
+    huge = _mkdir(env["tmpdir"] / ".ds-disk-reaping-99999999999999999999-x")
+    rc, _, c = _run(env, capsys, sweep=True)
+    assert rc == 0
+    assert c[huge.name]["reason"] == "live_pid"
+    assert huge.is_dir()
 
 
 def test_cwd_holder_kept(env, capsys):
