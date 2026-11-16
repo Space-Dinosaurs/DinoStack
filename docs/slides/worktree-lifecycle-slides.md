@@ -320,7 +320,7 @@ The **branch prune** (`bin/ds-branch-prune`) runs alongside it - a four-layer, f
 
 - Re-run the preflight only if the user explicitly switches branches or after 30+ minutes of idle time
 - Absence of proof is always a skip (`SKIP_UNPROVEN`) - a bare "a PR merged" signal is never sufficient on its own
-- **SessionStart sweep (Claude Code only):** `hooks/session-start-wrap.sh` launches a DETACHED `ds-cleanup-worktrees --min-age-hours 24` against the main checkout, at most once per 6 h per repo; output appends to `~/.agentic/worktree-reap/<repo>-<id>.log`. Suppress with `AE_WORKTREE_REAP_DISABLE=1`
+- **SessionStart sweep (Claude Code only):** `hooks/session-start-wrap.sh` launches a DETACHED `ds-cleanup-worktrees --min-age-hours 24` against this repo's main checkout and every other repo logged there, at most once per 6 h per repo; output appends to `~/.agentic/worktree-reap/<repo>-<id>.log`. Suppress per repo with `AE_WORKTREE_REAP_DISABLE=1` in its `.claude/settings.json` `env`
 
 <div class="callout">
 The aggressive per-session prune is a complement to Claude Code's own 30-day orphan sweep, not a replacement. Stale worktrees accumulate between sweeps.
@@ -348,7 +348,7 @@ The aggressive per-session prune is a complement to Claude Code's own 30-day orp
 - The `--count-only` nudges stay report-only. A SEPARATE, mutating sweep is launched, detached, by the same SessionStart hook (see previous slide); every removal first saves the worktree's gitignored non-build files
 
 <div class="callout">
-The passive nudges are report-only. The SessionStart sweep is the mutating backstop - suppress it with AE_WORKTREE_REAP_DISABLE=1 if needed.
+The passive nudges are report-only. The SessionStart sweep is the mutating backstop - suppress it per repo with AE_WORKTREE_REAP_DISABLE=1 if needed.
 </div>
 
 ---

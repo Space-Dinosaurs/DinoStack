@@ -63,6 +63,27 @@
  *        launches nothing; the same fixture without it launches the sweep
  *        with --min-age-hours 24. Every other case runs with the kill switch
  *        set, so no sweep starts against its fixture.
+ *   W20-W31 - the machine-wide sweep (block (i2)) over other repos that
+ *        have a log in the fake HOME's ~/.agentic/worktree-reap/:
+ *   W20 - a stale other repo B is swept with --min-age-hours 24; the
+ *        current repo A is not.
+ *   W21 - a log written within 6 h is skipped.
+ *   W22 - a non-git cwd still sweeps the other repos.
+ *   W23 - a log root that is missing, not a git repo, or not a main
+ *        checkout is skipped.
+ *   W24 - a repo with no non-root worktree registers itself (a log whose
+ *        line 1 is a register header).
+ *   W25 - every stale repo is claimed before the first sweep exits.
+ *   W26 - AE_WORKTREE_REAP_DISABLE set: the current repo's opt-out marker
+ *        is written and nothing is launched.
+ *   W27 - B's marker makes A skip B; a later session in B without the
+ *        variable clears it, and A then sweeps B.
+ *   W28 - B's .claude/settings.json or settings.local.json sets the
+ *        variable, so B is skipped.
+ *   W29 - an existing claim for the current 6 h bucket blocks the sweep,
+ *        and two concurrent hook runs sweep B exactly once.
+ *   W30 - unparsable settings in B, so B is skipped.
+ *   W31 - non-git cwd with the variable set: nothing launched, no marker.
  *
  * Run with: node hooks/tests/test-session-start-wrap-worktree-nudge.js
  */
@@ -72,6 +93,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { execFileSync, spawnSync } = require('child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -792,8 +814,10 @@ with open(${JSON.stringify(launchLog)}, 'a') as handle:
   assert(disabled.code === 0, 'W19: hook exits 0 with the kill switch set');
   sleepMs(1500);
   assert(!fs.existsSync(launchLog), 'W19: kill switch set -> the sweep was never launched');
-  assert(!fs.existsSync(path.join(fakeHome, '.agentic', 'worktree-reap')),
-    'W19: kill switch set -> no sweep log directory was created');
+  const reapDirW19 = path.join(fakeHome, '.agentic', 'worktree-reap');
+  const logsW19 = fs.existsSync(reapDirW19) ? fs.readdirSync(reapDirW19).filter((f) => f.endsWith('.log')) : [];
+  assert(logsW19.length === 0,
+    `W19: kill switch set -> no sweep log was created (got: ${JSON.stringify(logsW19)})`);
 
   const enabled = runHook(SCRIPT, projectDir, fakeHome, null, { AE_WORKTREE_REAP_DISABLE: undefined });
   assert(enabled.code === 0, 'W19: hook exits 0 with the kill switch unset');
@@ -811,6 +835,375 @@ with open(${JSON.stringify(launchLog)}, 'a') as handle:
   cleanup(fakeHome);
   cleanup(mockRepoDir);
   cleanup(parent);
+}
+
+// ---------------------------------------------------------------------------
+// Machine-wide sweep fixtures (W20-W31). Each case gets its own fake HOME,
+// a mock ds-cleanup-worktrees that records every sweep it is asked to run,
+// and plain `git init` repos. The mock reports one worktree entry, so the
+// current repo never has a non-root worktree and block (i) stays idle.
+// ---------------------------------------------------------------------------
+function pauseMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function waitFor(predicate, ms) {
+  const deadline = Date.now() + (ms || 20000);
+  while (Date.now() < deadline) {
+    if (predicate()) return true;
+    pauseMs(100);
+  }
+  return predicate();
+}
+
+function reapStem(fakeHome, root) {
+  const id = crypto.createHash('sha1').update(root).digest('hex').slice(0, 8);
+  return path.join(fakeHome, '.agentic', 'worktree-reap', `${path.basename(root)}-${id}`);
+}
+
+function sweepFixture() {
+  const mockRepoDir = makeTmp('ae-wt-sweep-mock-');
+  const launchLog = path.join(mockRepoDir, 'launches.txt');
+  writeMockCleanupBin(mockRepoDir, `import os, sys, time
+if '--count-only' in sys.argv:
+    print('ds-cleanup-worktrees: mode=count-only entries=1')
+    sys.exit(0)
+with open(${JSON.stringify(launchLog)}, 'a') as handle:
+    handle.write(' '.join(sys.argv[1:]) + '\\n')
+time.sleep(float(os.environ.get('SWEEP_STUB_SLEEP', '0')))
+print('STUB_SWEEP_RAN')
+`);
+  const fakeHome = seedFakeHome(mockRepoDir);
+  const reapDir = path.join(fakeHome, '.agentic', 'worktree-reap');
+  fs.mkdirSync(reapDir, { recursive: true });
+  return { mockRepoDir, launchLog, fakeHome, reapDir };
+}
+
+function makeMainRepo(prefix) {
+  const dir = makeTmp(prefix);
+  execFileSync('git', ['init', '-q', dir]);
+  return dir;
+}
+
+/** A log for `root` whose line 1 is a reap header, last written `hoursAgo` hours ago. */
+function registerLog(fx, root, hoursAgo) {
+  const stem = reapStem(fx.fakeHome, root);
+  const log = `${stem}.log`;
+  fs.writeFileSync(log, `=== reap 2026-01-01T00:00:00Z pid 1 root ${root} ===\n`);
+  const t = Date.now() / 1000 - hoursAgo * 3600;
+  fs.utimesSync(log, t, t);
+  return { stem, log };
+}
+
+function runSweepHook(fx, cwd, extraEnv) {
+  return runHook(SCRIPT, cwd, fx.fakeHome, null,
+    Object.assign({ AE_WORKTREE_REAP_DISABLE: undefined }, extraEnv || {}));
+}
+
+function launches(fx) {
+  return fs.existsSync(fx.launchLog)
+    ? fs.readFileSync(fx.launchLog, 'utf8').split('\n').filter(Boolean)
+    : [];
+}
+
+function launchCount(fx, root) {
+  return launches(fx).filter((l) => l === `--repo ${root} --min-age-hours 24`).length;
+}
+
+function reapHeaders(log, root) {
+  if (!fs.existsSync(log)) return 0;
+  return fs.readFileSync(log, 'utf8').split('\n')
+    .filter((l) => l.startsWith('=== reap ') && l.endsWith(` root ${root} ===`)).length;
+}
+
+function claimsFor(fx, stem) {
+  const prefix = `${path.basename(stem)}.claim.`;
+  return fs.readdirSync(fx.reapDir).filter((f) => f.startsWith(prefix));
+}
+
+function filesMatching(fx, re) {
+  return fs.existsSync(fx.reapDir) ? fs.readdirSync(fx.reapDir).filter((f) => re.test(f)) : [];
+}
+
+// ---------------------------------------------------------------------------
+// (W20) a stale other repo is swept; the current repo is not.
+// ---------------------------------------------------------------------------
+console.log('\n[W20] stale logs for repos A and B, session in repo A -> B swept with --min-age-hours 24, A not');
+{
+  const fx = sweepFixture();
+  const repoA = makeMainRepo('ae-wt-sweep-w20a-');
+  const repoB = makeMainRepo('ae-wt-sweep-w20b-');
+  registerLog(fx, repoA, 7);
+  const b = registerLog(fx, repoB, 7);
+  const { code } = runSweepHook(fx, repoA);
+  assert(code === 0, 'W20: hook exits 0');
+  assert(waitFor(() => launchCount(fx, repoB) === 1 && fs.readFileSync(b.log, 'utf8').includes('STUB_SWEEP_RAN')),
+    `W20: B swept once, output in B's log (got: ${JSON.stringify(launches(fx))})`);
+  assert(reapHeaders(b.log, repoB) === 2, 'W20: a reap header was appended to B\'s log before the sweep');
+  assert(launchCount(fx, repoA) === 0 && claimsFor(fx, reapStem(fx.fakeHome, repoA)).length === 0,
+    `W20: the current repo A, though stale, is neither claimed nor swept by block (i2) (got: ${JSON.stringify(launches(fx))})`);
+  cleanup(fx.fakeHome); cleanup(fx.mockRepoDir); cleanup(repoA); cleanup(repoB);
+}
+
+// ---------------------------------------------------------------------------
+// (W21) a log written within 6 h is skipped.
+// ---------------------------------------------------------------------------
+console.log('\n[W21] B\'s log is 1 h old, C\'s is 7 h old -> only C swept');
+{
+  const fx = sweepFixture();
+  const repoA = makeMainRepo('ae-wt-sweep-w21a-');
+  const repoB = makeMainRepo('ae-wt-sweep-w21b-');
+  const repoC = makeMainRepo('ae-wt-sweep-w21c-');
+  const b = registerLog(fx, repoB, 1);
+  registerLog(fx, repoC, 7);
+  runSweepHook(fx, repoA);
+  assert(waitFor(() => launchCount(fx, repoC) === 1), 'W21: control C swept');
+  assert(launchCount(fx, repoB) === 0 && claimsFor(fx, b.stem).length === 0,
+    `W21: fresh B neither claimed nor swept (got: ${JSON.stringify(launches(fx))})`);
+  cleanup(fx.fakeHome); cleanup(fx.mockRepoDir); cleanup(repoA); cleanup(repoB); cleanup(repoC);
+}
+
+// ---------------------------------------------------------------------------
+// (W22) a non-git cwd still sweeps the other repos.
+// ---------------------------------------------------------------------------
+console.log('\n[W22] non-git cwd -> stale B still swept');
+{
+  const fx = sweepFixture();
+  const plainDir = makeTmp('ae-wt-sweep-w22-plain-');
+  const repoB = makeMainRepo('ae-wt-sweep-w22b-');
+  registerLog(fx, repoB, 7);
+  const { code } = runSweepHook(fx, plainDir);
+  assert(code === 0, 'W22: hook exits 0');
+  assert(waitFor(() => launchCount(fx, repoB) === 1),
+    `W22: B swept from a non-git cwd (got: ${JSON.stringify(launches(fx))})`);
+  cleanup(fx.fakeHome); cleanup(fx.mockRepoDir); cleanup(plainDir); cleanup(repoB);
+}
+
+// ---------------------------------------------------------------------------
+// (W23) a root that is gone, not a repo, or not a main checkout is skipped.
+// ---------------------------------------------------------------------------
+console.log('\n[W23] log roots that are missing, non-git, a subdirectory, or a linked worktree -> skipped');
+{
+  const fx = sweepFixture();
+  const repoA = makeMainRepo('ae-wt-sweep-w23a-');
+  const repoC = makeMainRepo('ae-wt-sweep-w23c-');
+  const scratch = makeTmp('ae-wt-sweep-w23-');
+  const nonGit = path.join(scratch, 'plain');
+  fs.mkdirSync(nonGit);
+  const subdir = path.join(repoC, 'sub');
+  fs.mkdirSync(subdir);
+  const withWorktree = buildBareRepoWithWorktrees(1, 'ae-wt-sweep-w23w-');
+  const roots = [path.join(scratch, 'gone'), nonGit, subdir, path.join(withWorktree, 'wt0')];
+  const bad = roots.map((root) => Object.assign({ root }, registerLog(fx, root, 7)));
+  registerLog(fx, repoC, 7);
+  runSweepHook(fx, repoA);
+  assert(waitFor(() => launchCount(fx, repoC) === 1), 'W23: control C swept');
+  for (const entry of bad) {
+    assert(launchCount(fx, entry.root) === 0 && claimsFor(fx, entry.stem).length === 0,
+      `W23: ${entry.root} neither claimed nor swept (got: ${JSON.stringify(launches(fx))})`);
+  }
+  cleanup(fx.fakeHome); cleanup(fx.mockRepoDir); cleanup(repoA); cleanup(repoC); cleanup(scratch);
+  cleanup(withWorktree);
+}
+
+// ---------------------------------------------------------------------------
+// (W24) a zero-worktree repo registers itself, and is then sweepable.
+// ---------------------------------------------------------------------------
+console.log('\n[W24] session in A with no non-root worktree and no log -> register header; a later session in D sweeps A');
+{
+  const fx = sweepFixture();
+  const repoA = makeMainRepo('ae-wt-sweep-w24a-');
+  const repoD = makeMainRepo('ae-wt-sweep-w24d-');
+  const aLog = `${reapStem(fx.fakeHome, repoA)}.log`;
+  runSweepHook(fx, repoA);
+  assert(waitFor(() => fs.existsSync(aLog) && fs.readFileSync(aLog, 'utf8').length > 0), 'W24: A\'s log was created');
+  const firstLine = fs.existsSync(aLog) ? fs.readFileSync(aLog, 'utf8').split('\n')[0] : '';
+  assert(/^=== register \S+ pid \d+ root /.test(firstLine) && firstLine.endsWith(` root ${repoA} ===`),
+    `W24: line 1 is a register header naming A (got: ${JSON.stringify(firstLine)})`);
+  const t = Date.now() / 1000 - 7 * 3600;
+  fs.utimesSync(aLog, t, t);
+  runSweepHook(fx, repoD);
+  assert(waitFor(() => launchCount(fx, repoA) === 1),
+    `W24: the registered A is swept from D (got: ${JSON.stringify(launches(fx))})`);
+  cleanup(fx.fakeHome); cleanup(fx.mockRepoDir); cleanup(repoA); cleanup(repoD);
+}
+
+// ---------------------------------------------------------------------------
+// (W25) every stale repo is claimed before the first sweep exits.
+// ---------------------------------------------------------------------------
+console.log('\n[W25] stale B and C, a 4 s sweep stub -> both claimed while the first sweep still runs');
+{
+  const fx = sweepFixture();
+  const repoA = makeMainRepo('ae-wt-sweep-w25a-');
+  const repoB = makeMainRepo('ae-wt-sweep-w25b-');
+  const repoC = makeMainRepo('ae-wt-sweep-w25c-');
+  const b = registerLog(fx, repoB, 7);
+  const c = registerLog(fx, repoC, 7);
+  runSweepHook(fx, repoA, { SWEEP_STUB_SLEEP: '4' });
+  assert(waitFor(() => launches(fx).length >= 1), 'W25: the first sweep started');
+  assert(launches(fx).length === 1, `W25: only one sweep has started so far (got: ${JSON.stringify(launches(fx))})`);
+  assert(claimsFor(fx, b.stem).length === 1 && claimsFor(fx, c.stem).length === 1,
+    'W25: B and C both claimed before the first sweep exits');
+  assert(reapHeaders(b.log, repoB) === 2 && reapHeaders(c.log, repoC) === 2,
+    'W25: B and C both got a reap header before the first sweep exits');
+  assert(waitFor(() => launchCount(fx, repoB) === 1 && launchCount(fx, repoC) === 1, 15000),
+    `W25: both swept in turn (got: ${JSON.stringify(launches(fx))})`);
+  waitFor(() => fs.readFileSync(b.log, 'utf8').includes('STUB_SWEEP_RAN')
+    && fs.readFileSync(c.log, 'utf8').includes('STUB_SWEEP_RAN'), 10000);
+  cleanup(fx.fakeHome); cleanup(fx.mockRepoDir); cleanup(repoA); cleanup(repoB); cleanup(repoC);
+}
+
+// ---------------------------------------------------------------------------
+// (W26) the variable set: marker written, nothing launched.
+// ---------------------------------------------------------------------------
+console.log('\n[W26] AE_WORKTREE_REAP_DISABLE=1 in A -> A\'s marker written, stale B not swept');
+{
+  const fx = sweepFixture();
+  const repoA = makeMainRepo('ae-wt-sweep-w26a-');
+  const repoB = makeMainRepo('ae-wt-sweep-w26b-');
+  registerLog(fx, repoB, 7);
+  const aStem = reapStem(fx.fakeHome, repoA);
+  runSweepHook(fx, repoA, { AE_WORKTREE_REAP_DISABLE: '1' });
+  assert(waitFor(() => fs.existsSync(`${aStem}.reap-disabled`)), 'W26: A\'s opt-out marker written');
+  pauseMs(1500);
+  assert(launches(fx).length === 0, `W26: nothing launched (got: ${JSON.stringify(launches(fx))})`);
+  assert(filesMatching(fx, /\.claim\./).length === 0, 'W26: nothing claimed');
+  assert(!fs.existsSync(`${aStem}.log`), 'W26: A was not registered');
+  cleanup(fx.fakeHome); cleanup(fx.mockRepoDir); cleanup(repoA); cleanup(repoB);
+}
+
+// ---------------------------------------------------------------------------
+// (W27) B's marker makes A skip B; B's next session without it clears it.
+// ---------------------------------------------------------------------------
+console.log('\n[W27] B opted out by marker -> A skips B; B\'s next plain session clears the marker -> A sweeps B');
+{
+  const fx = sweepFixture();
+  const repoA = makeMainRepo('ae-wt-sweep-w27a-');
+  const repoB = makeMainRepo('ae-wt-sweep-w27b-');
+  const repoC = makeMainRepo('ae-wt-sweep-w27c-');
+  const b = registerLog(fx, repoB, 7);
+  registerLog(fx, repoC, 7);
+  runSweepHook(fx, repoB, { AE_WORKTREE_REAP_DISABLE: '1' });
+  assert(waitFor(() => fs.existsSync(`${b.stem}.reap-disabled`)),
+    'W27: B\'s session with the variable set wrote B\'s marker');
+  runSweepHook(fx, repoA);
+  assert(waitFor(() => launchCount(fx, repoC) === 1), 'W27: control C swept');
+  assert(launchCount(fx, repoB) === 0 && claimsFor(fx, b.stem).length === 0,
+    `W27: B skipped while its marker exists (got: ${JSON.stringify(launches(fx))})`);
+  runSweepHook(fx, repoB);
+  assert(waitFor(() => !fs.existsSync(`${b.stem}.reap-disabled`)),
+    'W27: B\'s next session without the variable cleared the marker');
+  runSweepHook(fx, repoA);
+  assert(waitFor(() => launchCount(fx, repoB) === 1),
+    `W27: A sweeps B once the marker is gone (got: ${JSON.stringify(launches(fx))})`);
+  cleanup(fx.fakeHome); cleanup(fx.mockRepoDir); cleanup(repoA); cleanup(repoB); cleanup(repoC);
+}
+
+// ---------------------------------------------------------------------------
+// (W28) B's project settings set the variable -> skipped.
+// ---------------------------------------------------------------------------
+console.log('\n[W28] AE_WORKTREE_REAP_DISABLE in B\'s settings.json or settings.local.json env -> B skipped');
+{
+  const fx = sweepFixture();
+  const repoA = makeMainRepo('ae-wt-sweep-w28a-');
+  const repoC = makeMainRepo('ae-wt-sweep-w28c-');
+  const optedOut = ['settings.json', 'settings.local.json'].map((name) => {
+    const root = makeMainRepo('ae-wt-sweep-w28b-');
+    fs.mkdirSync(path.join(root, '.claude'));
+    fs.writeFileSync(path.join(root, '.claude', name), JSON.stringify({ env: { AE_WORKTREE_REAP_DISABLE: '1' } }));
+    return Object.assign({ name, root }, registerLog(fx, root, 7));
+  });
+  registerLog(fx, repoC, 7);
+  runSweepHook(fx, repoA);
+  assert(waitFor(() => launchCount(fx, repoC) === 1), 'W28: control C swept');
+  for (const entry of optedOut) {
+    assert(launchCount(fx, entry.root) === 0 && claimsFor(fx, entry.stem).length === 0,
+      `W28: B with the variable in .claude/${entry.name} skipped (got: ${JSON.stringify(launches(fx))})`);
+    cleanup(entry.root);
+  }
+  cleanup(fx.fakeHome); cleanup(fx.mockRepoDir); cleanup(repoA); cleanup(repoC);
+}
+
+// ---------------------------------------------------------------------------
+// (W29) the per-bucket claim: an existing claim blocks the sweep, and two
+// concurrent hook runs sweep B exactly once.
+// ---------------------------------------------------------------------------
+console.log('\n[W29] existing claim for this 6 h bucket -> B skipped; two concurrent sessions -> B swept exactly once');
+{
+  const fx = sweepFixture();
+  const repoA = makeMainRepo('ae-wt-sweep-w29a-');
+  const repoB = makeMainRepo('ae-wt-sweep-w29b-');
+  const repoC = makeMainRepo('ae-wt-sweep-w29c-');
+  const b = registerLog(fx, repoB, 7);
+  registerLog(fx, repoC, 7);
+  // Both the current bucket and the next, so a bucket boundary mid-test
+  // cannot let B through.
+  const bucket = Math.floor(Date.now() / 1000 / 21600);
+  fs.writeFileSync(`${b.stem}.claim.${bucket}`, '');
+  fs.writeFileSync(`${b.stem}.claim.${bucket + 1}`, '');
+  runSweepHook(fx, repoA);
+  assert(waitFor(() => launchCount(fx, repoC) === 1), 'W29: control C swept');
+  assert(launchCount(fx, repoB) === 0 && reapHeaders(b.log, repoB) === 1,
+    `W29: B already claimed this bucket -> not swept (got: ${JSON.stringify(launches(fx))})`);
+  cleanup(fx.fakeHome); cleanup(fx.mockRepoDir); cleanup(repoA); cleanup(repoB); cleanup(repoC);
+}
+{
+  const fx = sweepFixture();
+  const repoA = makeMainRepo('ae-wt-sweep-w29a2-');
+  const repoD = makeMainRepo('ae-wt-sweep-w29d2-');
+  const repoB = makeMainRepo('ae-wt-sweep-w29b2-');
+  const b = registerLog(fx, repoB, 7);
+  const env = Object.assign({}, process.env, { HOME: fx.fakeHome, AGENTIC_WRAP_DAEMON: '1' });
+  delete env.AE_WORKTREE_REAP_DISABLE;
+  delete env.AGENTIC_QUIET;
+  const res = spawnSync('bash', ['-c',
+    'printf %s "$1" | bash "$3" >/dev/null & printf %s "$2" | bash "$3" >/dev/null & wait',
+    'w29', JSON.stringify({ cwd: repoA }), JSON.stringify({ cwd: repoD }), SCRIPT],
+  { encoding: 'utf8', timeout: 30000, env });
+  assert(res.status === 0, 'W29: both concurrent hook runs returned');
+  assert(waitFor(() => launchCount(fx, repoB) >= 1), 'W29: B swept by one of the concurrent sessions');
+  pauseMs(2000);
+  assert(launchCount(fx, repoB) === 1, `W29: B swept exactly once (got: ${JSON.stringify(launches(fx))})`);
+  assert(reapHeaders(b.log, repoB) === 2 && claimsFor(fx, b.stem).length === 1,
+    'W29: exactly one reap header appended and one claim file for B');
+  cleanup(fx.fakeHome); cleanup(fx.mockRepoDir); cleanup(repoA); cleanup(repoD); cleanup(repoB);
+}
+
+// ---------------------------------------------------------------------------
+// (W30) unparsable settings in B -> skipped.
+// ---------------------------------------------------------------------------
+console.log('\n[W30] B\'s .claude/settings.json does not parse -> B skipped');
+{
+  const fx = sweepFixture();
+  const repoA = makeMainRepo('ae-wt-sweep-w30a-');
+  const repoB = makeMainRepo('ae-wt-sweep-w30b-');
+  const repoC = makeMainRepo('ae-wt-sweep-w30c-');
+  fs.mkdirSync(path.join(repoB, '.claude'));
+  fs.writeFileSync(path.join(repoB, '.claude', 'settings.json'), '{not json');
+  const b = registerLog(fx, repoB, 7);
+  registerLog(fx, repoC, 7);
+  runSweepHook(fx, repoA);
+  assert(waitFor(() => launchCount(fx, repoC) === 1), 'W30: control C swept');
+  assert(launchCount(fx, repoB) === 0 && claimsFor(fx, b.stem).length === 0,
+    `W30: B with unparsable settings skipped (got: ${JSON.stringify(launches(fx))})`);
+  cleanup(fx.fakeHome); cleanup(fx.mockRepoDir); cleanup(repoA); cleanup(repoB); cleanup(repoC);
+}
+
+// ---------------------------------------------------------------------------
+// (W31) non-git cwd with the variable set: nothing launched, no marker.
+// ---------------------------------------------------------------------------
+console.log('\n[W31] non-git cwd with AE_WORKTREE_REAP_DISABLE=1 -> nothing launched, no marker');
+{
+  const fx = sweepFixture();
+  const plainDir = makeTmp('ae-wt-sweep-w31-plain-');
+  const repoB = makeMainRepo('ae-wt-sweep-w31b-');
+  registerLog(fx, repoB, 7);
+  const { code } = runSweepHook(fx, plainDir, { AE_WORKTREE_REAP_DISABLE: '1' });
+  assert(code === 0, 'W31: hook exits 0');
+  pauseMs(1500);
+  assert(launches(fx).length === 0, `W31: nothing launched (got: ${JSON.stringify(launches(fx))})`);
+  assert(filesMatching(fx, /\.reap-disabled$/).length === 0, 'W31: no marker written');
+  cleanup(fx.fakeHome); cleanup(fx.mockRepoDir); cleanup(plainDir); cleanup(repoB);
 }
 
 // ---------------------------------------------------------------------------

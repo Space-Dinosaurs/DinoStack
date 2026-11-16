@@ -509,8 +509,10 @@ main checkout between tweaks. **Created only after the PR is confirmed
 `OPEN`** (`gh pr view <branch> --json state -q '.state'` returning the
 literal `OPEN`) - the pushed-no-PR window is reap-`ELIGIBLE`, so creating
 it earlier risks the reap removing it out from under the operator.
-`AE_WORKTREE_REAP_DISABLE=1` is available to suppress the reap while a
-visibility worktree is in active use. Dev-server hot-reload against an
+`AE_WORKTREE_REAP_DISABLE=1` suppresses the reap of that repo while a
+visibility worktree is in active use - set it in the repo's
+`.claude/settings.json` `env`, or start a session there with it set, so
+sessions in other repos skip it too. Dev-server hot-reload against an
 externally fast-forwarded checkout is a flagged environment assumption.
 The visibility worktree (a branch checkout) never collides with
 continuation engineers, which are always detached.
@@ -597,8 +599,9 @@ git worktree list --porcelain | awk '
 done
 git worktree prune
 # Worktree reap: not run here. On Claude Code, hooks/session-start-wrap.sh
-# launches it at SessionStart (detached, at most once per 6 h per repo, logged to
-# ~/.agentic/worktree-reap/<repo>-<sha1(root)[:8]>.log, suppressed by
+# launches it at SessionStart for this repo and every other repo with a log in
+# ~/.agentic/worktree-reap/ (detached, at most once per 6 h per repo, logged to
+# ~/.agentic/worktree-reap/<repo>-<sha1(root)[:8]>.log, suppressed per repo by
 # AE_WORKTREE_REAP_DISABLE=1); other harnesses: run /ds-cleanup-worktrees on
 # demand - see the paragraph below this block.
 # Base branch (BASE_BRANCH) is NOT resolved here - the conductor preflight resolves it; see content/rules/conventions.md, "Base branch resolution".
@@ -615,6 +618,8 @@ fi
 ```
 
 **The SessionStart worktree sweep (Claude Code only).** Other harnesses have no automatic sweep - run `/ds-cleanup-worktrees` on demand. On Claude Code, `hooks/session-start-wrap.sh` launches `bin/ds-cleanup-worktrees --repo <main-checkout root> --min-age-hours 24` - the tool's full evidence-gated disposition (lock, self, live process cwd, age floor, activity liveness, dirty/protected-content gates, then branch evidence; see "The unproven class" below and the tool's own docstring) - when the session is not a compaction, `AE_WORKTREE_REAP_DISABLE` is unset, the repo has at least one non-root worktree, and the repo's log `~/.agentic/worktree-reap/<repo-basename>-<sha1(root)[:8]>.log` is absent or older than 6 h. The launch is detached with every file descriptor redirected (stdin from `/dev/null`, output appended to that log under a `=== reap <UTC> pid <pid> root <path> ===` header), so the hook never waits on it; the log's mtime is the rate-limit stamp. `--min-age-hours 24` is pinned DELIBERATELY (DS-245): the age floor is off unless supplied, and no operator watches this run - removing the flag widens what an unattended, destructive pass removes. The root is the MAIN checkout (from `git rev-parse --git-common-dir`), not the worktree a session starts in; the tool's SELF and live-cwd gates keep that worktree. Every removal first saves the worktree's gitignored non-build files (see "The unproven class" below). This reverses PR #707's "passive triggers only report" rule for this one call site (operator decision, 2026-10-30); the `--count-only` nudge in the same hook still only reports.
+
+**The sweep is machine-wide; the opt-out is per repo.** The same hook also sweeps every OTHER repo that has a log in `~/.agentic/worktree-reap/` (line 1 of each log names its main checkout), with the same `--min-age-hours 24` and the same 6 h log-mtime rate limit, so a repo nobody reopens is still swept. A repo with no non-root worktree gets a log too (a `=== register ... ===` header), so it is found once it has worktrees. A session in any repo can therefore sweep another, so `AE_WORKTREE_REAP_DISABLE` works per repo rather than per session: a session started with it set writes `<log-stem>.reap-disabled` next to that repo's log and launches nothing, the repo's next session without it deletes the marker, and setting it in the repo's `.claude/settings.json` or `settings.local.json` `env` opts the repo out from every session (a settings file that fails to parse also opts it out). A repo is skipped when its root is gone or no longer a main checkout. Each stale repo is claimed with an exclusive create of `<log-stem>.claim.<epoch/21600>`, so at most one session on the machine sweeps it per 6 h window; claims older than 12 h are pruned.
 
 **Residual, named not fixed: sweep/branch-prune concurrency.** The sweep runs detached while `ds-branch-prune` in the preflight above may run at the same time. Git ref/index lock contention (`.git/index.lock`, a stale `.git/refs/...` lock) can make either transiently fail; both soft-fail by design (the sweep's errors go to its log, and `ds-branch-prune` is PATH-guarded and non-blocking on any exit per the comment above), so contention cannot corrupt state, only silently skip a removal or a prune for that one run - recoverable on the next invocation. A subtler case: the sweep can remove a worktree mid-pass while `ds-branch-prune`'s subsumption predicate is still evaluating branches, changing which branches it is willing to delete out from under it (a branch whose only checked-out worktree existed at the START of the branch-prune run may be gone by the time it reaches that branch). There is no data-loss path either way - removal on both sides is always evidence-gated, and `ds-branch-prune`'s own ledger records every deletion.
 
@@ -781,8 +786,9 @@ These are authorized once, for every session, and are never an operator choice:
   not a hypothetical.
 - Running the automatic SessionStart worktree sweep (`bin/ds-cleanup-worktrees`,
   launched by `hooks/session-start-wrap.sh`, see §Session-start prune script
-  above) against worktrees other than the current session's own -
-  suppressible via `AE_WORKTREE_REAP_DISABLE=1`. Every gate re-evaluates
+  above) against worktrees other than the current session's own, in this
+  repo and in every other repo with a log in `~/.agentic/worktree-reap/` -
+  suppressible per repo via `AE_WORKTREE_REAP_DISABLE=1`. Every gate re-evaluates
   fresh git/filesystem state on each run, so a later run cannot remove
   anything a fresh run would not independently judge safe at that moment -
   a worktree that became active in the interim is re-protected by the
