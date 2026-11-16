@@ -157,6 +157,7 @@ REVIEWED_NOT_DISPOSABLE: Dict[str, str] = {
     "settings*.json": "not-project: harness settings glob under ~/.claude",
     "hooks.json": "not-project: harness hook config",
     "installed_plugins.json": "not-project: harness plugin registry",
+    ".ds-disk-reaping-*": "not-project: bin/ds-disk claim-by-rename prefix inside TMPDIR and /tmp/claude-<uid>, never under .agentic/",
     "version-check-cache.json": "not-project: ~/.agentic update cache",
     "update-shared.json": "not-project: ~/.agentic update state",
     "agentic-engineering-config.json": "not-project: ~/.agentic install config",
