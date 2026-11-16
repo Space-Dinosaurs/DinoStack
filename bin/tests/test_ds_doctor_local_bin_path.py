@@ -28,6 +28,7 @@ def _doctor(tmp_path, on_path, extra_args=()):
     env = {k: v for k, v in os.environ.items() if k not in (
         "AGENTIC_CONFIG_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR")}
     env["HOME"] = str(home)
+    env["AE_DOCTOR_DISK_CHECK_DISABLE"] = "1"
     path = [p for p in env.get("PATH", "").split(os.pathsep) if p and "/.local/bin" not in p]
     if on_path:
         path.insert(0, str(local_bin))

@@ -1,0 +1,490 @@
+#!/usr/bin/env python3
+"""
+Purpose: Report what is filling the disk and, on `--sweep`, delete only
+         aged, unowned, unheld temp junk that agent runs leave behind:
+         three exact TMPDIR directory globs, Claude Code session
+         scratchpads, and this tool's own interrupted deletions. Never
+         touches worktrees, transcripts, `evals/`, Docker or caches; those
+         are listed with their sizes for the operator to act on.
+
+Public API (CLI):
+  ds-disk [--sweep] [--json] [--tmpdir DIR] [--scratch-root DIR]
+  Defaults: --tmpdir is $TMPDIR, else tempfile.gettempdir();
+  --scratch-root is realpath(/tmp/claude-<uid>).
+  Exit codes: report mode 0; --sweep 0, or 1 when the process or open-file
+  scan was unavailable (every candidate is then kept) or a deletion
+  failed; 2 usage error.
+  --json prints {free_bytes, volume_path, candidates[{path, target, bytes,
+  action, reason}], info[{label, path, bytes|null, note}], errors[]}.
+  action: would_sweep | keep | swept | failed. reason: eligible,
+  not_directory, symlink, foreign_owner, unexpected_contents,
+  current_session, active_transcript, live_pid, too_young, contains_git,
+  walk_error, cwd_held, held_open, scan_unavailable, vanished,
+  delete_failed.
+  In-process: `main(argv) -> int`.
+
+  Targets (case-sensitive fnmatch on the name):
+    tmpdir_skc_oauth      <tmpdir>/skc-oauth-*, sole entry `connector.db`, 6 h
+    tmpdir_agent_browser  <tmpdir>/agent-browser-chrome-*, 24 h
+    tmpdir_puppeteer      <tmpdir>/puppeteer_dev_chrome_profile-*, 24 h
+    scratchpad            <scratch-root>/<project>/<UUID session>, 7 days;
+                          not $CLAUDE_CODE_SESSION_ID, and no
+                          ~/.claude*/projects/*/<session>.jsonl modified
+                          within 7 days
+    leftover              .ds-disk-reaping-<pid>-* in <tmpdir> or a
+                          <project>, 1 h, <pid> dead
+  Predicate (all must hold): 1 a real directory, not a symlink; 2 owned
+  by the current uid; 3 at its class position; 4 newest mtime in the tree
+  (no-follow walk) older than the class floor; 5 no live process cwd at
+  or under it; 6 no open file at or under it (one `lsof -n -P -F n`
+  scan); 7 no git metadata in the tree (an entry named `.git`, or a
+  directory holding a `HEAD` file plus `objects/` and `refs/`
+  directories). Report mode applies 1-4 and 7 and defers 5 and 6. A
+  passing candidate is renamed in its own parent to
+  `.ds-disk-reaping-<pid>-<name>`, then removed with
+  `find <path> -depth -delete`.
+
+Upstream deps: bin/ds-cleanup-worktrees (`_measure_size_kb`,
+               `_live_cwd_scan`, `_live_cwd_holders`, loaded by resolved
+               path); bin/_lib.py `_run`; lsof and find (subprocess);
+               ~/.agentic/agentic-engineering-config.json `repo_dir`
+               (info items only); env TMPDIR, HOME,
+               CLAUDE_CODE_SESSION_ID.
+
+Downstream consumers: bin/ds-doctor `check_disk` (report mode, --json);
+                      hooks/disk-space-warn.sh (names `ds-disk --sweep` in
+                      its warning); content/commands/ds-cleanup-worktrees.md.
+
+Failure modes: a directory that cannot be listed is recorded in errors[]
+               and contributes no candidates. A tree that cannot be walked
+               is kept (walk_error). A failed process or open-file scan
+               keeps every candidate. A rename that loses a race is kept
+               (vanished), not counted as a failure.
+
+Performance: one no-follow walk per candidate; on --sweep with at least one
+             eligible candidate, one process-cwd scan and one whole-system
+             lsof scan (about 0.3 s on a busy Mac). Info sizing runs `du`
+             per item, 10 s each, 30 s in total, after which sizes are
+             reported as unknown.
+"""
+
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import importlib.machinery as _ilm
+import importlib.util as _ilu
+import json
+import os
+import re
+import shutil
+import stat
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
+
+_BIN_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_BIN_DIR))
+
+from _lib import _run  # noqa: E402
+
+_cleanup_loader = _ilm.SourceFileLoader("_ds_cleanup_worktrees", str(_BIN_DIR / "ds-cleanup-worktrees"))
+_cleanup = _ilu.module_from_spec(_ilu.spec_from_loader("_ds_cleanup_worktrees", _cleanup_loader))
+_cleanup_loader.exec_module(_cleanup)
+
+HOUR = 3600
+DAY = 24 * HOUR
+
+#: (target, glob, floor seconds) for direct children of --tmpdir.
+TMPDIR_CLASSES: Tuple[Tuple[str, str, int], ...] = (
+    ("tmpdir_skc_oauth", "skc-oauth-*", 6 * HOUR),
+    ("tmpdir_agent_browser", "agent-browser-chrome-*", 24 * HOUR),
+    ("tmpdir_puppeteer", "puppeteer_dev_chrome_profile-*", 24 * HOUR),
+)
+SKC_ONLY_ENTRY = "connector.db"
+SCRATCHPAD_FLOOR = 7 * DAY
+TRANSCRIPT_WINDOW = 7 * DAY
+LEFTOVER_FLOOR = 1 * HOUR
+LEFTOVER_PREFIX = ".ds-disk-reaping-"
+_LEFTOVER_RE = re.compile(r"^\.ds-disk-reaping-(\d+)-")
+_SESSION_RE = re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$")
+
+INFO_ITEM_TIMEOUT_SECONDS = 10.0
+INFO_BUDGET_SECONDS = 30.0
+_LSOF_TIMEOUT_SECONDS = 60
+
+
+def _current_uid() -> int:
+    return os.getuid()
+
+
+def _default_scratch_root() -> str:
+    return os.path.realpath(f"/tmp/claude-{_current_uid()}")
+
+
+def _default_tmpdir() -> str:
+    return os.environ.get("TMPDIR") or tempfile.gettempdir()
+
+
+def _volume_root(path: str) -> str:
+    current = os.path.realpath(path)
+    while not os.path.ismount(current):
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return current
+
+
+def _walk_tree(root: str) -> Tuple[float, int, bool, bool]:
+    """(newest mtime, apparent bytes, contains_git, walk_error) over `root`
+    and everything below it, never following a symlink."""
+    newest = 0.0
+    total = 0
+    error = False
+    try:
+        newest = os.lstat(root).st_mtime
+    except OSError:
+        return 0.0, 0, False, True
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            entries = list(os.scandir(current))
+        except OSError:
+            error = True
+            continue
+        names = {e.name: e for e in entries}
+        head = names.get("HEAD")
+        if (
+            head is not None and head.is_file(follow_symlinks=False)
+            and "objects" in names and names["objects"].is_dir(follow_symlinks=False)
+            and "refs" in names and names["refs"].is_dir(follow_symlinks=False)
+        ):
+            return newest, total, True, error
+        for entry in entries:
+            if entry.name == ".git":
+                return newest, total, True, error
+            try:
+                st = entry.stat(follow_symlinks=False)
+            except OSError:
+                error = True
+                continue
+            newest = max(newest, st.st_mtime)
+            total += st.st_size
+            if stat.S_ISDIR(st.st_mode):
+                stack.append(entry.path)
+    return newest, total, False, error
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except (OSError, OverflowError):
+        return True
+    return True
+
+
+def _active_transcript(home: Path, session: str, now: float) -> bool:
+    for path in home.glob(f".claude*/projects/*/{session}.jsonl"):
+        try:
+            if now - path.stat().st_mtime < TRANSCRIPT_WINDOW:
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _candidate(path: str, target: str, floor: int) -> Dict:
+    return {"path": path, "target": target, "bytes": None, "action": "keep", "reason": "", "_floor": floor}
+
+
+def _static_check(c: Dict, now: float) -> None:
+    """Checks 1, 2, 4 and 7; leaves `reason` empty when all pass."""
+    try:
+        st = os.lstat(c["path"])
+    except OSError:
+        c["reason"] = "vanished"
+        return
+    if stat.S_ISLNK(st.st_mode):
+        c["reason"] = "symlink"
+        return
+    if not stat.S_ISDIR(st.st_mode):
+        c["reason"] = "not_directory"
+        return
+    if st.st_uid != _current_uid():
+        c["reason"] = "foreign_owner"
+        return
+    newest, total, has_git, walk_error = _walk_tree(c["path"])
+    c["bytes"] = total
+    if has_git:
+        c["reason"] = "contains_git"
+    elif walk_error:
+        c["reason"] = "walk_error"
+    elif now - newest < c["_floor"]:
+        c["reason"] = "too_young"
+
+
+def _list_dir(path: str, errors: List[str]) -> List[os.DirEntry]:
+    try:
+        return list(os.scandir(path))
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        errors.append(f"cannot list {path}: {exc}")
+        return []
+
+
+def _leftover(entry: os.DirEntry) -> Optional[Dict]:
+    m = _LEFTOVER_RE.match(entry.name)
+    if not m:
+        return None
+    c = _candidate(entry.path, "leftover", LEFTOVER_FLOOR)
+    if _pid_alive(int(m.group(1))):
+        c["reason"] = "live_pid"
+    return c
+
+
+def _collect(tmpdir: str, scratch_root: str, home: Path, now: float, errors: List[str]) -> List[Dict]:
+    candidates: List[Dict] = []
+    for entry in _list_dir(tmpdir, errors):
+        leftover = _leftover(entry)
+        if leftover is not None:
+            candidates.append(leftover)
+            continue
+        for target, pattern, floor in TMPDIR_CLASSES:
+            if fnmatch.fnmatchcase(entry.name, pattern):
+                c = _candidate(entry.path, target, floor)
+                if target == "tmpdir_skc_oauth" and entry.is_dir(follow_symlinks=False):
+                    try:
+                        if os.listdir(entry.path) != [SKC_ONLY_ENTRY]:
+                            c["reason"] = "unexpected_contents"
+                    except OSError:
+                        c["reason"] = "walk_error"
+                candidates.append(c)
+                break
+
+    current_session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    for project in _list_dir(scratch_root, errors):
+        if not project.is_dir(follow_symlinks=False):
+            continue
+        for entry in _list_dir(project.path, errors):
+            leftover = _leftover(entry)
+            if leftover is not None:
+                candidates.append(leftover)
+                continue
+            if not _SESSION_RE.match(entry.name):
+                continue
+            c = _candidate(entry.path, "scratchpad", SCRATCHPAD_FLOOR)
+            if entry.name == current_session:
+                c["reason"] = "current_session"
+            elif _active_transcript(home, entry.name, now):
+                c["reason"] = "active_transcript"
+            candidates.append(c)
+
+    for c in candidates:
+        if not c["reason"]:
+            _static_check(c, now)
+        if not c["reason"]:
+            c["reason"] = "eligible"
+            c["action"] = "would_sweep"
+    return candidates
+
+
+def _open_paths_scan() -> Optional[List[str]]:
+    """Every path any other process holds open, from one lsof scan; None
+    when the scan cannot run."""
+    lsof = shutil.which("lsof")
+    if lsof is None:
+        return None
+    proc = _run([lsof, "-n", "-P", "-w", "-F", "n"], timeout=_LSOF_TIMEOUT_SECONDS)
+    me = os.getpid()
+    # lsof can exit 1 over files it could not stat even with -w; the scan
+    # still listed this process's own records, so it ran.
+    if proc.returncode != 0 and f"\np{me}\n" not in "\n" + proc.stdout:
+        return None
+    paths: List[str] = []
+    pid: Optional[int] = None
+    for line in proc.stdout.splitlines():
+        tag, value = line[:1], line[1:]
+        if tag == "p":
+            pid = int(value) if value.isdigit() else None
+        elif tag == "n" and pid != me and value.startswith("/"):
+            paths.append(value)
+    return paths
+
+
+def _held_open(path: str, open_paths: List[str]) -> bool:
+    target = os.path.realpath(path)
+    prefix = target.rstrip(os.sep) + os.sep
+    return any(p == target or p.startswith(prefix) for p in open_paths)
+
+
+def _delete(c: Dict) -> None:
+    parent, name = os.path.split(c["path"])
+    base = _LEFTOVER_RE.sub("", name)
+    claimed = os.path.join(parent, f"{LEFTOVER_PREFIX}{os.getpid()}-{base}")
+    try:
+        os.rename(c["path"], claimed)
+    except FileNotFoundError:
+        c["action"], c["reason"] = "keep", "vanished"
+        return
+    except OSError:
+        c["action"], c["reason"] = "failed", "delete_failed"
+        return
+    proc = _run(["find", claimed, "-depth", "-delete"])
+    if proc.returncode != 0 or os.path.lexists(claimed):
+        c["action"], c["reason"] = "failed", "delete_failed"
+        return
+    c["action"] = "swept"
+
+
+def _sweep(candidates: List[Dict]) -> bool:
+    """Apply checks 5 and 6 and delete what passes; True when a scan was
+    unavailable or a deletion failed."""
+    eligible = [c for c in candidates if c["action"] == "would_sweep"]
+    if not eligible:
+        return False
+    _cleanup._LIVE_CWD_SCAN.clear()
+    _cleanup._CWD_ANCESTOR_IDS.clear()
+    cwd_scan = _cleanup._live_cwd_scan()
+    open_paths = _open_paths_scan()
+    if cwd_scan is None or open_paths is None:
+        for c in eligible:
+            c["action"], c["reason"] = "keep", "scan_unavailable"
+        return True
+    bad = False
+    for c in eligible:
+        holders = _cleanup._live_cwd_holders(c["path"])
+        if holders is None:
+            c["action"], c["reason"] = "keep", "vanished"
+            continue
+        if holders:
+            c["action"], c["reason"] = "keep", "cwd_held"
+            continue
+        if _held_open(c["path"], open_paths):
+            c["action"], c["reason"] = "keep", "held_open"
+            continue
+        _delete(c)
+        if c["action"] == "failed":
+            bad = True
+    return bad
+
+
+def _repo_dir() -> Optional[Path]:
+    config = Path(os.path.expanduser("~/.agentic/agentic-engineering-config.json"))
+    try:
+        value = json.loads(config.read_text(encoding="utf-8")).get("repo_dir") or ""
+    except (OSError, ValueError, AttributeError):
+        value = ""
+    candidate = Path(value) if value else Path(os.path.expanduser("~/DinoStack"))
+    return candidate if candidate.is_dir() else None
+
+
+def _info_items(home: Path, tmpdir: str, scratch_root: str) -> List[Dict]:
+    items: List[Tuple[str, Path, str]] = [
+        ("tmpdir", Path(tmpdir), "only the target globs above are ever swept"),
+        ("scratchpads", Path(scratch_root), "only aged session scratchpads are ever swept"),
+    ]
+    for projects in sorted(home.glob(".claude*/projects")):
+        items.append(("transcripts", projects, "never swept; Claude Code session transcripts"))
+    repo = _repo_dir()
+    if repo is not None:
+        for rel in (".claude/worktrees", ".agentic/worktrees"):
+            items.append(("worktrees", repo / rel, "never swept; run ds-cleanup-worktrees --dry-run --explain"))
+        items.append(("evals", repo / "evals", "never swept; untracked eval runs"))
+    items.append(("docker", home / "Library/Containers/com.docker.docker/Data", "never swept; use `docker system df`"))
+    for rel in ("Library/Caches", ".cache", ".npm"):
+        items.append(("caches", home / rel, "never swept; tool caches"))
+
+    out: List[Dict] = []
+    deadline = time.monotonic() + INFO_BUDGET_SECONDS
+    for label, path, note in items:
+        if not path.is_dir():
+            continue
+        remaining = deadline - time.monotonic()
+        size_kb = None
+        if remaining > 0:
+            size_kb = _cleanup._measure_size_kb(str(path), timeout=min(INFO_ITEM_TIMEOUT_SECONDS, remaining))
+            if size_kb is None:
+                note = f"{note}; size unknown"
+        else:
+            note = f"{note}; size not measured (time budget spent)"
+        out.append({"label": label, "path": str(path), "bytes": None if size_kb is None else size_kb * 1024, "note": note})
+    return out
+
+
+def _human(n: Optional[int]) -> str:
+    if n is None:
+        return "?"
+    value = float(n)
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if value < 1024:
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TiB"
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ds-disk",
+        description="Report disk usage by agent temp junk; --sweep deletes only aged, unheld, unowned targets.",
+    )
+    parser.add_argument("--sweep", action="store_true", help="Delete eligible candidates (default: report only).")
+    parser.add_argument("--json", action="store_true", dest="json_mode", help="Print JSON instead of text.")
+    parser.add_argument("--tmpdir", default=None, help="Directory holding the TMPDIR targets (default $TMPDIR).")
+    parser.add_argument("--scratch-root", default=None, help="Scratchpad root (default realpath(/tmp/claude-<uid>)).")
+    args = parser.parse_args(argv)
+
+    tmpdir = args.tmpdir or _default_tmpdir()
+    scratch_root = args.scratch_root or _default_scratch_root()
+    home = Path(os.path.expanduser("~"))
+    errors: List[str] = []
+    now = time.time()
+
+    candidates = sorted(_collect(tmpdir, scratch_root, home, now, errors), key=lambda c: (c["action"] != "would_sweep", c["path"]))
+    bad = _sweep(candidates) if args.sweep else False
+    for c in candidates:
+        c.pop("_floor", None)
+
+    volume = _volume_root(tmpdir if os.path.isdir(tmpdir) else str(home))
+    try:
+        sv = os.statvfs(volume)
+        free_bytes: Optional[int] = sv.f_bavail * sv.f_frsize
+    except OSError as exc:
+        free_bytes = None
+        errors.append(f"cannot stat {volume}: {exc}")
+
+    info = _info_items(home, tmpdir, scratch_root)
+
+    if args.json_mode:
+        print(json.dumps({
+            "free_bytes": free_bytes,
+            "volume_path": volume,
+            "candidates": candidates,
+            "info": info,
+            "errors": errors,
+        }, indent=2))
+    else:
+        print(f"Free: {_human(free_bytes)} on {volume}")
+        print("Candidates:" if candidates else "Candidates: none")
+        for c in candidates:
+            print(f"  {c['action']:<11} {_human(c['bytes']):>10}  {c['reason']:<19} {c['path']}")
+        reclaim = sum(c["bytes"] or 0 for c in candidates if c["action"] in ("would_sweep", "swept"))
+        verb = "Reclaimed" if args.sweep else "Reclaimable with --sweep"
+        print(f"{verb}: {_human(reclaim)}")
+        if info:
+            print("Large items (never swept by ds-disk):")
+            for i in info:
+                print(f"  {_human(i['bytes']):>10}  {i['label']:<12} {i['path']}  ({i['note']})")
+        for e in errors:
+            print(f"error: {e}", file=sys.stderr)
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

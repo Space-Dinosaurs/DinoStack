@@ -126,6 +126,7 @@ def _doctor_main(tmp_path, version):
     env = {k: v for k, v in os.environ.items() if k not in (
         "AGENTIC_CONFIG_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR")}
     env["HOME"] = str(home)
+    env["AE_DOCTOR_DISK_CHECK_DISABLE"] = "1"
     env["PATH"] = str(stub_dir) + os.pathsep + env.get("PATH", "")
     r = subprocess.run(
         [sys.executable, str(_BIN / "ds-doctor"), "--json"],

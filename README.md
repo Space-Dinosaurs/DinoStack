@@ -22,6 +22,7 @@ Run `ds-update` from anywhere, no arguments.
 | CI / scripts        | `git pull && ./install-all.sh`   | Non-interactive                                                                                                  |
 | Repair drift        | `ds-doctor --fix`           | Fix broken symlinks/hooks (e.g. after moving the repo)                                                           |
 | Check cross-harness | `ds-doctor --cross-harness` | Validate team.yml / role-models.yml, referenced harnesses, and model handles (add `--json` for machine output) |
+| Free disk space     | `ds-disk`                   | List aged agent temp dirs and large items; `--sweep` deletes only the aged, unheld temp dirs                  |
 
 Bootstrap is guarded against creating a second clone - if an existing install is detected it aborts and prints the update-in-place command.
 

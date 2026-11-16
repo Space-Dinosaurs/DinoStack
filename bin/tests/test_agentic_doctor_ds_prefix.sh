@@ -26,6 +26,8 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DOCTOR="$SCRIPT_DIR/agentic-doctor"
+# ds-doctor's check_disk would scan the real TMPDIR and /tmp/claude-<uid>.
+export AE_DOCTOR_DISK_CHECK_DISABLE=1
 
 if [[ ! -x "$DOCTOR" ]]; then
   echo "FAIL: $DOCTOR not executable" >&2

@@ -1483,6 +1483,35 @@ for spawn_matcher in ("Task", "Agent"):
         f"PostToolUse({spawn_matcher}) capture-nudge hook",
     )
 
+# ---- PostToolUse low-disk warning hook -------------------------------------
+# Throttled to one df check per 30 minutes machine-wide; silent unless free
+# space on the project's volume is below AE_DISK_WARN_FREE_GB (default 50).
+# Guarded form: a registration outliving the script must not error on every
+# tool call.
+DISK_SPACE_WARN_CMD = (
+    f"test -f {hooks_root}/hooks/disk-space-warn.sh && "
+    f"bash {hooks_root}/hooks/disk-space-warn.sh || exit 0"
+)
+
+ptu_post_star = None
+for block in ptu_post_list:
+    if block.get("matcher") == "*":
+        ptu_post_star = block
+        break
+
+if ptu_post_star is None:
+    ptu_post_star = {"matcher": "*", "hooks": []}
+    ptu_post_list.append(ptu_post_star)
+
+ptu_post_star.setdefault("hooks", [])
+
+upsert_hook(
+    ptu_post_star["hooks"],
+    "disk-space-warn.sh",
+    {"type": "command", "command": DISK_SPACE_WARN_CMD, "timeout": 5},
+    "PostToolUse(*) low-disk warning hook",
+)
+
 # ---- SubagentStop spawn-complete telemetry hook (DS-160) --------------------
 # Fires when a subagent actually FINISHES (unlike PostToolUse(Task/Agent),
 # which fires at spawn LAUNCH - see hooks/pre-tool-use-spawn-emit.js header).

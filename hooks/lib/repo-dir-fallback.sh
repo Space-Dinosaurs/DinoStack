@@ -47,7 +47,8 @@
 #                fallback value rather than erroring.
 #
 # Downstream consumers: hooks/lib/version-check-core.sh,
-#                       hooks/session-start-wrap.sh.
+#                       hooks/session-start-wrap.sh,
+#                       hooks/disk-space-warn.sh.
 #
 # Failure modes: never errors under set -euo pipefail (uses `|| true` /
 #                `|| echo ""` throughout). Worst case on total resolution

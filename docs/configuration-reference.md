@@ -318,3 +318,19 @@ These are rarely needed outside of custom deployment or cross-harness tuning:
   same shell invocation as Step 2 - it takes precedence over the wrap-lock
   default. Distinct from `AE_WORKTREE_REAP_DISABLE` in §4, which is a
   boolean kill-switch for the SessionStart worktree sweep rather than a value.
+- **`AE_DISK_WARN_FREE_GB`** - a VALUE-carrying environment variable (not a
+  kill-switch, so `1` means a 1 GiB threshold, not "off"): the free-space
+  threshold, in whole GiB, for the low-disk warning PostToolUse hook
+  (`hooks/disk-space-warn.sh`). Default `50`; `0` turns the hook off; any
+  value other than `0` or 1-6 digits without a leading zero counts as `50`.
+  At most once per 30 minutes machine-wide, the hook checks the volume
+  holding the project and, below the threshold, tells the session to run
+  `ds-disk --sweep` and `ds-cleanup-worktrees --dry-run --explain` (named
+  by absolute path) and logs the fire to `~/.agentic/disk-warn.log`. Like
+  the §4 kill-switches, set it before the session starts.
+- **`AE_DOCTOR_DISK_CHECK_DISABLE=1`** - skips `ds-doctor`'s disk line
+  (`check_disk`, which runs `ds-disk` in report mode and never deletes).
+  Not a hook kill-switch, which is why it is here and not in §4:
+  `ds-doctor` reads its own environment, so an `export` in the shell that
+  runs it takes effect. The bin test suites that run `ds-doctor` set it so
+  they never scan the real TMPDIR.

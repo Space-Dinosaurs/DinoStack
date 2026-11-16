@@ -1016,6 +1016,11 @@
         <td style="padding: 10px 12px; vertical-align: top;"><code>ds-doctor --fix</code></td>
         <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Fix broken symlinks/hooks (e.g. after moving the repo)</td>
       </tr>
+      <tr style="border-top: 1px solid var(--border-faint);">
+        <td style="padding: 10px 12px; vertical-align: top;">Free disk space</td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>ds-disk</code></td>
+        <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">List aged agent temp dirs and large items; <code>--sweep</code> deletes only the aged, unheld temp dirs. A PostToolUse hook warns when the project's volume drops below 50 GiB free (<code>AE_DISK_WARN_FREE_GB</code>)</td>
+      </tr>
     </tbody>
   </table>
   <p class="desc">Full details: <a href="updating.md">updating.md</a></p>

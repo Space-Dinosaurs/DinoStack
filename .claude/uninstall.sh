@@ -285,9 +285,10 @@ if new_stop_list != stop_list:
         del hooks["Stop"]
         print("  - Removed empty Stop key")
 
-# ---- Remove SubagentStop / SessionEnd / SessionStart / UserPromptSubmit hooks owned here
+# ---- Remove SubagentStop / SessionEnd / SessionStart / UserPromptSubmit / PostToolUse hooks owned here
 # NOTE (Skeptic finding, Minor): subagent-stop-spawn-emit.js,
-# reap-agent-browsers.py, session-start-memory.py and cache-keepalive.py are
+# reap-agent-browsers.py, session-start-memory.py, cache-keepalive.py and
+# disk-space-warn.sh are
 # the only PreToolUse/PostToolUse/SessionStart/SubagentStop/SessionEnd/
 # UserPromptSubmit-family
 # hooks this script removes; the equivalent
@@ -327,6 +328,7 @@ remove_hook("SessionStart", "hooks/session-start-memory.py", "session-start-memo
 # no gate note and PING_PROMPT asks only for "ok", one request per fire until
 # that session exits.
 remove_hook("UserPromptSubmit", "hooks/cache-keepalive.py", "cache-keepalive.py")
+remove_hook("PostToolUse", "hooks/disk-space-warn.sh", "disk-space-warn.sh")
 
 if hooks != settings.get("hooks", {}):
     if hooks:
