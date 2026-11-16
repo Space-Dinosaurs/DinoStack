@@ -326,15 +326,25 @@ check_reap_wiring() {
     return 1
   fi
 
-  if ! grep -qF 'exec nohup python3 "$DS_CLEANUP_BIN" --repo "$reap_root" --min-age-hours 24 </dev/null >>"$reap_log" 2>&1' "$hook"; then
+  # Block (i) only: the machine-wide block (i2) after it carries the same
+  # redirection and kill-switch spellings, so a whole-file grep would pass
+  # with block (i)'s own copies deleted.
+  local block_i
+  block_i="$(awk '/^# --- SessionStart worktree sweep:/{on=1} on{print} on&&/^fi$/{exit}' "$hook")"
+  if [ -z "$block_i" ]; then
+    echo "PROSE-WIRING VIOLATION: $hook has no '# --- SessionStart worktree sweep:' block ending in a bare 'fi'" >&2
+    return 1
+  fi
+
+  if ! printf '%s\n' "$block_i" | grep -qF 'exec nohup python3 "$DS_CLEANUP_BIN" --repo "$reap_root" --min-age-hours 24 </dev/null >>"$reap_log" 2>&1'; then
     echo "PROSE-WIRING VIOLATION: $hook does not launch the SessionStart worktree sweep (python3 \"\$DS_CLEANUP_BIN\" --repo \"\$reap_root\" --min-age-hours 24, output to the log)" >&2
     ok=1
   fi
-  if ! grep -qF ') </dev/null >/dev/null 2>&1 &' "$hook"; then
+  if ! printf '%s\n' "$block_i" | grep -qF ') </dev/null >/dev/null 2>&1 &'; then
     echo "PROSE-WIRING VIOLATION: $hook's sweep subshell is not detached with every fd redirected (missing ') </dev/null >/dev/null 2>&1 &')" >&2
     ok=1
   fi
-  if ! grep -qF 'if [[ -z "${AE_WORKTREE_REAP_DISABLE:-}" ]]' "$hook"; then
+  if ! printf '%s\n' "$block_i" | grep -qF 'if [[ -z "${AE_WORKTREE_REAP_DISABLE:-}" ]]'; then
     echo "PROSE-WIRING VIOLATION: $hook does not gate the sweep on the AE_WORKTREE_REAP_DISABLE kill switch" >&2
     ok=1
   fi

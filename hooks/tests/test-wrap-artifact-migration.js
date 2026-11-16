@@ -78,7 +78,7 @@ function runHook(projectDir) {
     input: payload,
     encoding: 'utf8',
     timeout: 15000,
-    env: Object.assign({}, process.env, { AGENTIC_QUIET: '1' }),
+    env: HOOK_ENV,
   });
   return {
     code: res.status,
@@ -92,6 +92,15 @@ if (!fs.existsSync(SCRIPT)) {
   console.error(`FAIL: script not found at ${SCRIPT}`);
   process.exit(1);
 }
+
+// The hook's worktree sweeps act on every repo logged under $HOME, so a
+// scratch HOME keeps this test away from the real ~/.agentic/worktree-reap/.
+const FAKE_HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ae-mig-home-')));
+const HOOK_ENV = Object.assign({}, process.env, {
+  AGENTIC_QUIET: '1',
+  HOME: FAKE_HOME,
+  AE_WORKTREE_REAP_DISABLE: '1',
+});
 
 // ---------------------------------------------------------------------------
 // Helper: agoIso(seconds) - an ISO timestamp `seconds` in the past
@@ -339,13 +348,13 @@ console.log('\n[M4] concurrency: two simultaneous migrations complete without co
     input: payload,
     encoding: 'utf8',
     timeout: 15000,
-    env: Object.assign({}, process.env, { AGENTIC_QUIET: '1' }),
+    env: HOOK_ENV,
   });
   const run2 = spawnSync('bash', [SCRIPT], {
     input: payload,
     encoding: 'utf8',
     timeout: 15000,
-    env: Object.assign({}, process.env, { AGENTIC_QUIET: '1' }),
+    env: HOOK_ENV,
   });
 
   assert(run1.status === 0, 'M4: first concurrent hook exits 0');
@@ -408,6 +417,7 @@ console.log('\n[M6] cross-version window doc-presence: "lost-update" keyword in 
 // ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
+cleanup(FAKE_HOME);
 console.log(`\n${passed} passed, ${failed} failed.`);
 if (failed > 0) {
   process.exit(1);

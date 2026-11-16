@@ -28,8 +28,13 @@
 #          <main-checkout root> --min-age-hours 24` run that DOES remove
 #          worktrees its predicate proves removable, logged to
 #          ~/.agentic/worktree-reap/<repo>-<sha1(root)[:8]>.log and
-#          suppressed by AE_WORKTREE_REAP_DISABLE=1.
-#          Both worktree nudges (g, h) and the sweep (i) are skipped when the
+#          suppressed by AE_WORKTREE_REAP_DISABLE=1; block (i2) runs the same
+#          sweep for every OTHER repo with a log there, claimed by an
+#          exclusive per-repo claim file so at most one (i2) run machine-wide
+#          sweeps a repo per 6 h (block (i) takes no claim), and skipping any repo that opted out (a
+#          .reap-disabled marker written by its own session with the
+#          variable set, or the variable in its .claude/settings*.json env).
+#          Both worktree nudges (g, h) and the sweeps (i, i2) are skipped when the
 #          payload's `source` is `compact`, so compaction does not repeat
 #          them; a missing or unreadable `source` keeps them.
 #          It is the first of the two SessionStart registrations install.sh
@@ -147,12 +152,13 @@
 #              wall-clock when coreutils timeout is available (degrades to
 #              the --max-repos bound alone, no wall-clock cap, on stock
 #              macOS without Homebrew) - and at most one detached daemon
-#              spawn that the hook never waits on. Plus at most one fork for
-#              the detached worktree sweep: the root/log resolution and the
-#              rate check all run after the fork, so the hook itself waits
-#              on none of it. When `source` is `compact`, none of the
-#              worktree subprocesses above (`--count-only`, the machine-wide
-#              `--multi-repo` call, the sweep) run at all.
+#              spawn that the hook never waits on. Plus at most two forks for
+#              the detached worktree sweeps (i) and (i2): root/log
+#              resolution, the rate checks and the claims all run after the
+#              fork, so the hook itself waits on none of it. When `source`
+#              is `compact`, none of the worktree subprocesses above
+#              (`--count-only`, the machine-wide `--multi-repo` call, the
+#              sweeps) run at all.
 
 set -euo pipefail
 
@@ -429,6 +435,87 @@ if [[ -z "${AE_WORKTREE_REAP_DISABLE:-}" ]] && [[ -n "$nonroot_count" ]] && [[ "
     mkdir -p "$(dirname "$reap_log")" 2>/dev/null || exit 0
     printf '=== reap %s pid %s root %s ===\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${BASHPID:-$$}" "$reap_root" >>"$reap_log" 2>/dev/null || exit 0
     exec nohup python3 "$DS_CLEANUP_BIN" --repo "$reap_root" --min-age-hours 24 </dev/null >>"$reap_log" 2>&1
+  ) </dev/null >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+fi
+
+# --- (i2) Machine-wide worktree sweep: the same `--min-age-hours 24` sweep
+# for every OTHER repo with a log in ~/.agentic/worktree-reap/, so a repo
+# nobody reopens is still swept. Line 1 of each log names that repo's main
+# checkout. A repo is skipped when it is the current one (block (i) owns
+# it), its root is no longer a main checkout, its log was written in the
+# last 6 h, or it opted out: a <log-stem>.reap-disabled marker (written by
+# any session of that repo started with AE_WORKTREE_REAP_DISABLE set,
+# cleared by the next one without it), or the variable set in its
+# .claude/settings.json or settings.local.json (a file that fails to parse
+# counts as opted out). A stale repo is claimed by an O_EXCL create of
+# <log-stem>.claim.<epoch/21600>, so at most one (i2) run machine-wide
+# sweeps it per 6 h bucket; block (i) takes no claim. Every claim is taken before the first sweep
+# runs; the sweeps then run one after another. A repo with no non-root
+# worktree writes a `register` header to its own log, since block (i)
+# never creates one for it. Launched only when not a compact and
+# DS_CLEANUP_BIN resolved; as in block (i), all of it runs after the fork
+# with every fd redirected. ---
+if [[ "$session_source" != "compact" ]] && [[ -n "${DS_CLEANUP_BIN:-}" ]]; then
+  (
+    trap '' HUP
+    reap_dir="$HOME/.agentic/worktree-reap"
+    cur_root=""
+    cur_stem=""
+    cur_common="$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || cur_common=""
+    if [[ "$cur_common" == */.git ]]; then
+      cur_root="${cur_common%/.git}"
+      cur_id="$(python3 -c 'import hashlib, sys; print(hashlib.sha1(sys.argv[1].encode()).hexdigest()[:8])' "$cur_root" 2>/dev/null)" || cur_id=""
+      if [[ -n "$cur_id" ]]; then
+        cur_stem="$reap_dir/$(basename "$cur_root")-${cur_id}"
+      fi
+    fi
+    if [[ -n "${AE_WORKTREE_REAP_DISABLE:-}" ]]; then
+      if [[ -n "$cur_stem" ]]; then
+        mkdir -p "$reap_dir" 2>/dev/null || exit 0
+        : >"$cur_stem.reap-disabled" 2>/dev/null || true
+      fi
+      exit 0
+    fi
+    if [[ -n "$cur_stem" ]]; then
+      rm -f "$cur_stem.reap-disabled" 2>/dev/null || true
+      if [[ "$nonroot_count" == "0" ]] && [[ ! -e "$cur_stem.log" ]]; then
+        mkdir -p "$reap_dir" 2>/dev/null || true
+        printf '=== register %s pid %s root %s ===\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${BASHPID:-$$}" "$cur_root" >>"$cur_stem.log" 2>/dev/null || true
+      fi
+    fi
+    [[ -d "$reap_dir" ]] || exit 0
+    bucket=$(( $(date +%s) / 21600 ))
+    claimed_roots=()
+    claimed_logs=()
+    for log in "$reap_dir"/*.log; do
+      if [[ ! -f "$log" ]]; then continue; fi
+      if [[ -z "$(find "$log" -mmin +360 2>/dev/null)" ]]; then continue; fi
+      stem="${log%.log}"
+      root="$(head -n 1 "$log" 2>/dev/null | sed -E -n 's/^=== (reap|register) [^ ]+ pid [0-9]+ root (.*) ===$/\2/p')" || root=""
+      if [[ -z "$root" ]] || [[ "$root" == "$cur_root" ]] || [[ ! -d "$root" ]]; then continue; fi
+      if [[ "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" != "$root/.git" ]]; then continue; fi
+      if [[ -e "$stem.reap-disabled" ]]; then continue; fi
+      if ! python3 -c '
+import json, os, sys
+for path in sys.argv[1:]:
+    if os.path.exists(path):
+        with open(path) as handle:
+            value = json.load(handle).get("env", {}).get("AE_WORKTREE_REAP_DISABLE")
+        if value not in (None, ""):
+            sys.exit(1)
+' "$root/.claude/settings.json" "$root/.claude/settings.local.json" 2>/dev/null; then continue; fi
+      if ! ( set -C; : >"$stem.claim.$bucket" ) 2>/dev/null; then continue; fi
+      printf '=== reap %s pid %s root %s ===\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${BASHPID:-$$}" "$root" >>"$log" 2>/dev/null || continue
+      claimed_roots+=("$root")
+      claimed_logs+=("$log")
+    done
+    i=0
+    while [[ $i -lt ${#claimed_roots[@]} ]]; do
+      nohup python3 "$DS_CLEANUP_BIN" --repo "${claimed_roots[$i]}" --min-age-hours 24 </dev/null >>"${claimed_logs[$i]}" 2>&1 || true
+      i=$((i + 1))
+    done
+    find "$reap_dir" -maxdepth 1 -name '*.claim.*' -mmin +720 -delete 2>/dev/null || true
   ) </dev/null >/dev/null 2>&1 &
   disown 2>/dev/null || true
 fi
