@@ -40,6 +40,8 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DOCTOR="$SCRIPT_DIR/ds-doctor"
+# ds-doctor's check_disk would scan the real TMPDIR and /tmp/claude-<uid>.
+export AE_DOCTOR_DISK_CHECK_DISABLE=1
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REAL_LIB="$REPO_ROOT/scripts/lib/precommit.sh"
 

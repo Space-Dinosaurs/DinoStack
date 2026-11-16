@@ -201,3 +201,4 @@ Report a summary:
 - The main worktree (first entry in `git worktree list`) is always skipped.
 - Works on the repository in the current working directory - not project-specific.
 - If `gh` is not available, flag feature worktrees for manual review and continue.
+- **Disk filling from things other than worktrees?** `ds-disk` lists free space, aged agent temp dirs (`skc-oauth-*`, `agent-browser-chrome-*`, `puppeteer_dev_chrome_profile-*`, old session scratchpads) and large items such as transcripts, worktrees, `evals/`, Docker and caches; `ds-disk --sweep` deletes only the aged, unheld temp dirs and never touches a worktree. `ds-doctor` runs it in report mode.
