@@ -30,8 +30,8 @@
 #          ~/.agentic/worktree-reap/<repo>-<sha1(root)[:8]>.log and
 #          suppressed by AE_WORKTREE_REAP_DISABLE=1; block (i2) runs the same
 #          sweep for every OTHER repo with a log there, claimed by an
-#          exclusive per-repo claim file so at most one session machine-wide
-#          sweeps a repo per 6 h, and skipping any repo that opted out (a
+#          exclusive per-repo claim file so at most one (i2) run machine-wide
+#          sweeps a repo per 6 h (block (i) takes no claim), and skipping any repo that opted out (a
 #          .reap-disabled marker written by its own session with the
 #          variable set, or the variable in its .claude/settings*.json env).
 #          Both worktree nudges (g, h) and the sweeps (i, i2) are skipped when the
@@ -449,8 +449,8 @@ fi
 # cleared by the next one without it), or the variable set in its
 # .claude/settings.json or settings.local.json (a file that fails to parse
 # counts as opted out). A stale repo is claimed by an O_EXCL create of
-# <log-stem>.claim.<epoch/21600>, so at most one session machine-wide
-# sweeps it per 6 h bucket. Every claim is taken before the first sweep
+# <log-stem>.claim.<epoch/21600>, so at most one (i2) run machine-wide
+# sweeps it per 6 h bucket; block (i) takes no claim. Every claim is taken before the first sweep
 # runs; the sweeps then run one after another. A repo with no non-root
 # worktree writes a `register` header to its own log, since block (i)
 # never creates one for it. Launched only when not a compact and
@@ -490,6 +490,7 @@ if [[ "$session_source" != "compact" ]] && [[ -n "${DS_CLEANUP_BIN:-}" ]]; then
     claimed_logs=()
     for log in "$reap_dir"/*.log; do
       if [[ ! -f "$log" ]]; then continue; fi
+      if [[ -z "$(find "$log" -mmin +360 2>/dev/null)" ]]; then continue; fi
       stem="${log%.log}"
       root="$(head -n 1 "$log" 2>/dev/null | sed -E -n 's/^=== (reap|register) [^ ]+ pid [0-9]+ root (.*) ===$/\2/p')" || root=""
       if [[ -z "$root" ]] || [[ "$root" == "$cur_root" ]] || [[ ! -d "$root" ]]; then continue; fi
@@ -504,7 +505,6 @@ for path in sys.argv[1:]:
         if value not in (None, ""):
             sys.exit(1)
 ' "$root/.claude/settings.json" "$root/.claude/settings.local.json" 2>/dev/null; then continue; fi
-      if [[ -z "$(find "$log" -mmin +360 2>/dev/null)" ]]; then continue; fi
       if ! ( set -C; : >"$stem.claim.$bucket" ) 2>/dev/null; then continue; fi
       printf '=== reap %s pid %s root %s ===\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${BASHPID:-$$}" "$root" >>"$log" 2>/dev/null || continue
       claimed_roots+=("$root")

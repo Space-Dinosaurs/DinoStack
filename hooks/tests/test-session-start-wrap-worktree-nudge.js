@@ -1153,7 +1153,25 @@ console.log('\n[W29] existing claim for this 6 h bucket -> B skipped; two concur
   const repoD = makeMainRepo('ae-wt-sweep-w29d2-');
   const repoB = makeMainRepo('ae-wt-sweep-w29b2-');
   const b = registerLog(fx, repoB, 7);
-  const env = Object.assign({}, process.env, { HOME: fx.fakeHome, AGENTIC_WRAP_DAEMON: '1' });
+  // A `find` shim that holds 2 s after reporting a log stale, so both runs
+  // pass the log-age check before either appends its header. Without it the
+  // first run's header makes the log fresh before the second checks it, and
+  // the age check alone keeps B to one sweep whether or not the claim works.
+  const realFind = execFileSync('sh', ['-c', 'command -v find'], { encoding: 'utf8' }).trim();
+  const shimDir = makeTmp('ae-wt-sweep-w29-shim-');
+  fs.writeFileSync(path.join(shimDir, 'find'), `#!/bin/sh
+out="$(${realFind} "$@")"
+rc=$?
+case " $* " in *" -mmin +360 "*) [ -n "$out" ] && sleep 2 ;; esac
+[ -n "$out" ] && printf '%s\\n' "$out"
+exit $rc
+`, 'utf8');
+  fs.chmodSync(path.join(shimDir, 'find'), 0o755);
+  const env = Object.assign({}, process.env, {
+    HOME: fx.fakeHome,
+    AGENTIC_WRAP_DAEMON: '1',
+    PATH: `${shimDir}${path.delimiter}${process.env.PATH}`,
+  });
   delete env.AE_WORKTREE_REAP_DISABLE;
   delete env.AGENTIC_QUIET;
   const res = spawnSync('bash', ['-c',
@@ -1162,11 +1180,12 @@ console.log('\n[W29] existing claim for this 6 h bucket -> B skipped; two concur
   { encoding: 'utf8', timeout: 30000, env });
   assert(res.status === 0, 'W29: both concurrent hook runs returned');
   assert(waitFor(() => launchCount(fx, repoB) >= 1), 'W29: B swept by one of the concurrent sessions');
-  pauseMs(2000);
+  pauseMs(4000);
   assert(launchCount(fx, repoB) === 1, `W29: B swept exactly once (got: ${JSON.stringify(launches(fx))})`);
   assert(reapHeaders(b.log, repoB) === 2 && claimsFor(fx, b.stem).length === 1,
     'W29: exactly one reap header appended and one claim file for B');
   cleanup(fx.fakeHome); cleanup(fx.mockRepoDir); cleanup(repoA); cleanup(repoD); cleanup(repoB);
+  cleanup(shimDir);
 }
 
 // ---------------------------------------------------------------------------
