@@ -3,6 +3,13 @@
 
 # Changelog
 
+## 2026-11-16
+
+### Features
+
+- **#1093** [ds-disk report/sweep, low-disk warning hook, doctor disk check](https://github.com/Space-Dinosaurs/DinoStack/pull/1093) - tyson-solara6
+- **#1092** [sweep worktrees in every registered repo, with per-repo opt-out](https://github.com/Space-Dinosaurs/DinoStack/pull/1092) - tyson-solara6
+
 ## 2026-11-12
 
 ### Features
