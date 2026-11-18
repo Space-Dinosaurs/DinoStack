@@ -50,6 +50,9 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+. "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
+precommit_hook_guard_save "$REPO_DIR"
 INSTALL_SH="$REPO_DIR/.claude/install.sh"
 UNINSTALL_SH="$REPO_DIR/.claude/uninstall.sh"
 MUTATION_GLOB="$REPO_DIR/.claude/.mutation-ckeep-$$-*"
@@ -61,6 +64,7 @@ _pass() { echo "PASS: $1"; PASS=$((PASS + 1)); }
 
 TMP_ROOT="$(mktemp -d)"
 _cleanup() {
+  precommit_hook_guard_restore
   rm -rf "$TMP_ROOT"
   rm -f $MUTATION_GLOB
 }

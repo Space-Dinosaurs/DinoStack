@@ -6,6 +6,9 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+. "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
+precommit_hook_guard_save "$REPO_DIR"
 FAILS=0
 pass() { echo "  ok: $1"; }
 fail() {
@@ -14,6 +17,7 @@ fail() {
 }
 
 cleanup() {
+	precommit_hook_guard_restore
 	chmod -R u+w "$SANDBOX" 2>/dev/null || true
 	rm -rf "$SANDBOX"
 }

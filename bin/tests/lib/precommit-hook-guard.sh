@@ -35,18 +35,14 @@
 # Upstream dependencies: git, mktemp, cp, readlink, ln. Depends on the
 #   caller having already sourced this file before calling either function.
 #
-# Downstream consumers: bin/tests/test_uninstall_ds_prefix.sh,
-#   bin/tests/test_hooks_snapshot_migration.sh (both invoke a real
-#   .claude/uninstall.sh against the live checkout with only $HOME faked);
+# Downstream consumers: every bin/tests/test_*.sh that runs a live
+#   .claude/.cursor/.opencode install.sh or uninstall.sh (or
+#   scripts/install-profiles.sh) against the checkout with only $HOME faked;
+#   bin/tests/test_precommit_hook_guard_static.sh discovers that set and
+#   fails on any member that does not save before its first installer
+#   reference and restore from its EXIT trap. Also
 #   .claude/tests/install-converge.test.sh and
-#   .cursor/tests/install-converge.test.sh (both invoke a real
-#   .claude/install.sh or .cursor/install.sh / .opencode/install.sh against
-#   the live checkout with only $HOME faked); bin/tests/test_local_bin_ds_prefix_install.sh
-#   (Test 2 invokes a real .claude/install.sh against the live checkout with
-#   only $HOME faked); bin/tests/test_install_profile_config_dir.sh (DS-231 -
-#   invokes every adapter's real install.sh against the live checkout with
-#   only $HOME faked; its manifest previously claimed full hermeticity, which
-#   was false for exactly the reason stated at the top of this file).
+#   .cursor/tests/install-converge.test.sh.
 #
 #   bin/tests/test_install_claude_config_dir.sh deliberately does NOT source
 #   this library: it copies the repo into a sandbox and re-inits it there, so
