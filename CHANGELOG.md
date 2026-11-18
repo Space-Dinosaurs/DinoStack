@@ -3,6 +3,12 @@
 
 # Changelog
 
+## 2026-11-18
+
+### Fixes
+
+- **#1094** [retire-before-fix-pass, skeptic skeleton shapes, 2-round plan review](https://github.com/Space-Dinosaurs/DinoStack/pull/1094) - tyson-solara6
+
 ## 2026-11-16
 
 ### Features
