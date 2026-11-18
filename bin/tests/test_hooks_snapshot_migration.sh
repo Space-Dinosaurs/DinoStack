@@ -48,11 +48,10 @@
 #                git hooks directory via `git rev-parse --git-path hooks`
 #                relative to the REAL REPO_DIR, independent of $HOME faking
 #                - left unguarded it would remove this checkout's real
-#                <repo>/.git/hooks/pre-commit. That call is saved before
-#                and restored immediately after via
-#                bin/tests/lib/precommit-hook-guard.sh (same guard used by
-#                bin/tests/test_uninstall_ds_prefix.sh); the guard does not
-#                cover the earlier install.sh pre-commit-hook writes above.
+#                <repo>/.git/hooks/pre-commit. The real hook is saved via
+#                bin/tests/lib/precommit-hook-guard.sh before the first
+#                install.sh call and restored in the EXIT trap, so the
+#                guard covers every install.sh and uninstall.sh hook write.
 #                This test previously could block on /dev/tty under
 #                ae_confirm when run with a real controlling terminal (not
 #                reproducible in GitHub-hosted CI, which has none), because
@@ -80,6 +79,7 @@ REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # shellcheck source=bin/tests/lib/precommit-hook-guard.sh
 . "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
+precommit_hook_guard_save "$REPO_DIR"
 
 PASS=0
 FAIL=0
@@ -249,11 +249,6 @@ cat > "$HOME_CLAUDE_UNINSTALL/.claude/settings.json" <<'EOF'
 }
 EOF
 
-# uninstall_precommit_hook (called by .claude/uninstall.sh) resolves the
-# git hooks dir independent of $HOME - save/restore the real checkout's
-# pre-commit hook around this one call (see header and
-# bin/tests/lib/precommit-hook-guard.sh).
-precommit_hook_guard_save "$REPO_DIR"
 # DS-231: unset the four config-dir vars. .claude/uninstall.sh now resolves the
 # same chain install.sh does, so a session with CLAUDE_CONFIG_DIR set would send
 # this uninstall at the developer's REAL config dir and strip DinoStack hook
@@ -263,10 +258,8 @@ precommit_hook_guard_save "$REPO_DIR"
 # refusal to catch it, because uninstall only ever deletes.
 if env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
   HOME="$HOME_CLAUDE_UNINSTALL" bash "$REPO_DIR/.claude/uninstall.sh" > "$HOME_CLAUDE_UNINSTALL/.uninstall_out" 2>&1; then
-  precommit_hook_guard_restore
   _pass "claude: uninstall.sh run succeeds"
 else
-  precommit_hook_guard_restore
   _fail "claude: uninstall.sh exited non-zero"
   cat "$HOME_CLAUDE_UNINSTALL/.uninstall_out" >&2
 fi

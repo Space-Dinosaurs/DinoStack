@@ -57,6 +57,7 @@ INSTALL_SH="$REPO_DIR/.claude/install.sh"
 
 # shellcheck source=bin/tests/lib/precommit-hook-guard.sh
 source "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
+precommit_hook_guard_save "$REPO_DIR"
 
 PASS=0
 FAIL=0
@@ -93,8 +94,6 @@ _cleanup() {
   [[ -n "$FAKE_HOME" && -d "$FAKE_HOME" ]] && rm -rf "$FAKE_HOME"
 }
 trap _cleanup EXIT
-
-precommit_hook_guard_save "$REPO_DIR"
 
 FAKE_HOME="$(mktemp -d)"
 mkdir -p "$FAKE_HOME/.agentic" "$FAKE_HOME/.local/bin"

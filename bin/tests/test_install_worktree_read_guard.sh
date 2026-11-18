@@ -37,6 +37,9 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+. "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
+precommit_hook_guard_save "$REPO_DIR"
 
 PASS=0
 FAIL=0
@@ -53,6 +56,7 @@ _pass() {
 
 TMP_ROOT="$(mktemp -d)"
 _cleanup() {
+  precommit_hook_guard_restore
   rm -rf "$TMP_ROOT"
 }
 trap _cleanup EXIT

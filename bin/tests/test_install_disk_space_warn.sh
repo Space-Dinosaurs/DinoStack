@@ -23,6 +23,9 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+. "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
+precommit_hook_guard_save "$REPO_DIR"
 INSTALL_SH="$REPO_DIR/.claude/install.sh"
 UNINSTALL_SH="$REPO_DIR/.claude/uninstall.sh"
 
@@ -32,7 +35,7 @@ _fail() { echo "FAIL: $1" >&2; FAIL=$((FAIL + 1)); }
 _pass() { echo "PASS: $1"; PASS=$((PASS + 1)); }
 
 TMP_ROOT="$(mktemp -d)"
-_cleanup() { find "$TMP_ROOT" -depth -delete 2>/dev/null; }
+_cleanup() { precommit_hook_guard_restore; find "$TMP_ROOT" -depth -delete 2>/dev/null; }
 trap _cleanup EXIT INT TERM
 
 FAKE_BIN="$TMP_ROOT/fakebin"

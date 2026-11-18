@@ -27,6 +27,9 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+. "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
+precommit_hook_guard_save "$REPO_DIR"
 MUTATE_TARGET="$REPO_DIR/hooks/skill-auto-load-check.sh"
 
 PASS=0
@@ -44,6 +47,7 @@ _pass() {
 
 TMP_ROOT="$(mktemp -d)"
 _cleanup() {
+  precommit_hook_guard_restore
   rm -rf "$TMP_ROOT"
   git -C "$REPO_DIR" checkout -- "$MUTATE_TARGET" 2>/dev/null || true
 }
