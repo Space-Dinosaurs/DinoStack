@@ -155,7 +155,9 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # Lowered for Low tickets delegating to an engineer again.
 # Raised 65 B for the Low engineer's worktree retirement and first-spawn loop state.
 # Raised 140 B for the Low restart's branch form and own-work rule.
-THRESHOLD_BYTES=86245
+# Lowered for the Skeptic-spawn rule pointing to the ds-skeptic.md skeleton
+# and the Low route deferring its worktree retirement to the shared guard.
+THRESHOLD_BYTES=86013
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

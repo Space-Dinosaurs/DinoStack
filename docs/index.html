@@ -1679,7 +1679,7 @@
       </div>
     </div>
     <div class="note" style="border-left-color: var(--violet); margin-top: 10px;">
-      <strong>Mandatory gate:</strong> Architect plan output MUST receive Skeptic review before the plan is acted on. Do not spawn engineers or run the orchestration-planner until the Skeptic grants sign-off. A flawed plan propagates errors through every downstream Worker.
+      <strong>Mandatory gate:</strong> Architect plan output MUST receive Skeptic review before the plan is acted on. Do not spawn engineers or run the orchestration-planner until the Skeptic grants sign-off. Plan review is capped at 2 rounds: findings still open after round 2 go to the operator as one decision, never a third round. A flawed plan propagates errors through every downstream Worker.
     </div>
   </div>
 

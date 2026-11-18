@@ -288,16 +288,17 @@ Every finding must be classified. Unclassified findings default to Major. The Sk
 - **Simple changes**: capped at **1 round** - Critical/Major findings escalate directly
 - **Standard Elevated changes**: the 2-re-route rule applies
 - **Single-review route**: findings fixed once; re-reviewed only after a Critical
+- **Architect-plan review**: at most 2 rounds; findings open after round 2 go to the operator as one decision, never a round 3
 - The primary agent tracks each finding by its text across all rounds
 
 **Loop-context override (inside `/ds-implement-ticket` Phase 6):** the 2-re-route rule is replaced by a stricter contract - **1 re-raise of a Critical finding after a claimed fix** triggers convergence failure escalation immediately. Outside a named loop, the 2-re-route rule is unchanged.
 
 **Prose-scoped re-check:** when the round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale code comment, doc-sync attestation, comment/count wording) and the fix diff has no code/test/behavior change, the next verification is narrowed to the changed prose lines plus a full end-to-end read of the enclosing comment block/section - not a full fresh round. The reviewer establishes the trigger itself by diffing the fix commit(s), never from engineer self-classification; any parsed/executed/byte-pinned hunk disqualifies the lever. The conductor names the mode and supplies the `sha1..sha2` fix range at spawn; sign-off carries a mandatory `Scope:` line. A code/test/behavior finding found during the narrower pass still escalates normally. Verification-cost lever only; severity tiers are unchanged.
 
-**Round budget and value-per-round gate:** the 3-round Skeptic cap (2 on the single-review route) decides when a loop must stop; the value-per-round gate decides whether round N+1 is worth spawning at all. Before spawning it, the conductor states one line of what shipped value that round buys (`[round-value: ...]`). If the honest answer is only "hardens infrastructure" or "improves a gate" with no behavior change reaching a user, defer the remaining findings to a follow-up instead. A unit whose sole output is enforcement must not block the change it enforces - ship behavior-changing units first, enforcement-only units in a later PR.
+**Round budget and value-per-round gate:** the 3-round Skeptic cap (2 on the single-review route and on plan reviews) decides when a loop must stop; the value-per-round gate decides whether round N+1 is worth spawning at all. Before spawning it, the conductor states one line of what shipped value that round buys (`[round-value: ...]`). If the honest answer is only "hardens infrastructure" or "improves a gate" with no behavior change reaching a user, defer the remaining findings to a follow-up instead. A unit whose sole output is enforcement must not block the change it enforces - ship behavior-changing units first, enforcement-only units in a later PR.
 
 <div class="callout">
-The 3-pass Skeptic cap (2 on the single-review route) and the per-finding 2-re-route rule are separate ceilings. Either can trigger escalation first. Inside a persistence loop, convergence failure escalates even faster.
+The 3-pass Skeptic cap (2 on the single-review route and on plan reviews) and the per-finding 2-re-route rule are separate ceilings. Either can trigger escalation first. Inside a persistence loop, convergence failure escalates even faster.
 </div>
 
 ---
