@@ -7,7 +7,12 @@
 
 ### Fixes
 
+- **#1096** [guard the real pre-commit hook in every live install.sh caller](https://github.com/Space-Dinosaurs/DinoStack/pull/1096) - tyson-solara6
 - **#1094** [retire-before-fix-pass, skeptic skeleton shapes, 2-round plan review](https://github.com/Space-Dinosaurs/DinoStack/pull/1094) - tyson-solara6
+
+### Maintenance
+
+- **#1095** [npm audit fix root lockfile](https://github.com/Space-Dinosaurs/DinoStack/pull/1095) - tyson-solara6
 
 ## 2026-11-16
 
