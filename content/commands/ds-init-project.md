@@ -803,6 +803,7 @@ Report every printed line, then:
 - The settings file watcher picks up the change; run `/hooks` and restart Claude Code only if `WorktreeCreate` and `WorktreeRemove` are not listed.
 - The workspace must be trusted, or the hooks do not run and isolation spawns fail.
 - Before each isolation spawn, write the target repo name to `.agentic/worktree-target`.
+- An agent worktree may remain after the agent finishes; retire each remaining one with `ds-retire-carrier <path>` when its work is complete (skip a path that is already gone).
 - Background sessions at this root edit in place (`bgIsolation: "none"`). `--worktree` and remote-control worktree sessions get a worktree in whichever repo the target file names, but it is not removed on exit; retire it with `ds-retire-carrier <path>`.
 
 ### 6. Create `.agentic/qa.md`
