@@ -11,7 +11,7 @@ recommended decision item with no `[stop: <label>]` tag), and a doc that
 names fewer is factually wrong about live hook behavior.
 
 Why this exists: `abdication_guard_enabled` has no code-level default - an
-absent key leaves the guard inert (see hooks/enforce-no-abdication.py:1354,
+absent key leaves the guard inert (see hooks/enforce-no-abdication.py:1357,
 `config.get("abdication_guard_enabled") is not True`). Two of the three
 corrected files (hooks/enforce-no-abdication.py's own inline comment and
 docs/components.md's config entry) directly asserted the opposite - that

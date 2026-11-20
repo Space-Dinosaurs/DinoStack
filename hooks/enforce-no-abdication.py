@@ -57,8 +57,9 @@ Purpose: Stop hook that mechanically reduces conductor abdication - ending a
          by design - a spec-compliant decision block is not a permission-
          seeking interrogative - but it means the two checks are no longer
          incidentally independent on this class of turn: _is_prose_ballot
-         is the only classifier actually deciding the outcome once a
-         marker is present. Documented here because the spec change
+         and _is_untagged_decision decide the outcome once a marker is
+         present (_is_stalled_surface_and_proceed can still fire on a
+         commitment phrase). Documented here because the spec change
          mandating the marker made this coupling universal rather than
          incidental.
 
@@ -868,18 +869,20 @@ _NUMBERED_ITEM_RE = re.compile(r"^(?:\d+[.)]|\*\*\s*\d+[.)])")
 
 
 def _top_level_decision_items(items: list) -> list:
-    """When a block numbers its items, fold each column-0 bullet into the
-    numbered item above it: such a bullet is a relayed report quoted inside
-    that item, and its own "Recommendation:" line must not count as an
-    untagged item. A block of bullets only is returned unchanged."""
+    """Return (own_text, full_text) pairs. When a block numbers its items,
+    each column-0 bullet is folded into the full_text of the numbered item
+    above it: such a bullet is a relayed report quoted inside that item, and
+    its own "Recommendation:" line must not count as an untagged item. The
+    tag must sit in own_text, so a tag on a folded bullet never tags the
+    item. A block of bullets only is returned unfolded."""
     if not any(_NUMBERED_ITEM_RE.match(item) for item in items):
-        return items
+        return [(item, item) for item in items]
     merged = []
     for item in items:
-        if merged and not _NUMBERED_ITEM_RE.match(item) and _NUMBERED_ITEM_RE.match(merged[-1]):
-            merged[-1] += item
+        if merged and not _NUMBERED_ITEM_RE.match(item) and _NUMBERED_ITEM_RE.match(merged[-1][0]):
+            merged[-1] = (merged[-1][0], merged[-1][1] + item)
         else:
-            merged.append(item)
+            merged.append((item, item))
     return merged
 
 
@@ -890,8 +893,8 @@ def _untagged_decision_count(text: str) -> int:
         return 0
     items = _top_level_decision_items(_split_decision_items(block))
     return sum(
-        1 for item in items
-        if _RECOMMENDATION_RE.search(item) and not _STOP_TAG_RE.search(item)
+        1 for own, full in items
+        if _RECOMMENDATION_RE.search(full) and not _STOP_TAG_RE.search(own)
     )
 
 

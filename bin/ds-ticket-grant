@@ -311,7 +311,11 @@ def main(argv: list[str]) -> int:
     p_grant.add_argument(
         "--reason",
         required=True,
-        help="The operator's own words authorizing this create (attributability)",
+        help=(
+            "The operator's own words authorizing this create (attributability); "
+            "for the next piece of an operator-assigned goal, the goal statement "
+            "plus '; next piece after <ticket>'"
+        ),
     )
     p_grant.set_defaults(func=cmd_grant)
 

@@ -1687,6 +1687,30 @@ def test_untagged_decision(tmp_dir: str) -> int:
         False,
     )
 
+    check(
+        "(h) untagged numbered item with a tagged column-0 bullet below it -> BLOCK",
+        "## Operator decisions\n\n"
+        "1. Start the next piece (Recommended)\n"
+        "- side note [stop: operator-only]\n",
+        True,
+    )
+
+    # (i) Precedence: a turn tripping both the ballot and the untagged
+    # check gets the ballot reason.
+    d = os.path.join(tmp_dir, "untagged_precedence")
+    os.makedirs(d, exist_ok=True)
+    make_config_file(d, enabled=True)
+    rc, stdout, _ = run_hook(make_payload(d, last_assistant_message=(
+        "## Operator decisions\n\n"
+        "- Option A for the retry policy.\n"
+        "- Option B for the cache window.\n"
+        "- Ship the fix now (Recommended).\n"
+    )))
+    ok = get_reason(rc, stdout) == mod._BALLOT_REASON
+    print(f"    [{'PASS' if ok else 'FAIL'}] (i) ballot + untagged on one turn -> ballot reason wins")
+    if not ok:
+        failed += 1
+
     # (e) The kernel names every label, and every [stop: <x>] tag anywhere
     # in content/ uses a label from the closed set.
     repo = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -1793,7 +1817,7 @@ def main() -> None:
         + 4   # reason-precedence pin
         + 5   # abdication-reason two-exit wording pin
         + 6   # six-source enumeration pin (2 constants x 3 assertions)
-        + 8   # untagged-decision classifier
+        + 10  # untagged-decision classifier
         + 2   # transcript fallback
         + 2   # cache-keepalive ping turns
         + 3   # smoke checks

@@ -1339,7 +1339,7 @@ _AGENTIC_DISPOSABLE_TOPLEVEL_PATTERNS: Tuple[str, ...] = (
     ".nested-worktree-spawn-*.json",  # hooks/enforce-nested-worktree-spawn.py:220
     ".telemetry-health.json",  # writer hooks/stop-context.js, reader bin/ds-status:137
     ".turn-shape-guard-fire-count",  # hooks/enforce-turn-shape.py:625
-    ".abdication-guard-fire-count",  # hooks/enforce-no-abdication.py:343
+    ".abdication-guard-fire-count",  # hooks/enforce-no-abdication.py:344
     ".capture-gap-last-sweep",  # hooks/lib/capture-gap.js:143
     ".capture-gap-surfaced",  # hooks/post-tool-use-capture-nudge.js:213
     ".last-architect-spawn",  # hooks/pre-tool-use-spawn-emit.js:219
