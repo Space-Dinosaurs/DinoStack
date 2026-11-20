@@ -374,7 +374,7 @@ The `Agent` tool creates a temporary git worktree for the agent to work in - an 
 
 `isolation: "worktree"` requires Claude Code to be running inside the correct git repo root. If the project directory is nested inside a parent git repo, the `Agent` tool may walk up the directory tree and resolve to the parent repo instead - causing worktree creation to fail even though the project directory has its own `.git`.
 
-**Symptom:** `isolation: "worktree"` fails with "Cannot create agent worktree: not in a git repository and no WorktreeCreate hooks are configured" even though Claude Code is launched from within the project directory.
+**Symptom:** `isolation: "worktree"` fails with "Cannot create agent worktree: not in a git repository and no WorktreeCreate hooks are configured" even though Claude Code is launched from within the project directory. If the launch directory is itself not a git repo but a folder holding several repos, see §Multi-repo workspace below instead.
 
 **Diagnosis:** Run `git rev-parse --show-toplevel` from the project directory and from the parent. If both return different roots, the parent repo is interfering.
 
@@ -384,6 +384,19 @@ The `Agent` tool creates a temporary git worktree for the agent to work in - an 
 # Example: authentic8/ nested inside ~/
 echo "Documents/Development/authentic8/" >> ~/.gitignore
 ```
+
+### Multi-repo workspace (root is not a git repo)
+
+When the conductor runs at a plain folder whose direct children are separate git repos, Claude Code has no repo to branch from, so every `isolation: "worktree"` spawn fails. `/ds-init-project` detects this root (no `.git`, `git rev-parse` fails, at least one child has a `.git` directory) and installs two hooks from `content/templates/multi-repo-workspace/` into `<root>/.claude/hooks/`, wired as `WorktreeCreate` and `WorktreeRemove` in `<root>/.claude/settings.json`, plus `worktree.bgIsolation: "none"`.
+
+- **Per-spawn procedure:** write the target repo name (one line, a direct child of the root) to `<root>/.agentic/worktree-target`, then spawn. The hook input names no repo, so the file is the only selector. The create hook fetches `origin`, cuts `worktree-<name>` from the origin default branch, and creates `<root>/.worktrees/<repo>/<name>/`. A missing or invalid target fails the spawn with a list of the root's repos; it never runs in place. Spawns into different repos go in separate turns, each after its own target write. Concurrent conductor sessions at one root share the file, so only one session may spawn at a time.
+- **Retire:** subagent worktrees never trigger the remove hook. Retire each one at completion with plain `ds-retire-carrier <path>`; it resolves the repo from the worktree itself. The remove hook is the same call for `--worktree` and ExitWorktree removals, and keeps the worktree (exit 1, hold record in the child repo's `.agentic/worktree-cleanup-skips.jsonl`) whenever retire holds it.
+- **Branches:** `worktree-<name>` branches stay after retirement; prune with `ds-branch-prune --repo <root>/<repo>`.
+- **Sweep:** `ds-cleanup-worktrees --multi-repo <root>` covers every child repo.
+- **Other sessions at the root:** background sessions edit the workspace in place (`bgIsolation: "none"`). `--worktree` and remote-control worktree-mode sessions go through the create hook and land in whichever repo the target file currently names.
+- **No `.worktreeinclude`:** the hooks copy no untracked files into a new worktree.
+- **Untrusted workspace:** hooks do not run until the root is trusted, so spawns fail with the no-hooks error above; trust the workspace.
+- **Retirement condition:** remove the hooks, the settings keys, and this section once Claude Code can create isolation worktrees at a non-repo root without a `WorktreeCreate` hook.
 
 ### Manually-managed named worktrees (fan-out primitive)
 

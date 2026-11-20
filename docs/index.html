@@ -2062,6 +2062,7 @@
           <li>Root <code>AGENTS.md</code> (under 40 lines - lean by design)</li>
           <li><code>[track]/AGENTS.md</code> per subdirectory (backend, frontend, etc.)</li>
           <li><code>.claude/settings.json</code> + <code>settings.local.json</code></li>
+          <li><code>.claude/hooks/worktree-{create,remove}.sh</code> (only when the root is a folder of git repos, not a repo itself - lets isolation spawns run there)</li>
           <li><code>.agentic/qa.md</code> (always created - TODO placeholders for unknown values)</li>
           <li><code>.agentic/tracking.md</code> (always created - read by orchestration-planner at planning time)</li>
           <li><code>glossary.md</code> (optional - Ubiquitous Language; the project's domain terms; agents prefer these over synonyms)</li>
