@@ -398,15 +398,16 @@ CORPUS.append((
     True,
 ))
 # g8-01: a compliant block - 2 items, each carries a recommendation marker
-# (one "(Recommended)" suffix, one "Recommendation:" lead-in). Measured to
+# (one "(Recommended)" suffix, one "Recommendation:" lead-in) and a stop
+# tag (the untagged-decision classifier needs both). Measured to
 # ALLOW - a compliant author is never punished by this check.
 CORPUS.append((
     "g8-01",
     "prose_ballot_compliant_allow",
     "Fixed the login bug and added a regression test.\n\n"
     "## Operator decisions\n\n"
-    "- Proceed with approach A for the retry policy (Recommended) - matches the existing pattern in src/foo.ts.\n"
-    "- Proceed with approach B for the cache eviction window. Recommendation: use a 5 minute TTL to match the session cache.",
+    "- Proceed with approach A for the retry policy (Recommended) [stop: ratify] - matches the existing pattern in src/foo.ts.\n"
+    "- Proceed with approach B for the cache eviction window. Recommendation: use a 5 minute TTL to match the session cache. [stop: ratify]",
     False,
 ))
 # g8-02: a single decision item with a marker. Pins that a lone recommended
@@ -418,7 +419,7 @@ CORPUS.append((
     "prose_ballot_single_item_allow",
     "Fixed the login bug and added a regression test.\n\n"
     "## Operator decisions\n\n"
-    "- Proceed with approach A for the retry policy (Recommended) - matches the existing pattern in src/foo.ts.",
+    "- Proceed with approach A for the retry policy (Recommended) [stop: ratify] - matches the existing pattern in src/foo.ts.",
     False,
 ))
 

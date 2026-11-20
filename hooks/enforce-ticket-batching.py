@@ -4,7 +4,11 @@ Purpose: PreToolUse hook that enforces the operator-confirmation rule of
          `content/references/delegation-detail.md` §Follow-up Ticket
          Creation Discipline: the conductor never creates a follow-up,
          split, spin-off, tech-debt, or out-of-scope ticket on its own,
-         only after an explicit operator yes. The only create it allows
+         only after an explicit operator yes. The next piece of an
+         operator-assigned goal, started in the same turn, needs no fresh
+         yes; the deny text routes it through a `bin/ds-ticket-grant`
+         grant quoting the goal and naming the finished ticket, one per
+         finished piece. The only create it allows
          without an operator grant is the Ticket-offer gate's, which runs
          before the first subagent spawn of a session that did not arrive
          with an existing ticket (`content/sections/02-delegation.md`).
@@ -457,7 +461,13 @@ Purpose: PreToolUse hook that enforces the operator-confirmation rule of
          it can always write directly under `.agentic/`, which is exempt
          from the shippable-edit delegation guard); see
          `bin/ds-ticket-grant`'s module docstring for why that half is
-         left to conductor discipline, not a CLI check. What the
+         left to conductor discipline, not a CLI check. The next-piece
+         route in the deny text is the one sanctioned grant with no fresh
+         operator utterance: its reason quotes the operator's goal
+         statement, which is an operator utterance, and names the ticket
+         that just finished. Starting the piece in the same turn is prose
+         discipline only, so a conductor can still self-grant once per
+         finished piece. What the
          mechanism does buy is real: a passive kill-switch environment
          variable becomes a deliberate, per-create, one-shot, logged act
          that leaves an audit trail in `.enforcement-fires.jsonl` with a
@@ -1280,8 +1290,14 @@ _DENY_TEMPLATE = (
     "this is the Ticket-offer gate's create for a new top-level operator "
     "ask: run `bin/ds-ticket-grant grant --repo <repo> --session-id "
     "{session_id} --reason \"<the operator's own words, quoted>\"` then "
-    "retry (one-shot). `AE_TICKET_BATCH_GUARD_DISABLE=1` works only if set "
-    "before the session started."
+    "retry (one-shot). If this is the next piece of an operator-assigned "
+    "goal (a follow-up or a split) and you start it this turn, it is not a "
+    "follow-up and needs no fresh yes: run `bin/ds-ticket-grant grant "
+    "--repo <repo> --session-id {session_id} --reason \"<the operator's "
+    "goal statement, quoted>; next piece after <the ticket that just "
+    "finished>\"` then retry - one grant per finished piece. "
+    "`AE_TICKET_BATCH_GUARD_DISABLE=1` works only if set before the session "
+    "started."
 )
 
 _GRANT_ALLOW_TEMPLATE = (

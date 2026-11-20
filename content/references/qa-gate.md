@@ -58,7 +58,7 @@ Performance: Standard.
 
 **Phase 6b is a per-ticket, in-flow gate. Conductor MUST NOT aggregate Phase 6b across multiple tickets to run as a final batch step.** Each ticket's QA fires inside that ticket's own loop, before Phase 7. If runtime QA cannot run for ticket N at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for ticket N specifically, not deferred work to triage at batch end.
 
-When QA cannot run for ticket N, set the unit's QA result to `qa_blocked` and surface the blocker to the operator with the specific cause and the three options:
+When QA cannot run for ticket N, set the unit's QA result to `qa_blocked` and surface the blocker to the operator, as one Operator decision tagged `[stop: operator-only]`, with the specific cause and the three options:
 
 - **Provide the missing input** (env file, credentials, working preview URL) and re-run Phase 6b.
 - **Accept INCONCLUSIVE** with `qa_unverified=true` recorded on the unit (see classification rules below). The PR can still merge, but the ticket carries a known unverified-runtime flag.

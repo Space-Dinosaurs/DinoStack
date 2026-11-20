@@ -376,6 +376,23 @@ def test_first_creation_after_agent_spawn_denies():
         assert not _state_path(tmp, "sess-1").exists()
 
 
+def test_deny_names_next_piece_grant_route():
+    """The next piece of an operator-assigned goal is routed through a
+    ds-ticket-grant that names this session and the finished ticket."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        payload = _payload_with_transcript(tmp, [_PLAIN_USER_RECORD, _SPAWN_RECORD])
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert _is_denied(parsed)
+        reason = parsed["hookSpecificOutput"]["permissionDecisionReason"]
+        assert "next piece of an operator-assigned goal" in reason
+        assert "--session-id " + payload["session_id"] in reason
+        assert "goal statement, quoted" in reason
+        assert "the ticket that just finished" in reason
+        assert "one grant per finished piece" in reason
+
+
 def test_task_tool_use_counts_as_spawn():
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)

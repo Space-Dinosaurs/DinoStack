@@ -5,12 +5,13 @@ regress to the false claims DS-115 fix pass 1 (commit 61a802df) corrected
 across three files, NOR to the "only two shapes" undercount that PR #519's
 prose-ballot classifier fix left stale in three further published docs
 (docs/safe-configuration.md, docs/configuration-reference.md,
-docs/components.md) - the guard now blocks three shapes (permission-seeking
-interrogative, stalled surface-and-proceed, prose co-equal ballot), and a
-doc that only names two is factually wrong about live hook behavior.
+docs/components.md) - the guard now blocks four shapes (permission-seeking
+interrogative, stalled surface-and-proceed, prose co-equal ballot, and a
+recommended decision item with no `[stop: <label>]` tag), and a doc that
+names fewer is factually wrong about live hook behavior.
 
 Why this exists: `abdication_guard_enabled` has no code-level default - an
-absent key leaves the guard inert (see hooks/enforce-no-abdication.py:864,
+absent key leaves the guard inert (see hooks/enforce-no-abdication.py:1354,
 `config.get("abdication_guard_enabled") is not True`). Two of the three
 corrected files (hooks/enforce-no-abdication.py's own inline comment and
 docs/components.md's config entry) directly asserted the opposite - that
@@ -254,6 +255,29 @@ def test_components_md_states_ballot_shape() -> int:
     return failed
 
 
+STOP_TAG_DOCS = [
+    "hooks/AGENTS.md",
+    "docs/safe-configuration.md",
+    "docs/configuration-reference.md",
+    "docs/components.md",
+    "README.md",
+    "docs/index.html",
+]
+
+
+def test_docs_name_stop_tag() -> int:
+    """Assertions 17-22: each doc that lists the guard's shapes names the
+    untagged-decision shape by its `[stop:` tag."""
+    print("\n  [MUST STATE: untagged-decision shape in each shape list]")
+    failed = 0
+    for n, rel_path in enumerate(STOP_TAG_DOCS, start=17):
+        ok = "[stop:" in read_file(rel_path)
+        print(f"  [{'PASS' if ok else 'FAIL'}] {n}. {rel_path} names the [stop: <label>] tag")
+        if not ok:
+            failed += 1
+    return failed
+
+
 def main() -> None:
     total_failed = 0
     total_failed += test_forbidden_phrases_absent()
@@ -263,6 +287,7 @@ def main() -> None:
     total_failed += test_safe_configuration_md_states_ballot_shape()
     total_failed += test_configuration_reference_md_states_ballot_shape()
     total_failed += test_components_md_states_ballot_shape()
+    total_failed += test_docs_name_stop_tag()
 
     print()
     if total_failed == 0:

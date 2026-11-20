@@ -360,9 +360,9 @@ Design-taste BLOCKED returns are a contract violation. New-dep, major-upgrade, a
 <li>Destructive or irreversible action not pre-authorized - routine repo hygiene named in Standing authorizations is durably pre-authorized and never reaches this branch</li>
 <li>Credential, external API key, product judgment or name only the user knows</li>
 <li>Operator-only grant (Skeptic round cap: one "grant" per session, up to 6 rounds per unit)</li>
-<li>Required operator ratification (vision.md, tier dial)</li>
+<li>Required operator ratification (vision.md, tier dial, review-cap exit)</li>
 <li>Architect-declared Open Question</li>
-<li>Declared scope is complete and expansion needs approval</li>
+<li>The operator's assigned goal is done and only they can set what comes next</li>
 </ul>
 </div>
 </div>

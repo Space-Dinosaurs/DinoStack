@@ -267,12 +267,14 @@ def test_allow_path_logs() -> None:
         return
     detail = allow_rows[0].get("detail", {})
     check(
-        "10. allow row records the classified path with all three "
+        "10. allow row records the classified path with all four "
         "classifier verdicts False",
         detail.get("path") == "classified"
         and detail.get("c1_abdication") is False
         and detail.get("c2_stall") is False
-        and detail.get("c3_ballot") is False,
+        and detail.get("c3_ballot") is False
+        and detail.get("c4_untagged_decision") is False
+        and detail.get("untagged_items") == 0,
         "detail=%r" % detail,
     )
     check(
@@ -293,8 +295,8 @@ def test_compliant_ballot_allow_is_distinguishable() -> None:
     cwd = make_cwd()
     msg = (
         "## Operator decisions\n\n"
-        "- Ship option A. Recommendation: yes, it matches the existing pattern.\n"
-        "- Ship option B (Recommended)\n"
+        "- Ship option A. Recommendation: yes, it matches the existing pattern. [stop: ratify]\n"
+        "- Ship option B (Recommended) [stop: ratify]\n"
     )
     rc, stdout, _ = run_hook(cwd, make_payload(cwd, msg))
     check(
@@ -310,7 +312,9 @@ def test_compliant_ballot_allow_is_distinguishable() -> None:
         detail.get("decisions_heading") is True
         and detail.get("decision_items") == 2
         and detail.get("unrecommended_items") == 0
-        and detail.get("c3_ballot") is False,
+        and detail.get("c3_ballot") is False
+        and detail.get("c4_untagged_decision") is False
+        and detail.get("untagged_items") == 0,
         "detail=%r" % detail,
     )
 

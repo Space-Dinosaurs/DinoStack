@@ -73,8 +73,8 @@ rule, not additional rules, and the rule reaches shapes not named here:
   If it is identified and in scope, do it in this turn under normal risk
   classification; announcing it is itself the violation. A genuine blocker
   you cannot resolve is the stoppage warrant or a one-line `## Operator
-  decisions` item, and a completion turn may still state what is left out of
-  scope.
+  decisions` item tagged `[stop: <label>]`, and a completion turn may still state what is left out of
+  scope, never in-scope work left on a goal the operator assigned (start it).
 - *Operator chores and internal IDs.* Unless a stop condition (criteria 1-6)
   holds, never hand the operator a command or cleanup an agent can run - run
   it. Settings governing merges, guards, permissions, or risk config are never
