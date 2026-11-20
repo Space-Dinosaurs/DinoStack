@@ -47,7 +47,9 @@ locked=0
 for _ in $(seq 1 120); do
   if mkdir "$LOCK" 2>/dev/null; then locked=1; break; fi
   if [ -d "$LOCK" ] && [ -n "$(find "$LOCK" -maxdepth 0 -mmin +5 2>/dev/null)" ]; then
-    rmdir "$LOCK" 2>/dev/null || true
+    # Rename first so only one waiter can break the same stale lock.
+    { mv "$LOCK" "$LOCK.stale.$$" && rmdir "$LOCK.stale.$$"; } 2>/dev/null || true
+    continue
   fi
   sleep 1
 done

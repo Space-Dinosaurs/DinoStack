@@ -7,7 +7,8 @@
 #
 # Public API: none (`bash bin/tests/test_workspace_worktree_hooks.sh`).
 #
-# Upstream deps: the two templates; bin/ds-retire-carrier (via PATH); git; python3.
+# Upstream deps: the two templates; the Step 5a block of content/commands/ds-init-project.md;
+#                bin/ds-retire-carrier (via PATH); git; python3.
 #
 # Downstream consumers: CI (bin-tests.yml shell-test glob).
 #
@@ -141,6 +142,53 @@ ln -s "$wt" "$S/alias"
 remove "$S/alias"; rc=$?
 [ "$rc" -eq 0 ] && [ ! -e "$wt" ]
 assert $? "path resolving into .worktrees/a/<name> is accepted"
+
+echo "create: a stale lock is broken"
+mkdir "$WS/.worktrees/a/.create.lock"
+touch -t 200001010000 "$WS/.worktrees/a/.create.lock"
+out="$(create k1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "$WS/.worktrees/a/k1" ] && [ ! -e "$WS/.worktrees/a/.create.lock" ]
+assert $? "create succeeds and the lock is released"
+
+echo "init Step 5a block"
+STEP5A="$S/step5a.sh"
+awk '/^### 5a\./{f=1} /^### 6\./{f=0} f' "$REPO_ROOT/content/commands/ds-init-project.md" \
+  | awk '/^```bash$/{b=1; next} /^```$/{if (b) exit} b' > "$STEP5A"
+grep -q '^MODE=apply$' "$STEP5A"
+assert $? "Step 5a block extracted"
+FAKE="$S/fake-dinostack"
+mkdir -p "$FAKE/scripts/lib"
+cp "$REPO_ROOT/scripts/lib/repo-dir.sh" "$FAKE/scripts/lib/"
+"${G[@]}" init -q "$FAKE"
+step5a() {
+  mkdir -p "$HOME/.agentic"
+  printf '{"repo_dir":"%s"}' "$2" > "$HOME/.agentic/agentic-engineering-config.json"
+  (cd "$1" && sed "s/^MODE=apply$/MODE=$3/" "$STEP5A" | bash) > "$S/step5a.out" 2>&1
+}
+fresh_ws() {
+  find "${S:?}/ws5" -depth -delete 2>/dev/null
+  mkdir -p "$S/ws5/.claude"
+  printf '%s' "$1" > "$S/ws5/.claude/settings.json"
+  cp "$S/ws5/.claude/settings.json" "$S/settings.before"
+}
+unchanged() { cmp -s "$S/ws5/.claude/settings.json" "$S/settings.before" && [ ! -e "$S/ws5/.claude/hooks" ]; }
+
+fresh_ws '{"env":{}}'
+step5a "$S/ws5" "$FAKE" apply; rc=$?
+[ "$rc" -ne 0 ] && unchanged && grep -q 'templates missing' "$S/step5a.out"
+assert $? "missing templates: nothing copied or written, reason reported"
+fresh_ws '{"env":{},}'
+step5a "$S/ws5" "$REPO_ROOT" apply; rc=$?
+[ "$rc" -ne 0 ] && unchanged && grep -q 'settings.json unparseable: hooks not installed' "$S/step5a.out"
+assert $? "unparseable settings: nothing copied or written"
+fresh_ws '{"env":{}}'
+step5a "$S/ws5" "$REPO_ROOT" plan; rc=$?
+[ "$rc" -eq 0 ] && unchanged && grep -q 'would add WorktreeCreate' "$S/step5a.out"
+assert $? "MODE=plan writes nothing"
+step5a "$S/ws5" "$REPO_ROOT" apply; rc=$?
+[ "$rc" -eq 0 ] && [ -x "$S/ws5/.claude/hooks/worktree-remove.sh" ] \
+  && python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); sys.exit(0 if "WorktreeRemove" in d["hooks"] and d["worktree"]["bgIsolation"] == "none" and "env" in d else 1)' "$S/ws5/.claude/settings.json"
+assert $? "MODE=apply installs scripts and keys, keeps env"
 
 echo
 if [ "$fail_count" -ne 0 ]; then
