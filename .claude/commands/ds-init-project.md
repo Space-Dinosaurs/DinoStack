@@ -212,6 +212,8 @@ re-runnable via `/ds-init-project`. They are intentionally not asked here to kee
 
 **Auto-memory directory** - memory lives at `<cwd>/.agentic/memory/`. This is project-local (not under the sensitive `.claude/` path) and not platform-hashed. `/ds-init-project` writes this path as `autoMemoryDirectory` in Step 7. Note: `autoMemoryDirectory` is **ignored** if set in the checked-in `.claude/settings.json` for security - it must be written to `.claude/settings.local.json` (the gitignored user-local file). Only Claude Code honors this setting; Codex/Cursor/Gemini adapters do not consume it.
 
+**Multi-repo workspace** - a signal only when all three hold: `<root>/.git` is absent; `git -C <root> rev-parse --git-dir` fails; at least one direct child has a `.git` directory. Record N, the number of such children. If `<root>/.git` is absent, `rev-parse` succeeds, and a direct child has a `.git` directory, the root sits inside a parent repo: report the Nested repo caveat (`content/references/subagent-protocol.md` §Nested repo caveat) and install nothing. Isolation spawns at such a root need the Step 5a hooks; see `content/references/subagent-protocol.md` §Multi-repo workspace.
+
 ### 1. Present discovery results
 
 Present the results of Step 0 in a single message:
@@ -230,6 +232,7 @@ Discovery complete. Here's what I found:
   Benchmarks:    [detected type]  ([e.g. "vitest bench scripts in package.json"])
   Dep audit:     [command]        ([e.g. "npm audit", derived from package manager])
   Auto-memory:   [selected path]  ([e.g. "selected from 3 existing dirs - most recent" or "greenfield - new dir will be created"])
+  Workspace:     multi-repo (N repos)  ([e.g. "root is not a git repo; a, b have .git"])
 
 Fields not shown were not detected and are optional — you can add them now or later.
 
@@ -253,12 +256,13 @@ With the structured-question tool, print the block without its final `Reply acce
 - "no benchmarks" / "skip benchmarks" → clear benchmark signal
 - "no dep audit" / "skip dep audit" → clear dep-audit derivation
 - "no auto-memory" / "skip auto-memory pin" → clear autoMemoryDirectory signal (suppresses the Step 7 write and the Step 2a idempotent update)
+- "no worktree hooks" → clear the multi-repo workspace signal (suppresses Step 5a and Step 2a item 13)
 
 ### Principle: Negative answers are sticky
 
 **Negative answers are sticky.** Whenever the user declines a feature in Step 1 - any "no X" / "skip X" override above, or any `n` / `no` / `neither` / `none` / `skip` answer (or the default option, or an empty reply) to a y/N prompt below - record this as an explicit decline for that feature in the in-memory state. A declined feature must suppress ALL downstream prompts and actions about that feature in Steps 2a, 6, 6a, 7, 10, 11, and the final summary reminders in Step 12. Never re-prompt for something the user already declined. The only permissible follow-up after a decline is a single contradiction-resolution prompt when existing on-disk state conflicts with the decline (see Step 2a, Legacy `## Linear` migration).
 
-Declinable features enumerated (each must be honored in every downstream step): project name (not declinable — required), description, tracks, database CLI, web UI, `gh`, tracker (Linear / Jira / neither), release, benchmarks, dep audit, **auto-memory pin** (new — declined via "no auto-memory" / "skip auto-memory pin"; suppresses Step 2a item 9, Step 7's `autoMemoryDirectory` write, and Step 12 reminder 12).
+Declinable features enumerated (each must be honored in every downstream step): project name (not declinable - required), description, tracks, database CLI, web UI, `gh`, tracker (Linear / Jira / neither), release, benchmarks, dep audit, **auto-memory pin** (new - declined via "no auto-memory" / "skip auto-memory pin"; suppresses Step 2a item 9, Step 7's `autoMemoryDirectory` write, and Step 12 reminder 12), **worktree hooks** (declined via "no worktree hooks"; suppresses Step 5a, Step 2a item 13, and the Step 3 workspace Conventions bullet).
 
 When adding a new declinable feature to Step 1, extend the override grammar above AND wire the decline signal through every downstream step that prompts about or acts on that feature.
 
@@ -310,6 +314,7 @@ Before writing any files, check which files already exist. The full set of files
 - `[track]/AGENTS.md` for each track the user named (omit if no tracks were named)
 - `.claude/settings.json`
 - `.claude/settings.local.json`
+- `.claude/hooks/worktree-create.sh`, `.claude/hooks/worktree-remove.sh`, and the `WorktreeCreate`/`WorktreeRemove`/`worktree.bgIsolation` keys in `.claude/settings.json` (only for a multi-repo workspace, Step 5a)
 - `.agentic/qa.md` (only if web UI confirmed in Step 1)
 - `tests/visual-baselines/.gitkeep` (only if web UI confirmed in Step 1)
 - `.agentic/deploy.md` (only if release signals detected in Step 0)
@@ -483,6 +488,8 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
     - Preserve every other byte of every file. **Dangling guard:** if root `MEMORY.md` is absent, seed the Step 8 stub; never overwrite an existing `MEMORY.md`.
     - **Audience triage (state (a) only; one Worker drafts, one Skeptic reviews; proposals join this diff preview):** classify each MEMORY.md entry (two-tier projects, where `ds-memory-capture detect` reports `two-tier` or `two-tier-unresolved`: each index line names `.agentic/memory-shards/<id>.md` - classify from the shard body and promote the body's fact, never the index line). QA sandbox traps and QA seeding facts go to a `## Knowledge` entry in `.agentic/qa.md`; local-stack recipes and test-env gotchas go to root `AGENTS.md` or a track's `<dir>/AGENTS.md` (ensure `<dir>/CLAUDE.md` contains an `@AGENTS.md` line, creating it if absent); standing operator rulings and conductor-behavioral rules stay in MEMORY.md only. Skip any fact the target already states. Root `AGENTS.md` grows by at most 8,192 bytes. Never edit MEMORY.md or any shard.
     List each planned change under a `Memory main-only:` heading.
+
+13. **Multi-repo workspace worktree hooks** - if Step 0 detected a multi-repo workspace and the user did not decline it (`no worktree hooks`): in the preview, run the Step 5a block with `MODE=plan` and list its lines under a `Worktree hooks:` heading; after "y", run it with `MODE=apply`. It copies a script only when absent, reports an edited script as "differs from template, left untouched", adds both hook events only when neither exists, and adds `worktree.bgIsolation` only when that key is absent.
 
 **Present the diff:**
 
@@ -684,6 +691,8 @@ When 3d-pre DID fire, the block omits the `## Activation` heading and the activa
 
 Keep it under 45 lines.
 
+If Step 0 detected a multi-repo workspace and the user did not decline worktree hooks, add this bullet under `## Conventions`: "**Multi-repo workspace** - isolation spawns go through `.claude/hooks/worktree-create.sh`: write the target repo name to `.agentic/worktree-target`, then spawn; spawns into different repos go in separate turns. See DinoStack `content/references/subagent-protocol.md` §Multi-repo workspace."
+
 If the project shows parallel fan-out signals (3 or more distinct modules or tracks, complex orchestration history in git log, or prior multi-unit plans visible in docs/planning/), add a note in the scaffolded root AGENTS.md under `## Conventions`: "`.agentic/tasks.jsonl` is the task coordination surface for multi-unit orchestration plans."
 
 ### 4. Create subdirectory `AGENTS.md` files
@@ -707,6 +716,101 @@ Only create if it does not already exist. Content:
 ```
 
 MCP servers are not added by default - prefer CLI tools (`gh`, `psql`, etc.). Only add MCP blocks if there is a specific reason.
+
+### 5a. Install multi-repo workspace worktree hooks
+
+Run only when Step 0 detected a multi-repo workspace and the user did not decline it (`no worktree hooks`). Otherwise skip silently. Background: `content/references/subagent-protocol.md` §Multi-repo workspace.
+
+Run from the project root with `MODE=apply` (Step 2a item 13's preview uses `MODE=plan`, which prints the same lines prefixed `would` and writes nothing). The `AE_BOOT` line only locates the resolver library, as in `/ds-evaluate`. Both templates must exist and `settings.json` must parse before anything is copied or written; otherwise the block copies nothing, writes nothing, and exits 1 naming the reason.
+
+```bash
+MODE=apply
+AE_BOOT="$(python3 -c 'import json, os; print(json.load(open(os.path.expanduser("~/.agentic/agentic-engineering-config.json"))).get("repo_dir", ""))' 2>/dev/null)"
+REPO_DIR=""
+. "${AE_BOOT:-$HOME/DinoStack}/scripts/lib/repo-dir.sh" && resolve_repo_dir --quiet && REPO_DIR="$AE_REPO_DIR"
+if [ -z "$REPO_DIR" ]; then
+  echo "cannot resolve the DinoStack checkout - worktree hooks not installed" >&2
+  false
+else
+  python3 - "$REPO_DIR/content/templates/multi-repo-workspace" .claude "$MODE" <<'PY'
+import filecmp, json, os, shutil, sys
+src_dir, claude_dir, mode = sys.argv[1:4]
+scripts = ("worktree-create.sh", "worktree-remove.sh")
+missing = [s for s in scripts if not os.path.isfile(os.path.join(src_dir, s))]
+if missing:
+    print("templates missing in %s (%s): hooks not installed" % (src_dir, ", ".join(missing)))
+    sys.exit(1)
+path = os.path.join(claude_dir, "settings.json")
+try:
+    with open(path) as fh:
+        text = fh.read()
+except FileNotFoundError:
+    text = "{}"
+try:
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise ValueError("not an object")
+except ValueError:
+    print("settings.json unparseable: hooks not installed")
+    sys.exit(1)
+pre = "would " if mode == "plan" else ""
+copies = []
+for s in scripts:
+    src, dst = os.path.join(src_dir, s), os.path.join(claude_dir, "hooks", s)
+    if not os.path.exists(dst):
+        copies.append((src, dst))
+        print("%screate .claude/hooks/%s" % (pre, s))
+    elif filecmp.cmp(src, dst, shallow=False):
+        print(".claude/hooks/%s already current" % s)
+    else:
+        print(".claude/hooks/%s differs from template, left untouched" % s)
+changed = False
+hooks = data.get("hooks", {})
+if not isinstance(hooks, dict):
+    print("settings.json hooks is not an object: hook events left untouched")
+elif "WorktreeCreate" in hooks or "WorktreeRemove" in hooks:
+    print("WorktreeCreate/WorktreeRemove already configured: left untouched")
+else:
+    for event, script, timeout in (("WorktreeCreate", "worktree-create.sh", 180),
+                                   ("WorktreeRemove", "worktree-remove.sh", 300)):
+        hooks[event] = [{"hooks": [{"type": "command",
+                                    "command": 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/%s"' % script,
+                                    "timeout": timeout}]}]
+    data["hooks"] = hooks
+    changed = True
+    print("%sadd WorktreeCreate and WorktreeRemove hooks" % pre)
+worktree = data.get("worktree", {})
+if not isinstance(worktree, dict):
+    print("settings.json worktree is not an object: bgIsolation left untouched")
+elif "bgIsolation" in worktree:
+    print("worktree.bgIsolation already set: left untouched")
+else:
+    worktree["bgIsolation"] = "none"
+    data["worktree"] = worktree
+    changed = True
+    print("%sadd worktree.bgIsolation: none" % pre)
+if mode != "apply":
+    sys.exit(0)
+for src, dst in copies:
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    shutil.copyfile(src, dst)
+    os.chmod(dst, 0o755)
+if changed:
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(data, fh, indent=2)
+        fh.write("\n")
+    os.replace(tmp, path)
+PY
+fi
+```
+
+Report every printed line, then:
+- The settings file watcher picks up the change; run `/hooks` and restart Claude Code only if `WorktreeCreate` and `WorktreeRemove` are not listed.
+- The workspace must be trusted, or the hooks do not run and isolation spawns fail.
+- Before each isolation spawn, write the target repo name to `.agentic/worktree-target`.
+- An agent worktree may remain after the agent finishes; retire each remaining one with `ds-retire-carrier <path>` when its work is complete (skip a path that is already gone).
+- Background sessions at this root edit in place (`bgIsolation: "none"`). `--worktree` and remote-control worktree sessions get a worktree in whichever repo the target file names, but it is not removed on exit; retire it with `ds-retire-carrier <path>`.
 
 ### 6. Create `.agentic/qa.md`
 
