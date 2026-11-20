@@ -57,10 +57,28 @@ Purpose: Stop hook that mechanically reduces conductor abdication - ending a
          by design - a spec-compliant decision block is not a permission-
          seeking interrogative - but it means the two checks are no longer
          incidentally independent on this class of turn: _is_prose_ballot
-         is the only classifier actually deciding the outcome once a
-         marker is present. Documented here because the spec change
+         and _is_untagged_decision decide the outcome once a marker is
+         present (_is_stalled_surface_and_proceed can still fire on a
+         commitment phrase). Documented here because the spec change
          mandating the marker made this coupling universal rather than
          incidental.
+
+         Also detects an UNTAGGED DECISION: an `## Operator decisions` item
+         that carries a recommendation marker but no `[stop: <label>]` tag
+         from _STOP_LABELS, the closed set naming the stop conditions 1-6 of
+         content/sections/02-delegation.md. Named catch: two 2026-11-20
+         conductor turns that parked the remaining in-scope work on an
+         operator-assigned priority goal as one marked "start the next part"
+         item; both passed every classifier above (a single marked item is
+         neither a ballot nor, behind the marker's negative gate, an
+         abdication). Known residuals: an item with no recommendation marker
+         is skipped by this check (and a single one passes the ballot check
+         too); the first stop after any Stop-hook block exits unchecked at
+         the stop_hook_active guard in main(); a turn that lists leftover
+         work with no decisions heading at all; AskUserQuestion; and a false
+         tag. Retirement: if 90 days pass with zero fire-log rows where
+         decision == "deny" and detail.fired == "untagged_decision" (count
+         with jq on .agentic/.enforcement-fires.jsonl), delete the check.
 
          Scoped to the MAIN session Stop event only (not SubagentStop), so
          it governs the conductor, not Workers.
@@ -70,7 +88,7 @@ Purpose: Stop hook that mechanically reduces conductor abdication - ending a
          reminders - and this repo has such a hook). Layer 1: check stop_hook_active
          flag (primary). Layer 2: counter-based cap (backstop) that counts
          consecutive blocks since the last new user message and halts at CAP.
-         All three classifiers below share this same loop-guard machinery.
+         All four classifiers below share this same loop-guard machinery.
          The counter + user-message-counting machinery lives in the shared
          module hooks/lib/loop_guard.py (COUNTER_FILENAME = ".abdication-guard-
          fire-count", CONSECUTIVE_BLOCK_CAP = 2); this hook loads it lazily via
@@ -84,7 +102,7 @@ Purpose: Stop hook that mechanically reduces conductor abdication - ending a
          two-exit reroute rather than an unconditional "proceed now" - exit
          (B) lets the model decline and wait for operator authorization on
          the very turn a false positive fires, escapable in the next turn
-         rather than forced. Three independent classifiers run per
+         rather than forced. Four independent classifiers run per
          invocation, and a block fires if ANY returns true:
 
          1. _is_abdication(): the classic permission-seeking interrogative
@@ -120,6 +138,11 @@ Purpose: Stop hook that mechanically reduces conductor abdication - ending a
             why (irreversibility vocabulary in the ballot must not silence
             this check, which is exactly the escape it was added to close).
 
+         4. _is_untagged_decision(): a recommended `## Operator decisions`
+            item with no valid stop tag - see the module-level note above.
+            Also exempt from _HARD_NEGATIVE_GATE_PATTERNS, for the same
+            reason as (3).
+
          Classifier (1) keeps the full marker set (including a bare
          "(recommended)") as an UNCONDITIONAL suppressor of its OWN
          interrogative check - this does not change classifier (2)'s or (3)'s
@@ -129,7 +152,7 @@ Purpose: Stop hook that mechanically reduces conductor abdication - ending a
          "proceeding with" is a stall-commitment marker, and if the transcript
          shows no tool call this turn, classifier (2) still fires and the
          overall turn BLOCKs - the marker suppresses classifier (1) alone, it
-         is not a blanket exemption from the OR'd result across all three
+         is not a blanket exemption from the OR'd result across all four
          classifiers. A bare "(recommended)" with no accompanying commitment
          phrase never triggers classifier (2), because labelling a derived
          choice is not itself a promise to act that can go unfulfilled.
@@ -835,6 +858,53 @@ def _is_prose_ballot(text: str) -> bool:
     return unrecommended >= 2
 
 
+# Stop-condition labels, in the order of stop conditions 1-6 in
+# content/sections/02-delegation.md. A tag naming anything else is no tag.
+_STOP_LABELS = ("irreversible", "operator-only", "ambiguous", "goal-done", "grant", "ratify")
+_STOP_TAG_RE = re.compile(
+    r"\[stop:\s*(?:" + "|".join(re.escape(label) for label in _STOP_LABELS) + r")\]",
+    re.IGNORECASE,
+)
+_NUMBERED_ITEM_RE = re.compile(r"^(?:\d+[.)]|\*\*\s*\d+[.)])")
+
+
+def _top_level_decision_items(items: list) -> list:
+    """Return (own_text, full_text) pairs. When a block numbers its items,
+    each column-0 bullet is folded into the full_text of the numbered item
+    above it: such a bullet is a relayed report quoted inside that item, and
+    its own "Recommendation:" line must not count as an untagged item. The
+    tag must sit in own_text, so a tag on a folded bullet never tags the
+    item. A block of bullets only is returned unfolded."""
+    if not any(_NUMBERED_ITEM_RE.match(item) for item in items):
+        return [(item, item) for item in items]
+    merged = []
+    for item in items:
+        if merged and not _NUMBERED_ITEM_RE.match(item) and _NUMBERED_ITEM_RE.match(merged[-1][0]):
+            merged[-1] = (merged[-1][0], merged[-1][1] + item)
+        else:
+            merged.append((item, item))
+    return merged
+
+
+def _untagged_decision_count(text: str) -> int:
+    masked = _mask_fenced_code_blocks(text)
+    block = _extract_operator_decisions_block(masked)
+    if not block:
+        return 0
+    items = _top_level_decision_items(_split_decision_items(block))
+    return sum(
+        1 for own, full in items
+        if _RECOMMENDATION_RE.search(full) and not _STOP_TAG_RE.search(own)
+    )
+
+
+def _is_untagged_decision(text: str) -> bool:
+    """Return True if any recommended Operator decisions item lacks a valid
+    stop tag. Unmarked items are left to _is_prose_ballot. Not subject to
+    _HARD_NEGATIVE_GATE_PATTERNS, for the reason _is_prose_ballot gives."""
+    return _untagged_decision_count(text) > 0
+
+
 # ---------------------------------------------------------------------------
 # Loop-guard loader (counter + user-message counting live in loop_guard.py)
 # ---------------------------------------------------------------------------
@@ -1172,8 +1242,9 @@ _ABDICATION_REASON = (
     "a stop condition genuinely holds - (1) a genuinely "
     "irreversible/destructive action not pre-authorized, (2) information "
     "you cannot derive (credentials, product judgments), (3) ambiguous "
-    "acceptance criteria with no inferable default, (4) a scope-expansion "
-    "decision once declared scope is complete, (5) an operator-only grant "
+    "acceptance criteria with no inferable default, (4) the operator's "
+    "assigned goal is done (their stated outcome, not the current ticket) "
+    "and only they can set what comes next, (5) an operator-only grant "
     "you cannot mint or clear, or (6) a required operator ratification - "
     "do NOT proceed. Say so explicitly, state that you are waiting for operator "
     "authorization, and end the turn; that is an equally compliant "
@@ -1216,6 +1287,22 @@ _BALLOT_REASON = (
     "surface exactly ONE recommended action per item, marked with a "
     "'Recommendation:' lead-in or a '(Recommended)' suffix. Revise the "
     "Operator decisions block now."
+)
+
+_UNTAGGED_DECISION_REASON = (
+    "ABDICATION GUARD: An 'Operator decisions' item carries a "
+    "recommendation but no stop-condition tag. Each item must name the "
+    "stop condition that admits it (content/sections/02-delegation.md): "
+    "[stop: irreversible], [stop: operator-only], [stop: ambiguous], "
+    "[stop: goal-done], [stop: grant], or [stop: ratify]. Two compliant "
+    "exits: (A) If no stop condition holds - including in-scope work left "
+    "on a goal the operator assigned - start that work NOW, in this same "
+    "turn, and drop the item. (B) If a stop condition genuinely holds, "
+    "append its tag to the item and end the turn; that is an equally "
+    "compliant response to this block, not a loophole. Work left on the "
+    "operator's goal is never [stop: goal-done], and a tag naming a "
+    "condition that does not hold is the abdication this guard exists to "
+    "catch."
 )
 
 
@@ -1362,16 +1449,17 @@ def main() -> None:
             had_tool_call = False
             stall_provable = False
 
-        # Run all three classifiers; a block fires if ANY returns True.
+        # Run all four classifiers; a block fires if ANY returns True.
         # Prose-ballot scans the full message; abdication and the stall check
         # scan only the tail (see _is_abdication / _is_stalled_surface_and_proceed
         # / _is_prose_ballot).
         is_stall = _is_stalled_surface_and_proceed(msg_text, stall_provable, had_tool_call)
         is_classic_abdication = _is_abdication(msg_text)
         is_ballot = _is_prose_ballot(msg_text)
+        is_untagged = _is_untagged_decision(msg_text)
 
         # Telemetry only. Computed from msg_text and the already-completed
-        # scan result via pure, read-only helpers, AFTER all three
+        # scan result via pure, read-only helpers, AFTER all four
         # classifiers have already returned - nothing below can reach back
         # and alter a verdict. Wrapped so that a defect in the telemetry
         # computation itself degrades to "no detail" rather than to a
@@ -1396,21 +1484,23 @@ def main() -> None:
                 "c1_abdication": is_classic_abdication,
                 "c2_stall": is_stall,
                 "c3_ballot": is_ballot,
+                "c4_untagged_decision": is_untagged,
+                "untagged_items": _untagged_decision_count(msg_text),
             }
         except Exception:
             verdict_detail = {"path": "classified", "detail_error": True}
 
-        if not is_stall and not is_classic_abdication and not is_ballot:
+        if not is_stall and not is_classic_abdication and not is_ballot and not is_untagged:
             # No classifier fired - reset counter (clean turn) and allow.
             lg.reset_counter(cwd, COUNTER_FILENAME, current_user_msg_count)
             _fire_log(data, "allow", "no classifier fired; clean turn", verdict_detail)
             sys.exit(0)
 
-        # Abdication, stall, or ballot detected. Only block if we can persist
+        # Abdication, stall, ballot, or untagged decision detected. Only block if we can persist
         # the incremented count. If persistence fails (unwritable .agentic/,
         # full disk, etc.) the loop bound is lost; the safe degradation is
         # allow-stop to avoid an infinite block loop when stop_hook_active
-        # also fails (CC bug #54360). All three classifiers share this same
+        # also fails (CC bug #54360). All four classifiers share this same
         # counter/cap.
         new_count = state["count"] + 1
         if not lg.write_counter(cwd, COUNTER_FILENAME, new_count, current_user_msg_count):
@@ -1425,6 +1515,9 @@ def main() -> None:
         if is_ballot:
             reason = _BALLOT_REASON
             fired = "ballot"
+        elif is_untagged:
+            reason = _UNTAGGED_DECISION_REASON
+            fired = "untagged_decision"
         elif is_stall:
             reason = _STALL_REASON
             fired = "stall"

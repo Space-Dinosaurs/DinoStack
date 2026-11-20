@@ -84,7 +84,7 @@ When the guard does not apply (no Brief, or all units carry `acceptance_criteria
 
 **On any UNCOVERED criterion:** resolve before the Skeptic-on-Brief fires by one of:
 - (a) Re-spawn the orchestration-planner with the specific uncovered criteria called out, so it adds or amends a unit's `acceptance_criteria`.
-- (b) Surface the mismatch to the operator with a recommended resolution (descope the criterion from the Brief, or expand scope to cover it).
+- (b) Surface the mismatch to the operator with a recommended resolution, tagged `[stop: ambiguous]` (descope the criterion from the Brief, or expand scope to cover it).
 
 The conductor does not proceed to the Skeptic-on-Brief with an unresolved UNCOVERED criterion.
 

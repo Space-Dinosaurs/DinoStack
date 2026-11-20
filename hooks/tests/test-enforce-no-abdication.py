@@ -47,6 +47,9 @@ Test coverage:
   - REGRESSION (Skeptic round 2, MAJOR 1): verbatim reviewer input (general
     surface-and-proceed phrasing, no marker, in-block) -> BLOCK; the same
     content with the block-required marker added -> ALLOW
+  - Untagged decision: a recommended item with no closed-set [stop: <label>]
+    tag -> BLOCK with the untagged reason; tagged, relayed-report and
+    unmarked-bullet shapes -> ALLOW; every content/ tag uses a valid label
 """
 
 from __future__ import annotations
@@ -530,9 +533,11 @@ def build_prose_ballot_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | N
                 "Found two decisions this turn.\n\n"
                 "## Operator decisions\n"
                 "- Cache eviction policy: Recommendation: LRU, matches the "
-                "existing cache module. Reversible with a one-line config flip.\n"
+                "existing cache module. Reversible with a one-line config flip. "
+                "[stop: ratify]\n"
                 "- Retry backoff: use exponential backoff (Recommended) - "
-                "matches src/http/client.ts. Reversible with a one-line revert.\n"
+                "matches src/http/client.ts. Reversible with a one-line revert. "
+                "[stop: ratify]\n"
             ),
         ),
         "ALLOW",
@@ -592,7 +597,7 @@ def build_prose_ballot_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | N
                 "One flagged item, one already resolved.\n\n"
                 "## Operator decisions\n"
                 "- Logging library: Recommendation: keep pino, matches "
-                "existing usage across the service.\n"
+                "existing usage across the service. [stop: ambiguous]\n"
                 "- Retention window: needs your call, no default derivable "
                 "from existing config.\n"
             ),
@@ -699,9 +704,9 @@ def build_prose_ballot_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | N
             last_assistant_message=(
                 "## Operator decisions\n\n"
                 "**1. Cache eviction policy.** Recommendation: **LRU** - "
-                "matches the existing cache module.\n\n"
+                "matches the existing cache module. [stop: ratify]\n\n"
                 "**2. Retry backoff.** Recommendation: **exponential** - "
-                "matches src/http/client.ts.\n"
+                "matches src/http/client.ts. [stop: ratify]\n"
             ),
         ),
         "ALLOW",
@@ -776,7 +781,7 @@ def build_prose_ballot_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | N
             last_assistant_message=(
                 "## Operator decisions\n\n"
                 "**1. Merge PR #516.** Recommendation: merge now; CI is "
-                "green.\n"
+                "green. [stop: irreversible]\n"
                 "   - the DCO check passed\n"
                 "   - the adapter-sync check passed\n"
             ),
@@ -791,9 +796,9 @@ def build_prose_ballot_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | N
             fresh_dir("indented_sub_bullets_two_items"),
             last_assistant_message=(
                 "## Operator decisions\n\n"
-                "**1. Merge PR #516.** Recommendation: merge now.\n"
+                "**1. Merge PR #516.** Recommendation: merge now. [stop: irreversible]\n"
                 "   - CI is green\n\n"
-                "**2. Close DS-114.** Recommendation: close as done.\n"
+                "**2. Close DS-114.** Recommendation: close as done. [stop: ratify]\n"
                 "   - all acceptance criteria met\n"
             ),
         ),
@@ -927,9 +932,11 @@ def build_prose_ballot_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | N
             last_assistant_message=(
                 "## Operator decisions\n"
                 "- Recommendation: approach A - matches existing pattern "
-                "in src/foo.ts. Proceeding unless you say otherwise.\n"
+                "in src/foo.ts. Proceeding unless you say otherwise. "
+                "[stop: ratify]\n"
                 "- Recommendation: exponential backoff - matches "
-                "src/http/client.ts. Proceeding unless you say otherwise.\n"
+                "src/http/client.ts. Proceeding unless you say otherwise. "
+                "[stop: ratify]\n"
             ),
         ),
         "ALLOW",
@@ -1609,6 +1616,130 @@ def test_six_source_enumeration() -> int:
     return failed
 
 
+INCIDENT_PARKED_GOAL_MSG = (
+    "The first slice of the demo goal is merged. Its report lists 8 polish "
+    "items and 3 treatments still open.\n\n"
+    "## Operator decisions\n\n"
+    "1. Start the remaining polish items for the demo goal. Recommendation: "
+    "start the next part now. Say if you want that started.\n"
+)
+
+
+def test_untagged_decision(tmp_dir: str) -> int:
+    """A recommended Operator decisions item must carry a [stop: <label>]
+    tag from the closed set, or the stop is blocked with the untagged
+    reason. Fixture (a) is the sanitized shape of the parked-goal incident
+    turns, which passed every earlier classifier."""
+    print("\n  [Untagged decision classifier]")
+    failed = 0
+
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("enforce_no_abdication_tags", HOOK_PATH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    untagged_reason = mod._UNTAGGED_DECISION_REASON
+
+    def check(label: str, msg: str, expect_untagged_block: bool) -> None:
+        nonlocal failed
+        d = os.path.join(tmp_dir, "untagged_" + str(abs(hash(label))))
+        os.makedirs(d, exist_ok=True)
+        make_config_file(d, enabled=True)
+        rc, stdout, _ = run_hook(make_payload(d, last_assistant_message=msg))
+        if expect_untagged_block:
+            ok = get_reason(rc, stdout) == untagged_reason
+        else:
+            ok = is_allow(rc, stdout)
+        print(f"    [{'PASS' if ok else 'FAIL'}] {label}")
+        if not ok:
+            failed += 1
+            print(f"         rc={rc} stdout={stdout[:160]!r}")
+
+    check("(a) incident item, untagged -> BLOCK with the untagged reason",
+          INCIDENT_PARKED_GOAL_MSG, True)
+    check("(b) same item tagged [stop: operator-only] -> ALLOW",
+          INCIDENT_PARKED_GOAL_MSG.rstrip("\n") + " [stop: operator-only]\n", False)
+    check("(c) a label outside the closed set ([stop: later]) -> BLOCK",
+          INCIDENT_PARKED_GOAL_MSG.rstrip("\n") + " [stop: later]\n", True)
+    check(
+        "(d) tagged item with an unmarked column-0 bullet below it -> ALLOW",
+        "## Operator decisions\n\n"
+        "- Add the deploy secret in the hosting settings (Recommended) "
+        "[stop: operator-only] - only you hold the account.\n"
+        "- the release smoke test reads it\n",
+        False,
+    )
+    check(
+        "(f) untagged item with 'irreversible' and 'delete' vocabulary -> BLOCK",
+        "## Operator decisions\n\n"
+        "1. Delete the stale staging database; this is irreversible. "
+        "Recommendation: delete it now.\n",
+        True,
+    )
+    check(
+        "(g) relayed report bullets with their own Recommendation: inside a "
+        "tagged numbered item -> ALLOW",
+        "## Operator decisions\n\n"
+        "1. Lane n12 is blocked on a missing API key (Recommended) "
+        "[stop: operator-only]. Its report, verbatim:\n"
+        "- Status: blocked\n"
+        "- Recommendation: add the key to the project env file\n",
+        False,
+    )
+
+    check(
+        "(h) untagged numbered item with a tagged column-0 bullet below it -> BLOCK",
+        "## Operator decisions\n\n"
+        "1. Start the next piece (Recommended)\n"
+        "- side note [stop: operator-only]\n",
+        True,
+    )
+
+    # (i) Precedence: a turn tripping both the ballot and the untagged
+    # check gets the ballot reason.
+    d = os.path.join(tmp_dir, "untagged_precedence")
+    os.makedirs(d, exist_ok=True)
+    make_config_file(d, enabled=True)
+    rc, stdout, _ = run_hook(make_payload(d, last_assistant_message=(
+        "## Operator decisions\n\n"
+        "- Option A for the retry policy.\n"
+        "- Option B for the cache window.\n"
+        "- Ship the fix now (Recommended).\n"
+    )))
+    ok = get_reason(rc, stdout) == mod._BALLOT_REASON
+    print(f"    [{'PASS' if ok else 'FAIL'}] (i) ballot + untagged on one turn -> ballot reason wins")
+    if not ok:
+        failed += 1
+
+    # (e) The kernel names every label, and every [stop: <x>] tag anywhere
+    # in content/ uses a label from the closed set.
+    repo = os.path.join(os.path.dirname(__file__), "..", "..")
+    with open(os.path.join(repo, "content", "sections", "02-delegation.md")) as f:
+        kernel = f.read()
+    labels = mod._STOP_LABELS
+    ok = len(labels) == 6 and all(f"`[stop: {label}]`" in kernel for label in labels)
+    print(f"    [{'PASS' if ok else 'FAIL'}] (e) 02-delegation.md names all 6 [stop: <label>] tags")
+    if not ok:
+        failed += 1
+    import re as _re
+    bad = []
+    for root, _dirs, files in os.walk(os.path.join(repo, "content")):
+        for name in files:
+            if not name.endswith(".md"):
+                continue
+            path = os.path.join(root, name)
+            with open(path) as f:
+                for m in _re.finditer(r"\[stop:\s*([^\]]*)\]", f.read()):
+                    if m.group(1).strip().lower() not in labels and m.group(1).strip() != "<label>":
+                        bad.append(f"{os.path.relpath(path, repo)}: {m.group(0)}")
+    ok = not bad
+    print(f"    [{'PASS' if ok else 'FAIL'}] (e) every [stop: ...] tag in content/ uses a closed-set label")
+    if not ok:
+        failed += 1
+        print(f"         {bad}")
+    return failed
+
+
 # ---------------------------------------------------------------------------
 # Main runner
 # ---------------------------------------------------------------------------
@@ -1662,6 +1793,9 @@ def main() -> None:
         # Six-source enumeration pin (PR #626 Skeptic Major).
         total_failed += test_six_source_enumeration()
 
+        # Untagged-decision classifier.
+        total_failed += test_untagged_decision(tmp_dir)
+
         # Transcript fallback.
         total_failed += test_transcript_fallback(tmp_dir)
 
@@ -1683,6 +1817,7 @@ def main() -> None:
         + 4   # reason-precedence pin
         + 5   # abdication-reason two-exit wording pin
         + 6   # six-source enumeration pin (2 constants x 3 assertions)
+        + 10  # untagged-decision classifier
         + 2   # transcript fallback
         + 2   # cache-keepalive ping turns
         + 3   # smoke checks

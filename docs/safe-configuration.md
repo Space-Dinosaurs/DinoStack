@@ -94,9 +94,10 @@ installed separately:
   - PreToolUse; denies any `Task` spawn issued from a subagent context; disable via
   `AE_SINGULARITY_GUARD_DISABLE=1`.
 - [`enforce-no-abdication.py`](../hooks/enforce-no-abdication.py) - Stop hook;
-  detects three shapes in the final assistant message - a permission-seeking interrogative,
-  a surface-and-proceed default announced and then not acted on, or a prose co-equal
-  ballot in an `## Operator decisions` block - and blocks the stop, injecting a
+  detects four shapes in the final assistant message - a permission-seeking interrogative,
+  a surface-and-proceed default announced and then not acted on, a prose co-equal
+  ballot in an `## Operator decisions` block, or a recommended item there without a
+  `[stop: <label>]` tag - and blocks the stop, injecting a
   directive; requires `abdication_guard_enabled: true` in `.agentic/config.json`
   (absent/malformed config = guard does not run; the shipped template and
   `/ds-init-project` set it); set to `false` to opt out once enabled;

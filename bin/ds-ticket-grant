@@ -43,7 +43,11 @@ Purpose: CLI for writing a one-shot, operator-attributable exception to
          this trust boundary by any mechanism this CLI or the hook could
          implement. Doing so without an actual operator utterance to
          quote defeats the entire point of the mechanism and is a misuse
-         of it, not a gap it closes. The CLI enforces only the mechanical
+         of it, not a gap it closes. One route quotes no fresh yes: the
+         next piece of an operator-assigned goal (the hook's deny text), whose
+         reason quotes the operator's goal statement - an operator
+         utterance - and names the ticket that just finished, one grant
+         per finished piece, the piece started in the same turn. The CLI enforces only the mechanical
          half of attributability (a non-empty `reason` string persists on
          disk, visible to any later reader and echoed back in the hook's
          own `permissionDecisionReason` and `log_fire()` entry when
@@ -307,7 +311,11 @@ def main(argv: list[str]) -> int:
     p_grant.add_argument(
         "--reason",
         required=True,
-        help="The operator's own words authorizing this create (attributability)",
+        help=(
+            "The operator's own words authorizing this create (attributability); "
+            "for the next piece of an operator-assigned goal, the goal statement "
+            "plus '; next piece after <ticket>'"
+        ),
     )
     p_grant.set_defaults(func=cmd_grant)
 
