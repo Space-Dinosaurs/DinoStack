@@ -258,7 +258,7 @@ hand-typed count of it goes stale silently the moment a new zero-arg `-> int`
 returner appears. `bin/tests/test_tracker_writeback_ranking_spec.py` derives
 the true set off disk and asserts this list matches it in both directions:
 
-- `hooks/tests/test-doc-sync-abdication-guard.py` - all 7 `test_*` functions
+- `hooks/tests/test-doc-sync-abdication-guard.py` - all 8 `test_*` functions
   are zero-arg `-> int` failure-count returners.
 - `hooks/tests/test-enforce-no-abdication.py::test_six_source_enumeration` -
   same shape, in an otherwise assert-based file.
