@@ -3,6 +3,13 @@
 
 # Changelog
 
+## 2026-11-20
+
+### Features
+
+- **#1098** [worktree hooks for multi-repo workspace roots](https://github.com/Space-Dinosaurs/DinoStack/pull/1098) - tyson-solara6
+- **#1097** [an assigned goal runs until done](https://github.com/Space-Dinosaurs/DinoStack/pull/1097) - tyson-solara6
+
 ## 2026-11-18
 
 ### Fixes
