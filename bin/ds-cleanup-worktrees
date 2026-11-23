@@ -188,7 +188,8 @@ Gate order, first match wins, ALL must clear for REMOVE:
      enough there, since nothing keeps a detached commit alive. An entry
      that resolves `ELIGIBLE`, or into the `--archive-unproven` whitelist,
      then runs bin/ds-retire-carrier's gate-7 pin check
-     (`_private_pin_plan`; never fetches, and phase 1 only when offline).
+     (`_private_pin_plan` for `ELIGIBLE`, `_private_pin_hold` for the
+     whitelist; never fetches, and phase 1 only when offline).
      A commit its private gitdir names that no live ref holds keeps a
      whitelisted entry `SKIP_UNPROVEN` ("private pin: ..."); an `ELIGIBLE`
      entry stays `REMOVE`, and the live loop first pins those commits on
@@ -980,7 +981,8 @@ Upstream deps: Python 3 stdlib only (argparse, fnmatch, json, os, re, shutil,
                `_merge_base`, `_upstream`), loaded by resolved path with
                SourceFileLoader since it has no `.py` suffix.
                bin/ds-retire-carrier (`_common_dir`, `_private_gitdir`,
-               `_local_pin_check`, `_pin_gate`, `Hold`, `UsageError`),
+               `_local_pin_check`, `_pin_gate`, `_origin_pins`, `_unpinned`,
+               `_maximal`, `_create_carrier_pins`, `Hold`, `UsageError`),
                loaded on first use because it loads this file. `lsof`
                (non-Linux live-cwd scan; absence skips every entry).
                bin/tests/worktree_model.py (WorktreeClass, classify_entry,
@@ -2330,6 +2332,34 @@ def _retire_carrier() -> Any:
         loader.exec_module(mod)
         _RETIRE_CARRIER["mod"] = mod
     return _RETIRE_CARRIER["mod"]
+
+
+def _private_pin_hold(
+    repo: str, path: str, head: Optional[str], allow_network: bool, bundled: Tuple[str, ...] = ()
+) -> Optional[str]:
+    """bin/ds-retire-carrier gate 7 without `--pin` or a fetch: the reason
+    removing `path` would drop a commit that only its private gitdir (HEAD,
+    `*_HEAD`, private refs, private reflogs) still names, or None. Offline
+    runs stop at phase 1, so a commit only `origin` holds also holds here.
+    `bundled` commits (and their history) count as pinned: the only
+    removal path for them bundles them first.
+    """
+    retire = _retire_carrier()
+    try:
+        common = retire._common_dir(path)
+        gitdir = retire._private_gitdir(path, common)
+        if allow_network:
+            retire._pin_gate(path, repo, common, gitdir, head, False, True, bundled)
+        else:
+            _candidates, _pins, unpinned = retire._local_pin_check(repo, common, gitdir, head, bundled)
+            if unpinned:
+                sample = ", ".join(sha[:8] for sha in unpinned[:5])
+                return f"{len(unpinned)} unpinned commit(s) ({sample}); offline, origin not consulted"
+    except retire.Hold as hold:
+        return hold.reason
+    except (retire.UsageError, OSError) as exc:
+        return f"pin check failed: {exc}"
+    return None
 
 
 def _private_pin_plan(
@@ -3977,23 +4007,21 @@ def evaluate_entry(
         # A detached HEAD on no ref is removable only by --archive-unproven,
         # which bundles that exact HEAD first, so its history counts as pinned.
         bundled = (entry.head,) if disposition is Disposition.SKIP_UNREFERENCED_COMMIT and entry.head else ()
-        pin_hold, pin_commits = _private_pin_plan(repo, entry.path, entry.head, allow_network, bundled)
-        if pin_hold is not None:
-            return {**base, "outcome": "SKIP_UNPROVEN", "reason": f"private pin: {pin_hold}"}
-        if pin_commits:
-            if disposition is Disposition.ELIGIBLE:
+        if disposition is not Disposition.ELIGIBLE:
+            pinned = _private_pin_hold(repo, entry.path, entry.head, allow_network, bundled)
+            if pinned is not None:
+                return {**base, "outcome": "SKIP_UNPROVEN", "reason": f"private pin: {pinned}"}
+        else:
+            pin_hold, pin_commits = _private_pin_plan(repo, entry.path, entry.head, allow_network, bundled)
+            if pin_hold is not None:
+                return {**base, "outcome": "SKIP_UNPROVEN", "reason": f"private pin: {pin_hold}"}
+            if pin_commits:
                 return {
                     **base,
                     "outcome": "REMOVE",
                     "reason": f"{_display_reason(facts)}; pins {len(pin_commits)} commit(s) to carrier-pin/*",
                     "pin_commits": pin_commits,
                 }
-            sample = ", ".join(sha[:8] for sha in pin_commits[:5])
-            return {
-                **base,
-                "outcome": "SKIP_UNPROVEN",
-                "reason": f"private pin: {len(pin_commits)} unpinned commit(s) ({sample})",
-            }
     if disposition is Disposition.ELIGIBLE:
         return {**base, "outcome": "REMOVE", "reason": _display_reason(facts)}
     return {**base, "outcome": "SKIP_UNPROVEN", "reason": disposition.value, "head": entry.head}

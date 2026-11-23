@@ -4974,6 +4974,36 @@ def test_unparseable_private_reflog_still_holds_and_writes_no_ref(tmp_path):
     assert _carrier_pin_refs(repo) == []
 
 
+@pytest.mark.parametrize("no_gh", [True, False])
+def test_archive_candidate_with_reflog_only_commits_keeps_its_hold_wording(tmp_path, no_gh):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/arch", "arch", push=False)
+    (wt / "kept.txt").write_text("unpushed branch work\n")
+    _git(wt, "add", "kept.txt")
+    _git(wt, "commit", "-q", "-m", "unpushed")
+    _git(wt, "checkout", "-q", "--detach")
+    lost = []
+    for name in ("one", "two"):
+        (wt / f"{name}.txt").write_text(f"{name}\n")
+        _git(wt, "add", f"{name}.txt")
+        _git(wt, "commit", "-q", "-m", name)
+        lost.append(_git(wt, "rev-parse", "HEAD").stdout.strip())
+    _git(wt, "checkout", "-q", "arch")
+
+    proc = run_reap(repo, dry_run=False, no_gh=no_gh, gh_dir=None if no_gh else _fake_gh_dir(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    line = outcomes(proc.stdout)[str(wt)]
+    assert line.startswith("SKIP_UNPROVEN (private pin: 2 unpinned commit(s) ("), proc.stdout
+    assert all(sha[:8] in line for sha in lost), line
+    if no_gh:
+        assert line.endswith("; offline, origin not consulted)"), line
+    else:
+        assert line.endswith(")") and "offline" not in line, line
+        assert f"WARNING: worktree {wt} privately pins 2 commit(s) with no surviving ref" in proc.stderr, proc.stderr
+    assert wt.is_dir()
+    assert _carrier_pin_refs(repo) == []
+
+
 def test_detached_whitespace_variant_of_a_base_commit_is_never_removed(tmp_path):
     repo, _origin = init_repo_with_origin(tmp_path)
     wt = repo / ".claude" / "worktrees" / "ws"
