@@ -127,8 +127,12 @@ without touching the operator's shell or keys. Its `env` map is merged into
 that worker's copy of the environment only; the parent environment and every
 other dispatch are unchanged. A preset worker does not inherit
 `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN`
-unless the preset sets that variable itself, so real credentials never go to
-the preset's base URL.
+unless the preset sets that variable itself. Those three variables are the
+only scrubbing: anything else the worker loads can still reach the preset's
+base URL, including an `env` block or `apiKeyHelper` in Claude Code user
+settings (and project or local settings for engineer, debugger and
+qa-engineer, which load every settings source) and inherited variables such
+as `ANTHROPIC_CUSTOM_HEADERS`. Point a preset only at a gateway you trust.
 
 ```yaml
 # ~/.agentic/team.yml (global only)
@@ -232,9 +236,11 @@ codebase (grep-confirmed) -- pre-existing, out of scope here, left untouched.
 dispatch refuses with exit 2 before creating a run directory, names a
 detected legacy `kimi-cli` in the message, and asks for Kimi Code 2.x. There
 is no fallback to the legacy CLI's argv. The read-only agent file is written
-to a private `0700` temporary directory outside the workdir, so a concurrent
-worker in the same workdir cannot rewrite it, and is removed when the worker
-exits. It closes subagent delegation with `subagents: []` (an absent key
+to a `0700` temporary directory outside the workdir, private to the
+operator's user. That stops other users and in-workdir path guessing, not a
+process running as the same user, which can find it under `TMPDIR` and
+rewrite it before Kimi reads it. It is removed when the worker exits, and
+left behind if the dispatch process is killed first. It closes subagent delegation with `subagents: []` (an absent key
 would inherit the default profile's delegation targets).
 Whether its body replaces Kimi's own system prompt is unverified.
 

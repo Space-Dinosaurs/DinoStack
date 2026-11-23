@@ -430,6 +430,11 @@ def test_validate_backends_reports_non_string_preset_name():
     assert errors == ["backends.<int>: preset name must be a string (quote it in team.yml)"]
 
 
+def test_validate_backends_reports_non_string_env_key():
+    errors = validate_backends({"g": {"env": {1: "x"}}}, None)
+    assert errors == ["backends.g.env.<int>: env key must be a string (quote it in team.yml)"]
+
+
 def test_validate_backends_reprs_untrusted_role_key():
     errors = validate_backends(None, {"skep\ntic": {"harness": "claude", "backend": "gw"}})
     assert errors and all("\n" not in e for e in errors), errors

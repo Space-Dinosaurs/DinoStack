@@ -170,7 +170,11 @@ roles:
   values are rejected too.
 - A preset worker does not inherit `ANTHROPIC_API_KEY`,
   `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN` unless the preset sets
-  that variable itself.
+  that variable itself. Nothing else is scrubbed: a Claude Code settings
+  `env` block or `apiKeyHelper` (user settings for every preset role, plus
+  project and local settings for engineer, debugger and qa-engineer) and
+  inherited variables such as `ANTHROPIC_CUSTOM_HEADERS` can still reach the
+  preset's base URL. Point a preset only at a gateway you trust.
 - A preset may only set keys starting with `ANTHROPIC_`, `CLAUDE_CODE_`,
   `OPENAI_` or `KIMI_`, and any `*_BASE_URL` value must be `https://` or
   `http://` on `localhost`, `127.0.0.1` or `::1`.

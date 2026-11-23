@@ -314,7 +314,13 @@ def validate_backends(backends: object, roles: object) -> list[str]:
             errors.append(f"{label}.env: must be a mapping of VAR -> \"string\"")
             continue
         for key, value in env.items():
-            if not isinstance(key, str) or looks_like_secret(key):
+            if not isinstance(key, str):
+                errors.append(
+                    f"{label}.env.<{type(key).__name__}>: env key must be a string "
+                    f"(quote it in team.yml)"
+                )
+                continue
+            if looks_like_secret(key):
                 errors.append(f"{label}.env.<redacted>: env key looks like a secret (redacted)")
                 continue
             if not _ENV_KEY_RE.match(key):

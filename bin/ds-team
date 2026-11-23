@@ -1524,8 +1524,10 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
         global_path=global_path,
         project_path=project_path,
     )
-    # Kept outside the shared workdir so a concurrent write-capable worker
-    # cannot rewrite it before Kimi reads it. Removed by the reaper.
+    # Kept outside the shared workdir and private to the operator's user: this
+    # stops other users and in-workdir path guessing, not a same-user process
+    # that finds it under TMPDIR. Removed by the reaper; left behind if this
+    # process is killed first.
     agent_file: Path | None = None
     agent_dir: Path | None = None
     if harness == "kimi" and role in _READ_ONLY_ROLES:
