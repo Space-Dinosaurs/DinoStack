@@ -11,7 +11,7 @@ Unit 1 - team.yml loader + schema validation (AC1):
 Unit 2 - harness discovery (AC2):
   test_discover_marks_absent_harness     - absent binary -> installed=false
   test_discover_json_shape               - --json payload has required keys
-  test_discover_uses_mapped_binary_name  - kimi probes kimi-cli not kimi
+  test_discover_uses_mapped_binary_name  - kimi probes kimi (Kimi Code 2.x), not kimi-cli
 
 Additional coverage:
   test_valid_config_loads_cleanly        - well-formed team.yml parses without error
@@ -59,6 +59,12 @@ _resolve_role_model = _mod._resolve_role_model
 _parse_team_yml = _mod._parse_team_yml
 _score_model_for_role = _mod._score_model_for_role
 main = _mod.main
+
+
+@pytest.fixture(autouse=True)
+def _kimi_code_2_installed(monkeypatch):
+    """In-process dispatch tests see Kimi Code 2.x; version-gate tests override."""
+    monkeypatch.setattr(_mod, "_kimi_code_major", lambda: 2)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -393,10 +399,10 @@ def test_discover_json_shape(monkeypatch):
 
 
 def test_discover_uses_mapped_binary_name(monkeypatch):
-    """discover probes kimi-cli (not kimi) for the kimi harness.
+    """discover probes kimi (Kimi Code 2.x), not the legacy kimi-cli.
 
     AC2 regression: the binary-name map is the only hardcoded per-harness
-    fact; kimi -> kimi-cli must be honoured.
+    fact; kimi -> kimi must be honoured.
     Hermetic: env vars cleared; models=[] always (static, no probe).
     """
     probed: list[str] = []
@@ -413,11 +419,11 @@ def test_discover_uses_mapped_binary_name(monkeypatch):
     monkeypatch.setattr(_shutil, "which", fake_which)
     _discover_harnesses()
 
-    assert "kimi-cli" in probed, (
-        f"expected kimi-cli to be probed but got: {probed}"
+    assert "kimi" in probed, (
+        f"expected kimi to be probed but got: {probed}"
     )
-    assert "kimi" not in probed, (
-        f"kimi (bare name) should NOT be probed directly; got: {probed}"
+    assert "kimi-cli" not in probed, (
+        f"legacy kimi-cli should NOT be probed; got: {probed}"
     )
 
 
@@ -671,6 +677,7 @@ def _make_argv_recording_exec(tmp_path: Path, binary_name: str, argv_out: Path) 
     out = _subprocess_mod.list2cmdline([str(argv_out)])
     lines = [
         "#!/bin/sh",
+        'if [ "$1" = "--version" ]; then echo 2.5.0; exit 0; fi',
         f'for a in "$@"; do printf \'%s\\n\' "$a" >> ' + out + ";done",
         "exit 0",
     ]
@@ -693,6 +700,9 @@ def _make_argv_capturing_exec(tmp_path: Path, binary_name: str, argv_out: Path) 
     script.write_text(
         "#!/usr/bin/env python3\n"
         "import sys\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('2.5.0')\n"
+        "    sys.exit(0)\n"
         f"with open({str(argv_out)!r}, 'wb') as fh:\n"
         "    fh.write(b'\\x00'.join(\n"
         "        a.encode('utf-8', 'surrogateescape') for a in sys.argv[1:]\n"
@@ -725,6 +735,7 @@ def _make_fake_exec(tmp_path: Path, binary_name: str, stdout_payload: str) -> Pa
     script = bin_dir / binary_name
     script.write_text(
         "#!/bin/sh\n"
+        'if [ "$1" = "--version" ]; then echo 2.5.0; exit 0; fi\n'
         f'printf "%s" {_subprocess_mod.list2cmdline([stdout_payload])}\n'
         "exit 0\n",
         encoding="utf-8",
@@ -798,14 +809,9 @@ def test_dispatch_builds_claude_argv():
 
 
 def test_dispatch_builds_kimi_argv():
-    """kimi argv is --print --yolo --final-message-only -p '<brief>'."""
+    """kimi argv is Kimi Code 2.x print mode with stream-json output."""
     argv = _build_worker_argv("kimi", "test brief")
-    assert argv[0] == HARNESS_BINARY["kimi"]
-    assert "--print" in argv
-    assert "--yolo" in argv
-    assert "--final-message-only" in argv
-    assert "-p" in argv
-    assert "test brief" in argv
+    assert argv == ["kimi", "-p", "test brief", "--output-format", "stream-json"]
 
 
 def test_dispatch_builds_pi_argv():
@@ -836,7 +842,7 @@ def test_dispatch_builds_omp_argv():
         ("gemini", "-m"),
         ("claude", "--model"),
         ("cursor-agent", "--model"),
-        ("kimi", "--model"),
+        ("kimi", "-m"),
         ("pi", "--model"),
         ("omp", "--model"),
     ],
@@ -1772,7 +1778,7 @@ def test_dispatch_model_accepted_for_kimi_no_reject(tmp_path, monkeypatch):
     )
     rc = _mod._cmd_dispatch(args)
     assert rc == 0, f"dispatch with --model on kimi must succeed, got rc={rc}"
-    assert "--model" in captured["argv"] and "some-model" in captured["argv"]
+    assert captured["argv"][-2:] == ["-m", "some-model"]
     assert _MODEL_FLAG_HARNESSES == frozenset(_mod.KNOWN_HARNESSES)
 
 
@@ -2188,3 +2194,355 @@ def test_claude_fable_scores_at_least_claude_opus_for_review_roles():
             f"claude-fable-5-1 ({fable_score}) scored below "
             f"claude-opus-4-8 ({opus_score}) for role {role!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# DS-274: Kimi Code 2.x harness, read-only roles, backend presets
+# ---------------------------------------------------------------------------
+
+_GATEWAY_GLOBAL_YML = (
+    "enabled: true\n"
+    "backends:\n"
+    "  gw:\n"
+    "    env:\n"
+    "      ANTHROPIC_BASE_URL: http://localhost:4000\n"
+    "      ANTHROPIC_AUTH_TOKEN: dinostack-placeholder\n"
+    "      CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: \"true\"\n"
+    "roles:\n"
+)
+_GATEWAY_ENV = {
+    "ANTHROPIC_BASE_URL": "http://localhost:4000",
+    "ANTHROPIC_AUTH_TOKEN": "dinostack-placeholder",
+    "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "true",
+}
+
+
+def _dispatch_in_process(monkeypatch, tmp_path, harness, role,
+                         global_yml="", model=None):
+    """Run _cmd_dispatch with a fake Popen; return (rc, captured, workdir).
+
+    HOME is pinned to an empty dir with the methodology override set, and both
+    team.yml paths point into tmp_path, so the operator's own config and
+    installs never leak into the result.
+    """
+    import argparse as _argparse
+
+    workdir = tmp_path / "wd"
+    workdir.mkdir(exist_ok=True)
+    empty_home = tmp_path / "empty_home"
+    empty_home.mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(empty_home))
+    monkeypatch.setenv(_ALLOW_NO_METHODOLOGY_ENV, "1")
+    global_cfg = tmp_path / "global-team.yml"
+    if global_yml:
+        global_cfg.write_text(global_yml, encoding="utf-8")
+    brief_file = _make_brief_file(tmp_path, "Review it.")
+
+    captured: dict = {}
+
+    class _FakeProc:
+        pid = 12345
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout=None):
+            return 0
+
+    def _fake_popen(argv, *a, **k):
+        captured["argv"] = argv
+        captured["env"] = k.get("env")
+        if "--agent-file" in argv:
+            agent = Path(argv[argv.index("--agent-file") + 1])
+            captured["agent_text"] = agent.read_text(encoding="utf-8")
+            captured["agent_dir_mode"] = agent.parent.stat().st_mode & 0o777
+        return _FakeProc()
+
+    monkeypatch.setattr(_mod.subprocess, "Popen", _fake_popen)
+    args = _argparse.Namespace(
+        harness=harness, role=role, brief=str(brief_file), workdir=str(workdir),
+        model=model, global_config=str(global_cfg),
+        project_config=str(tmp_path / "no-project-team.yml"),
+    )
+    rc = _mod._cmd_dispatch(args)
+    return rc, captured, workdir
+
+
+def _single_run_dir(workdir: Path) -> Path:
+    runs = [p for p in (workdir / ".agentic" / "teamrun").iterdir() if p.is_dir()]
+    assert len(runs) == 1, runs
+    return runs[0]
+
+
+@pytest.mark.parametrize("line,expected", [
+    ("2.5.0", 2),
+    ("kimi, version 1.52.0", 1),
+    ("10.1", 10),
+    ("no digits here", None),
+    (None, None),
+    ("", None),
+])
+def test_parse_major_version(line, expected):
+    assert _mod._parse_major_version(line) == expected
+
+
+@pytest.mark.parametrize("major", [1, None])
+def test_kimi_dispatch_refuses_without_kimi_code_2(monkeypatch, tmp_path, major):
+    """Legacy-only (major 1) or absent kimi -> exit 2, no run dir, no fallback."""
+    monkeypatch.setattr(_mod, "_kimi_code_major", lambda: major)
+    rc, captured, workdir = _dispatch_in_process(monkeypatch, tmp_path, "kimi", "skeptic")
+    assert rc == 2
+    assert "argv" not in captured, "a refused dispatch must never spawn a worker"
+    assert not (workdir / ".agentic" / "teamrun").exists()
+
+
+def test_kimi_dispatch_refuses_legacy_cli_end_to_end(tmp_path):
+    """A `kimi` reporting the legacy 1.x version, with kimi-cli present, is
+    refused by the real version probe; the message names kimi-cli."""
+    bin_dir = tmp_path / "legacy_bin"
+    bin_dir.mkdir()
+    for name in ("kimi", "kimi-cli"):
+        script = bin_dir / name
+        script.write_text(
+            "#!/bin/sh\necho 'kimi, version 1.52.0'\nexit 0\n", encoding="utf-8",
+        )
+        script.chmod(script.stat().st_mode | _stat.S_IEXEC)
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    rc, _out, stderr = _dispatch_via_subprocess(
+        tmp_path, workdir, bin_dir, _make_brief_file(tmp_path), harness="kimi",
+        role="skeptic", env_overrides={_ALLOW_NO_METHODOLOGY_ENV: "1"},
+    )
+    assert rc == 2, stderr
+    assert "Kimi Code 2.x" in stderr and "kimi-cli" in stderr
+    assert not (workdir / ".agentic" / "teamrun").exists()
+
+
+def _join_reapers():
+    import threading as _threading
+
+    for t in _threading.enumerate():
+        if t is not _threading.current_thread() and not t.daemon:
+            t.join(timeout=5)
+
+
+def test_kimi_skeptic_gets_read_only_agent_file(monkeypatch, tmp_path):
+    """kimi + skeptic -> exact argv with --agent-file in a private 0700 dir
+    outside the workdir, removed once the worker exits; the file allowlists
+    only Read/Grep/Glob and closes subagent delegation."""
+    import yaml as _yaml
+
+    private_tmp = tmp_path / "private_tmp"
+    private_tmp.mkdir()
+    monkeypatch.setattr(_mod.tempfile, "tempdir", str(private_tmp))
+    rc, captured, workdir = _dispatch_in_process(monkeypatch, tmp_path, "kimi", "skeptic")
+    assert rc == 0
+    argv = captured["argv"]
+    agent_file = Path(argv[argv.index("--agent-file") + 1])
+    assert argv == [
+        "kimi", "-p", _LEAF_WORKER_CLAUSE + "Review it.",
+        "--output-format", "stream-json", "--agent-file", str(agent_file),
+    ]
+    assert agent_file.is_absolute()
+    assert agent_file.parent.parent == private_tmp
+    assert workdir not in agent_file.parents
+    assert captured["agent_dir_mode"] == 0o700
+    _join_reapers()
+    assert not agent_file.parent.exists()
+    text = captured["agent_text"]
+    _, front, body = text.split("---\n", 2)
+    meta = _yaml.safe_load(front)
+    assert meta["tools"] == ["Read", "Grep", "Glob"]
+    assert meta["subagents"] == []
+    assert {"Bash", "Write", "Edit"} <= set(meta["disallowedTools"])
+    assert not {"Write", "Edit", "Bash", "Shell", "Agent"} & set(meta["tools"])
+    assert meta["name"] == "dinostack-readonly-reviewer" and meta["description"]
+    assert body.strip()
+
+
+def test_kimi_engineer_gets_no_agent_file(monkeypatch, tmp_path):
+    rc, captured, workdir = _dispatch_in_process(monkeypatch, tmp_path, "kimi", "engineer")
+    assert rc == 0
+    assert "--agent-file" not in captured["argv"]
+    assert not (_single_run_dir(workdir) / "kimi-readonly-agent.md").exists()
+
+
+def test_kimi_role_without_model_has_no_model_flag(monkeypatch, tmp_path):
+    """An empty team.yml model for a kimi role -> no -m/--model (Kimi's
+    default_model applies)."""
+    rc, captured, _wd = _dispatch_in_process(
+        monkeypatch, tmp_path, "kimi", "skeptic",
+        global_yml="enabled: true\nroles:\n  skeptic:\n    harness: kimi\n",
+    )
+    assert rc == 0
+    assert "-m" not in captured["argv"] and "--model" not in captured["argv"]
+
+
+def test_backend_preset_env_merged_only_into_worker(monkeypatch, tmp_path):
+    rc, captured, _wd = _dispatch_in_process(
+        monkeypatch, tmp_path, "claude", "skeptic",
+        global_yml=_GATEWAY_GLOBAL_YML + "  skeptic:\n    harness: claude\n    backend: gw\n",
+    )
+    assert rc == 0
+    for key, value in _GATEWAY_ENV.items():
+        assert captured["env"][key] == value
+
+
+def test_backend_preset_leaves_parent_env_unchanged(monkeypatch, tmp_path):
+    for key in _GATEWAY_ENV:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "empty_home"))
+    monkeypatch.setenv(_ALLOW_NO_METHODOLOGY_ENV, "1")
+    before = dict(_os.environ)
+    rc, captured, _wd = _dispatch_in_process(
+        monkeypatch, tmp_path, "claude", "skeptic",
+        global_yml=_GATEWAY_GLOBAL_YML + "  skeptic:\n    harness: claude\n    backend: gw\n",
+    )
+    assert rc == 0
+    assert captured["env"]["ANTHROPIC_BASE_URL"] == "http://localhost:4000"
+    assert dict(_os.environ) == before
+
+
+def test_backend_preset_skipped_on_harness_mismatch(monkeypatch, tmp_path):
+    rc, captured, _wd = _dispatch_in_process(
+        monkeypatch, tmp_path, "codex", "skeptic",
+        global_yml=_GATEWAY_GLOBAL_YML + "  skeptic:\n    harness: claude\n    backend: gw\n",
+    )
+    assert rc == 0
+    for key in _GATEWAY_ENV:
+        assert captured["env"].get(key) == _os.environ.get(key)
+
+
+def test_backend_preset_undefined_refuses_before_run_dir(monkeypatch, tmp_path):
+    rc, captured, workdir = _dispatch_in_process(
+        monkeypatch, tmp_path, "claude", "skeptic",
+        global_yml="enabled: true\nroles:\n  skeptic:\n    harness: claude\n    backend: nope\n",
+    )
+    assert rc == 2
+    assert "argv" not in captured
+    assert not (workdir / ".agentic" / "teamrun").exists()
+
+
+def test_claude_read_only_role_with_backend_gets_read_only_tools(monkeypatch, tmp_path):
+    rc, captured, _wd = _dispatch_in_process(
+        monkeypatch, tmp_path, "claude", "skeptic",
+        global_yml=_GATEWAY_GLOBAL_YML + "  skeptic:\n    harness: claude\n    backend: gw\n",
+        model="claude-deepseek-pro[1m]",
+    )
+    assert rc == 0
+    assert captured["argv"] == [
+        "claude", "-p", _LEAF_WORKER_CLAUSE + "Review it.", "--output-format", "json",
+        "--tools", "Read,Grep,Glob", "--strict-mcp-config",
+        "--setting-sources", "user",
+        "--model", "claude-deepseek-pro[1m]",
+    ]
+
+
+@pytest.mark.parametrize("role,role_yml", [
+    ("skeptic", "  skeptic:\n    harness: claude\n"),
+    ("engineer", "  engineer:\n    harness: claude\n    backend: gw\n"),
+])
+def test_claude_argv_unchanged_without_read_only_backend(monkeypatch, tmp_path, role, role_yml):
+    """claude + skeptic without a preset, and claude + engineer with one,
+    keep today's argv."""
+    rc, captured, _wd = _dispatch_in_process(
+        monkeypatch, tmp_path, "claude", role, global_yml=_GATEWAY_GLOBAL_YML + role_yml,
+    )
+    assert rc == 0
+    assert captured["argv"] == [
+        "claude", "-p", _LEAF_WORKER_CLAUSE + "Review it.", "--output-format", "json",
+    ]
+
+
+def test_project_backends_rejected(tmp_path):
+    proj = tmp_path / "team.yml"
+    proj.write_text("backends:\n  gw:\n    env:\n      A: b\n", encoding="utf-8")
+    rc = main(["--global-config", str(tmp_path / "none.yml"),
+               "--project-config", str(proj), "discover", "--json"])
+    assert rc == 2
+
+
+def test_yaml_parse_error_never_echoes_source():
+    key = "sk-" + "a1" * 24
+    with pytest.raises(ValueError) as exc_info:
+        _parse_team_yml("x: a: " + key, "team.yml")
+    text = str(exc_info.value)
+    assert "line 1" in text
+    assert key not in text
+
+
+@pytest.mark.parametrize("form", ["x: !{key}\n", "x: *{key}\n"])
+def test_yaml_tag_or_alias_error_never_echoes_source(form):
+    key = "sk-" + "a1" * 24
+    with pytest.raises(ValueError) as exc_info:
+        _parse_team_yml(form.format(key=key), "team.yml")
+    text = str(exc_info.value)
+    assert "line 1" in text
+    assert key not in text and "a1" * 24 not in text
+
+
+def test_backend_preset_scrubs_inherited_credentials(monkeypatch, tmp_path):
+    """A preset worker gets no inherited Anthropic credential unless the preset
+    sets that variable itself; the parent environment is unchanged."""
+    dummy = "dummy-" + "x" * 8
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
+        monkeypatch.setenv(name, dummy)
+    before = dict(_os.environ)
+    rc, captured, _wd = _dispatch_in_process(
+        monkeypatch, tmp_path, "claude", "skeptic",
+        global_yml=_GATEWAY_GLOBAL_YML + "  skeptic:\n    harness: claude\n    backend: gw\n",
+    )
+    assert rc == 0
+    env = captured["env"]
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in env
+    assert env["ANTHROPIC_AUTH_TOKEN"] == "dinostack-placeholder"
+    after = dict(_os.environ)
+    for name in ("HOME", _ALLOW_NO_METHODOLOGY_ENV):
+        before.pop(name, None)
+        after.pop(name, None)
+    assert after == before
+
+
+def test_no_backend_keeps_inherited_credentials(monkeypatch, tmp_path):
+    dummy = "dummy-" + "x" * 8
+    monkeypatch.setenv("ANTHROPIC_API_KEY", dummy)
+    rc, captured, _wd = _dispatch_in_process(
+        monkeypatch, tmp_path, "claude", "skeptic",
+        global_yml="enabled: true\nroles:\n  skeptic:\n    harness: claude\n",
+    )
+    assert rc == 0
+    assert captured["env"]["ANTHROPIC_API_KEY"] == dummy
+
+
+def test_validate_config_reports_key_shaped_preset_value():
+    key = "sk-" + "a1" * 24
+    errors = _validate_config({"backends": {"gw": {"env": {"ANTHROPIC_AUTH_TOKEN": key}}}})
+    assert errors and all(key not in e for e in errors)
+
+
+def test_collect_kimi_stream_json_takes_last_assistant_text(tmp_path):
+    run_dir = tmp_path / "run_kimi"
+    run_dir.mkdir()
+    lines = [
+        {"role": "meta", "type": "system.version", "version": "2.5.0"},
+        {"role": "assistant", "tool_calls": [{"id": "t1", "name": "Read"}]},
+        {"role": "tool", "tool_call_id": "t1", "content": "file text"},
+        {"role": "assistant", "content": "FINAL"},
+        {"role": "meta", "type": "session.resume_hint", "session_id": "s"},
+    ]
+    (run_dir / "stdout").write_text(
+        "\n".join(json.dumps(x) for x in lines) + "\n", encoding="utf-8",
+    )
+    assert _collect_output(run_dir, "kimi") == "FINAL"
+
+
+def test_collect_kimi_falls_back_to_raw_without_json(tmp_path):
+    run_dir = tmp_path / "run_kimi_raw"
+    run_dir.mkdir()
+    (run_dir / "stdout").write_text("plain text output\n", encoding="utf-8")
+    assert _collect_output(run_dir, "kimi") == "plain text output\n"
+
+
+def test_kimi_k3_scores_for_skeptic():
+    assert _score_model_for_role("kimi-code/k3.1-pro", "skeptic") > 0

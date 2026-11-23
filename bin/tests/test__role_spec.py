@@ -13,6 +13,10 @@ Test coverage (25 tests):
   - normalize_role_spec falsy input (None, "", {}, 0) -> {}
   - normalize_role_spec non-str/non-dict (int, list, float) -> TypeError + message
   - KNOWN_HARNESSES / KNOWN_ROLES: frozenset type, exact membership, counts (7 / 9)
+  - looks_like_secret: required True/False vectors (key-shaped ones built at
+    runtime so secret scanners do not flag this file)
+  - validate_backends: shape, key, value and role-reference errors; values and
+    key-shaped names are never echoed
 
 Run with: python3 -m pytest bin/tests/test__role_spec.py -x
        or: python3 bin/tests/test__role_spec.py
@@ -43,6 +47,8 @@ normalize_role_spec = _mod.normalize_role_spec
 resolve_reviewer_model = _mod.resolve_reviewer_model
 KNOWN_HARNESSES = _mod.KNOWN_HARNESSES
 KNOWN_ROLES = _mod.KNOWN_ROLES
+looks_like_secret = _mod.looks_like_secret
+validate_backends = _mod.validate_backends
 
 
 # ---------------------------------------------------------------------------
@@ -293,3 +299,142 @@ def test_reviewer_default_strategy_unchanged():
     # No strategy -> distinct-from-author: first distinct pool entry.
     rev = {"pool": ["author", "glm/glm-5.2"], "fallback": "cx/gpt-5.5"}
     assert resolve_reviewer_model("engineer", "author", rev) == "glm/glm-5.2"
+
+
+# ---------------------------------------------------------------------------
+# looks_like_secret / validate_backends (team.yml backend presets)
+# ---------------------------------------------------------------------------
+
+def _key(prefix: str, unit: str, n: int) -> str:
+    return prefix + unit * n
+
+
+_SECRET_TRUE = [
+    _key("sk-", "a1", 24),
+    "x-api-key: " + _key("sk-ant-", "a1", 24),
+    "https://h/?key=" + _key("AIza", "b2", 18),
+    "Authorization: Bearer " + _key("", "c3", 10),
+    "foo=" + _key("", "d4", 20),
+    "https://" + "user" + ":" + "pa55word" + "@gateway.example.com/v1",
+    "-".join(_key("", u, n) for u, n in (("a1", 4), ("b2", 2), ("c3", 2), ("d4", 2), ("e5", 6))),
+]
+_SECRET_FALSE = [
+    "http://localhost:4000",
+    "dinostack-placeholder",
+    "true",
+    "https://gateway.example.com/v1",
+]
+
+
+@pytest.mark.parametrize("value", _SECRET_TRUE)
+def test_looks_like_secret_true_vectors(value):
+    assert looks_like_secret(value) is True
+
+
+@pytest.mark.parametrize("value", _SECRET_FALSE)
+def test_looks_like_secret_false_vectors(value):
+    assert looks_like_secret(value) is False
+
+
+def _gateway_roles():
+    return {"skeptic": {"harness": "claude", "backend": "gw"}}
+
+
+def test_validate_backends_accepts_placeholder_preset():
+    backends = {"gw": {"env": {
+        "ANTHROPIC_BASE_URL": "http://localhost:4000",
+        "ANTHROPIC_AUTH_TOKEN": "dinostack-placeholder",
+        "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "true",
+    }}}
+    assert validate_backends(backends, _gateway_roles()) == []
+
+
+def test_validate_backends_rejects_key_value_without_echo():
+    value = "x-api-key: " + _key("sk-ant-", "a1", 24)
+    errors = validate_backends({"gw": {"env": {"ANTHROPIC_AUTH_TOKEN": value}}},
+                               _gateway_roles())
+    assert errors == ["backends.gw.env.ANTHROPIC_AUTH_TOKEN: value looks like a secret (redacted)"]
+    assert all(value not in e and _key("", "a1", 24) not in e for e in errors)
+
+
+def test_validate_backends_redacts_key_shaped_name_and_env_key():
+    secret = _key("sk-", "a1", 24)
+    by_name = validate_backends({secret: {"env": {"A": "b"}}}, None)
+    by_key = validate_backends({"gw": {"env": {secret: "b"}}}, None)
+    assert by_name and by_key
+    assert all(secret not in e for e in by_name + by_key)
+    assert all("<redacted>" in e for e in by_name + by_key)
+
+
+def test_validate_backends_none_is_valid():
+    assert validate_backends(None, {"skeptic": {"harness": "claude"}}) == []
+
+
+@pytest.mark.parametrize("backends,fragment", [
+    ({"gw": {"env": {"ANTHROPIC_X": 1}}}, "quote it"),
+    ({"gw": {"env": {"ANTHROPIC_X": "y"}, "url": "z"}}, "unknown key"),
+    (["gw"], "must be a mapping"),
+])
+def test_validate_backends_rejects_bad_shapes(backends, fragment):
+    errors = validate_backends(backends, None)
+    assert any(fragment in e for e in errors), errors
+
+
+def test_validate_backends_undefined_reference_with_none_backends():
+    errors = validate_backends(None, _gateway_roles())
+    assert any("roles['skeptic'].backend" in e and "not defined" in e for e in errors), errors
+
+
+def test_validate_backends_rejects_backend_on_non_dispatchable_role():
+    errors = validate_backends({"gw": {"env": {"A": "b"}}},
+                               {"investigator": {"harness": "claude", "backend": "gw"}})
+    assert any("roles['investigator'].backend" in e and "dispatchable" in e for e in errors), errors
+
+
+def test_validate_backends_accepts_allowlisted_env_key():
+    assert validate_backends({"gw": {"env": {"OPENAI_MODEL": "x"}}}, None) == []
+
+
+@pytest.mark.parametrize("key", ["NODE_OPTIONS", "HOME", "CLAUDE_CONFIG_DIR", "PATH"])
+def test_validate_backends_rejects_env_key_outside_allowlist(key):
+    errors = validate_backends({"gw": {"env": {key: "x"}}}, None)
+    assert len(errors) == 1, errors
+    assert f"backends.gw.env.{key}:" in errors[0]
+    assert all(p in errors[0] for p in ("ANTHROPIC_", "CLAUDE_CODE_", "OPENAI_", "KIMI_"))
+
+
+@pytest.mark.parametrize("url", [
+    "https://gateway.example.com/v1",
+    "http://localhost:4000",
+    "http://127.0.0.1:4000",
+    "http://[::1]:4000",
+])
+def test_validate_backends_accepts_https_or_loopback_base_url(url):
+    assert validate_backends({"gw": {"env": {"ANTHROPIC_BASE_URL": url}}}, None) == []
+
+
+@pytest.mark.parametrize("url", [
+    "http://gw.example.com",
+    "http://localhost.example.com:4000",
+    "ftp://localhost",
+    "localhost:4000",
+])
+def test_validate_backends_rejects_cleartext_base_url_without_echo(url):
+    errors = validate_backends({"gw": {"env": {"KIMI_BASE_URL": url}}}, None)
+    assert len(errors) == 1 and "https://" in errors[0], errors
+    assert url not in errors[0]
+
+
+def test_validate_backends_reports_non_string_preset_name():
+    errors = validate_backends({1: {"env": {}}}, None)
+    assert errors == ["backends.<int>: preset name must be a string (quote it in team.yml)"]
+
+
+def test_validate_backends_reports_non_string_env_key():
+    errors = validate_backends({"g": {"env": {1: "x"}}}, None)
+    assert errors == ["backends.g.env.<int>: env key must be a string (quote it in team.yml)"]
+
+
+def test_validate_backends_reprs_untrusted_role_key():
+    errors = validate_backends(None, {"skep\ntic": {"harness": "claude", "backend": "gw"}})
+    assert errors and all("\n" not in e for e in errors), errors

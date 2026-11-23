@@ -110,13 +110,71 @@ dispatch:
 | `default_harness` | string | no | none (unrouted roles fall through to native spawn) | Fallback harness for roles not listed under `roles:`. Validated against the known-harness table; unknown value -> non-zero exit. |
 | `roles` | map | no | none (empty - all roles use native spawn unless `default_harness` is set) | Keys are role names (the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`). Values are a scalar harness name or `{harness, model}` mapping. |
 | `roles[*].harness` | string | yes (if mapping) | n/a | Must be one of the 9 known harness labels. Unknown value -> non-zero exit. |
-| `roles[*].model` | string | no | none (harness uses its own session default) | Forwarded to the harness's own `--model`/`-m` flag at dispatch (all 9 harnesses accept a model flag; codex/gemini use `-m`, all others use `--model`). Omit to let the harness use its session default (no hardcoded IDs). |
-| `dispatch.timeout_seconds` | int | no | `1800` (30 min) | Per-worker wall-clock timeout. Watchdog kills the process on expiry. |
+| `roles[*].model` | string | no | none (harness uses its own session default) | Forwarded to the harness's own `--model`/`-m` flag at dispatch (all 9 harnesses accept a model flag; codex/gemini/kimi use `-m`, all others use `--model`). Omit to let the harness use its session default (no hardcoded IDs). For kimi, an empty model means Kimi Code's `default_model` in its own `config.toml`: that one line is the place to bump when Kimi ships a new flagship. There is no automatic latest-model lookup, because Kimi silently falls back to an older model on a mistyped id. |
+| `roles[*].backend` | string | no | none (worker inherits the parent environment only) | Name of a preset under `backends:`. Applies only when the role's harness (else `default_harness`) matches the dispatch harness, and only to the five dispatchable roles. See "Backend presets" below. |
+| `backends` | map | no | none (no presets) | `<name>: {env: {<VAR>: "<string>"}}`. Read from the global `~/.agentic/team.yml` only; a `backends:` key in a project `team.yml` is an error (exit 2). |
+| `dispatch.timeout_seconds` | int | no | `1800` (30 min) | Not read by `ds-team dispatch` today. The only watchdog is cursor-agent's fixed 300 s timeout; every other worker runs until it exits. |
 | `dispatch.output_format` | string | no | `"json"` | `json` or `text`. Governs the `collect` demux path. |
 
 The scalar-or-mapping normalize logic for role-spec entries is shared with
 `bin/ds-configure` via `bin/_role_spec.py`. Both tools import the same
 normalizer; there is no inline copy.
+
+### Backend presets
+
+A backend preset routes one role's worker through a different model backend
+without touching the operator's shell or keys. Its `env` map is merged into
+that worker's copy of the environment only; the parent environment and every
+other dispatch are unchanged. A preset worker does not inherit
+`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN`
+unless the preset sets that variable itself. Those three variables are the
+only scrubbing: anything else the worker loads can still reach the preset's
+base URL, including an `env` block or `apiKeyHelper` in Claude Code user
+settings (and project or local settings for engineer, debugger and
+qa-engineer, which load every settings source) and inherited variables such
+as `ANTHROPIC_CUSTOM_HEADERS`. Point a preset only at a gateway you trust.
+
+```yaml
+# ~/.agentic/team.yml (global only)
+enabled: true
+backends:
+  gateway:
+    env:
+      ANTHROPIC_BASE_URL: http://localhost:4000
+      ANTHROPIC_AUTH_TOKEN: dinostack-placeholder   # non-secret placeholder
+      CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "true"
+roles:
+  skeptic: { harness: claude, backend: gateway, model: "claude-deepseek-pro[1m]" }
+```
+
+A preset holds only non-secret values: a base URL, a placeholder token,
+flags. Real keys stay in the gateway's own environment. `ds-team` and
+`ds-doctor --cross-harness` reject a preset value that looks like a key and
+never echo it. The check is a floor, not a scanner: it fails closed on any run
+of 32 or more letters and digits containing both (a hex digest, for
+example), so such values do not belong in a preset, and a short key without
+a known prefix passes. URL userinfo with a password and UUID-shaped values
+are rejected too. A preset may only set keys starting with `ANTHROPIC_`,
+`CLAUDE_CODE_`, `OPENAI_` or `KIMI_` (so not `PATH`, `HOME`, `NODE_OPTIONS`
+or `CLAUDE_CONFIG_DIR`), any `*_BASE_URL` value must be `https://` or
+`http://` on `localhost`, `127.0.0.1` or `::1`, every value must be a quoted
+string, and `backend` is accepted only on `engineer`, `debugger`,
+`qa-engineer`, `skeptic`, and `security-auditor`.
+
+**DeepSeek has no harness of its own.** Route it as `harness: claude` plus a
+gateway preset and a `claude-deepseek-*` model id; `claude-kimi-*` ids reach
+Kimi the same way. DeepSeek has no prompt caching, and `deepseek-v4-pro` is
+text-only.
+
+**Read-only roles through a preset.** When a `claude` worker for `skeptic`
+or `security-auditor` (the read-only roles that accept `backend`) runs
+through a preset, dispatch adds `--tools Read,Grep,Glob --strict-mcp-config
+--setting-sources user`, so the model can call only those three tools and no
+MCP server, and the workdir's project settings are not loaded. A `claude`
+dispatch without a preset keeps its existing argv and its full tool set.
+Read-only limits the model's tool set; it is not a sandbox. Hooks and other
+settings the worker still loads (the operator's user settings for `claude`;
+Kimi Code may run project hooks) still execute.
 
 Role names are the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`:
 `conductor`, `investigator`, `architect`, `orchestration-planner`, `engineer`,
@@ -126,7 +184,7 @@ regardless.
 
 ## Per-harness dispatch table
 
-`bin/ds-team dispatch` builds the worker invocation from this table. All 7
+`bin/ds-team dispatch` builds the worker invocation from this table. All 9
 harnesses now have **confirmed** (not probed) non-interactive flags, verified
 live against each CLI -- not hardcoded model IDs, just binary names and flag
 spellings, consistent with the "no hardcoded model IDs" stance anchored in
@@ -138,7 +196,7 @@ map in `bin/ds-team` (the one allowed per-harness hardcoded fact).
 | **codex** | `codex exec "<brief>"` or `codex exec -` (stdin) | `-m <model>` | `--json` (JSONL events) | `--sandbox read-only` applied by default; `--skip-git-repo-check` added when workdir is not a git repo; reads saved auth or `CODEX_API_KEY`; final message extracted from the last JSONL event. |
 | **gemini** | `gemini -p "<brief>"` | `-m <model>` | `--output-format json` | Headless on non-TTY or `-p`; slash/custom commands are broken headless -- pass the full brief inline; `head -c 50000` guard applied to large stdin; methodology is delivered as a file in the run directory at dispatch time (`.gemini/skills/dinostack/SKILL.full.md`, full corpus) because Gemini CLI denies `activate_skill` non-interactively (`write.toml`, priority 10, `interactive = false` in the installed policy bundle) - dispatch refuses (exit 2) if unresolvable, unreadable, or empty, or set `AGENTIC_TEAM_ALLOW_NO_METHODOLOGY=1` to override. Response text extracted via `jq '.response'`. |
 | **cursor-agent** | `cursor-agent -p --force "<brief>" < /dev/null` | `--model <model>` | `--output-format json` | `--force` required for file writes; **known hang bug** -- stdin is always redirected from `/dev/null` AND a timeout + kill watchdog is applied; marked `experimental` in discovery output until upstream fixes the hang. `--list-models` also confirmed (used by discovery model probe). |
-| **kimi** | `kimi-cli --print --yolo --final-message-only -p "<brief>"` | `--model <model>` | text (final-message-only) | Binary name is `kimi-cli` (not `kimi`); `--print` is mandatory for non-interactive/auto-dismiss-AskUserQuestion behavior -- bare `-p` alone is interactive-with-prompt. No custom slash commands; methodology is delivered as a file in the run directory at dispatch time (`.kimi/skills/dinostack/SKILL.md`, already full corpus) for the same reason as Gemini - dispatch refuses (exit 2) if unresolvable, unreadable, or empty, same override. |
+| **kimi** | `kimi -p "<brief>" --output-format stream-json [--agent-file <private-tmp-dir>/kimi-readonly-agent.md]` | `-m <alias>` | `--output-format stream-json` (JSON Lines) | Kimi Code 2.x; dispatch refuses (exit 2) when `kimi --version` is below 2 or absent, and never falls back to the legacy `kimi-cli`. `-p` cannot be combined with `--yolo`/`--auto`/`--plan`, and print mode approves every tool call, so read-only roles (`skeptic`, `investigator`, `security-auditor`, `architect`) get a generated agent file allowing only `Read`, `Grep`, and `Glob` with `subagents: []`; write-capable roles get no agent file. No custom slash commands; methodology is delivered as a file in the run directory at dispatch time (`.kimi/skills/dinostack/SKILL.md`, already full corpus) for the same reason as Gemini - dispatch refuses (exit 2) if unresolvable, unreadable, or empty, same override. |
 | **pi** | `pi -p "<brief>"` | `--model <model>` | text (default mode) | Built-in subagent types exist but MUST be suppressed via the leaf-worker clause. Also supports `--mode text\|json\|rpc`; default text mode is used so `collect()`'s raw-stdout path works. |
 | **omp** | `omp -p "<brief>"` | `--model <model>` | text (default mode) | Same leaf-worker suppression; omp built-in subagents not used as nested spawns. `--mode json` emits streaming JSONL `message_update` events (not a single JSON object), not worth parsing in v1, so default text mode is kept. `omp models ls --json` confirmed (used by discovery model probe). |
 | **opencode** | `opencode run "<brief>" --dangerously-skip-permissions` | `--model <model>` | raw stdout | `--dangerously-skip-permissions` required for non-interactive dispatch (detached worker has no TTY for permission prompts); `--model` forwarded only when a model is configured; final message is raw stdout (no demux). |
@@ -172,6 +230,19 @@ DinoStack checkout itself; in a genuine consumer-repo throwaway workdir those
 pointers dangle. Separately, the `head -c 50000` guard on large stdin named
 in the gemini table row above has no implementation anywhere in this
 codebase (grep-confirmed) -- pre-existing, out of scope here, left untouched.
+
+**Kimi Code 2.x only.** The kimi harness drives Kimi Code 2.x (`kimi`). When
+`kimi --version` reports a major version below 2, or no `kimi` is installed,
+dispatch refuses with exit 2 before creating a run directory, names a
+detected legacy `kimi-cli` in the message, and asks for Kimi Code 2.x. There
+is no fallback to the legacy CLI's argv. The read-only agent file is written
+to a `0700` temporary directory outside the workdir, private to the
+operator's user. That stops other users and in-workdir path guessing, not a
+process running as the same user, which can find it under `TMPDIR` and
+rewrite it before Kimi reads it. It is removed when the worker exits, and
+left behind if the dispatch process is killed first. It closes subagent delegation with `subagents: []` (an absent key
+would inherit the default profile's delegation targets).
+Whether its body replaces Kimi's own system prompt is unverified.
 
 **RISK-ACCEPTED: copilot's `--allow-all-paths` grant.** Unlike every other
 harness above, copilot is dispatched with `--allow-all-paths` in addition to
@@ -210,7 +281,7 @@ implicit side effect of configuration.
 | codex | `codex` |
 | gemini | `gemini` |
 | cursor-agent | `cursor-agent` |
-| kimi | `kimi-cli` |
+| kimi | `kimi` (Kimi Code 2.x) |
 | pi | `pi` |
 | omp | `omp` |
 | opencode | `opencode` |
@@ -247,7 +318,7 @@ process itself, not by a wrapper script.
 
 Each worker launch prepends a wrapper directory to `PATH`. Shims in that
 directory for `git`, `omc`, and all sibling CLI names (`codex`, `gemini`,
-`cursor-agent`, `kimi-cli`, `pi`, `omp`, `opencode`, `copilot`, `claude`) exit 1 and append a line to
+`cursor-agent`, `kimi`, `kimi-cli`, `pi`, `omp`, `opencode`, `copilot`, `claude`) exit 1 and append a line to
 `<workdir>/.agentic/teamrun/<run-id>/violations.log`. The worker's own binary
 is exempt (a codex worker can still run `codex`; its shim is not placed).
 
@@ -295,6 +366,11 @@ with an actionable instruction, e.g.:
 The model value is deliberately never interpolated into this message - it is
 untrusted, project-controlled text from `team.yml`, so the hook substitutes
 the literal placeholder `<model-from-team.yml>` instead.
+
+A dispatchable role whose resolved harness is `claude` but whose role entry
+carries a `backend:` preset is denied too, because a native spawn would skip
+the preset's environment. The message names `bin/ds-team dispatch --harness
+claude --role <role>` and never echoes the backend name or the model.
 
 `conductor`, `investigator`, `architect`, and `orchestration-planner` are never
 denied by this branch even if `team.yml` maps them elsewhere (their entries are
@@ -360,7 +436,7 @@ returns the final message text:
 | codex | JSONL events | last event matching `type: message` |
 | gemini | JSON `{response: ...}` | `jq '.response'` |
 | cursor-agent | JSON | `jq '.result'` |
-| kimi | raw text (`--final-message-only`) | raw stdout |
+| kimi | JSON Lines (`--output-format stream-json`) | last `role: assistant` line with non-blank text content; raw stdout when none parses |
 | pi / omp | raw text (default text mode) | raw stdout |
 | opencode | raw stdout | raw stdout, no demux |
 | copilot | raw stdout | raw stdout, no demux |
@@ -382,13 +458,13 @@ boundary is transparent to the Skeptic/QA layer.
 
 ## Conductor Dispatch Contract
 
-**Cross-harness teams (opt-in) - harness-neutral conductor contract.** When `team.yml` is present and `enabled: true`, the conductor - regardless of which CLI harness it is running on (Claude Code, Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) - follows the same four-step dispatch contract for any dispatchable role (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`) whose `team.yml` entry resolves to a harness other than its own:
+**Cross-harness teams (opt-in) - harness-neutral conductor contract.** When `team.yml` is present and `enabled: true`, the conductor - regardless of which CLI harness it is running on (Claude Code, Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) - follows the same four-step dispatch contract for any dispatchable role (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`) whose `team.yml` entry resolves to a harness other than its own, or carries a `backend:` preset:
 
 1. **Discover** - run `bin/ds-team discover` to confirm the target harness binary is installed and its native sandbox flag (if any). Missing binary -> fall back to native delegation unchanged, no error, no prompt.
 2. **Dispatch** - run `bin/ds-team dispatch --role <role> --brief <path>` to spawn the worker in its own throwaway workdir (worktree or directory copy). The conductor never runs git inside the worker's workdir; the conductor remains sole git owner of the live repo.
-3. **Status poll** - run `bin/ds-team status <run-id>` until the run reaches a terminal state (`done`/`failed`/`timeout`). Poll, do not block synchronously past the configured `dispatch.timeout_seconds` watchdog.
+3. **Status poll** - run `bin/ds-team status <run-id>` until the run reaches a terminal state (`done`/`failed`/`timeout`). Poll with your own bound; `dispatch.timeout_seconds` is not enforced by dispatch (only cursor-agent has a watchdog).
 4. **Collect** - run `bin/ds-team collect <run-id>` to demux the harness-specific output shape and extract the final message text.
 
 Once `collect` returns, its output re-enters the Skeptic/QA gates exactly as described above under "How collected worker output re-enters the Skeptic/QA gates" - same adversarial review, same `qa_criteria` triggers, same re-route limits, no new gate or bypass for cross-harness origin.
 
-**Routing enforcement differs by harness.** Only Claude Code has a mechanical `PreToolUse` deny hook (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`) that enforces background-by-default on legacy `Task` spawns and suppresses native `Task`/`Agent` spawns and `oh-my-claudecode:*` Skill calls while a cross-harness run's sentinel (`.agentic/teamrun/.active`) is live. That same hook also proactively blocks a native spawn for a dispatchable role whose resolved `team.yml` harness is not `claude` - the "Proactive team-routing enforcement" branch described above, which runs before any dispatch has ever happened and closes the chicken-and-egg gap in the sentinel-only check (escape hatch: `AE_TEAM_ROUTING_DISABLE=1`). On every other harness (Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) this is a **binding prose contract, not a mechanically enforced hook** - the conductor on those harnesses must self-apply the discover -> dispatch -> status -> collect sequence and must not silently fall back to a native spawn just because no hook stops it.
+**Routing enforcement differs by harness.** Only Claude Code has a mechanical `PreToolUse` deny hook (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`) that enforces background-by-default on legacy `Task` spawns and suppresses native `Task`/`Agent` spawns and `oh-my-claudecode:*` Skill calls while a cross-harness run's sentinel (`.agentic/teamrun/.active`) is live. That same hook also proactively blocks a native spawn for a dispatchable role whose resolved `team.yml` harness is not `claude`, or is `claude` with a `backend:` preset - the "Proactive team-routing enforcement" branch described above, which runs before any dispatch has ever happened and closes the chicken-and-egg gap in the sentinel-only check (escape hatch: `AE_TEAM_ROUTING_DISABLE=1`). On every other harness (Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) this is a **binding prose contract, not a mechanically enforced hook** - the conductor on those harnesses must self-apply the discover -> dispatch -> status -> collect sequence and must not silently fall back to a native spawn just because no hook stops it.

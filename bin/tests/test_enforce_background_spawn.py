@@ -30,6 +30,8 @@ Unit D - cross-harness team ROUTING enforcement (proactive, pre-sentinel):
  23. test_routing_allows_when_team_yml_missing                  - no team.yml -> allow.
  24. test_routing_allows_on_malformed_yaml                      - malformed YAML -> fail-open, allow.
  25. test_routing_escape_hatch_disables_branch                  - AE_TEAM_ROUTING_DISABLE=1 -> allow.
+     test_routing_denies_claude_role_with_backend                - claude + backend preset -> deny, no name/model echo.
+     test_routing_allows_claude_role_without_backend             - claude without backend -> allow.
 
 DS-70 - background enforcement extended to Agent (asymmetric rule):
  26. test_agent_denied_when_run_in_background_false             - Agent + run_in_background:false -> DENY.
@@ -1000,6 +1002,47 @@ def test_routing_escape_hatch_disables_branch(tmp_path):
         )
         assert rc == 0
         assert not _is_denied(parsed), f"Expected allow (escape hatch), got: {parsed}"
+
+
+def test_routing_denies_claude_role_with_backend(tmp_path):
+    """claude role with a backend preset -> deny (a native spawn would skip
+    the preset env); the message never echoes the backend name or model."""
+    with tempfile.TemporaryDirectory() as home_dir:
+        _write_project_team_yml(
+            str(tmp_path),
+            "enabled: true\nroles:\n"
+            "  skeptic:\n    harness: claude\n    backend: evilgateway\n"
+            "    model: \"claude-deepseek-pro[1m]\"\n",
+        )
+        payload = {
+            "tool_name": "Agent",
+            "cwd": str(tmp_path),
+            "tool_input": {"subagent_type": "skeptic"},
+        }
+        rc, parsed = _run_hook(payload, extra_env=_routing_env(home_dir))
+        assert rc == 0
+        assert _is_denied(parsed), f"Expected backend routing deny, got: {parsed}"
+        reason = _deny_reason(parsed)
+        assert "bin/ds-team dispatch --harness claude --role skeptic" in reason
+        assert "evilgateway" not in reason
+        assert "deepseek" not in reason
+
+
+def test_routing_allows_claude_role_without_backend(tmp_path):
+    """claude role with no backend -> native spawn allowed, as before."""
+    with tempfile.TemporaryDirectory() as home_dir:
+        _write_project_team_yml(
+            str(tmp_path),
+            "enabled: true\nroles:\n  skeptic:\n    harness: claude\n",
+        )
+        payload = {
+            "tool_name": "Agent",
+            "cwd": str(tmp_path),
+            "tool_input": {"subagent_type": "skeptic"},
+        }
+        rc, parsed = _run_hook(payload, extra_env=_routing_env(home_dir))
+        assert rc == 0
+        assert not _is_denied(parsed), f"Expected allow (claude, no backend), got: {parsed}"
 
 
 # ---------------------------------------------------------------------------

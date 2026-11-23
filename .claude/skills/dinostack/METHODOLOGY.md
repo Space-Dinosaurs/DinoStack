@@ -278,7 +278,7 @@ Pre-spawn stash fallback: see `content/references/worktree-lifecycle.md` §Pre-s
 Preamble:
 *"You are a Worker agent. Implement this specific change and return your complete output. The main agent will arrange Skeptic review."*
 
-**Cross-harness teams (opt-in):** when `team.yml` is present with `enabled: true`, dispatchable roles may resolve to another harness - read `content/references/cross-harness-teams.md` §Conductor Dispatch Contract before any such spawn. Collected output enters the existing Skeptic/QA gates unchanged.
+**Cross-harness teams (opt-in):** when `team.yml` is present with `enabled: true`, dispatchable roles may resolve to another harness or a backend preset - read `content/references/cross-harness-teams.md` §Conductor Dispatch Contract before any such spawn. Collected output enters the existing Skeptic/QA gates unchanged.
 
 **Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields, the optional `learnings_candidate[]` field routing, and conductor consumption rules.
 

@@ -17,8 +17,8 @@ Public API: ds-team <discover|dispatch|status|collect|configure> [options]
                          [--model <m>]
                          spawn a worker (background); prints run-id to stdout.
                          --model forwarded to every harness using its own flag
-                         spelling (_MODEL_FLAG_BY_HARNESS: codex/gemini -> -m,
-                         all others -> --model). When --model is omitted,
+                         spelling (_MODEL_FLAG_BY_HARNESS: codex/gemini/kimi
+                         -> -m, all others -> --model). When --model is omitted,
                          the model is resolved from team.yml
                          roles[<role>].model (honoring --global-config /
                          --project-config) IFF the role's harness (or
@@ -31,7 +31,8 @@ Public API: ds-team <discover|dispatch|status|collect|configure> [options]
                          configure cross-harness team assignments in .agentic/team.yml
             --json     - machine-readable output (discover subcommand)
 
-Upstream deps: bin/_role_spec (normalize_role_spec, KNOWN_HARNESSES, KNOWN_ROLES);
+Upstream deps: bin/_role_spec (normalize_role_spec, validate_backends,
+               KNOWN_HARNESSES, KNOWN_ROLES);
                Python 3.11 stdlib only (+ pyyaml for YAML parsing).
 
 Downstream consumers: bin/ds-configure (back-compat shim for team subcommand);
@@ -41,12 +42,20 @@ Failure modes: Unknown harness name in roles or default_harness -> non-zero
                exit with a named error line on stderr.
                Unknown role key -> non-zero exit with a named error line on stderr.
                Missing or unreadable team.yml -> treated as empty config (no error).
-               Malformed YAML -> non-zero exit.
+               Malformed YAML -> non-zero exit (the message carries the
+                 line/column and the error class only, never the source text).
+               `backends:` in the project team.yml -> non-zero exit (presets
+                 are read from the global ~/.agentic/team.yml only).
+               Invalid backend preset or key-shaped preset value -> non-zero
+                 exit (validate_backends; values are never echoed).
                discover: absent harnesses reported as installed=false, exit 0.
                discover: models probe is best-effort (omp, cursor-agent only;
                  [] for claude/codex/gemini/kimi/pi - no reliable list command
                  confirmed); any probe exception -> [], exit 0 unaffected.
                dispatch: unknown harness -> non-zero exit immediately.
+               dispatch: kimi refuses (exit 2, no run directory) unless
+                 `kimi --version` reports Kimi Code 2.x or later; a legacy
+                 kimi-cli is named in the message, never used as a fallback.
                dispatch: workdir not writable -> non-zero exit.
                dispatch: --model is forwarded for all KNOWN_HARNESSES using
                  each harness's own flag spelling (_MODEL_FLAG_BY_HARNESS).
@@ -84,11 +93,13 @@ import importlib.machinery as _im
 import importlib.util as _ilu
 import json
 import os
+import re
 import shutil
 import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -111,6 +122,7 @@ _rs_spec = _ilu.spec_from_loader("_role_spec", _rs_loader)
 _rs_mod = _ilu.module_from_spec(_rs_spec)  # type: ignore[arg-type]
 _rs_loader.exec_module(_rs_mod)
 normalize_role_spec = _rs_mod.normalize_role_spec
+validate_backends = _rs_mod.validate_backends
 KNOWN_HARNESSES: frozenset[str] = _rs_mod.KNOWN_HARNESSES
 KNOWN_ROLES: frozenset[str] = _rs_mod.KNOWN_ROLES
 
@@ -126,7 +138,7 @@ HARNESS_BINARY: dict[str, str] = {
     "codex":        "codex",
     "gemini":       "gemini",
     "cursor-agent": "cursor-agent",
-    "kimi":         "kimi-cli",
+    "kimi":         "kimi",
     "pi":           "pi",
     "omp":          "omp",
     "claude":       "claude",
@@ -159,7 +171,7 @@ HARNESS_INVOCATION_FAMILY: dict[str, str] = {
     "codex":        "codex-exec",
     "gemini":       "gemini-p",
     "cursor-agent": "cursor-agent-force",
-    "kimi":         "kimi-cli-headless",
+    "kimi":         "kimi-code-print",
     "pi":           "pi-prompt",
     "omp":          "omp-prompt",
     "claude":       "claude-p",
@@ -214,6 +226,8 @@ _TEAM_CAPABILITY_TABLE: dict[str, dict[str, int]] = {
     "kimi-k2.7":      {"engineer": 4, "skeptic": 3, "debugger": 3},
     "kimi-k2.6":      {"engineer": 3, "investigator": 3},
     "kimi-k2.5-thinking": {"architect": 4, "skeptic": 4, "security-auditor": 3},
+    "kimi-code/k3":   {"engineer": 4, "skeptic": 4, "architect": 4, "security-auditor": 3},
+    "kimi-k3":        {"engineer": 4, "skeptic": 4, "architect": 4, "security-auditor": 3},
     # Claude family (as worker). "claude-fable" (DS-226) is the tier above
     # claude-opus - scored above it for the Tier-3-mandated review/authoring
     # roles (architect, skeptic, security-auditor); equal to opus for
@@ -251,6 +265,10 @@ _HARNESS_BASE_SCORES: dict[str, dict[str, int]] = {
 #       model: <str>
 #       effort: <str>        # optional; parsed but NOT used by cross-harness
 #       reasoning: <str>     #   dispatch (Pi role-models.yml path only).
+#       backend: <name>      # optional; a preset under backends:
+#   backends:                # global ~/.agentic/team.yml only
+#     <name>:
+#       env: {<VAR>: "<non-secret str>"}
 #   dispatch:
 #     timeout_seconds: <int>
 #     output_format: <str>
@@ -269,7 +287,15 @@ def _parse_team_yml(text: str, source: str) -> dict:
     try:
         data = _yaml.safe_load(text)
     except _yaml.YAMLError as exc:
-        raise ValueError(f"{source}: YAML parse error: {exc}") from exc
+        # str(exc) and exc.problem can quote source text, which may hold a key.
+        kind = type(exc).__name__
+        mark = getattr(exc, "problem_mark", None)
+        if mark is None:
+            raise ValueError(f"{source}: YAML parse error ({kind})") from None
+        raise ValueError(
+            f"{source}: YAML parse error at line {mark.line + 1}, "
+            f"column {mark.column + 1} ({kind})"
+        ) from None
     if data is None:
         return {}
     if not isinstance(data, dict):
@@ -291,6 +317,13 @@ def _load_team_config(
         except OSError:
             continue
         parsed = _parse_team_yml(text, str(path))
+        if label == "project" and "backends" in parsed:
+            # A committed project file could point ANTHROPIC_BASE_URL at any
+            # host and receive the worker's inherited credentials.
+            raise ValueError(
+                f"{path}: 'backends:' is read from the global "
+                f"~/.agentic/team.yml only; remove it from the project team.yml"
+            )
         # Shallow per-top-level-key merge: project wins
         config.update(parsed)
     return config
@@ -325,6 +358,10 @@ def _validate_config(config: dict, source: str = "<team.yml>") -> list[str]:
                 f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
             )
 
+    errors.extend(
+        f"ds-team: {e} in {source}"
+        for e in validate_backends(config.get("backends"), config.get("roles"))
+    )
     return errors
 
 
@@ -389,6 +426,36 @@ def _resolve_role_model(
         return None
     model = entry.get("model")
     return model if model else None
+
+
+def _resolve_role_backend(
+    role: str,
+    harness: str,
+    global_path: Path = GLOBAL_TEAM_YML,
+    project_path: Path = PROJECT_TEAM_YML,
+) -> dict[str, str] | None:
+    """Return the env map of the backend preset for *role*, or None.
+
+    Applies the same positive harness-match rule as _resolve_role_model: the
+    preset applies only when the role's harness (else default_harness) equals
+    the dispatch harness. Raises ValueError when the role names a preset that
+    is undefined or invalid, so dispatch can refuse rather than run the worker
+    against the wrong backend.
+    """
+    config = _load_team_config(global_path=global_path, project_path=project_path)
+    roles = config.get("roles")
+    spec = roles.get(role) if isinstance(roles, dict) else None
+    if not isinstance(spec, dict) or "backend" not in spec:
+        return None
+    entry_harness = spec.get("harness") or config.get("default_harness")
+    if entry_harness != harness:
+        return None
+    if validate_backends(config.get("backends"), roles):
+        raise ValueError(
+            f"role {role!r} references an undefined or invalid backend preset "
+            f"(run ds-doctor --cross-harness)"
+        )
+    return dict(config["backends"][spec["backend"]]["env"])
 
 
 # ---------------------------------------------------------------------------
@@ -712,6 +779,25 @@ def _probe_harness_version(binary: str) -> str | None:
         return None
 
 
+def _parse_major_version(line: str | None) -> int | None:
+    """Return the major version from a `--version` line, or None."""
+    if not line:
+        return None
+    match = re.search(r"(\d+)\.\d+", line)
+    return int(match.group(1)) if match else None
+
+
+def _kimi_code_major() -> int | None:
+    """Major version of the `kimi` binary on PATH (None when absent/unknown).
+
+    Kimi Code 2.x prints a bare version ("2.5.0"); the legacy kimi-cli prints
+    "kimi, version 1.52.0", so the major version is the discriminator.
+    """
+    if shutil.which(HARNESS_BINARY["kimi"]) is None:
+        return None
+    return _parse_major_version(_probe_harness_version(HARNESS_BINARY["kimi"]))
+
+
 def _probe_harness_models(harness: str, binary: str) -> list[str]:
     """Best-effort probe of a harness's available model list.
 
@@ -924,7 +1010,7 @@ _MODEL_FLAG_BY_HARNESS: dict[str, str] = {
     "gemini": "-m",
     "claude": "--model",
     "cursor-agent": "--model",
-    "kimi": "--model",
+    "kimi": "-m",
     "pi": "--model",
     "omp": "--model",
     "opencode": "--model",
@@ -940,6 +1026,31 @@ _STDIN_DEVNULL_HARNESSES: frozenset[str] = frozenset({"cursor-agent"})
 
 # cursor-agent default timeout in seconds (documented hang workaround).
 _CURSOR_TIMEOUT_SECONDS: int = 300
+
+# Roles whose dispatched worker must not modify files. Kimi gets a read-only
+# agent file; claude routed through a backend preset gets a read-only tool set.
+_READ_ONLY_ROLES: frozenset[str] = frozenset(
+    {"skeptic", "investigator", "security-auditor", "architect"}
+)
+
+# Inherited credentials a preset worker must not send to the preset's base URL
+# unless the preset itself sets the variable.
+_BACKEND_SCRUBBED_ENV: tuple[str, ...] = (
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+)
+
+# Kimi Code print mode approves every tool call, so the tool allowlist is the
+# only write barrier. An absent `subagents` key inherits the default profile's
+# delegation targets; the empty list closes it.
+_KIMI_READONLY_AGENT_TEXT = """---
+name: dinostack-readonly-reviewer
+description: DinoStack read-only reviewer that reads and searches files and never modifies them.
+tools: [Read, Grep, Glob]
+disallowedTools: [Bash, Write, Edit]
+subagents: []
+---
+You are a read-only reviewer dispatched by DinoStack. Inspect the working directory only with the Read, Grep and Glob tools; do not create, modify or delete any file, do not run commands, and do not start subagents. Follow the task in the prompt and reply with your complete findings as your final message.
+"""
 
 
 def _make_run_id(role: str) -> str:
@@ -967,6 +1078,8 @@ def _build_worker_argv(
     brief_text: str,
     discovery: dict | None = None,
     model: str | None = None,
+    agent_file: Path | None = None,
+    claude_read_only: bool = False,
 ) -> list[str]:
     """Build the non-interactive argv for the given harness.
 
@@ -982,10 +1095,16 @@ def _build_worker_argv(
     model:
         Optional model id. When truthy, appended at argv END (after the
         positional brief and all existing flags) using the harness's own
-        --model flag spelling (see _MODEL_FLAG_BY_HARNESS: codex/gemini ->
-        "-m", all other harnesses -> "--model"). NEVER inserted before the
+        --model flag spelling (see _MODEL_FLAG_BY_HARNESS: codex/gemini/kimi
+        -> "-m", all other harnesses -> "--model"). NEVER inserted before the
         positional brief, which would make the brief be misparsed as the
         model value.
+    agent_file:
+        kimi only: path of a Kimi Code agent file passed as --agent-file.
+    claude_read_only:
+        claude only: restrict the worker to Read/Grep/Glob, no MCP servers,
+        and user-level settings only (the workdir's project settings and
+        their hooks are not loaded).
 
     Returns
     -------
@@ -1021,6 +1140,11 @@ def _build_worker_argv(
     if harness == "claude":
         # claude -p "<brief>" --output-format json
         argv = [binary, "-p", brief_text, "--output-format", "json"]
+        if claude_read_only:
+            argv += [
+                "--tools", "Read,Grep,Glob", "--strict-mcp-config",
+                "--setting-sources", "user",
+            ]
         if model:
             argv += [model_flag, model]
         return argv
@@ -1048,11 +1172,12 @@ def _build_worker_argv(
     # kimi / pi / omp: invocation family from discovery; flags are best-effort.
     # We do NOT hardcode model IDs per plan principle 1 / AC2.
     if harness == "kimi":
-        # kimi-cli --print --yolo --final-message-only -p "<brief>"
-        # --print is mandatory (non-interactive, auto-dismisses
-        # AskUserQuestion); bare -p alone is interactive-with-prompt.
-        # --final-message-only keeps collect()'s raw-stdout path clean.
-        argv = [binary, "--print", "--yolo", "--final-message-only", "-p", brief_text]
+        # Kimi Code 2.x: kimi -p "<brief>" --output-format stream-json.
+        # -p cannot be combined with --yolo/--auto/--plan; print mode runs
+        # without approval prompts, so read-only roles rely on --agent-file.
+        argv = [binary, "-p", brief_text, "--output-format", "stream-json"]
+        if agent_file is not None:
+            argv += ["--agent-file", str(agent_file)]
         if model:
             argv += [model_flag, model]
         return argv
@@ -1211,6 +1336,25 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
         )
         return 2
 
+    if harness == "kimi":
+        kimi_major = _kimi_code_major()
+        if kimi_major is None or kimi_major < 2:
+            legacy = (
+                " Only the legacy kimi-cli was found; ds-team no longer drives it."
+                if shutil.which("kimi-cli") else ""
+            )
+            found = (
+                "no usable version" if kimi_major is None
+                else f"major version {kimi_major}"
+            )
+            print(
+                "ds-team dispatch: the kimi harness requires Kimi Code 2.x (`kimi`) "
+                f"and `kimi --version` reported {found}.{legacy} "
+                "Install Kimi Code 2.x and retry.",
+                file=sys.stderr,
+            )
+            return 2
+
     if not brief_file.is_file():
         print(f"ds-team dispatch: brief file not found: {brief_file}", file=sys.stderr)
         return 2
@@ -1281,6 +1425,16 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
                 )
                 return 2
 
+    global_path = Path(getattr(args, "global_config", None) or GLOBAL_TEAM_YML)
+    project_path = Path(getattr(args, "project_config", None) or PROJECT_TEAM_YML)
+    try:
+        backend_env = _resolve_role_backend(
+            role, harness, global_path=global_path, project_path=project_path,
+        )
+    except (OSError, ValueError, ImportError) as exc:
+        print(f"ds-team dispatch: cannot apply backend preset: {exc}", file=sys.stderr)
+        return 2
+
     run_id = _make_run_id(role)
 
     run_dir = workdir / ".agentic" / "teamrun" / run_id
@@ -1346,6 +1500,11 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     exempt_binary = HARNESS_BINARY.get(harness, harness)
     shim_dir = _build_shim_dir(run_dir, exempt_binary)
     worker_env = dict(os.environ)
+    if backend_env:
+        for cred in _BACKEND_SCRUBBED_ENV:
+            if cred not in backend_env:
+                worker_env.pop(cred, None)
+        worker_env.update(backend_env)
     worker_env["PATH"] = str(shim_dir) + os.pathsep + worker_env.get("PATH", "")
 
     # Set harness native-subagent-disable flag when discovery recorded one.
@@ -1362,10 +1521,40 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     resolved_model = getattr(args, "model", None) or _resolve_role_model(
         role,
         harness,
-        global_path=Path(getattr(args, "global_config", None) or GLOBAL_TEAM_YML),
-        project_path=Path(getattr(args, "project_config", None) or PROJECT_TEAM_YML),
+        global_path=global_path,
+        project_path=project_path,
     )
-    argv = _build_worker_argv(harness, augmented_brief, model=resolved_model)
+    # Kept outside the shared workdir and private to the operator's user: this
+    # stops other users and in-workdir path guessing, not a same-user process
+    # that finds it under TMPDIR. Removed by the reaper; left behind if this
+    # process is killed first.
+    agent_file: Path | None = None
+    agent_dir: Path | None = None
+    if harness == "kimi" and role in _READ_ONLY_ROLES:
+        try:
+            agent_dir = Path(tempfile.mkdtemp(prefix="ds-team-kimi-"))
+            agent_file = agent_dir / "kimi-readonly-agent.md"
+            agent_file.write_text(_KIMI_READONLY_AGENT_TEXT, encoding="utf-8")
+        except OSError as exc:
+            print(
+                f"ds-team dispatch: failed to write the read-only Kimi agent file: "
+                f"{exc}. Removing the incomplete run directory.",
+                file=sys.stderr,
+            )
+            if agent_dir is not None:
+                shutil.rmtree(agent_dir, ignore_errors=True)
+            shutil.rmtree(run_dir, ignore_errors=True)
+            return 2
+
+    argv = _build_worker_argv(
+        harness,
+        augmented_brief,
+        model=resolved_model,
+        agent_file=agent_file,
+        claude_read_only=(
+            harness == "claude" and role in _READ_ONLY_ROLES and backend_env is not None
+        ),
+    )
 
     stdout_file = run_dir / "stdout"
     stderr_file = run_dir / "stderr"
@@ -1373,18 +1562,23 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
 
     stdin_src = subprocess.DEVNULL if harness in _STDIN_DEVNULL_HARNESSES else None
 
-    with stdout_file.open("wb") as fout, stderr_file.open("wb") as ferr:
-        proc = subprocess.Popen(
-            argv,
-            cwd=str(worker_cwd),
-            env=worker_env,
-            stdout=fout,
-            stderr=ferr,
-            stdin=stdin_src,
-            # start_new_session detaches the worker from the conductor's
-            # process group so a ctrl-c on the conductor does not kill it.
-            start_new_session=True,
-        )
+    try:
+        with stdout_file.open("wb") as fout, stderr_file.open("wb") as ferr:
+            proc = subprocess.Popen(
+                argv,
+                cwd=str(worker_cwd),
+                env=worker_env,
+                stdout=fout,
+                stderr=ferr,
+                stdin=stdin_src,
+                # start_new_session detaches the worker from the conductor's
+                # process group so a ctrl-c on the conductor does not kill it.
+                start_new_session=True,
+            )
+    except BaseException:
+        if agent_dir is not None:
+            shutil.rmtree(agent_dir, ignore_errors=True)
+        raise
 
     pid_file.write_text(str(proc.pid) + "\n", encoding="utf-8")
     # Record harness so collect can demux the output shape.
@@ -1406,6 +1600,9 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
             returncode = proc.wait()
         except Exception:  # noqa: BLE001
             return
+        finally:
+            if agent_dir is not None:
+                shutil.rmtree(agent_dir, ignore_errors=True)
         # If the watchdog already wrote exit=124, don't clobber it.
         if timed_out_flag[0]:
             return
@@ -1516,7 +1713,8 @@ def _collect_output(run_dir: Path, harness: str) -> str:
     - codex   --json             : last JSONL event's message field
     - cursor-agent --output-format json: parse .response or .message
     - claude  --output-format json: parse .result or .message
-    - kimi/pi/omp/opencode/copilot: raw stdout
+    - kimi    --output-format stream-json: last assistant line with text content
+    - pi/omp/opencode/copilot: raw stdout
     """
     stdout_file = run_dir / "stdout"
     try:
@@ -1564,7 +1762,28 @@ def _collect_output(run_dir: Path, harness: str) -> str:
         except (json.JSONDecodeError, AttributeError):
             return raw
 
-    # kimi / pi / omp / opencode / copilot: raw stdout
+    if harness == "kimi":
+        # Meta lines (system.version first, session.resume_hint last) and
+        # tool-call-only assistant lines carry no final text.
+        message = ""
+        for line in raw.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("role") != "assistant":
+                continue
+            content = event.get("content")
+            if isinstance(content, list):
+                content = "".join(
+                    part.get("text", "") for part in content
+                    if isinstance(part, dict) and isinstance(part.get("text"), str)
+                )
+            if isinstance(content, str) and content.strip():
+                message = content
+        return message or raw
+
+    # pi / omp / opencode / copilot: raw stdout
     return raw
 
 
@@ -1685,9 +1904,8 @@ def main(argv: list[str]) -> int:
     p_dispatch.add_argument("--workdir", required=True)
     p_dispatch.add_argument(
         "--model", default=None,
-        help="model id; forwarded to codex/gemini (-m) or "
-             "claude/opencode/copilot (--model). "
-             "Rejected for harnesses without a confirmed --model flag.",
+        help="model id; forwarded to codex/gemini/kimi (-m) or "
+             "every other harness (--model).",
     )
 
     p_status = sub.add_parser("status", help="check run status (running|done|failed)")

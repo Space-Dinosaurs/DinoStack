@@ -383,7 +383,7 @@ search for the section covering "02-delegation.md".
 - review or CI findings are about to be routed to an implementer for a fix pass
 - composing a spawn brief that cites a specific file path for a worktree-isolated subagent to read
 - about to spawn a worktree-isolated agent while the primary checkout has uncommitted changes
-- team.yml is present with enabled: true and a dispatchable role is about to be routed to another harness
+- team.yml is present with enabled: true and a dispatchable role is about to be routed to another harness or through a backend preset
 - a loop-running background spawn has just returned and its digest needs to be consumed
 
 ## Planning Artifacts

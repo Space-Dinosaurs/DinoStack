@@ -127,7 +127,7 @@ roles:
   skeptic:          { harness: cursor-agent,  model: cursor-fast }
   security-auditor: { harness: codex,         model: gpt-5.3-codex }
 dispatch:
-  timeout_seconds: 1800   # per-worker wall-clock limit; default 1800 (30 min)
+  timeout_seconds: 1800   # not read by dispatch today (see field notes)
   output_format: json     # json (default) or text
 ```
 
@@ -138,11 +138,56 @@ dispatch:
 | `enabled` | yes | `false` disables cross-harness dispatch without removing the file |
 | `default_harness` | no | Fallback for roles not listed under `roles:` |
 | `roles[*].harness` | yes (mapping form) | One of 9 known labels: codex, gemini, cursor-agent, kimi, pi, omp, claude, opencode, copilot |
-| `roles[*].model` | no | Passed to the harness `--model`/`-m` flag for codex/gemini/claude/opencode/copilot; rejected for other harnesses. Omit to use harness session default |
+| `roles[*].model` | no | Passed to the harness's model flag (`-m` for codex/gemini/kimi, `--model` for the rest); all 9 harnesses accept it. Omit to use the harness session default. For kimi that is `default_model` in Kimi Code's own `config.toml`, the one line to bump when Kimi ships a new flagship |
+| `roles[*].backend` | no | Name of a preset under `backends:`; applies only when the role's harness matches the dispatch harness, and only to engineer, debugger, qa-engineer, skeptic, security-auditor |
+| `backends` | no | `<name>: {env: {VAR: "string"}}` presets, read from the global `~/.agentic/team.yml` only; a project `backends:` is an error |
 | `roles[*].effort` | no | Forwarded to the harness; silently dropped if unsupported |
 | `roles[*].reasoning` | no | Forwarded to the harness; silently dropped if unsupported |
-| `dispatch.timeout_seconds` | no | Watchdog kills the worker on expiry; default 1800 |
+| `dispatch.timeout_seconds` | no | Not read by dispatch today; only cursor-agent has a watchdog (fixed 300 s) |
 | `dispatch.output_format` | no | Governs the `collect` demux path |
+
+**Backend presets.** A preset sends one role's worker to another model
+backend, such as a local Anthropic-compatible gateway, by merging its `env`
+map into that worker's environment only:
+
+```yaml
+# ~/.agentic/team.yml (global only)
+backends:
+  gateway:
+    env:
+      ANTHROPIC_BASE_URL: http://localhost:4000
+      ANTHROPIC_AUTH_TOKEN: dinostack-placeholder   # non-secret placeholder
+      CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "true"
+roles:
+  skeptic: { harness: claude, backend: gateway, model: "claude-deepseek-pro[1m]" }
+```
+
+- A preset holds only non-secret values; real keys stay in the gateway's own
+  environment. `ds-team` and `ds-doctor --cross-harness` reject a value that
+  looks like a key, without echoing it. The check fails closed on any run of
+  32 or more letters and digits containing both, so values like a hex digest
+  do not belong in a preset. URL userinfo with a password and UUID-shaped
+  values are rejected too.
+- A preset worker does not inherit `ANTHROPIC_API_KEY`,
+  `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN` unless the preset sets
+  that variable itself. Nothing else is scrubbed: a Claude Code settings
+  `env` block or `apiKeyHelper` (user settings for every preset role, plus
+  project and local settings for engineer, debugger and qa-engineer) and
+  inherited variables such as `ANTHROPIC_CUSTOM_HEADERS` can still reach the
+  preset's base URL. Point a preset only at a gateway you trust.
+- A preset may only set keys starting with `ANTHROPIC_`, `CLAUDE_CODE_`,
+  `OPENAI_` or `KIMI_`, and any `*_BASE_URL` value must be `https://` or
+  `http://` on `localhost`, `127.0.0.1` or `::1`.
+- DeepSeek has no harness of its own: use `harness: claude`, a gateway preset,
+  and a `claude-deepseek-*` model id (`claude-kimi-*` ids reach Kimi the same
+  way). DeepSeek has no prompt caching, and `deepseek-v4-pro` is text-only.
+- A `claude` worker for skeptic or security-auditor running through a
+  preset gets `--tools Read,Grep,Glob --strict-mcp-config --setting-sources
+  user`; without a preset it keeps its full tool set. Read-only limits the
+  model's tool set and is not a sandbox: hooks and settings the worker still
+  loads (user settings for `claude`; Kimi Code may run project hooks) still
+  execute.
+- `ds-team configure` does not write or keep presets; add them by hand.
 
 ### 2. Use the setup wizard (optional)
 
@@ -200,12 +245,12 @@ How `ds-team dispatch` invokes each harness non-interactively:
 | **codex** | `codex exec "<brief>" --json --sandbox read-only --skip-git-repo-check` | `--sandbox read-only` applied by default; JSONL event stream |
 | **gemini** | `gemini -p "<brief>" --output-format json` | Headless on `-p`; slash commands broken headless - full brief inline; methodology delivered as a file in the run directory at dispatch time (`.gemini/skills/dinostack/SKILL.full.md`) because Gemini CLI denies `activate_skill` non-interactively - dispatch refuses (exit 2) if unresolvable, unreadable, or empty, override with `AGENTIC_TEAM_ALLOW_NO_METHODOLOGY=1` |
 | **cursor-agent** | `cursor-agent -p --force "<brief>" --output-format json < /dev/null` | `--force` required for file writes; known hang bug - stdin always `/dev/null` + timeout watchdog; marked `experimental` in discover output. Note: `< /dev/null` is presentation shorthand -- the dispatcher sets `stdin=subprocess.DEVNULL` at the `Popen` call; it is not a literal argv element. |
-| **kimi** | `kimi-cli --print --yolo --final-message-only -p "<brief>"` | Binary name is `kimi-cli` (not `kimi`); `--print` required for non-interactive/auto-dismiss behavior; methodology delivered as a file in the run directory at dispatch time (`.kimi/skills/dinostack/SKILL.md`) for the same reason as gemini - same refusal/override behavior |
+| **kimi** | `kimi -p "<brief>" --output-format stream-json [--agent-file <private-tmp-dir>/kimi-readonly-agent.md] [-m <alias>]` | Kimi Code 2.x only (the legacy `kimi-cli` is refused, never used as a fallback); read-only roles get a generated agent file, in a private temp directory outside the workdir and removed when the worker exits, allowing only Read, Grep and Glob, with subagent delegation closed; `collect` takes the last assistant message from the JSON Lines stream; methodology delivered as a file in the run directory at dispatch time (`.kimi/skills/dinostack/SKILL.md`) for the same reason as gemini - same refusal/override behavior |
 | **pi** | `pi -p "<brief>"` | Built-in subagent types exist but suppressed via leaf-worker clause |
 | **omp** | `omp -p "<brief>"` | Same leaf-worker suppression; omp built-in subagents not used as nested spawns |
 | **opencode** | `opencode run "<brief>" --dangerously-skip-permissions --model <m>` | `--model` forwarded only if configured; final message is raw stdout |
 | **copilot** | `copilot -p "<brief>" --allow-all-tools --allow-all-paths --model <m>` | `--allow-all-tools --allow-all-paths` required for non-interactive file writes; `--model` forwarded only if configured; final message is raw stdout. **RISK-ACCEPTED** -- see note below table |
-| **claude (worker)** | `claude -p "<brief>" --output-format json` | Dispatched as a leaf worker only; does NOT re-enter OMC |
+| **claude (worker)** | `claude -p "<brief>" --output-format json` | Dispatched as a leaf worker only; does NOT re-enter OMC. skeptic or security-auditor through a backend preset adds `--tools Read,Grep,Glob --strict-mcp-config --setting-sources user` |
 
 **RISK-ACCEPTED: copilot's `--allow-all-paths` grant.** Unlike every other
 harness above, copilot is dispatched with `--allow-all-paths` in addition to
@@ -239,10 +284,9 @@ auditable consent.
 
 | Harness label | Binary name |
 |---|---|
-| kimi | `kimi-cli` (the only label/binary mismatch) |
-| all others | same as harness label |
+| all harnesses | same as harness label (kimi is Kimi Code 2.x's `kimi`) |
 
-Non-interactive flags for all 7 harnesses (including kimi, pi, and omp) are
+Non-interactive flags for all 9 harnesses (including kimi, pi, and omp) are
 **confirmed and fixed**, verified live against each CLI -- not probed at
 discovery time. Discovery only probes for available *models* (see the
 per-harness dispatch table note above), never the invocation flags
@@ -289,7 +333,8 @@ The guard is layered. Layers are listed strongest to weakest:
    and the spawned `subagent_type` is one of the five dispatchable roles
    (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`)
    whose resolved harness (role entry, else `default_harness`) is anything
-   other than `claude`, denies the native spawn with an actionable
+   other than `claude`, or is `claude` with a `backend:` preset on the role
+   entry, denies the native spawn with an actionable
    `bin/ds-team dispatch ...` instruction. `conductor`, `investigator`,
    `architect`, and `orchestration-planner` are never denied by this branch.
    Fails open on every error path (missing file, unreadable, malformed YAML,
@@ -309,9 +354,11 @@ The guard is layered. Layers are listed strongest to weakest:
 ## Failure modes
 
 - **No dinostack skill artifact resolvable (or a resolved one is unreadable or empty) for a gemini/kimi worker.** `dispatch` refuses (exit 2, no run directory) rather than launching a worker with no methodology, unless `AGENTIC_TEAM_ALLOW_NO_METHODOLOGY=1` is set.
+- **Only the legacy `kimi-cli` installed.** A kimi dispatch refuses (exit 2, no run directory) when `kimi --version` is below 2 or no `kimi` is installed, names a detected `kimi-cli`, and asks for Kimi Code 2.x. There is no fallback to the legacy CLI.
+- **Invalid backend preset.** A `backends:` key in a project team.yml, an undefined preset, or a value that looks like a key makes `ds-team` exit 2 before any dispatch; `ds-doctor --cross-harness` reports the same as FAIL.
 - **cursor-agent headless hang.** Known upstream bug. The dispatcher always
-  redirects stdin from `/dev/null` and starts a timeout kill watchdog (default
-  300 s for cursor-agent, 1800 s otherwise). The harness is marked
+  redirects stdin from `/dev/null` and starts a timeout kill watchdog (fixed
+  300 s; no other harness has a watchdog). The harness is marked
   `experimental` in `discover` output until upstream fixes the hang.
 - **Harness not installed.** `discover` reports `installed: false`. `dispatch`
   returns non-zero immediately with a named error -- no silent hang.
@@ -325,7 +372,8 @@ The guard is layered. Layers are listed strongest to weakest:
 - **No team.yml or `enabled: false`.** Feature is inactive. The conductor
   falls back to native delegation unchanged -- no error, no degraded mode.
 - **Malformed team.yml.** `ds-team` exits non-zero with a YAML parse
-  error on stderr before any dispatch occurs.
+  error (line, column and error class only, never the source text) on stderr
+  before any dispatch occurs.
 - **Unknown harness or role in team.yml.** Non-zero exit with a named error
   line listing the known values.
 

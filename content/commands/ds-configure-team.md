@@ -16,7 +16,7 @@ bin/ds-team configure
 
 The wizard runs `discover` first and prints a summary of installed harnesses (version + discovered model count when available) before asking anything. If only your own harness (e.g. `claude`) is installed - nothing to cross-dispatch to - it says so and exits cleanly without prompting.
 
-For each of the 9 known roles, it presents a numbered menu of **installed harnesses only** (never offers one that isn't installed), with a ranked suggestion as the default. Example on a machine with `omp`, `kimi-cli`, and `pi` installed alongside `claude`:
+For each of the 9 known roles, it presents a numbered menu of **installed harnesses only** (never offers one that isn't installed), with a ranked suggestion as the default. Example on a machine with `omp`, `kimi` (Kimi Code 2.x), and `pi` installed alongside `claude`:
 
 ```
 Installed harnesses:
@@ -57,6 +57,8 @@ bin/ds-team configure \
 `--assign` accepts `role=harness:model` (model is optional). Repeat for each role. `--default-harness` sets the fallback harness for any unassigned role. `--path` overrides the output location (default `.agentic/team.yml`). All 7 harnesses (`codex`, `gemini`, `cursor-agent`, `kimi`, `pi`, `omp`, `claude`) are valid `--assign` targets and all accept a `model`.
 
 Exit codes: `0` success or no-op; `2` bad `--assign` value, unknown `--default-harness`, or `--non-interactive` used without `--assign`.
+
+`configure` rewrites the whole team.yml it writes, so it never authors or keeps a `backends:` preset or a role's `backend:` key. Write those by hand in `~/.agentic/team.yml` (a project team.yml may not define `backends:`), and re-add them after any `configure` run that targets that file. A Kimi role with no model uses Kimi Code's own `default_model`. See "Backend presets" in `content/references/cross-harness-teams.md`.
 
 ## Step 2 - Verify discovery
 

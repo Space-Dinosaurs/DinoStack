@@ -195,3 +195,61 @@ def test_fix_mode_exit_nonzero_on_cross_harness_fail(monkeypatch, tmp_path):
     # A missing harness is a FAIL; in fix mode that is unfixable-adjacent and
     # must not report success.
     assert doc.has_unresolved_findings()
+
+
+# ---------------------------------------------------------------------------
+# DS-274: backend presets validated through the real ds-team module
+# ---------------------------------------------------------------------------
+
+def _patch_real_team(monkeypatch, tmp_path, global_text, project_text=None):
+    """Use the real ds-team module with its loader bound to temp team.yml files."""
+    real = _mod._load_agentic_team_module()
+    assert real is not None
+    global_path = tmp_path / "global-team.yml"
+    global_path.write_text(global_text, encoding="utf-8")
+    project_path = tmp_path / "project-team.yml"
+    if project_text is not None:
+        project_path.write_text(project_text, encoding="utf-8")
+    loader = real._load_team_config
+    monkeypatch.setattr(real, "_load_team_config",
+                        lambda *a, **k: loader(global_path, project_path))
+    monkeypatch.setattr(_mod, "_load_agentic_team_module", lambda: real)
+    monkeypatch.setattr(_mod, "_installed_harnesses", lambda: {"claude"})
+    monkeypatch.setattr(_mod, "_omp_model_handles", lambda: set())
+
+
+_ROLE_YML = "roles:\n  skeptic:\n    harness: claude\n    backend: gw\n"
+
+
+def test_backend_key_shaped_value_fails(monkeypatch, tmp_path):
+    key = "x-api-key: sk-ant-" + "a1" * 24
+    _patch_real_team(
+        monkeypatch, tmp_path,
+        "enabled: true\nbackends:\n  gw:\n    env:\n"
+        f"      ANTHROPIC_AUTH_TOKEN: \"{key}\"\n" + _ROLE_YML,
+    )
+    doc = _doc()
+    check_cross_harness(doc)
+    fails = [m for s, m in doc.findings if s == "FAIL"]
+    assert any("looks like a secret" in m for m in fails), doc.findings
+    assert all(key not in m for _s, m in doc.findings)
+
+
+def test_project_backends_fails(monkeypatch, tmp_path):
+    _patch_real_team(
+        monkeypatch, tmp_path, "enabled: true\n",
+        project_text="backends:\n  gw:\n    env:\n      A: b\n",
+    )
+    doc = _doc()
+    check_cross_harness(doc)
+    assert any(s == "FAIL" and "backends:" in m for s, m in doc.findings), doc.findings
+
+
+def test_no_backends_does_not_fail(monkeypatch, tmp_path):
+    _patch_real_team(
+        monkeypatch, tmp_path,
+        "enabled: true\nroles:\n  skeptic:\n    harness: claude\n",
+    )
+    doc = _doc()
+    check_cross_harness(doc)
+    assert not any(s == "FAIL" for s, _m in doc.findings), doc.findings
