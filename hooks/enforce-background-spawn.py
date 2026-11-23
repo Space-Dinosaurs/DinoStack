@@ -19,7 +19,8 @@ Purpose: PreToolUse hook that enforces three METHODOLOGY rules on Claude Code:
          effective team.yml has `enabled: true` and the spawned subagent_type is
          a dispatchable role (engineer/debugger/qa-engineer/skeptic/
          security-auditor) whose resolved harness (role entry, else
-         default_harness) is anything OTHER than "claude", the native Task/Agent
+         default_harness) is anything OTHER than "claude", or is "claude" with
+         a team.yml `backend:` preset on the role entry, the native Task/Agent
          spawn is denied with an actionable `bin/ds-team dispatch ...`
          instruction. This fixes the chicken-and-egg bug where team.yml was
          silently ignored because the (2)-below sentinel-based suppression only
@@ -168,6 +169,7 @@ from pathlib import Path
 # Per content/references/cross-harness-teams.md, conductor, investigator,
 # architect, and orchestration-planner always stay native even if team.yml
 # maps them elsewhere (their team.yml entries are advisory only).
+# bin/_role_spec.py validate_backends loads this name by path: keep it.
 _DISPATCHABLE_ROLES = frozenset({
     "engineer", "debugger", "qa-engineer", "skeptic", "security-auditor",
 })
@@ -493,6 +495,19 @@ def would_deny(data: dict) -> str | None:
                     team_config = _load_effective_team_config(cwd_route)
                     if team_config.get("enabled") is True:
                         harness, model = _resolve_role_harness(team_config, role)
+                        roles_cfg = team_config.get("roles")
+                        entry = roles_cfg.get(role) if isinstance(roles_cfg, dict) else None
+                        backend = entry.get("backend") if isinstance(entry, dict) else None
+                        if harness == "claude" and isinstance(backend, str) and backend:
+                            # A native spawn would skip the preset's env, so
+                            # route through ds-team. The backend name and the
+                            # model are untrusted team.yml text: never echoed.
+                            return (
+                                f"cross-harness team active: role '{role}' is routed "
+                                "through a team.yml backend preset. Dispatch with: "
+                                f"bin/ds-team dispatch --harness claude --role {role} "
+                                "--brief <file> --workdir <dir> - then poll status/collect."
+                            )
                         if harness and harness != "claude":
                             if harness not in _known_harnesses():
                                 # harness is untrusted (team.yml is project-

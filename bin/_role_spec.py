@@ -18,7 +18,20 @@ Public API: normalize_role_spec(value) -> dict
 
             KNOWN_HARNESSES / KNOWN_ROLES: frozensets of valid names.
 
-Upstream deps: Python 3.11 stdlib only.
+            looks_like_secret(value: str) -> bool
+            True when a string contains a key-shaped token anywhere in it
+            (a known key prefix, a Bearer credential, or a 32+ character
+            alphanumeric run with a letter and a digit). A floor, not a
+            scanner.
+
+            validate_backends(backends, roles) -> list[str]
+            Validate team.yml's top-level `backends:` presets and every
+            roles.<role>.backend reference. Never raises; messages never
+            include an env value.
+
+Upstream deps: Python 3.11 stdlib only. validate_backends reads
+               _DISPATCHABLE_ROLES from hooks/enforce-background-spawn.py
+               (loaded by path, only when a role carries a backend).
 
 Downstream consumers: bin/ds-configure, bin/ds-team.
 
@@ -31,6 +44,9 @@ Performance: Pure in-memory normalization; no I/O.
 """
 
 from __future__ import annotations
+
+import re
+from pathlib import Path
 
 _KNOWN_KEYS = frozenset({"model", "effort", "reasoning"})
 
@@ -181,3 +197,128 @@ def resolve_reviewer_model(
     if cand and cand != author:
         return cand
     return None
+
+
+_SECRET_PREFIX_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:sk-|sk_|ghp_|gho_|ghs_|ghu_|github_pat_|xoxb-|xoxp-|AKIA|AIza)"
+    r"[A-Za-z0-9_\-]{16,}"
+)
+_SECRET_BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/\-]{16,}")
+_SECRET_SPLIT_RE = re.compile(r"[^A-Za-z0-9+_]+")
+_BACKEND_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def looks_like_secret(value: str) -> bool:
+    """Return True when *value* contains a key-shaped token anywhere in it."""
+    if _SECRET_PREFIX_RE.search(value) or _SECRET_BEARER_RE.search(value):
+        return True
+    for piece in _SECRET_SPLIT_RE.split(value):
+        if (
+            len(piece) >= 32
+            and any(c.isalpha() for c in piece)
+            and any(c.isdigit() for c in piece)
+        ):
+            return True
+    return False
+
+
+def _dispatchable_roles() -> frozenset[str] | None:
+    """Return the hook's _DISPATCHABLE_ROLES, or None when it cannot load."""
+    try:
+        import importlib.machinery as _im
+        import importlib.util as _ilu
+
+        hook_path = (
+            Path(__file__).resolve().parent.parent / "hooks" / "enforce-background-spawn.py"
+        )
+        loader = _im.SourceFileLoader("_ds_enforce_background_spawn", str(hook_path))
+        spec = _ilu.spec_from_loader("_ds_enforce_background_spawn", loader)
+        mod = _ilu.module_from_spec(spec)  # type: ignore[arg-type]
+        loader.exec_module(mod)
+        return frozenset(mod._DISPATCHABLE_ROLES)
+    except Exception:
+        return None
+
+
+def validate_backends(backends: object, roles: object) -> list[str]:
+    """Validate team.yml `backends:` presets and roles.<role>.backend references.
+
+    Returns a list of error strings (empty when valid). Never raises, and no
+    message ever includes an env value; a name or env key that itself looks
+    like a secret is redacted.
+    """
+    errors: list[str] = []
+    defined: set[str] = set()
+
+    if backends is not None and not isinstance(backends, dict):
+        errors.append("backends: must be a mapping of preset name -> {env: {...}}")
+        backends = None
+
+    for name, preset in (backends or {}).items():
+        if not isinstance(name, str) or looks_like_secret(name):
+            label = "backends.<redacted>"
+            errors.append(f"{label}: preset name looks like a secret (redacted)")
+            continue
+        label = f"backends.{name}"
+        defined.add(name)
+        if not _BACKEND_NAME_RE.match(name):
+            errors.append(
+                f"{label}: invalid preset name (use lowercase letters, digits, '-' or '_')"
+            )
+        if not isinstance(preset, dict):
+            errors.append(f"{label}: must be a mapping with a single 'env' key")
+            continue
+        extra = sorted(str(k) for k in preset if k != "env")
+        if extra:
+            errors.append(f"{label}: unknown key(s) {', '.join(extra)} (only 'env' is allowed)")
+        env = preset.get("env")
+        if not isinstance(env, dict):
+            errors.append(f"{label}.env: must be a mapping of VAR -> \"string\"")
+            continue
+        for key, value in env.items():
+            if not isinstance(key, str) or looks_like_secret(key):
+                errors.append(f"{label}.env.<redacted>: env key looks like a secret (redacted)")
+                continue
+            if not _ENV_KEY_RE.match(key):
+                errors.append(f"{label}.env.{key}: invalid environment variable name")
+                continue
+            if key == "PATH":
+                errors.append(f"{label}.env.PATH: PATH cannot be set by a backend preset")
+                continue
+            if not isinstance(value, str):
+                errors.append(
+                    f"{label}.env.{key}: value must be a string (quote it in team.yml)"
+                )
+                continue
+            if looks_like_secret(value):
+                errors.append(f"{label}.env.{key}: value looks like a secret (redacted)")
+
+    if not isinstance(roles, dict):
+        return errors
+    dispatchable: frozenset[str] | None = None
+    for role, spec in roles.items():
+        if not isinstance(spec, dict) or "backend" not in spec:
+            continue
+        ref = spec.get("backend")
+        if not isinstance(ref, str) or not ref:
+            errors.append(f"roles.{role}.backend: must be a non-empty preset name")
+            continue
+        if ref not in defined:
+            errors.append(
+                f"roles.{role}.backend: preset is not defined under backends: "
+                f"in the global ~/.agentic/team.yml"
+            )
+        if dispatchable is None:
+            dispatchable = _dispatchable_roles()
+        if dispatchable is None:
+            errors.append(
+                f"roles.{role}.backend: cannot load the dispatchable-role list "
+                f"from hooks/enforce-background-spawn.py"
+            )
+        elif role not in dispatchable:
+            errors.append(
+                f"roles.{role}.backend: backend applies only to dispatchable roles "
+                f"({', '.join(sorted(dispatchable))})"
+            )
+    return errors

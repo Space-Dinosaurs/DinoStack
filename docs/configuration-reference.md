@@ -221,9 +221,11 @@ feature off.
 | Field | Default | Type | Notes |
 |---|---|---|---|
 | `enabled` | `false` (absent file = feature off) | bool | Must be explicitly `true` to activate dispatch; absent file is equivalent to `enabled: false` |
-| `default_harness` | none (absent = no harness fallback) | string | `codex`, `gemini`, `cursor-agent`, `kimi`, `pi`, `omp`, `claude`; absent means unrouted roles fall through to native spawn |
-| `roles` | none (absent = empty map, no per-role routing) | map | Maps role name to `{harness, model}` |
-| `dispatch.timeout_seconds` | `1800` | int | Per-Worker timeout |
+| `default_harness` | none (absent = no harness fallback) | string | `codex`, `gemini`, `cursor-agent`, `kimi`, `pi`, `omp`, `claude`, `opencode`, `copilot`; absent means unrouted roles fall through to native spawn |
+| `roles` | none (absent = empty map, no per-role routing) | map | Maps role name to `{harness, model, backend}` |
+| `roles.<role>.backend` | none | string | Name of a preset under `backends:`; only for engineer, debugger, qa-engineer, skeptic, security-auditor, and only when the role's harness matches the dispatch harness |
+| `backends` | none (no presets) | map | `<name>: {env: {VAR: "string"}}`, merged into that worker's environment only. Global `~/.agentic/team.yml` only (a project `backends:` is an error); non-secret values only (key-shaped values are rejected) |
+| `dispatch.timeout_seconds` | `1800` | int | Not read by dispatch today; only cursor-agent has a watchdog (fixed 300 s) |
 | `dispatch.output_format` | `"json"` | `"json"`, `"text"` | Worker output format |
 
 See `content/references/cross-harness-teams.md` for the full dispatch table.

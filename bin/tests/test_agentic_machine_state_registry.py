@@ -137,6 +137,7 @@ REVIEWED_NOT_DISPOSABLE: Dict[str, str] = {
     "reaped-telemetry": "protected: telemetry salvaged from reaped worktrees",
     "stray-agentic-archive": "protected: archived stray .agentic trees",
     "teamrun": "protected: team run directories",
+    "kimi-readonly-agent.md": "protected: never top-level; bin/ds-team writes it under teamrun/<run-id>/",
     "evidence": "protected: QA evidence",
     ".activated": "protected: activation sentinel read by bin/ds-status",
     "codex-skill-root-ownership.json": "protected: build-tool safety registry",

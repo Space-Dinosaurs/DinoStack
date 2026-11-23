@@ -281,8 +281,8 @@ Pre-spawn stash fallback: see `content/references/worktree-lifecycle.md` §Pre-s
 Preamble:
 *"You are a Worker agent. Implement this specific change and return your complete output. The main agent will arrange Skeptic review."*
 
-<!-- corpus:begin full medium | trigger: team.yml is present with enabled: true and a dispatchable role is about to be routed to another harness -->
-**Cross-harness teams (opt-in):** when `team.yml` is present with `enabled: true`, dispatchable roles may resolve to another harness - read `content/references/cross-harness-teams.md` §Conductor Dispatch Contract before any such spawn. Collected output enters the existing Skeptic/QA gates unchanged.
+<!-- corpus:begin full medium | trigger: team.yml is present with enabled: true and a dispatchable role is about to be routed to another harness or through a backend preset -->
+**Cross-harness teams (opt-in):** when `team.yml` is present with `enabled: true`, dispatchable roles may resolve to another harness or a backend preset - read `content/references/cross-harness-teams.md` §Conductor Dispatch Contract before any such spawn. Collected output enters the existing Skeptic/QA gates unchanged.
 <!-- corpus:end -->
 
 <!-- corpus:begin full medium | trigger: a loop-running background spawn has just returned and its digest needs to be consumed -->
