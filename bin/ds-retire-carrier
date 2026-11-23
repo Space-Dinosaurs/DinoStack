@@ -19,8 +19,9 @@ Public API (CLI):
   In-process: `main(argv) -> int`. Gate 8 calls the module-global
   `_salvage_and_remove`, so a test may replace that attribute.
   bin/ds-cleanup-worktrees loads this file and calls gate 7
-  (`_local_pin_check`, `_pin_gate` with no `--pin` and no fetch) before
-  any removal it proposes.
+  (`_local_pin_check`, `_origin_pins` with no fetch) before any removal it
+  proposes, and `_create_carrier_pins` before a live removal of a worktree
+  whose private gitdir alone names a commit.
 
   Gates, first match wins: 0 latest record is an explicit hold for this
   carrier and `--release` is absent (no new record; a record whose
@@ -508,6 +509,11 @@ def _pin_gate(path: str, primary: str, common: str, gitdir: str, head: Optional[
             raise Hold(f"{len(remaining)} unpinned commit(s) ({sample}); {network_hold.reason}",
                        REVISIT["unpinned"], network_hold.stderr)
         raise Hold(f"{len(remaining)} unpinned commit(s) ({sample})", REVISIT["unpinned"])
+    return _create_carrier_pins(path, primary, common, candidates, remaining, origin_tips, dry_run), candidates
+
+
+def _create_carrier_pins(path: str, primary: str, common: str, candidates: List[str], remaining: List[str],
+                         origin_tips: List[str], dry_run: bool) -> List[str]:
     remaining_set = set(remaining)
     tops = _maximal(primary, [sha for sha in candidates if sha in remaining_set])
     base = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(path.rstrip("/"))) or "carrier"
@@ -524,13 +530,13 @@ def _pin_gate(path: str, primary: str, common: str, gitdir: str, head: Optional[
         if proc.returncode != 0:
             raise Hold(f"--pin could not create {ref}", REVISIT["remove"], proc.stderr.strip() or "update-ref failed")
     if dry_run:
-        return created, candidates
+        return created
     # Re-verify against what phase 2 accepted: local branches (now including
     # the new carrier-pin refs) plus the live origin tips already collected.
     if _unpinned(primary, candidates, _local_pins(primary, common) + origin_tips):
         raise Hold("--pin re-verification found commits still unpinned", REVISIT["unpinned"],
                    "carrier-pin refs created but rev-list still reports unpinned commits")
-    return created, candidates
+    return created
 
 
 def _recheck_candidates(path: str, primary: str, gitdir: str, head: Optional[str], proven: List[str]) -> None:
