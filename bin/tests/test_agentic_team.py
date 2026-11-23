@@ -2252,6 +2252,10 @@ def _dispatch_in_process(monkeypatch, tmp_path, harness, role,
     def _fake_popen(argv, *a, **k):
         captured["argv"] = argv
         captured["env"] = k.get("env")
+        if "--agent-file" in argv:
+            agent = Path(argv[argv.index("--agent-file") + 1])
+            captured["agent_text"] = agent.read_text(encoding="utf-8")
+            captured["agent_dir_mode"] = agent.parent.stat().st_mode & 0o777
         return _FakeProc()
 
     monkeypatch.setattr(_mod.subprocess, "Popen", _fake_popen)
@@ -2314,19 +2318,38 @@ def test_kimi_dispatch_refuses_legacy_cli_end_to_end(tmp_path):
     assert not (workdir / ".agentic" / "teamrun").exists()
 
 
+def _join_reapers():
+    import threading as _threading
+
+    for t in _threading.enumerate():
+        if t is not _threading.current_thread() and not t.daemon:
+            t.join(timeout=5)
+
+
 def test_kimi_skeptic_gets_read_only_agent_file(monkeypatch, tmp_path):
-    """kimi + skeptic -> exact argv with --agent-file; the file allowlists
+    """kimi + skeptic -> exact argv with --agent-file in a private 0700 dir
+    outside the workdir, removed once the worker exits; the file allowlists
     only Read/Grep/Glob and closes subagent delegation."""
     import yaml as _yaml
 
+    private_tmp = tmp_path / "private_tmp"
+    private_tmp.mkdir()
+    monkeypatch.setattr(_mod.tempfile, "tempdir", str(private_tmp))
     rc, captured, workdir = _dispatch_in_process(monkeypatch, tmp_path, "kimi", "skeptic")
     assert rc == 0
-    agent_file = (_single_run_dir(workdir) / "kimi-readonly-agent.md").absolute()
-    assert captured["argv"] == [
+    argv = captured["argv"]
+    agent_file = Path(argv[argv.index("--agent-file") + 1])
+    assert argv == [
         "kimi", "-p", _LEAF_WORKER_CLAUSE + "Review it.",
         "--output-format", "stream-json", "--agent-file", str(agent_file),
     ]
-    text = agent_file.read_text(encoding="utf-8")
+    assert agent_file.is_absolute()
+    assert agent_file.parent.parent == private_tmp
+    assert workdir not in agent_file.parents
+    assert captured["agent_dir_mode"] == 0o700
+    _join_reapers()
+    assert not agent_file.parent.exists()
+    text = captured["agent_text"]
     _, front, body = text.split("---\n", 2)
     meta = _yaml.safe_load(front)
     assert meta["tools"] == ["Read", "Grep", "Glob"]
@@ -2410,6 +2433,7 @@ def test_claude_read_only_role_with_backend_gets_read_only_tools(monkeypatch, tm
     assert captured["argv"] == [
         "claude", "-p", _LEAF_WORKER_CLAUSE + "Review it.", "--output-format", "json",
         "--tools", "Read,Grep,Glob", "--strict-mcp-config",
+        "--setting-sources", "user",
         "--model", "claude-deepseek-pro[1m]",
     ]
 
@@ -2445,6 +2469,50 @@ def test_yaml_parse_error_never_echoes_source():
     text = str(exc_info.value)
     assert "line 1" in text
     assert key not in text
+
+
+@pytest.mark.parametrize("form", ["x: !{key}\n", "x: *{key}\n"])
+def test_yaml_tag_or_alias_error_never_echoes_source(form):
+    key = "sk-" + "a1" * 24
+    with pytest.raises(ValueError) as exc_info:
+        _parse_team_yml(form.format(key=key), "team.yml")
+    text = str(exc_info.value)
+    assert "line 1" in text
+    assert key not in text and "a1" * 24 not in text
+
+
+def test_backend_preset_scrubs_inherited_credentials(monkeypatch, tmp_path):
+    """A preset worker gets no inherited Anthropic credential unless the preset
+    sets that variable itself; the parent environment is unchanged."""
+    dummy = "dummy-" + "x" * 8
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
+        monkeypatch.setenv(name, dummy)
+    before = dict(_os.environ)
+    rc, captured, _wd = _dispatch_in_process(
+        monkeypatch, tmp_path, "claude", "skeptic",
+        global_yml=_GATEWAY_GLOBAL_YML + "  skeptic:\n    harness: claude\n    backend: gw\n",
+    )
+    assert rc == 0
+    env = captured["env"]
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in env
+    assert env["ANTHROPIC_AUTH_TOKEN"] == "dinostack-placeholder"
+    after = dict(_os.environ)
+    for name in ("HOME", _ALLOW_NO_METHODOLOGY_ENV):
+        before.pop(name, None)
+        after.pop(name, None)
+    assert after == before
+
+
+def test_no_backend_keeps_inherited_credentials(monkeypatch, tmp_path):
+    dummy = "dummy-" + "x" * 8
+    monkeypatch.setenv("ANTHROPIC_API_KEY", dummy)
+    rc, captured, _wd = _dispatch_in_process(
+        monkeypatch, tmp_path, "claude", "skeptic",
+        global_yml="enabled: true\nroles:\n  skeptic:\n    harness: claude\n",
+    )
+    assert rc == 0
+    assert captured["env"]["ANTHROPIC_API_KEY"] == dummy
 
 
 def test_validate_config_reports_key_shaped_preset_value():

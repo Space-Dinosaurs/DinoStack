@@ -43,7 +43,7 @@ Failure modes: Unknown harness name in roles or default_harness -> non-zero
                Unknown role key -> non-zero exit with a named error line on stderr.
                Missing or unreadable team.yml -> treated as empty config (no error).
                Malformed YAML -> non-zero exit (the message carries the
-                 line/column and problem only, never the source text).
+                 line/column and the error class only, never the source text).
                `backends:` in the project team.yml -> non-zero exit (presets
                  are read from the global ~/.agentic/team.yml only).
                Invalid backend preset or key-shaped preset value -> non-zero
@@ -99,6 +99,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -286,13 +287,14 @@ def _parse_team_yml(text: str, source: str) -> dict:
     try:
         data = _yaml.safe_load(text)
     except _yaml.YAMLError as exc:
-        # str(exc) quotes the offending source line, which may hold a key.
+        # str(exc) and exc.problem can quote source text, which may hold a key.
+        kind = type(exc).__name__
         mark = getattr(exc, "problem_mark", None)
         if mark is None:
-            raise ValueError(f"{source}: YAML parse error") from None
+            raise ValueError(f"{source}: YAML parse error ({kind})") from None
         raise ValueError(
             f"{source}: YAML parse error at line {mark.line + 1}, "
-            f"column {mark.column + 1}: {getattr(exc, 'problem', None)}"
+            f"column {mark.column + 1} ({kind})"
         ) from None
     if data is None:
         return {}
@@ -1031,7 +1033,11 @@ _READ_ONLY_ROLES: frozenset[str] = frozenset(
     {"skeptic", "investigator", "security-auditor", "architect"}
 )
 
-_KIMI_READONLY_AGENT_FILE = "kimi-readonly-agent.md"
+# Inherited credentials a preset worker must not send to the preset's base URL
+# unless the preset itself sets the variable.
+_BACKEND_SCRUBBED_ENV: tuple[str, ...] = (
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+)
 
 # Kimi Code print mode approves every tool call, so the tool allowlist is the
 # only write barrier. An absent `subagents` key inherits the default profile's
@@ -1096,7 +1102,9 @@ def _build_worker_argv(
     agent_file:
         kimi only: path of a Kimi Code agent file passed as --agent-file.
     claude_read_only:
-        claude only: restrict the worker to Read/Grep/Glob and no MCP servers.
+        claude only: restrict the worker to Read/Grep/Glob, no MCP servers,
+        and user-level settings only (the workdir's project settings and
+        their hooks are not loaded).
 
     Returns
     -------
@@ -1133,7 +1141,10 @@ def _build_worker_argv(
         # claude -p "<brief>" --output-format json
         argv = [binary, "-p", brief_text, "--output-format", "json"]
         if claude_read_only:
-            argv += ["--tools", "Read,Grep,Glob", "--strict-mcp-config"]
+            argv += [
+                "--tools", "Read,Grep,Glob", "--strict-mcp-config",
+                "--setting-sources", "user",
+            ]
         if model:
             argv += [model_flag, model]
         return argv
@@ -1474,20 +1485,6 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
             f"as a conductor.\n\n"
         )
 
-    agent_file: Path | None = None
-    if harness == "kimi" and role in _READ_ONLY_ROLES:
-        agent_file = (run_dir / _KIMI_READONLY_AGENT_FILE).absolute()
-        try:
-            agent_file.write_text(_KIMI_READONLY_AGENT_TEXT, encoding="utf-8")
-        except OSError as exc:
-            print(
-                f"ds-team dispatch: failed to write the read-only Kimi agent file "
-                f"{agent_file}: {exc}. Removing the incomplete run directory.",
-                file=sys.stderr,
-            )
-            shutil.rmtree(run_dir, ignore_errors=True)
-            return 2
-
     # Single assembly site for ALL 9 harnesses. For the 7 unaffected harnesses
     # methodology_note is still "" and this is byte-identical to pre-change.
     # This is the ONLY place augmented_brief is assigned.
@@ -1504,6 +1501,9 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     shim_dir = _build_shim_dir(run_dir, exempt_binary)
     worker_env = dict(os.environ)
     if backend_env:
+        for cred in _BACKEND_SCRUBBED_ENV:
+            if cred not in backend_env:
+                worker_env.pop(cred, None)
         worker_env.update(backend_env)
     worker_env["PATH"] = str(shim_dir) + os.pathsep + worker_env.get("PATH", "")
 
@@ -1524,6 +1524,26 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
         global_path=global_path,
         project_path=project_path,
     )
+    # Kept outside the shared workdir so a concurrent write-capable worker
+    # cannot rewrite it before Kimi reads it. Removed by the reaper.
+    agent_file: Path | None = None
+    agent_dir: Path | None = None
+    if harness == "kimi" and role in _READ_ONLY_ROLES:
+        try:
+            agent_dir = Path(tempfile.mkdtemp(prefix="ds-team-kimi-"))
+            agent_file = agent_dir / "kimi-readonly-agent.md"
+            agent_file.write_text(_KIMI_READONLY_AGENT_TEXT, encoding="utf-8")
+        except OSError as exc:
+            print(
+                f"ds-team dispatch: failed to write the read-only Kimi agent file: "
+                f"{exc}. Removing the incomplete run directory.",
+                file=sys.stderr,
+            )
+            if agent_dir is not None:
+                shutil.rmtree(agent_dir, ignore_errors=True)
+            shutil.rmtree(run_dir, ignore_errors=True)
+            return 2
+
     argv = _build_worker_argv(
         harness,
         augmented_brief,
@@ -1540,18 +1560,23 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
 
     stdin_src = subprocess.DEVNULL if harness in _STDIN_DEVNULL_HARNESSES else None
 
-    with stdout_file.open("wb") as fout, stderr_file.open("wb") as ferr:
-        proc = subprocess.Popen(
-            argv,
-            cwd=str(worker_cwd),
-            env=worker_env,
-            stdout=fout,
-            stderr=ferr,
-            stdin=stdin_src,
-            # start_new_session detaches the worker from the conductor's
-            # process group so a ctrl-c on the conductor does not kill it.
-            start_new_session=True,
-        )
+    try:
+        with stdout_file.open("wb") as fout, stderr_file.open("wb") as ferr:
+            proc = subprocess.Popen(
+                argv,
+                cwd=str(worker_cwd),
+                env=worker_env,
+                stdout=fout,
+                stderr=ferr,
+                stdin=stdin_src,
+                # start_new_session detaches the worker from the conductor's
+                # process group so a ctrl-c on the conductor does not kill it.
+                start_new_session=True,
+            )
+    except BaseException:
+        if agent_dir is not None:
+            shutil.rmtree(agent_dir, ignore_errors=True)
+        raise
 
     pid_file.write_text(str(proc.pid) + "\n", encoding="utf-8")
     # Record harness so collect can demux the output shape.
@@ -1573,6 +1598,9 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
             returncode = proc.wait()
         except Exception:  # noqa: BLE001
             return
+        finally:
+            if agent_dir is not None:
+                shutil.rmtree(agent_dir, ignore_errors=True)
         # If the watchdog already wrote exit=124, don't clobber it.
         if timed_out_flag[0]:
             return

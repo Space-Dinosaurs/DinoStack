@@ -125,8 +125,10 @@ normalizer; there is no inline copy.
 A backend preset routes one role's worker through a different model backend
 without touching the operator's shell or keys. Its `env` map is merged into
 that worker's copy of the environment only; the parent environment and every
-other dispatch are unchanged. Presets add variables and never remove
-inherited ones, so a parent `ANTHROPIC_API_KEY` still reaches the worker.
+other dispatch are unchanged. A preset worker does not inherit
+`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN`
+unless the preset sets that variable itself, so real credentials never go to
+the preset's base URL.
 
 ```yaml
 # ~/.agentic/team.yml (global only)
@@ -147,7 +149,11 @@ flags. Real keys stay in the gateway's own environment. `ds-team` and
 never echo it. The check is a floor, not a scanner: it fails closed on any run
 of 32 or more letters and digits containing both (a hex digest, for
 example), so such values do not belong in a preset, and a short key without
-a known prefix passes. `PATH` cannot be set, every value must be a quoted
+a known prefix passes. URL userinfo with a password and UUID-shaped values
+are rejected too. A preset may only set keys starting with `ANTHROPIC_`,
+`CLAUDE_CODE_`, `OPENAI_` or `KIMI_` (so not `PATH`, `HOME`, `NODE_OPTIONS`
+or `CLAUDE_CONFIG_DIR`), any `*_BASE_URL` value must be `https://` or
+`http://` on `localhost`, `127.0.0.1` or `::1`, every value must be a quoted
 string, and `backend` is accepted only on `engineer`, `debugger`,
 `qa-engineer`, `skeptic`, and `security-auditor`.
 
@@ -156,12 +162,15 @@ gateway preset and a `claude-deepseek-*` model id; `claude-kimi-*` ids reach
 Kimi the same way. DeepSeek has no prompt caching, and `deepseek-v4-pro` is
 text-only.
 
-**Read-only roles through a preset.** When a `claude` worker for a read-only
-role (`skeptic`, `investigator`, `security-auditor`, `architect`) runs through
-a preset, dispatch adds `--tools Read,Grep,Glob --strict-mcp-config`, so the
-model can call only those three tools and no MCP server. The operator's own
-Claude Code hooks still run inside that worker. A `claude` dispatch without a
-preset keeps its existing argv.
+**Read-only roles through a preset.** When a `claude` worker for `skeptic`
+or `security-auditor` (the read-only roles that accept `backend`) runs
+through a preset, dispatch adds `--tools Read,Grep,Glob --strict-mcp-config
+--setting-sources user`, so the model can call only those three tools and no
+MCP server, and the workdir's project settings are not loaded. A `claude`
+dispatch without a preset keeps its existing argv and its full tool set.
+Read-only limits the model's tool set; it is not a sandbox. Hooks and other
+settings the worker still loads (the operator's user settings for `claude`;
+Kimi Code may run project hooks) still execute.
 
 Role names are the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`:
 `conductor`, `investigator`, `architect`, `orchestration-planner`, `engineer`,
@@ -183,7 +192,7 @@ map in `bin/ds-team` (the one allowed per-harness hardcoded fact).
 | **codex** | `codex exec "<brief>"` or `codex exec -` (stdin) | `-m <model>` | `--json` (JSONL events) | `--sandbox read-only` applied by default; `--skip-git-repo-check` added when workdir is not a git repo; reads saved auth or `CODEX_API_KEY`; final message extracted from the last JSONL event. |
 | **gemini** | `gemini -p "<brief>"` | `-m <model>` | `--output-format json` | Headless on non-TTY or `-p`; slash/custom commands are broken headless -- pass the full brief inline; `head -c 50000` guard applied to large stdin; methodology is delivered as a file in the run directory at dispatch time (`.gemini/skills/dinostack/SKILL.full.md`, full corpus) because Gemini CLI denies `activate_skill` non-interactively (`write.toml`, priority 10, `interactive = false` in the installed policy bundle) - dispatch refuses (exit 2) if unresolvable, unreadable, or empty, or set `AGENTIC_TEAM_ALLOW_NO_METHODOLOGY=1` to override. Response text extracted via `jq '.response'`. |
 | **cursor-agent** | `cursor-agent -p --force "<brief>" < /dev/null` | `--model <model>` | `--output-format json` | `--force` required for file writes; **known hang bug** -- stdin is always redirected from `/dev/null` AND a timeout + kill watchdog is applied; marked `experimental` in discovery output until upstream fixes the hang. `--list-models` also confirmed (used by discovery model probe). |
-| **kimi** | `kimi -p "<brief>" --output-format stream-json [--agent-file <run-dir>/kimi-readonly-agent.md]` | `-m <alias>` | `--output-format stream-json` (JSON Lines) | Kimi Code 2.x; dispatch refuses (exit 2) when `kimi --version` is below 2 or absent, and never falls back to the legacy `kimi-cli`. `-p` cannot be combined with `--yolo`/`--auto`/`--plan`, and print mode approves every tool call, so read-only roles (`skeptic`, `investigator`, `security-auditor`, `architect`) get a generated agent file allowing only `Read`, `Grep`, and `Glob` with `subagents: []`; write-capable roles get no agent file. No custom slash commands; methodology is delivered as a file in the run directory at dispatch time (`.kimi/skills/dinostack/SKILL.md`, already full corpus) for the same reason as Gemini - dispatch refuses (exit 2) if unresolvable, unreadable, or empty, same override. |
+| **kimi** | `kimi -p "<brief>" --output-format stream-json [--agent-file <private-tmp-dir>/kimi-readonly-agent.md]` | `-m <alias>` | `--output-format stream-json` (JSON Lines) | Kimi Code 2.x; dispatch refuses (exit 2) when `kimi --version` is below 2 or absent, and never falls back to the legacy `kimi-cli`. `-p` cannot be combined with `--yolo`/`--auto`/`--plan`, and print mode approves every tool call, so read-only roles (`skeptic`, `investigator`, `security-auditor`, `architect`) get a generated agent file allowing only `Read`, `Grep`, and `Glob` with `subagents: []`; write-capable roles get no agent file. No custom slash commands; methodology is delivered as a file in the run directory at dispatch time (`.kimi/skills/dinostack/SKILL.md`, already full corpus) for the same reason as Gemini - dispatch refuses (exit 2) if unresolvable, unreadable, or empty, same override. |
 | **pi** | `pi -p "<brief>"` | `--model <model>` | text (default mode) | Built-in subagent types exist but MUST be suppressed via the leaf-worker clause. Also supports `--mode text\|json\|rpc`; default text mode is used so `collect()`'s raw-stdout path works. |
 | **omp** | `omp -p "<brief>"` | `--model <model>` | text (default mode) | Same leaf-worker suppression; omp built-in subagents not used as nested spawns. `--mode json` emits streaming JSONL `message_update` events (not a single JSON object), not worth parsing in v1, so default text mode is kept. `omp models ls --json` confirmed (used by discovery model probe). |
 | **opencode** | `opencode run "<brief>" --dangerously-skip-permissions` | `--model <model>` | raw stdout | `--dangerously-skip-permissions` required for non-interactive dispatch (detached worker has no TTY for permission prompts); `--model` forwarded only when a model is configured; final message is raw stdout (no demux). |
@@ -223,8 +232,10 @@ codebase (grep-confirmed) -- pre-existing, out of scope here, left untouched.
 dispatch refuses with exit 2 before creating a run directory, names a
 detected legacy `kimi-cli` in the message, and asks for Kimi Code 2.x. There
 is no fallback to the legacy CLI's argv. The read-only agent file is written
-into the run directory and closes subagent delegation with `subagents: []`
-(an absent key would inherit the default profile's delegation targets).
+to a private `0700` temporary directory outside the workdir, so a concurrent
+worker in the same workdir cannot rewrite it, and is removed when the worker
+exits. It closes subagent delegation with `subagents: []` (an absent key
+would inherit the default profile's delegation targets).
 Whether its body replaces Kimi's own system prompt is unverified.
 
 **RISK-ACCEPTED: copilot's `--allow-all-paths` grant.** Unlike every other
