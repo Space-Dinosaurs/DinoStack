@@ -414,7 +414,7 @@ Canonical mechanism: content/references/worktree-lifecycle.md §Implicit Trivial
 
 A crashed continuation leaves ONE artifact - its own harness isolation worktree, detached, possibly with an unpushed commit. No nested worktree, no orphaned second entry.
 
-- `head_reachable` auto-sweeps a leftover whose HEAD a local branch or `origin/*` ref contains and whose private reflog pins nothing else; otherwise it resolves `SKIP_UNREFERENCED_COMMIT` (or `SKIP_UNPROVEN`, private pin), refused by design
+- `head_reachable` auto-sweeps a leftover whose HEAD a local branch or `origin/*` ref contains, first pinning reflog-only commits on `carrier-pin/*`; otherwise it resolves `SKIP_UNREFERENCED_COMMIT` (or `SKIP_UNPROVEN`, private pin), refused by design
 - Triage manually: `git -C <path> branch -r --contains "$(git -C <path> rev-parse HEAD)"` - nonempty means the work already reached `origin` and is safe; empty means this worktree is the sole copy
 - Recovery: inspect the tip (`git -C <path> log -1`), then push it to its intended branch or cherry-pick it where it belongs
 - Retire via **`ds-retire-carrier <path>`** (`--pin` keeps an unpushed tip) or record a hold - never `--force`; a hold naming uncommitted changes means content `log -1` couldn't show - inspect `status --porcelain` and `diff` first

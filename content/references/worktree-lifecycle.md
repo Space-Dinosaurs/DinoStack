@@ -114,11 +114,13 @@ Failure modes: Prose + bash blocks; does not auto-execute. Carrier
                own harness isolation worktree detached (possibly with an
                unpushed commit) - a DIFFERENT case from the above: the
                automatic reap removes it only when a local branch or
-               origin/* ref contains its HEAD and no commit its private
-               gitdir names would lose its last ref; otherwise it resolves
-               SKIP_UNREFERENCED_COMMIT or SKIP_UNPROVEN (private pin) and
-               only the manual procedure in §SKIP_UNREFERENCED_COMMIT
-               resolves it.
+               origin/* ref contains its HEAD, first pinning on a
+               carrier-pin/* branch any commit only its private gitdir
+               names; otherwise it resolves SKIP_UNREFERENCED_COMMIT (or
+               SKIP_UNPROVEN, private pin, when that pin cannot be
+               written or the private gitdir cannot be parsed) and only
+               the manual procedure in §SKIP_UNREFERENCED_COMMIT resolves
+               it.
 
 Performance: Standard.
 -->
@@ -362,10 +364,12 @@ detached entry to `"reachable"` only when a local branch or an
 `origin/*` ref contains its HEAD, else `"unreachable"`; patch equivalence
 does not count, because nothing keeps a detached commit alive. Before
 removal it also runs `bin/ds-retire-carrier`'s gate-7 pin check over the
-worktree's private HEAD reflog, `*_HEAD` files and private refs. A crash
-after the push therefore auto-sweeps. A HEAD no live ref contains
-resolves `SKIP_UNREFERENCED_COMMIT`; a contained HEAD whose private
-gitdir still names a commit no live ref holds resolves `SKIP_UNPROVEN`
+worktree's private HEAD reflog, `*_HEAD` files and private refs, and a
+live sweep pins any commit only those name on a `carrier-pin/*` branch
+before removing the worktree. A crash after the push therefore
+auto-sweeps. A HEAD no live ref contains resolves
+`SKIP_UNREFERENCED_COMMIT`; a contained HEAD whose private gitdir cannot
+be parsed, or whose pin cannot be written, resolves `SKIP_UNPROVEN`
 (`private pin: ...`). Both are left for manual handling - refused by
 design, the same work-preserving discipline as `SKIP_UNPROVEN` below.
 

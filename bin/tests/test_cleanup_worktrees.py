@@ -4907,19 +4907,101 @@ def test_failed_process_scan_skips_every_entry(tmp_path, monkeypatch):
     assert result["outcome"] == "SKIP_LIVE_CWD", result
 
 
-@pytest.mark.parametrize("no_gh", [True, False])
-def test_detached_commit_named_only_by_private_reflog_is_never_removed(tmp_path, no_gh):
-    repo, _origin = init_repo_with_origin(tmp_path)
+def _reflog_only_worktree(repo: Path) -> tuple:
     wt = repo / ".claude" / "worktrees" / "reflog-only"
     wt.parent.mkdir(parents=True, exist_ok=True)
     _git(repo, "worktree", "add", "-q", "--detach", str(wt), "main")
     (wt / "only-here.txt").write_text("sole copy\n")
     _git(wt, "add", "only-here.txt")
     _git(wt, "commit", "-q", "-m", "sole copy")
+    sha = _git(wt, "rev-parse", "HEAD").stdout.strip()
     _git(wt, "checkout", "-q", "--detach", "origin/main")
-    proc = run_reap(repo, no_gh=no_gh, gh_dir=None if no_gh else _fake_gh_dir(tmp_path))
+    return wt, sha
+
+
+def _carrier_pin_refs(repo: Path) -> list:
+    return _git(repo, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/carrier-pin").stdout.split("\n")[:-1]
+
+
+@pytest.mark.parametrize("no_gh", [True, False])
+def test_detached_commit_named_only_by_private_reflog_is_pinned_before_removal(tmp_path, no_gh):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt, sha = _reflog_only_worktree(repo)
+    gh_dir = None if no_gh else _fake_gh_dir(tmp_path)
+
+    proc = run_reap(repo, no_gh=no_gh, gh_dir=gh_dir)
     assert proc.returncode == 0, proc.stderr
+    assert outcomes(proc.stdout)[str(wt)].startswith("REMOVE"), proc.stdout
+    report = subprocess.run(
+        [sys.executable, str(SCRIPT), "--multi-repo", "--repo", str(repo), "--report", "--json", "--no-gh",
+         "--min-age-hours", "0", "--activity-window-hours", "0"],
+        capture_output=True, text=True,
+    )
+    assert report.returncode == 0, report.stderr
+    assert _carrier_pin_refs(repo) == [], "dry-run and --report must write no ref"
+
+    proc = run_reap(repo, dry_run=False, no_gh=no_gh, gh_dir=gh_dir)
+    assert proc.returncode == 0, proc.stderr
+    ref = f"refs/heads/carrier-pin/reflog-only-{sha[:8]}"
+    assert f"REMOVED {wt} " in proc.stdout and f"pinned={ref}" in proc.stdout, proc.stdout
+    assert not wt.exists() and str(wt) not in worktree_paths(repo)
+    assert _carrier_pin_refs(repo) == [f"{ref} {sha}"]
+    assert _git(repo, "show", f"{sha}:only-here.txt").stdout == "sole copy\n"
+
+
+def test_reflog_only_commit_holds_when_pin_cannot_be_written(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt, sha = _reflog_only_worktree(repo)
+    _git(repo, "update-ref", "refs/heads/carrier-pin", "main")
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    assert wt.is_dir() and str(wt) in worktree_paths(repo), proc.stdout
     assert outcomes(proc.stdout)[str(wt)].startswith("SKIP_UNPROVEN (private pin:"), proc.stdout
+    assert _git(repo, "cat-file", "-e", f"{sha}^{{commit}}").returncode == 0
+
+
+def test_unparseable_private_reflog_still_holds_and_writes_no_ref(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt, _sha = _reflog_only_worktree(repo)
+    gitdir = Path(_git(wt, "rev-parse", "--absolute-git-dir").stdout.strip())
+    with open(gitdir / "logs" / "HEAD", "a", encoding="utf-8") as handle:
+        handle.write("not a reflog line\n")
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    line = outcomes(proc.stdout)[str(wt)]
+    assert line.startswith("SKIP_UNPROVEN (private pin:") and "cannot parse" in line, proc.stdout
+    assert wt.is_dir()
+    assert _carrier_pin_refs(repo) == []
+
+
+@pytest.mark.parametrize("no_gh", [True, False])
+def test_archive_candidate_with_reflog_only_commits_keeps_its_hold_wording(tmp_path, no_gh):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/arch", "arch", push=False)
+    (wt / "kept.txt").write_text("unpushed branch work\n")
+    _git(wt, "add", "kept.txt")
+    _git(wt, "commit", "-q", "-m", "unpushed")
+    _git(wt, "checkout", "-q", "--detach")
+    lost = []
+    for name in ("one", "two"):
+        (wt / f"{name}.txt").write_text(f"{name}\n")
+        _git(wt, "add", f"{name}.txt")
+        _git(wt, "commit", "-q", "-m", name)
+        lost.append(_git(wt, "rev-parse", "HEAD").stdout.strip())
+    _git(wt, "checkout", "-q", "arch")
+
+    proc = run_reap(repo, dry_run=False, no_gh=no_gh, gh_dir=None if no_gh else _fake_gh_dir(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    line = outcomes(proc.stdout)[str(wt)]
+    assert line.startswith("SKIP_UNPROVEN (private pin: 2 unpinned commit(s) ("), proc.stdout
+    assert all(sha[:8] in line for sha in lost), line
+    if no_gh:
+        assert line.endswith("; offline, origin not consulted)"), line
+    else:
+        assert line.endswith(")") and "offline" not in line, line
+        assert f"WARNING: worktree {wt} privately pins 2 commit(s) with no surviving ref" in proc.stderr, proc.stderr
+    assert wt.is_dir()
+    assert _carrier_pin_refs(repo) == []
 
 
 def test_detached_whitespace_variant_of_a_base_commit_is_never_removed(tmp_path):

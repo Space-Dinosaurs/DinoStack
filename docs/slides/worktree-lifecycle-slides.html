@@ -1808,7 +1808,7 @@ hr {
 
 <p>A crashed continuation leaves ONE artifact - its own harness isolation worktree, detached, possibly with an unpushed commit. No nested worktree, no orphaned second entry.</p>
 <ul>
-<li><code>head_reachable</code> auto-sweeps a leftover whose HEAD a local branch or <code>origin/*</code> ref contains and whose private reflog pins nothing else; otherwise it resolves <code>SKIP_UNREFERENCED_COMMIT</code> (or <code>SKIP_UNPROVEN</code>, private pin), refused by design</li>
+<li><code>head_reachable</code> auto-sweeps a leftover whose HEAD a local branch or <code>origin/*</code> ref contains, first pinning reflog-only commits on <code>carrier-pin/*</code>; otherwise it resolves <code>SKIP_UNREFERENCED_COMMIT</code> (or <code>SKIP_UNPROVEN</code>, private pin), refused by design</li>
 <li>Triage manually: <code>git -C &lt;path&gt; branch -r --contains &quot;$(git -C &lt;path&gt; rev-parse HEAD)&quot;</code> - nonempty means the work already reached <code>origin</code> and is safe; empty means this worktree is the sole copy</li>
 <li>Recovery: inspect the tip (<code>git -C &lt;path&gt; log -1</code>), then push it to its intended branch or cherry-pick it where it belongs</li>
 <li>Retire via <strong><code>ds-retire-carrier &lt;path&gt;</code></strong> (<code>--pin</code> keeps an unpushed tip) or record a hold - never <code>--force</code>; a hold naming uncommitted changes means content <code>log -1</code> couldn't show - inspect <code>status --porcelain</code> and <code>diff</code> first</li>
