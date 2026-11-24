@@ -68,7 +68,9 @@ Downstream consumers: Claude Code hook runner (PreToolUse event for Write,
                       conventions.md §Git Workflow.
 
 Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
-               resolves to sys.exit(0) with no deny output:
+               resolves to sys.exit(0) with no deny output, except the
+               git-failure bullet, which keeps the deny this hook issued
+               before the gitignore exemption existed:
     - Malformed/empty stdin: fail-open.
     - Kill-switch (AE_SHIPPABLE_GUARD_DISABLE=1): fail-open immediately,
       before reading stdin.
@@ -85,26 +87,29 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
     - target is under .agentic/**, docs/planning/**, or is named
       AGENTS.md/MEMORY.md/CLAUDE.md at any depth: fail-open (exempt by the
       classifier).
-    - target is gitignored and untracked (`git check-ignore` exits 0, run
-      from target's nearest existing directory, and no case-variant is
-      tracked): fail-open (the classifier makes only tracked-file writes
-      shippable).
-    - `git check-ignore` exits anything other than 0 or 1, or the
-      `ls-files` case-variant lookup fails (directory not in a git work
-      tree), git is missing, or it times out: fail-open.
+    - target is gitignored and untracked in repo_root's own repository
+      (`git check-ignore` exits 0 from target's nearest existing
+      directory, that work tree shares repo_root's git common dir, and no
+      case-variant is tracked): fail-open (the classifier makes only
+      tracked-file writes shippable).
+    - Any git failure while checking that exemption (non-zero exit, a
+      path inside a .git directory, a nested independent repo, git
+      missing, timeout): the exemption does not apply and the target is
+      denied as it was before the exemption existed. This is not a new
+      block: those paths were denied before git was consulted at all.
     - Any other unexpected exception anywhere in the body: caught by the
       outer try/except, fail-open.
                The single deny path requires ALL of: no kill-switch, valid
                JSON, matcher tool, no agent_id, valid tool_input.file_path,
                a resolvable repo_root, a target inside repo_root, the
-               target NOT matching any exemption, and the target tracked
-               (any case) or untracked and not ignored.
+               target NOT matching any exemption, and no positive git
+               confirmation that the target is ignored and untracked.
 
 Performance: in-memory JSON parse, a handful of path operations, optional
-             single small JSON file read for .snapshot-meta.json, and one
-             or two git subprocesses (check-ignore, then ls-files only for
-             an ignored path) for a non-exempt in-repo target (a few ms;
-             5 s timeout each), no network.
+             single small JSON file read for .snapshot-meta.json, and
+             git subprocesses for a non-exempt in-repo target: check-ignore,
+             then (only for an ignored path) two rev-parse and one ls-files
+             (a few ms each; 5 s timeout each), no network.
 """
 
 # Kill-switch + recovery:
@@ -199,43 +204,61 @@ def _resolve_repo_root() -> str | None:
 
 
 def _git_quiet(cwd: str, *args: str) -> subprocess.CompletedProcess:
+    # Inherited GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE would make git
+    # answer about some other repository or index.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     return subprocess.run(
         ["git", "-C", cwd, *args],
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         timeout=5,
+        env=env,
     )
+
+
+def _common_dir(cwd: str) -> str | None:
+    r = _git_quiet(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    return os.path.realpath(r.stdout.strip())
 
 
 def _is_ignored_untracked(target: str, repo_root: str) -> bool:
-    """True when git ignores target and does not track it (or any
-    case-variant of it); also True when git cannot answer (fail-open).
+    """True only on positive confirmation that target is ignored and
+    untracked (in any case spelling) in repo_root's own repository; any
+    other git outcome, including an error, returns False and keeps the
+    pre-existing deny.
 
-    Git runs from target's nearest existing directory, not repo_root, so a
-    linked worktree or nested repo under an ignored directory of repo_root
-    (e.g. .claude/worktrees/) is judged by its own index and ignore rules.
-    check-ignore exits 0 ignored-and-untracked, 1 tracked or not ignored;
-    tracked files are never reported ignored. Under core.ignorecase a
-    different-case spelling of a tracked file reaches that file but
+    Git runs from target's nearest existing directory, so a linked worktree
+    under an ignored directory of repo_root (e.g. .claude/worktrees/) is
+    judged by its own index and ignore rules, and that work tree must share
+    repo_root's git common dir (a nested independent repo does not).
+    check-ignore exits 0 only for an ignored untracked path inside a work
+    tree; a path inside a .git directory exits 128. Under core.ignorecase a
+    different-case spelling of a tracked file reaches that file while
     check-ignore still calls it ignored, so a 0 is confirmed with an
-    :(icase) ls-files lookup. That lookup also denies such a spelling on a
-    case-sensitive filesystem, where it would be a distinct file.
+    :(icase,literal) ls-files lookup. That lookup also denies such a
+    spelling on a case-sensitive filesystem, where it is a distinct file.
     """
-    anchor = os.path.dirname(target)
-    while not os.path.isdir(anchor) and anchor != repo_root:
-        anchor = os.path.dirname(anchor)
-    ignore_rc = _git_quiet(anchor, "check-ignore", "-q", "--", target).returncode
-    if ignore_rc == 1:
+    try:
+        anchor = os.path.dirname(target)
+        while not os.path.isdir(anchor) and anchor != repo_root:
+            anchor = os.path.dirname(anchor)
+        if _git_quiet(anchor, "check-ignore", "-q", "--", target).returncode != 0:
+            return False
+        common = _common_dir(anchor)
+        if common is None or common != _common_dir(repo_root):
+            return False
+        tracked = _git_quiet(
+            anchor,
+            "ls-files",
+            "--",
+            ":(icase,literal)" + os.path.relpath(target, anchor),
+        )
+        return tracked.returncode == 0 and not tracked.stdout.strip()
+    except Exception:
         return False
-    if ignore_rc != 0:
-        return True
-    tracked = _git_quiet(
-        anchor, "ls-files", "--", ":(icase)" + os.path.relpath(target, anchor)
-    )
-    if tracked.returncode != 0:
-        return True
-    return not tracked.stdout.strip()
 
 
 def main() -> None:

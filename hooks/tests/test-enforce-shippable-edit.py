@@ -302,25 +302,36 @@ def _run_tracked_gate_cases() -> None:
     repo = os.path.realpath(tempfile.mkdtemp(prefix="test-shippable-gitrepo-"))
     _git(repo, "init", "-q")
     with open(os.path.join(repo, ".gitignore"), "w", encoding="utf-8") as f:
-        f.write("docs/brainstorm/\n/decisions.md\nevals/\n*.local.json\n.claude/worktrees/\n")
+        f.write("docs/brainstorm/\n/decisions.md\nevals/\n*.local.json\n*.LOCAL.json\n.claude/worktrees/\n")
     os.makedirs(os.path.join(repo, "content"), exist_ok=True)
     with open(os.path.join(repo, "content", "tracked.md"), "w", encoding="utf-8") as f:
         f.write("x\n")
-    with open(os.path.join(repo, "forced.local.json"), "w", encoding="utf-8") as f:
-        f.write("{}\n")
+    for name in ("forced.local.json", "b[1].local.json"):
+        with open(os.path.join(repo, name), "w", encoding="utf-8") as f:
+            f.write("{}\n")
     _git(repo, "add", ".gitignore", "content/tracked.md")
-    _git(repo, "add", "-f", "forced.local.json")
+    _git(repo, "add", "-f", "forced.local.json", "b[1].local.json")
     _git(repo, "commit", "-q", "-m", "init")
     # A linked worktree under an ignored directory: its tracked files are
     # still tracked, in its own index.
     wt = os.path.join(repo, ".claude", "worktrees", "agent-x")
     _git(repo, "worktree", "add", "-q", "-b", "agent-x", wt)
+    # An independent repo nested in a non-ignored dir, ignoring everything.
+    inner = os.path.join(repo, "inner")
+    os.makedirs(inner)
+    _git(inner, "init", "-q")
+    with open(os.path.join(inner, ".gitignore"), "w", encoding="utf-8") as f:
+        f.write("*\n")
+    # An index with nothing in it: a leaked GIT_INDEX_FILE would make the
+    # tracked forced.local.json look untracked and ignored.
+    empty_index = os.path.join(tempfile.mkdtemp(), "index")
 
     hook = _make_snapshot_hook(repo)
 
-    def _run(target: str) -> tuple[int, str, str]:
+    def _run(target: str, extra_env: dict | None = None) -> tuple[int, str, str]:
         env = os.environ.copy()
         env.pop("AE_SHIPPABLE_GUARD_DISABLE", None)
+        env.update(extra_env or {})
         r = subprocess.run(
             [sys.executable, hook],
             input=make_payload("Write", target),
@@ -339,12 +350,21 @@ def _run_tracked_gate_cases() -> None:
         ("gitignored untracked file in a worktree: agent-x/decisions.md -> ALLOW", ".claude/worktrees/agent-x/decisions.md"),
     ]
     deny_cases = [
-        ("tracked file: content/tracked.md -> DENY", "content/tracked.md"),
-        ("new untracked non-ignored file: content/new.md -> DENY", "content/new.md"),
-        ("tracked file matching an ignore pattern: forced.local.json -> DENY", "forced.local.json"),
-        ("case-variant of a tracked ignored-pattern file: FORCED.LOCAL.json -> DENY", "FORCED.LOCAL.json"),
-        ("tracked file in a worktree under an ignored dir -> DENY", ".claude/worktrees/agent-x/content/tracked.md"),
-        ("new non-ignored file in a worktree under an ignored dir -> DENY", ".claude/worktrees/agent-x/content/new.md"),
+        ("tracked file: content/tracked.md -> DENY", "content/tracked.md", None),
+        ("new untracked non-ignored file: content/new.md -> DENY", "content/new.md", None),
+        ("tracked file matching an ignore pattern: forced.local.json -> DENY", "forced.local.json", None),
+        ("case-variant of a tracked ignored-pattern file: FORCED.LOCAL.json -> DENY", "FORCED.LOCAL.json", None),
+        ("tracked file in a worktree under an ignored dir -> DENY", ".claude/worktrees/agent-x/content/tracked.md", None),
+        ("new non-ignored file in a worktree under an ignored dir -> DENY", ".claude/worktrees/agent-x/content/new.md", None),
+        ("case-variant of a tracked file with glob characters: B[1].LOCAL.json -> DENY", "B[1].LOCAL.json", None),
+        ("repo git dir: .git/hooks/pre-commit -> DENY", ".git/hooks/pre-commit", None),
+        ("repo git dir: .git/config -> DENY", ".git/config", None),
+        ("file in a nested independent repo that ignores it: inner/x.md -> DENY", "inner/x.md", None),
+        (
+            "inherited GIT_INDEX_FILE ignored: forced.local.json -> DENY",
+            "forced.local.json",
+            {"GIT_INDEX_FILE": empty_index},
+        ),
     ]
     for label, rel in allow_cases:
         total += 1
@@ -355,10 +375,10 @@ def _run_tracked_gate_cases() -> None:
         print(f"  [{'PASS' if ok else 'FAIL'}] {label}")
         if not ok:
             print(f"         rc={rc} stdout={stdout!r} stderr={stderr!r}")
-    for label, rel in deny_cases:
+    for label, rel, extra_env in deny_cases:
         total += 1
         target = os.path.join(repo, rel)
-        rc, stdout, stderr = _run(target)
+        rc, stdout, stderr = _run(target, extra_env)
         ok, reason = is_deny(rc, stdout)
         ok = ok and "Shippable-edit guard" in reason and target in reason
         if not ok:
@@ -382,9 +402,6 @@ print("-- snapshot-meta resolution --")
 def _run_snapshot_case() -> None:
     global failed, total
     fake_source = os.path.realpath(tempfile.mkdtemp())
-    # A git work tree: outside one, `git check-ignore` fails and the hook
-    # fails open, so the shippable-path DENY below could not fire.
-    _git(fake_source, "init", "-q")
     os.makedirs(os.path.join(fake_source, "content"), exist_ok=True)
     os.makedirs(os.path.join(fake_source, ".agentic"), exist_ok=True)
 
