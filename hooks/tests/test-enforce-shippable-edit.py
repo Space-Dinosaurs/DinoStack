@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -386,6 +387,38 @@ def _run_tracked_gate_cases() -> None:
         print(f"  [{'PASS' if ok else 'FAIL'}] {label}")
         if not ok:
             print(f"         rc={rc} stdout={stdout!r} stderr={stderr!r}")
+
+    # A git slower than the hook's registered 5 s timeout (.claude/install.sh)
+    # must still end in a printed deny before the harness would kill the hook.
+    total += 1
+    shim_dir = tempfile.mkdtemp()
+    with open(os.path.join(shim_dir, "git"), "w", encoding="utf-8") as f:
+        f.write(f'#!/bin/sh\nsleep 6\nexec "{shutil.which("git")}" "$@"\n')
+    os.chmod(os.path.join(shim_dir, "git"), 0o755)
+    target = os.path.join(repo, "content", "tracked.md")
+    env = os.environ.copy()
+    env.pop("AE_SHIPPABLE_GUARD_DISABLE", None)
+    env["PATH"] = shim_dir + os.pathsep + env.get("PATH", "")
+    label = "git slower than the 5 s hook timeout: tracked file still DENY within 5 s"
+    try:
+        r = subprocess.run(
+            [sys.executable, hook],
+            input=make_payload("Write", target),
+            env=env,
+            capture_output=True,
+            text=True,
+            cwd=_DEFAULT_TEST_CWD,
+            timeout=5,
+        )
+        ok, _reason = is_deny(r.returncode, r.stdout)
+        detail = f"rc={r.returncode} stdout={r.stdout!r} stderr={r.stderr!r}"
+    except subprocess.TimeoutExpired:
+        ok, detail = False, "hook still running at 5 s (harness would kill it: allow)"
+    if not ok:
+        failed += 1
+    print(f"  [{'PASS' if ok else 'FAIL'}] {label}")
+    if not ok:
+        print(f"         {detail}")
 
 
 _run_tracked_gate_cases()

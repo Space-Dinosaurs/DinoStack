@@ -70,7 +70,7 @@
   </figure>
 
   <h2>Fail open, and log every fire</h2>
-  <p>Every DinoStack hook fails open: a parse error, a missing file or an unexpected payload exits without denying anything, because an enforcement gap is preferable to a blanket block. The round cap has the one deliberate exception: it denies a round allowed by an operator grant when it cannot record it, since allowing it would let one grant re-allow every retry. Every <code>enforce-*.py</code> hook also appends a line to <code>.agentic/.enforcement-fires.jsonl</code>, and the abdication guard logs every verdict, plain allows included, so its allow-to-deny ratio can be measured rather than guessed. Logging is strictly observation and never changes a verdict.</p>
+  <p>Every DinoStack hook fails open: a parse error, a missing file or an unexpected payload exits without denying anything, because an enforcement gap is preferable to a blanket block. Two hooks have a deliberate exception. The round cap denies a round allowed by an operator grant when it cannot record it, since allowing it would let one grant re-allow every retry. The shippable-edit guard denies a conductor edit to an otherwise-shippable file when git errors or times out while checking whether the file is gitignored, since allowing it would let any git failure exempt a tracked file. Every <code>enforce-*.py</code> hook also appends a line to <code>.agentic/.enforcement-fires.jsonl</code>, and the abdication guard logs every verdict, plain allows included, so its allow-to-deny ratio can be measured rather than guessed. Logging is strictly observation and never changes a verdict.</p>
 
   <h2>Why it matters</h2>
   <p>The record behind these hooks is the argument for them. The round cap existed as prose while one unit ran 12 rounds, and advisory enforcement of the execution-turn shape shipped three times without the prose going away before the check was made blocking. Hooks run on every matching event regardless. The guards here are also honest about their limits: they fail open, say which cases they cannot see, and leave judgment calls to review rather than pretending a phrase match can make them.</p>
@@ -84,7 +84,7 @@
     <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/hooks/enforce-skeptic-round-cap.py"><code>hooks/enforce-skeptic-round-cap.py</code></a>: the 12-round incident, the cap of 3, unit keying, operator grants and the session ceiling of 6</li>
     <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/docs/overview/vision.md"><code>docs/overview/vision.md</code></a>: the "Guard operator attention" pillar</li>
     <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/AGENTS.md"><code>AGENTS.md</code></a>: hand-authored hook files in the adapter directories</li>
-    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/hooks/AGENTS.md"><code>hooks/AGENTS.md</code></a>: the hook table, fail-open discipline, its round-cap exception, and fire logging</li>
+    <li><a href="https://github.com/Space-Dinosaurs/DinoStack/blob/main/hooks/AGENTS.md"><code>hooks/AGENTS.md</code></a>: the hook table, fail-open discipline, its two exceptions, and fire logging</li>
   </ul>
 </article>
 
