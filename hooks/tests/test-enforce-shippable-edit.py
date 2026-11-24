@@ -272,7 +272,12 @@ print("-- gitignored untracked vs tracked/new --")
 
 def _git(repo: str, *args: str) -> None:
     subprocess.run(
-        ["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+        [
+            "git", "-C", repo,
+            "-c", "user.name=t", "-c", "user.email=t@example.com",
+            "-c", "commit.gpgsign=false",
+            *args,
+        ],
         check=True,
         capture_output=True,
     )
@@ -297,7 +302,7 @@ def _run_tracked_gate_cases() -> None:
     repo = os.path.realpath(tempfile.mkdtemp(prefix="test-shippable-gitrepo-"))
     _git(repo, "init", "-q")
     with open(os.path.join(repo, ".gitignore"), "w", encoding="utf-8") as f:
-        f.write("docs/brainstorm/\n/decisions.md\nevals/\n*.local.json\n")
+        f.write("docs/brainstorm/\n/decisions.md\nevals/\n*.local.json\n.claude/worktrees/\n")
     os.makedirs(os.path.join(repo, "content"), exist_ok=True)
     with open(os.path.join(repo, "content", "tracked.md"), "w", encoding="utf-8") as f:
         f.write("x\n")
@@ -306,6 +311,10 @@ def _run_tracked_gate_cases() -> None:
     _git(repo, "add", ".gitignore", "content/tracked.md")
     _git(repo, "add", "-f", "forced.local.json")
     _git(repo, "commit", "-q", "-m", "init")
+    # A linked worktree under an ignored directory: its tracked files are
+    # still tracked, in its own index.
+    wt = os.path.join(repo, ".claude", "worktrees", "agent-x")
+    _git(repo, "worktree", "add", "-q", "-b", "agent-x", wt)
 
     hook = _make_snapshot_hook(repo)
 
@@ -327,11 +336,15 @@ def _run_tracked_gate_cases() -> None:
         ("gitignored root file, untracked: decisions.md -> ALLOW", "decisions.md"),
         ("gitignored dir, nested untracked: evals/a/b.py -> ALLOW", "evals/a/b.py"),
         ("gitignored glob, untracked: settings.local.json -> ALLOW", "settings.local.json"),
+        ("gitignored untracked file in a worktree: agent-x/decisions.md -> ALLOW", ".claude/worktrees/agent-x/decisions.md"),
     ]
     deny_cases = [
         ("tracked file: content/tracked.md -> DENY", "content/tracked.md"),
         ("new untracked non-ignored file: content/new.md -> DENY", "content/new.md"),
         ("tracked file matching an ignore pattern: forced.local.json -> DENY", "forced.local.json"),
+        ("case-variant of a tracked ignored-pattern file: FORCED.LOCAL.json -> DENY", "FORCED.LOCAL.json"),
+        ("tracked file in a worktree under an ignored dir -> DENY", ".claude/worktrees/agent-x/content/tracked.md"),
+        ("new non-ignored file in a worktree under an ignored dir -> DENY", ".claude/worktrees/agent-x/content/new.md"),
     ]
     for label, rel in allow_cases:
         total += 1

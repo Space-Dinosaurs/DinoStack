@@ -85,23 +85,26 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
     - target is under .agentic/**, docs/planning/**, or is named
       AGENTS.md/MEMORY.md/CLAUDE.md at any depth: fail-open (exempt by the
       classifier).
-    - target is gitignored and untracked (`git check-ignore` exits 0):
-      fail-open (the classifier makes only tracked-file writes shippable).
-    - `git check-ignore` exits anything other than 0 or 1 (repo_root not a
-      git work tree, path inside a submodule), git is missing, or it times
-      out: fail-open.
+    - target is gitignored and untracked (`git check-ignore` exits 0, run
+      from target's nearest existing directory, and no case-variant is
+      tracked): fail-open (the classifier makes only tracked-file writes
+      shippable).
+    - `git check-ignore` exits anything other than 0 or 1, or the
+      `ls-files` case-variant lookup fails (directory not in a git work
+      tree), git is missing, or it times out: fail-open.
     - Any other unexpected exception anywhere in the body: caught by the
       outer try/except, fail-open.
                The single deny path requires ALL of: no kill-switch, valid
                JSON, matcher tool, no agent_id, valid tool_input.file_path,
                a resolvable repo_root, a target inside repo_root, the
-               target NOT matching any exemption, and `git check-ignore`
-               exiting 1 (target tracked, or untracked and not ignored).
+               target NOT matching any exemption, and the target tracked
+               (any case) or untracked and not ignored.
 
 Performance: in-memory JSON parse, a handful of path operations, optional
              single small JSON file read for .snapshot-meta.json, and one
-             `git check-ignore` subprocess for a non-exempt in-repo target
-             (a few ms; 5 s timeout), no network.
+             or two git subprocesses (check-ignore, then ls-files only for
+             an ignored path) for a non-exempt in-repo target (a few ms;
+             5 s timeout each), no network.
 """
 
 # Kill-switch + recovery:
@@ -195,6 +198,46 @@ def _resolve_repo_root() -> str | None:
     return None
 
 
+def _git_quiet(cwd: str, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", cwd, *args],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+
+def _is_ignored_untracked(target: str, repo_root: str) -> bool:
+    """True when git ignores target and does not track it (or any
+    case-variant of it); also True when git cannot answer (fail-open).
+
+    Git runs from target's nearest existing directory, not repo_root, so a
+    linked worktree or nested repo under an ignored directory of repo_root
+    (e.g. .claude/worktrees/) is judged by its own index and ignore rules.
+    check-ignore exits 0 ignored-and-untracked, 1 tracked or not ignored;
+    tracked files are never reported ignored. Under core.ignorecase a
+    different-case spelling of a tracked file reaches that file but
+    check-ignore still calls it ignored, so a 0 is confirmed with an
+    :(icase) ls-files lookup. That lookup also denies such a spelling on a
+    case-sensitive filesystem, where it would be a distinct file.
+    """
+    anchor = os.path.dirname(target)
+    while not os.path.isdir(anchor) and anchor != repo_root:
+        anchor = os.path.dirname(anchor)
+    ignore_rc = _git_quiet(anchor, "check-ignore", "-q", "--", target).returncode
+    if ignore_rc == 1:
+        return False
+    if ignore_rc != 0:
+        return True
+    tracked = _git_quiet(
+        anchor, "ls-files", "--", ":(icase)" + os.path.relpath(target, anchor)
+    )
+    if tracked.returncode != 0:
+        return True
+    return not tracked.stdout.strip()
+
+
 def main() -> None:
     # Kill-switch: fail-open immediately before touching stdin.
     if os.environ.get("AE_SHIPPABLE_GUARD_DISABLE") == "1":
@@ -261,19 +304,9 @@ def main() -> None:
         if os.path.basename(target) in INSTRUCTION_LAYER_BASENAMES:
             sys.exit(0)
 
-        # The classifier makes only tracked-file writes shippable. A path
-        # git ignores is local, untracked state. check-ignore exits 0 for
-        # an ignored untracked path, 1 for a tracked or non-ignored one
-        # (tracked files are never reported ignored), and anything else
-        # (not a repo, git missing) falls through to allow.
-        ignore_rc = subprocess.run(
-            ["git", "-C", repo_root, "check-ignore", "-q", "--", rel],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-        ).returncode
-        if ignore_rc != 1:
+        # The classifier makes only tracked-file writes shippable, so a
+        # gitignored untracked path is allowed.
+        if _is_ignored_untracked(target, repo_root):
             sys.exit(0)
 
         # Everything else inside the repo is tracked or a new non-ignored
