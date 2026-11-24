@@ -205,9 +205,12 @@ exit 0 without denying the triggering action. Enforcement gaps are preferable
 to blanket blocks. Hooks never raise to the Claude Code harness; non-fatal
 errors are swallowed or written to stderr. The only intentional side effects
 are append-only writes to `.agentic/` files and deny decisions on clearly
-violating tool calls. One exception: `enforce-skeptic-round-cap.py` denies a
+violating tool calls. Two exceptions: `enforce-skeptic-round-cap.py` denies a
 round allowed by an operator grant past the cap when its state write fails,
-because allowing it would let one grant re-allow every retry. All sixteen enforce-*.py hooks additionally
+because allowing it would let one grant re-allow every retry; and
+`enforce-shippable-edit.py` denies a conductor edit to an otherwise-shippable
+path when git errors or times out while checking its gitignore exemption,
+because allowing it would let any git failure exempt a tracked file. All sixteen enforce-*.py hooks additionally
 append a fire-log line to `.agentic/.enforcement-fires.jsonl` via
 `lib/enforcement_log.py`: fifteen of them on every non-passthrough action only,
 and `enforce-no-abdication.py` on every verdict path it reaches after its

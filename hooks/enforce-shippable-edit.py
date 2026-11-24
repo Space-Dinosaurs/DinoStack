@@ -18,7 +18,9 @@ Purpose: PreToolUse hook that mechanically backstops the METHODOLOGY
          DS-54), and structurally incapable of blocking on internal error -
          every code path that is not an affirmative, fully-resolved "this
          is a conductor-direct shippable edit inside this repo" match falls
-         through to allow.
+         through to allow. One narrow exception: for a target that is
+         already such a match, a git error or timeout while checking the
+         gitignore exemption leaves it denied (see Failure modes).
 
          Accepted limitations (intentional, not oversights):
          - Residual: conductor hand-edits to the instruction-layer files
@@ -45,7 +47,8 @@ Public API: Run as a Claude Code PreToolUse hook (matcher: "Write", "Edit",
             or "MultiEdit"). Reads JSON from stdin, writes hookSpecificOutput
             JSON to stdout only when denying, exits 0 always.
 
-Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, importlib.util).
+Upstream deps: Python 3 stdlib only (json, os, subprocess, sys, pathlib,
+               importlib.util), plus the git CLI (`git check-ignore`).
                Reads <hooks-dir>/../.snapshot-meta.json (optional; DS-54
                session-stable snapshot metadata) to resolve the live repo
                root when running from a snapshot copy instead of the
@@ -67,7 +70,8 @@ Downstream consumers: Claude Code hook runner (PreToolUse event for Write,
                       conventions.md §Git Workflow.
 
 Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
-               resolves to sys.exit(0) with no deny output:
+               resolves to sys.exit(0) with no deny output, except the
+               git-failure bullet, which denies:
     - Malformed/empty stdin: fail-open.
     - Kill-switch (AE_SHIPPABLE_GUARD_DISABLE=1): fail-open immediately,
       before reading stdin.
@@ -84,16 +88,30 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
     - target is under .agentic/**, docs/planning/**, or is named
       AGENTS.md/MEMORY.md/CLAUDE.md at any depth: fail-open (exempt by the
       classifier).
+    - target is gitignored and untracked in repo_root's own repository
+      (`git check-ignore` exits 0 from target's nearest existing
+      directory, that work tree shares repo_root's git common dir, and no
+      case-variant is tracked): fail-open (the classifier makes only
+      tracked-file writes shippable).
+    - Any git failure while checking that exemption (non-zero exit, a
+      path inside a .git directory, a nested independent repo, git
+      missing, or all git calls together exceeding GIT_BUDGET_SECONDS):
+      the exemption does not apply and the target is denied. Only a target
+      that already meets every other deny condition reaches git, so this
+      never blocks a path the classifier exempts by name.
     - Any other unexpected exception anywhere in the body: caught by the
       outer try/except, fail-open.
                The single deny path requires ALL of: no kill-switch, valid
                JSON, matcher tool, no agent_id, valid tool_input.file_path,
-               a resolvable repo_root, a target inside repo_root, and the
-               target NOT matching any exemption.
+               a resolvable repo_root, a target inside repo_root, the
+               target NOT matching any exemption, and no positive git
+               confirmation that the target is ignored and untracked.
 
-Performance: < 2 ms per call (in-memory JSON parse, a handful of path
-             operations, optional single small JSON file read for
-             .snapshot-meta.json, no network).
+Performance: in-memory JSON parse, a handful of path operations, optional
+             single small JSON file read for .snapshot-meta.json, and
+             git subprocesses for a non-exempt in-repo target: check-ignore,
+             then (only for an ignored path) two rev-parse and one ls-files
+             (a few ms each; GIT_BUDGET_SECONDS total), no network.
 """
 
 # Kill-switch + recovery:
@@ -118,18 +136,25 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 DENY_MESSAGE_TEMPLATE = (
     "Shippable-edit guard: the conductor must not edit shippable files "
     "directly ({path}). Delegate this edit to a worktree-isolated engineer "
     "subagent (see METHODOLOGY Git Workflow). Exempt: .agentic/**, "
-    "docs/planning/**, paths outside the repo. Kill-switch: "
-    "AE_SHIPPABLE_GUARD_DISABLE=1."
+    "docs/planning/**, gitignored untracked files, paths outside the repo. "
+    "Kill-switch: AE_SHIPPABLE_GUARD_DISABLE=1."
 )
 
 INSTRUCTION_LAYER_BASENAMES = {"AGENTS.md", "MEMORY.md", "CLAUDE.md"}
+
+# Total wall-clock budget for every git call in one invocation. It must stay
+# well under the hook's registered timeout (5 s, .claude/install.sh): a
+# harness kill before the deny prints would turn the deny into an allow.
+GIT_BUDGET_SECONDS = 2.0
 
 
 def _load_log_fire():
@@ -184,6 +209,69 @@ def _resolve_repo_root() -> str | None:
     if os.path.isdir(candidate):
         return candidate
     return None
+
+
+def _git_quiet(deadline: float, cwd: str, *args: str) -> subprocess.CompletedProcess:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("git budget exhausted")
+    # Inherited GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE would make git
+    # answer about some other repository or index.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    return subprocess.run(
+        ["git", "-C", cwd, *args],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=remaining,
+        env=env,
+    )
+
+
+def _common_dir(deadline: float, cwd: str) -> str | None:
+    r = _git_quiet(deadline, cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    return os.path.realpath(r.stdout.strip())
+
+
+def _is_ignored_untracked(target: str, repo_root: str) -> bool:
+    """True only on positive confirmation that target is ignored and
+    untracked (in any case spelling) in repo_root's own repository; any
+    other git outcome, including an error or running past
+    GIT_BUDGET_SECONDS, returns False so the target is denied.
+
+    Git runs from target's nearest existing directory, so a linked worktree
+    under an ignored directory of repo_root (e.g. .claude/worktrees/) is
+    judged by its own index and ignore rules, and that work tree must share
+    repo_root's git common dir (a nested independent repo does not).
+    check-ignore exits 0 only for an ignored untracked path inside a work
+    tree; a path inside a .git directory exits 128. Under core.ignorecase a
+    different-case spelling of a tracked file reaches that file while
+    check-ignore still calls it ignored, so a 0 is confirmed with an
+    :(icase,literal) ls-files lookup. That lookup also denies such a
+    spelling on a case-sensitive filesystem, where it is a distinct file.
+    """
+    try:
+        deadline = time.monotonic() + GIT_BUDGET_SECONDS
+        anchor = os.path.dirname(target)
+        while not os.path.isdir(anchor) and anchor != repo_root:
+            anchor = os.path.dirname(anchor)
+        if _git_quiet(deadline, anchor, "check-ignore", "-q", "--", target).returncode != 0:
+            return False
+        common = _common_dir(deadline, anchor)
+        if common is None or common != _common_dir(deadline, repo_root):
+            return False
+        tracked = _git_quiet(
+            deadline,
+            anchor,
+            "ls-files",
+            "--",
+            ":(icase,literal)" + os.path.relpath(target, anchor),
+        )
+        return tracked.returncode == 0 and not tracked.stdout.strip()
+    except Exception:
+        return False
 
 
 def main() -> None:
@@ -252,8 +340,13 @@ def main() -> None:
         if os.path.basename(target) in INSTRUCTION_LAYER_BASENAMES:
             sys.exit(0)
 
-        # Everything else tracked inside the repo is a shippable file the
-        # conductor must not edit directly - deny.
+        # The classifier makes only tracked-file writes shippable, so a
+        # gitignored untracked path is allowed.
+        if _is_ignored_untracked(target, repo_root):
+            sys.exit(0)
+
+        # Everything else inside the repo is tracked or a new non-ignored
+        # (shippable) file the conductor must not edit directly - deny.
         deny_reason = DENY_MESSAGE_TEMPLATE.format(path=target)
         # Decision print comes FIRST, unconditionally. Telemetry is loaded
         # and called only after the decision has reached stdout, and is

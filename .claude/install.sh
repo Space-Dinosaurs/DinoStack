@@ -1607,7 +1607,9 @@ for file_matcher in ("Write", "Edit"):
 # shippable file inside the DinoStack checkout; allows the same edit from an
 # engineer subagent (agent_id present). Mechanically backstops METHODOLOGY
 # §Git Workflow's shippable/exempt classifier for the conductor (DS-94).
-# Fully fail-open on any error. Kill-switch: AE_SHIPPABLE_GUARD_DISABLE=1.
+# Fail-open on any error, except that a git error or timeout while checking
+# the gitignore exemption leaves the edit denied (hooks/AGENTS.md
+# §Failure-mode discipline). Kill-switch: AE_SHIPPABLE_GUARD_DISABLE=1.
 # Wired on "Write", "Edit", and "MultiEdit" matchers; same idempotent
 # upsert pattern as the planning-artifact block above.
 ENFORCE_SHIPPABLE_CMD = f"python3 {hooks_root}/hooks/enforce-shippable-edit.py"
