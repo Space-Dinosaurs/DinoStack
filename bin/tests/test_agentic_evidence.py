@@ -519,7 +519,6 @@ def test_get_invalid_node_id_exit_2():
     print("PASS test_get_invalid_node_id_exit_2")
 
 
-
 def test_concurrent_spills_get_distinct_ids():
     """Concurrent spill processes never share an id or lose content."""
     workers = 16
@@ -536,17 +535,22 @@ def test_concurrent_spills_get_distinct_ids():
             )
             for i in range(workers)
         ]
-        for i, proc in enumerate(procs):
-            proc.stdin.write(f"payload-{i}\n".encode() * 2000)
-            proc.stdin.close()
+        results = []
+        try:
+            for i, proc in enumerate(procs):
+                proc.stdin.write(f"payload-{i}\n".encode() * 2000)
+                proc.stdin.close()
+            for proc in procs:
+                out, err = proc.communicate(timeout=30)
+                results.append((proc.returncode, out.decode(), err.decode()))
+        finally:
+            for proc in procs:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.communicate()
         ids = {}
-        for i, proc in enumerate(procs):
-            proc.wait(timeout=30)
-            out = proc.stdout.read().decode()
-            err = proc.stderr.read().decode()
-            proc.stdout.close()
-            proc.stderr.close()
-            assert proc.returncode == 0, err
+        for i, (rc, out, err) in enumerate(results):
+            assert rc == 0, err
             ids[i] = re.match(r"^- (n\d+) \|", out).group(1)
         assert len(set(ids.values())) == workers, f"duplicate ids: {ids}"
         for i, node_id in ids.items():
@@ -556,6 +560,7 @@ def test_concurrent_spills_get_distinct_ids():
             f"{n}.md" for n in ids.values()
         )
     print("PASS test_concurrent_spills_get_distinct_ids")
+
 
 if __name__ == "__main__":
     _tests = [
