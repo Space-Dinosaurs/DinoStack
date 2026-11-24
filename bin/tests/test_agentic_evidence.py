@@ -535,19 +535,23 @@ def test_concurrent_spills_get_distinct_ids():
             )
             for i in range(workers)
         ]
-        results = []
         try:
             for i, proc in enumerate(procs):
                 proc.stdin.write(f"payload-{i}\n".encode() * 2000)
                 proc.stdin.close()
             for proc in procs:
-                out, err = proc.communicate(timeout=30)
-                results.append((proc.returncode, out.decode(), err.decode()))
+                proc.wait(timeout=30)
         finally:
             for proc in procs:
                 if proc.poll() is None:
                     proc.kill()
-                proc.communicate()
+                proc.wait()
+        results = []
+        for proc in procs:
+            with proc.stdout, proc.stderr:
+                out = proc.stdout.read().decode()
+                err = proc.stderr.read().decode()
+            results.append((proc.returncode, out, err))
         ids = {}
         for i, (rc, out, err) in enumerate(results):
             assert rc == 0, err
