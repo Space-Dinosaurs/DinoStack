@@ -13,6 +13,8 @@ import importlib.machinery
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 _BIN = Path(__file__).resolve().parent.parent
 _loader = importlib.machinery.SourceFileLoader("_agentic_doctor", str(_BIN / "agentic-doctor"))
 _spec = importlib.util.spec_from_loader("_agentic_doctor", _loader)
@@ -253,3 +255,58 @@ def test_no_backends_does_not_fail(monkeypatch, tmp_path):
     doc = _doc()
     check_cross_harness(doc)
     assert not any(s == "FAIL" for s, _m in doc.findings), doc.findings
+
+
+@pytest.mark.parametrize("roles_yml", ["roles: just-a-string\n", "roles:\n  - a\n  - b\n"])
+def test_non_mapping_roles_fails_not_crash(monkeypatch, tmp_path, roles_yml):
+    _patch_real_team(monkeypatch, tmp_path, "enabled: true\n" + roles_yml)
+    doc = _doc()
+    check_cross_harness(doc)
+    team_fails = [m for s, m in doc.findings if s == "FAIL" and m.startswith("team.yml:")]
+    assert len(team_fails) == 1, doc.findings
+    assert "validator crashed" in team_fails[0]
+
+
+def test_non_mapping_roles_json_output_emitted(monkeypatch, tmp_path, capsys):
+    import json as _json
+    import sys
+    _patch_real_team(monkeypatch, tmp_path, "enabled: true\nroles: just-a-string\n")
+    for name in dir(_mod):
+        if name.startswith("check_") and name != "check_cross_harness":
+            monkeypatch.setattr(_mod, name, lambda *a, **k: None)
+    monkeypatch.setattr(sys, "argv", ["ds-doctor", "--json", "--cross-harness"])
+    rc = _mod.main()
+    payload = _json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert [f["message"] for f in payload["findings"]
+            if f["status"] == "FAIL" and "validator crashed" in f["message"]], payload
+
+
+def test_empty_discovery_fails_assigned_harness(monkeypatch):
+    import subprocess
+    import shutil
+    import json as _json
+
+    class _R:
+        returncode = 0
+        stdout = _json.dumps({"codex": {"installed": False}})
+
+    real_installed = _mod._installed_harnesses
+    cfg = {"roles": {"engineer": {"harness": "codex", "model": "x"}}}
+    _patch(monkeypatch, cfg, handles=set())
+    monkeypatch.setattr(_mod, "_installed_harnesses", real_installed)
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/ds-team")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _R())
+    doc = _doc()
+    check_cross_harness(doc)
+    assert any(s == "FAIL" and "codex" in m and "NOT installed" in m
+               for s, m in doc.findings), doc.findings
+
+
+def test_discovery_unavailable_still_warns(monkeypatch):
+    cfg = {"roles": {"engineer": {"harness": "codex", "model": "x"}}}
+    _patch(monkeypatch, cfg, installed=None, handles=set())
+    doc = _doc()
+    check_cross_harness(doc)
+    assert any(s == "WARN" and "discover unavailable" in m for s, m in doc.findings)
+    assert not any(s == "FAIL" and "harness" in m for s, m in doc.findings)
