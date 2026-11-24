@@ -262,7 +262,9 @@ def test_non_mapping_roles_fails_not_crash(monkeypatch, tmp_path, roles_yml):
     _patch_real_team(monkeypatch, tmp_path, "enabled: true\n" + roles_yml)
     doc = _doc()
     check_cross_harness(doc)
-    assert any(s == "FAIL" and "roles" in m for s, m in doc.findings), doc.findings
+    team_fails = [m for s, m in doc.findings if s == "FAIL" and m.startswith("team.yml:")]
+    assert len(team_fails) == 1, doc.findings
+    assert "validator crashed" in team_fails[0]
 
 
 def test_non_mapping_roles_json_output_emitted(monkeypatch, tmp_path, capsys):
@@ -276,8 +278,8 @@ def test_non_mapping_roles_json_output_emitted(monkeypatch, tmp_path, capsys):
     rc = _mod.main()
     payload = _json.loads(capsys.readouterr().out)
     assert rc == 1
-    assert any(f["status"] == "FAIL" and "roles" in f["message"]
-               for f in payload["findings"]), payload
+    assert [f["message"] for f in payload["findings"]
+            if f["status"] == "FAIL" and "validator crashed" in f["message"]], payload
 
 
 def test_empty_discovery_fails_assigned_harness(monkeypatch):

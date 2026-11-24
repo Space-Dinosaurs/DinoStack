@@ -2554,7 +2554,7 @@ def check_cross_harness(doc: "Doctor") -> None:
 
     roles = config.get("roles", {}) or {}
     if not isinstance(roles, dict):
-        doc.fail("team.yml", f"roles: must be a mapping, got {type(roles).__name__}")
+        # The validator crash above already recorded this shape as a FAIL.
         roles = {}
     default_harness = config.get("default_harness")
 
