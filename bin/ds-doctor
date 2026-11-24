@@ -1654,7 +1654,8 @@ def _installed_harnesses():
     """Return installed harness labels via `ds-team discover --json`.
 
     Uses the structured --json API (not the human-readable columns) so the
-    result does not depend on display formatting. Returns None on failure.
+    result does not depend on display formatting. Returns None on failure;
+    an empty set means discovery ran and found nothing installed.
     """
     import json as _json
     import shutil
@@ -1680,7 +1681,7 @@ def _installed_harnesses():
         name for name, info in payload.items()
         if isinstance(info, dict) and info.get("installed") is True
     }
-    return installed or None
+    return installed
 
 
 # ---------------------------------------------------------------------------
@@ -2552,6 +2553,9 @@ def check_cross_harness(doc: "Doctor") -> None:
                 doc.fail("role-models.yml", f"{rp}: {exc}")
 
     roles = config.get("roles", {}) or {}
+    if not isinstance(roles, dict):
+        doc.fail("team.yml", f"roles: must be a mapping, got {type(roles).__name__}")
+        roles = {}
     default_harness = config.get("default_harness")
 
     # (2) every referenced harness is installed.
