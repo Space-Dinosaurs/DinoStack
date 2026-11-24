@@ -521,6 +521,10 @@ def _role_models_status_block() -> list[str]:
     return lines
 
 
+def _is_recovered(failures: int, last_success: str, last_error_ts: str) -> bool:
+    return failures > 0 and bool(last_success) and last_success > last_error_ts
+
+
 def _telemetry_health_block() -> list[str]:
     """Return telemetry-health status lines from .agentic/.telemetry-health.json.
 
@@ -578,7 +582,7 @@ def _telemetry_health_block() -> list[str]:
         elif failures == 0:
             status = "OK"
             lines.append(f"  {target}: {status}  (last_success: {last_success or 'none'})")
-        elif failures > 0 and last_success and last_success > last_error_ts:
+        elif _is_recovered(failures, last_success, last_error_ts):
             status = "RECOVERED"
             lines.append(
                 f"  {target}: {status} ({failures} failure(s))  "
@@ -605,8 +609,10 @@ def _telemetry_health_line(health_path: Path | None = None) -> str:
 
     Reads .agentic/.telemetry-health.json (or the provided path override).
     Returns 'telemetry-health: OK' when the file is absent or all failure
-    counters are zero and no target has an indeterminate outcome. When
-    failures exist, returns a summary of the form:
+    counters are zero and no target has an indeterminate outcome, or
+    'telemetry-health: OK (N target(s) recovered)' when every target with
+    failures has since recovered (same rule as _telemetry_health_block's
+    RECOVERED). When unrecovered failures exist, returns a summary of the form:
       'telemetry-health: N write failures across M targets; last error <target>: <msg> at <ts>'
     When only indeterminate outcomes exist (DS-158 round 3 Major 2 - a
     write-hook helper was killed before it could report), returns:
@@ -631,11 +637,16 @@ def _telemetry_health_line(health_path: Path | None = None) -> str:
         total_failures = 0
         failing_targets: list[tuple[str, int, str, str]] = []  # (target, count, msg, ts)
         unknown_targets: list[tuple[str, str]] = []  # (target, last_unknown_ts)
+        recovered = 0
         for target, info in targets.items():
             if not isinstance(info, dict):
                 continue
             count = int(info.get("failures", 0) or 0)
-            if count > 0:
+            success_ts = str(info.get("last_success") or "")
+            error_ts = str(info.get("last_error_ts") or "")
+            if _is_recovered(count, success_ts, error_ts):
+                recovered += 1
+            elif count > 0:
                 total_failures += count
                 last_msg = str(info.get("last_error", ""))
                 safe_msg = _ANSI.sub("", last_msg)[:200]
@@ -643,12 +654,12 @@ def _telemetry_health_line(health_path: Path | None = None) -> str:
                 failing_targets.append((target, count, safe_msg, ts))
             unknown_ts = str(info.get("last_unknown_ts") or "")
             if unknown_ts:
-                success_ts = str(info.get("last_success") or "")
-                error_ts = str(info.get("last_error_ts") or "")
                 if unknown_ts >= success_ts and unknown_ts >= error_ts:
                     unknown_targets.append((target, unknown_ts))
 
         if total_failures == 0 and not unknown_targets:
+            if recovered:
+                return f"telemetry-health: OK ({recovered} target(s) recovered)"
             return "telemetry-health: OK"
         if total_failures == 0 and unknown_targets:
             unknown_targets.sort(key=lambda x: x[1], reverse=True)

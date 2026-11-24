@@ -885,6 +885,38 @@ def test_telemetry_health_line_multiple_failing_targets(tmp_path):
     assert "EPERM" in result
 
 
+def test_telemetry_health_line_recovered_matches_block(monkeypatch, tmp_path):
+    p = _write_health_file(tmp_path, {
+        "targets": {
+            "loop-state.json": {
+                "failures": 3,
+                "last_success": "2026-06-01T13:00:00Z",
+                "last_error": "ENOSPC",
+                "last_error_ts": "2026-06-01T12:00:00Z",
+            },
+            "batch-state.json": {
+                "failures": 1,
+                "last_success": "2026-06-01T09:00:00Z",
+                "last_error": "EPERM",
+                "last_error_ts": "2026-06-01T11:00:00Z",
+            },
+        },
+        "updated_at": "2026-06-01T13:00:00Z",
+    })
+    monkeypatch.setattr(_mod, "HEALTH_FILE_PATH", p)
+    block = "\n".join(_telemetry_health_block())
+    assert "loop-state.json: RECOVERED" in block
+    assert "batch-state.json: FAILING" in block
+    result = _telemetry_health_line(p)
+    assert "1 write failure(s) across 1 target(s)" in result
+    assert "batch-state.json: EPERM" in result
+
+    data = json.loads(p.read_text(encoding="utf-8"))
+    del data["targets"]["batch-state.json"]
+    p.write_text(json.dumps(data), encoding="utf-8")
+    assert _telemetry_health_line(p) == "telemetry-health: OK (1 target(s) recovered)"
+
+
 def test_telemetry_health_line_malformed_json(tmp_path):
     p = tmp_path / ".telemetry-health.json"
     p.write_text("{not valid json", encoding="utf-8")
