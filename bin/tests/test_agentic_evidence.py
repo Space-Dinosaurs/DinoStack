@@ -519,6 +519,53 @@ def test_get_invalid_node_id_exit_2():
     print("PASS test_get_invalid_node_id_exit_2")
 
 
+def test_concurrent_spills_get_distinct_ids():
+    """Concurrent spill processes never share an id or lose content."""
+    workers = 16
+    with tempfile.TemporaryDirectory() as tmp:
+        evidence = Path(tmp) / "evidence"
+        evidence.mkdir()
+        procs = [
+            subprocess.Popen(
+                [sys.executable, str(_BIN_PATH), "spill", "--label", f"w{i}",
+                 "--evidence-dir", str(evidence)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            for i in range(workers)
+        ]
+        try:
+            for i, proc in enumerate(procs):
+                proc.stdin.write(f"payload-{i}\n".encode() * 2000)
+                proc.stdin.close()
+            for proc in procs:
+                proc.wait(timeout=30)
+        finally:
+            for proc in procs:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait()
+        results = []
+        for proc in procs:
+            with proc.stdout, proc.stderr:
+                out = proc.stdout.read().decode()
+                err = proc.stderr.read().decode()
+            results.append((proc.returncode, out, err))
+        ids = {}
+        for i, (rc, out, err) in enumerate(results):
+            assert rc == 0, err
+            ids[i] = re.match(r"^- (n\d+) \|", out).group(1)
+        assert len(set(ids.values())) == workers, f"duplicate ids: {ids}"
+        for i, node_id in ids.items():
+            raw = _mod._extract_raw((evidence / f"{node_id}.md").read_bytes())
+            assert raw == f"payload-{i}\n".encode() * 2000, f"{node_id} lost w{i}"
+        assert sorted(p.name for p in evidence.iterdir()) == sorted(
+            f"{n}.md" for n in ids.values()
+        )
+    print("PASS test_concurrent_spills_get_distinct_ids")
+
+
 if __name__ == "__main__":
     _tests = [
         test_spill_from_file,
@@ -543,6 +590,7 @@ if __name__ == "__main__":
         test_prune_missing_dir_exit_0,
         test_version_and_help,
         test_get_invalid_node_id_exit_2,
+        test_concurrent_spills_get_distinct_ids,
     ]
     failures = 0
     for t in _tests:

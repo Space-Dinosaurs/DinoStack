@@ -43,8 +43,10 @@ Failure modes: spill on missing FILE or empty stdin -> error to stderr, exit
                2; get on invalid/missing node id -> error to stderr, exit 2;
                sketch/prune on a missing or empty dir -> zero-result output,
                exit 0; prune --older-than skips nodes whose ts is unparseable.
-               spill writes atomically (tmp + os.replace) so a torn write never
-               exposes a half-file. get decodes raw bytes as UTF-8 for display
+               spill writes a per-writer temp file and hard-links it to
+               n<seq>.md, so a torn write never exposes a half-file and two
+               concurrent spills never share an id (a taken seq is retried
+               with the next one). get decodes raw bytes as UTF-8 for display
                (errors="replace"); the node file always stores raw bytes
                verbatim. All commands return 0 on success.
 
@@ -219,34 +221,41 @@ def cmd_spill(args: argparse.Namespace) -> int:
         return 2
 
     evidence_root.mkdir(parents=True, exist_ok=True)
-    seq = _next_seq(evidence_root)
     label = _sanitize_field(args.label)
     tool = _sanitize_field(args.tool)
     status = _sanitize_field(args.status)
     ts = _now_iso()
     chars = len(data)
-    header = (
-        f"<!-- ae-node: n{seq} | label: {label} | tool: {tool} | "
-        f"chars: {chars} | ts: {ts} | status: {status} -->"
-    )
-    node_bytes = (
-        header.encode("utf-8")
-        + b"\n"
-        + RAW_SEPARATOR.encode("utf-8")
-        + b"\n"
-        + data
-    )
-    tmp_path = evidence_root / f"n{seq}.md.tmp"
-    final_path = evidence_root / f"n{seq}.md"
-    try:
-        tmp_path.write_bytes(node_bytes)
-        os.replace(tmp_path, final_path)
-    except OSError:
+    seq = _next_seq(evidence_root)
+    while True:
+        header = (
+            f"<!-- ae-node: n{seq} | label: {label} | tool: {tool} | "
+            f"chars: {chars} | ts: {ts} | status: {status} -->"
+        )
+        node_bytes = (
+            header.encode("utf-8")
+            + b"\n"
+            + RAW_SEPARATOR.encode("utf-8")
+            + b"\n"
+            + data
+        )
+        tmp_name = evidence_root / f".n{seq}.{os.getpid()}.{os.urandom(4).hex()}.tmp"
+        fd = os.open(tmp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
         try:
-            tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(node_bytes)
+            # os.link fails if the target exists, so it claims n<seq>.md
+            # exclusively (os.replace would overwrite a concurrent spill).
+            os.link(tmp_name, evidence_root / f"n{seq}.md")
+        except FileExistsError:
+            seq = max(seq + 1, _next_seq(evidence_root))
+            continue
+        finally:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+        break
 
     print(_sketch_line(seq, label, tool, str(chars), ts, status))
     return 0
