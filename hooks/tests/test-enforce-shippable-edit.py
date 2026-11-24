@@ -263,6 +263,101 @@ check_deny(
 )
 
 # ---------------------------------------------------------------------------
+# 5b. Only tracked-file writes are shippable. Runs against a throwaway git
+#     repo, reached through the snapshot redirect, so the ignore rules and the
+#     tracked set are fixed here rather than read from the live tree.
+# ---------------------------------------------------------------------------
+print("-- gitignored untracked vs tracked/new --")
+
+
+def _git(repo: str, *args: str) -> None:
+    subprocess.run(
+        ["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+        check=True,
+        capture_output=True,
+    )
+
+
+def _make_snapshot_hook(source_repo_dir: str) -> str:
+    snapshot_dir = os.path.realpath(tempfile.mkdtemp())
+    snapshot_hooks_dir = os.path.join(snapshot_dir, "hooks")
+    os.makedirs(snapshot_hooks_dir, exist_ok=True)
+    with open(HOOK_PATH, "r", encoding="utf-8") as src:
+        hook_source = src.read()
+    snapshot_hook_path = os.path.join(snapshot_hooks_dir, "enforce-shippable-edit.py")
+    with open(snapshot_hook_path, "w", encoding="utf-8") as dst:
+        dst.write(hook_source)
+    with open(os.path.join(snapshot_dir, ".snapshot-meta.json"), "w", encoding="utf-8") as f:
+        json.dump({"source_repo_dir": source_repo_dir, "source_hash": "x", "snapshotted_at": "x"}, f)
+    return snapshot_hook_path
+
+
+def _run_tracked_gate_cases() -> None:
+    global failed, total
+    repo = os.path.realpath(tempfile.mkdtemp(prefix="test-shippable-gitrepo-"))
+    _git(repo, "init", "-q")
+    with open(os.path.join(repo, ".gitignore"), "w", encoding="utf-8") as f:
+        f.write("docs/brainstorm/\n/decisions.md\nevals/\n*.local.json\n")
+    os.makedirs(os.path.join(repo, "content"), exist_ok=True)
+    with open(os.path.join(repo, "content", "tracked.md"), "w", encoding="utf-8") as f:
+        f.write("x\n")
+    with open(os.path.join(repo, "forced.local.json"), "w", encoding="utf-8") as f:
+        f.write("{}\n")
+    _git(repo, "add", ".gitignore", "content/tracked.md")
+    _git(repo, "add", "-f", "forced.local.json")
+    _git(repo, "commit", "-q", "-m", "init")
+
+    hook = _make_snapshot_hook(repo)
+
+    def _run(target: str) -> tuple[int, str, str]:
+        env = os.environ.copy()
+        env.pop("AE_SHIPPABLE_GUARD_DISABLE", None)
+        r = subprocess.run(
+            [sys.executable, hook],
+            input=make_payload("Write", target),
+            env=env,
+            capture_output=True,
+            text=True,
+            cwd=_DEFAULT_TEST_CWD,
+        )
+        return r.returncode, r.stdout, r.stderr
+
+    allow_cases = [
+        ("gitignored dir, untracked: docs/brainstorm/x.md -> ALLOW", "docs/brainstorm/x.md"),
+        ("gitignored root file, untracked: decisions.md -> ALLOW", "decisions.md"),
+        ("gitignored dir, nested untracked: evals/a/b.py -> ALLOW", "evals/a/b.py"),
+        ("gitignored glob, untracked: settings.local.json -> ALLOW", "settings.local.json"),
+    ]
+    deny_cases = [
+        ("tracked file: content/tracked.md -> DENY", "content/tracked.md"),
+        ("new untracked non-ignored file: content/new.md -> DENY", "content/new.md"),
+        ("tracked file matching an ignore pattern: forced.local.json -> DENY", "forced.local.json"),
+    ]
+    for label, rel in allow_cases:
+        total += 1
+        rc, stdout, stderr = _run(os.path.join(repo, rel))
+        ok = is_allow(rc, stdout)
+        if not ok:
+            failed += 1
+        print(f"  [{'PASS' if ok else 'FAIL'}] {label}")
+        if not ok:
+            print(f"         rc={rc} stdout={stdout!r} stderr={stderr!r}")
+    for label, rel in deny_cases:
+        total += 1
+        target = os.path.join(repo, rel)
+        rc, stdout, stderr = _run(target)
+        ok, reason = is_deny(rc, stdout)
+        ok = ok and "Shippable-edit guard" in reason and target in reason
+        if not ok:
+            failed += 1
+        print(f"  [{'PASS' if ok else 'FAIL'}] {label}")
+        if not ok:
+            print(f"         rc={rc} stdout={stdout!r} stderr={stderr!r}")
+
+
+_run_tracked_gate_cases()
+
+# ---------------------------------------------------------------------------
 # 6. DS-54 snapshot-meta resolution: hook run from a fake "snapshot" copy
 #    with .snapshot-meta.json pointing at a separate fake source_repo_dir
 #    must resolve repo_root through the metadata, not through its own
@@ -274,21 +369,13 @@ print("-- snapshot-meta resolution --")
 def _run_snapshot_case() -> None:
     global failed, total
     fake_source = os.path.realpath(tempfile.mkdtemp())
+    # A git work tree: outside one, `git check-ignore` fails and the hook
+    # fails open, so the shippable-path DENY below could not fire.
+    _git(fake_source, "init", "-q")
     os.makedirs(os.path.join(fake_source, "content"), exist_ok=True)
     os.makedirs(os.path.join(fake_source, ".agentic"), exist_ok=True)
 
-    snapshot_dir = os.path.realpath(tempfile.mkdtemp())
-    snapshot_hooks_dir = os.path.join(snapshot_dir, "hooks")
-    os.makedirs(snapshot_hooks_dir, exist_ok=True)
-    with open(HOOK_PATH, "r", encoding="utf-8") as src:
-        hook_source = src.read()
-    snapshot_hook_path = os.path.join(snapshot_hooks_dir, "enforce-shippable-edit.py")
-    with open(snapshot_hook_path, "w", encoding="utf-8") as dst:
-        dst.write(hook_source)
-
-    meta_path = os.path.join(snapshot_dir, ".snapshot-meta.json")
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump({"source_repo_dir": fake_source, "source_hash": "x", "snapshotted_at": "x"}, f)
+    snapshot_hook_path = _make_snapshot_hook(fake_source)
 
     def _run_from_snapshot(payload: str) -> tuple[int, str, str]:
         env = os.environ.copy()

@@ -45,7 +45,8 @@ Public API: Run as a Claude Code PreToolUse hook (matcher: "Write", "Edit",
             or "MultiEdit"). Reads JSON from stdin, writes hookSpecificOutput
             JSON to stdout only when denying, exits 0 always.
 
-Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, importlib.util).
+Upstream deps: Python 3 stdlib only (json, os, subprocess, sys, pathlib,
+               importlib.util), plus the git CLI (`git check-ignore`).
                Reads <hooks-dir>/../.snapshot-meta.json (optional; DS-54
                session-stable snapshot metadata) to resolve the live repo
                root when running from a snapshot copy instead of the
@@ -84,16 +85,23 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
     - target is under .agentic/**, docs/planning/**, or is named
       AGENTS.md/MEMORY.md/CLAUDE.md at any depth: fail-open (exempt by the
       classifier).
+    - target is gitignored and untracked (`git check-ignore` exits 0):
+      fail-open (the classifier makes only tracked-file writes shippable).
+    - `git check-ignore` exits anything other than 0 or 1 (repo_root not a
+      git work tree, path inside a submodule), git is missing, or it times
+      out: fail-open.
     - Any other unexpected exception anywhere in the body: caught by the
       outer try/except, fail-open.
                The single deny path requires ALL of: no kill-switch, valid
                JSON, matcher tool, no agent_id, valid tool_input.file_path,
-               a resolvable repo_root, a target inside repo_root, and the
-               target NOT matching any exemption.
+               a resolvable repo_root, a target inside repo_root, the
+               target NOT matching any exemption, and `git check-ignore`
+               exiting 1 (target tracked, or untracked and not ignored).
 
-Performance: < 2 ms per call (in-memory JSON parse, a handful of path
-             operations, optional single small JSON file read for
-             .snapshot-meta.json, no network).
+Performance: in-memory JSON parse, a handful of path operations, optional
+             single small JSON file read for .snapshot-meta.json, and one
+             `git check-ignore` subprocess for a non-exempt in-repo target
+             (a few ms; 5 s timeout), no network.
 """
 
 # Kill-switch + recovery:
@@ -118,6 +126,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -125,8 +134,8 @@ DENY_MESSAGE_TEMPLATE = (
     "Shippable-edit guard: the conductor must not edit shippable files "
     "directly ({path}). Delegate this edit to a worktree-isolated engineer "
     "subagent (see METHODOLOGY Git Workflow). Exempt: .agentic/**, "
-    "docs/planning/**, paths outside the repo. Kill-switch: "
-    "AE_SHIPPABLE_GUARD_DISABLE=1."
+    "docs/planning/**, gitignored untracked files, paths outside the repo. "
+    "Kill-switch: AE_SHIPPABLE_GUARD_DISABLE=1."
 )
 
 INSTRUCTION_LAYER_BASENAMES = {"AGENTS.md", "MEMORY.md", "CLAUDE.md"}
@@ -252,8 +261,23 @@ def main() -> None:
         if os.path.basename(target) in INSTRUCTION_LAYER_BASENAMES:
             sys.exit(0)
 
-        # Everything else tracked inside the repo is a shippable file the
-        # conductor must not edit directly - deny.
+        # The classifier makes only tracked-file writes shippable. A path
+        # git ignores is local, untracked state. check-ignore exits 0 for
+        # an ignored untracked path, 1 for a tracked or non-ignored one
+        # (tracked files are never reported ignored), and anything else
+        # (not a repo, git missing) falls through to allow.
+        ignore_rc = subprocess.run(
+            ["git", "-C", repo_root, "check-ignore", "-q", "--", rel],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        ).returncode
+        if ignore_rc != 1:
+            sys.exit(0)
+
+        # Everything else inside the repo is tracked or a new non-ignored
+        # (shippable) file the conductor must not edit directly - deny.
         deny_reason = DENY_MESSAGE_TEMPLATE.format(path=target)
         # Decision print comes FIRST, unconditionally. Telemetry is loaded
         # and called only after the decision has reached stdout, and is
