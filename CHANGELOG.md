@@ -5,6 +5,10 @@
 
 ## 2026-11-23
 
+### Fixes
+
+- **#1101** [pin reflog-only leftovers instead of holding](https://github.com/Space-Dinosaurs/DinoStack/pull/1101) - tyson-solara6
+
 ### Uncategorized
 
 - **#1100** [DS-274: ds-team Kimi Code 2.x harness, read-only Kimi reviewer, gateway backend presets](https://github.com/Space-Dinosaurs/DinoStack/pull/1100) - tyson-solara6
