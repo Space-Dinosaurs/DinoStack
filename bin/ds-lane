@@ -172,9 +172,10 @@
 #   message is a harness usage/session-limit message whose turn has ended
 #   (blocked, unless the lane was stopped or closed): Claude needs a result at
 #   or after it; Codex needs an error, turn.failed, or an agent_message
-#   followed by a turn end. Only a known limit wording counts ("your session limit", "weekly limit reached"), not
-#   "your limit of 3 retries" or "your rate limit". Native Windows detachment
-#   is unsupported. Tabs are optional and never fail a successful launch.
+#   followed by a turn end. Only a known limit wording counts ("your session
+#   limit", "weekly limit reached"), not "your limit of 3 retries" or "your
+#   rate limit". Native Windows detachment is unsupported. Tabs are optional
+#   and never fail a successful launch.
 #   The marker guard: a marker without its turn's result, or from a turn
 #   before the one that answered the last input sent, closes and reports
 #   nothing. Only results without `origin` answer stdin input (background-task
