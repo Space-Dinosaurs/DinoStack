@@ -3,6 +3,15 @@
 
 # Changelog
 
+## 2026-11-24
+
+### Fixes
+
+- **#1105** [allow conductor writes to gitignored untracked files](https://github.com/Space-Dinosaurs/DinoStack/pull/1105) - tyson-solara6
+- **#1104** [health line honors the RECOVERED rule](https://github.com/Space-Dinosaurs/DinoStack/pull/1104) - tyson-solara6
+- **#1103** [FAIL instead of crash on non-mapping roles; empty discovery is not unavailable](https://github.com/Space-Dinosaurs/DinoStack/pull/1103) - tyson-solara6
+- **#1102** [claim spill ids exclusively under concurrency](https://github.com/Space-Dinosaurs/DinoStack/pull/1102) - tyson-solara6
+
 ## 2026-11-23
 
 ### Fixes
