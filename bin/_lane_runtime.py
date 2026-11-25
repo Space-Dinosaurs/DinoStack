@@ -9,7 +9,8 @@ Public API: Internal resolve, saved, events, and owns commands used by ds-lane.
     `origin` answer stdin input. `events <meta> pending` prints "<inputs not yet
     answered since marker_offset> <complete log lines>" from one read. A harness
     usage/session-limit message ending the current run makes `marker` print blocked
-    even after a fatal event; `limit` prints "usage-limit[ resets <time>]" for it.
+    even after a fatal event, unless the lane was stopped or closed; `limit` prints
+    "usage-limit[ resets <time>]" for it.
 Upstream deps: Python stdlib, ps; native Claude transcripts and Codex rollouts.
 Downstream consumers: bin/ds-lane, bin/tests/test_ds_lane.sh.
 Failure modes: Refuses unknown identity, policy, resources and process ownership.
@@ -498,7 +499,8 @@ def events(path, mode):
         if found:
             print(found)
     elif mode == "marker":
-        if limited():
+        explicit_end = meta.get("status") in ("stopped", "closed")
+        if not explicit_end and limited():
             print("blocked")
             return
         if any(fatal(e) for e in current):

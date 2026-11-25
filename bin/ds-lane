@@ -29,8 +29,9 @@
 #   and returns when a named lane alive on entry is done, blocked or dead (at
 #   once if none was): prints `list <names>`, exit 0. A lane stopped by a
 #   harness usage/session-limit message reports blocked, its LAST_ASSISTANT
-#   prefixed `[usage-limit resets <time>]`. At the ceiling it prints
-#   the same list then `wait: ceiling <N>s reached; still alive: <names>; run
+#   prefixed `[usage-limit resets <time>]`, unless `stop` or `close` ended it:
+#   reaping keeps that status and the limit is not reported. At the ceiling it
+#   prints the same list then `wait: ceiling <N>s reached; still alive: <names>; run
 #   'ds-lane wait' again`, exit 2. Exit 1: usage, unknown lane, reap error.
 #   `doctor [--json]` needs no git repo and writes nothing. It runs no
 #   osascript, so it sends no Apple event or keystroke and cannot raise a
@@ -169,11 +170,12 @@
 #   finite stdin is already closed. Fatal current-run events suppress done and
 #   blocked: alive/up until exit, dead/down after, unless the run's last
 #   message is a harness usage/session-limit message whose turn has ended
-#   (blocked): Claude needs a result at or after it; Codex needs an error,
-#   turn.failed, or an agent_message followed by a turn end. Only a known
-#   limit wording counts ("your session limit", "weekly limit reached"), not
-#   "your limit of 3 retries" or "your rate limit". Native Windows detachment
-#   is unsupported. Tabs are optional and never fail a successful launch.
+#   (blocked, unless the lane was stopped or closed): Claude needs a result at
+#   or after it; Codex needs an error, turn.failed, or an agent_message
+#   followed by a turn end. Only a known limit wording counts ("your session
+#   limit", "weekly limit reached"), not "your limit of 3 retries" or "your
+#   rate limit". Native Windows detachment is unsupported. Tabs are optional
+#   and never fail a successful launch.
 #   The marker guard: a marker without its turn's result, or from a turn
 #   before the one that answered the last input sent, closes and reports
 #   nothing. Only results without `origin` answer stdin input (background-task
@@ -302,14 +304,18 @@ meta_set() { # meta_set <name> <key> <value>
   mv "$tmp" "$f"
 }
 
+explicit_end() { case "$(meta_get "$1" status)" in stopped|closed) return 0 ;; esac; return 1; }
+
 log_lines() { if [[ -f "$1" ]]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
 
 persist_exit() {
   local name="$1" end
   if [[ -f "$RUN_DIR/$name.meta" ]] && { [[ "$(meta_get "$name" status)" == running ]] || lane_fatal "$name"; }; then
     capture_session "$name"
-    meta_set "$name" status "$(lane_marker "$name" | sed 's/^$/dead/')"
-    [[ -n "$(meta_get "$name" status)" ]] || meta_set "$name" status dead
+    if ! explicit_end "$name"; then
+      meta_set "$name" status "$(lane_marker "$name" | sed 's/^$/dead/')"
+      [[ -n "$(meta_get "$name" status)" ]] || meta_set "$name" status dead
+    fi
     end="$(file_mtime "$RUN_DIR/$name.jsonl" || true)"
     meta_set "$name" end_epoch "${end:-$(date +%s)}"
   fi
@@ -517,8 +523,12 @@ close_locked() { # close_locked <name> <done|any|close|stop|exited|reap-exited>
       [[ -f "$RUN_DIR/$name.pid" ]] || exit 3
       ! is_live_lane "$name" || exit 3
       capture_session "$name"
-      state="$(lane_outcome "$name")"
-      meta_set "$name" status "${state:-dead}"
+      if explicit_end "$name"; then
+        state="$(meta_get "$name" status)"
+      else
+        state="$(lane_outcome "$name")"
+        meta_set "$name" status "${state:-dead}"
+      fi
       rm -f "$RUN_DIR/$name.pid"
       kill_feeder "$name"
       meta_set "$name" end_epoch "$(file_mtime "$RUN_DIR/$name.jsonl" || date +%s)"
@@ -784,7 +794,7 @@ cmd_list() { # cmd_list [name...]
     elapsed="$(fmt_elapsed $(( end - ${start:-$end} )))"
     sid="$(meta_get "$name" session_id)"
     last="$(python3 "$RUNTIME_HELPER" events "$RUN_DIR/$name.meta" texts | jq -r 'gsub("[\r\n]+"; " ")' | tail -n1 | cut -c1-150 || true)"
-    if [[ "$state" == blocked ]]; then
+    if [[ "$state" == blocked ]] && ! explicit_end "$name"; then
       limit="$(python3 "$RUNTIME_HELPER" events "$RUN_DIR/$name.meta" limit || true)"
       if [[ -n "$limit" ]]; then last="[$limit] $last"; fi
     fi
@@ -1766,7 +1776,8 @@ usage: ds-lane <command>
   resume <name> [text-or-file]   relaunch an exited lane on its recorded session_id
   list [name...]                 name, pid, state (done/blocked/alive/dead), elapsed, session_id, last line
   wait [--ceiling <s>] <name>... block until a named live lane is done, blocked or dead, then list them (exit 2 at the ceiling);
-                                 a lane stopped by a harness usage/session limit reports blocked with usage-limit and its reset time
+                                 a lane stopped by a harness usage/session limit reports blocked with usage-limit and its reset time,
+                                 unless 'stop' or 'close' ended it, which keeps that end
   tail <name> [n]                last n assistant messages + latest result event
   watch <name>                   follow a lane's log live (text, tool calls, errors, result); read-only; exits 15s after the lane ends
   open <name>                    open a watch view of <name> without taking focus (a detached tmux window inside tmux, else a Terminal.app tab)
