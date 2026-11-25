@@ -1637,7 +1637,7 @@ lane reap > /dev/null
 check "Claude fatal result never closes feeder" test -s "$RUN/cf.tailpid"
 lane close cf > /dev/null
 check "Claude fatal result exits dead" wait_until 10 state_is cf dead
-check "Claude persists failure instead of prior marker" eq "$(meta_value cf status)" dead
+check "Claude keeps the close end instead of prior marker" eq "$(meta_value cf status)" closed
 (cd "$PRIMARY" && env DS_LANE_HARNESS=codex DS_LANE_CLAUDE_BIN=/missing CLAUDE_CONFIG_DIR=/missing DS_LANE_PERMISSION_MODE=plan "$TOOL" resume cf 'STUB-FINISH recovered' > /dev/null 2>&1)
 check "opposite caller resumes saved Claude permissions" eq "$(init_field cf permissionMode)" bypassPermissions
 check "Claude successful resume resets fatal offset" wait_until 10 state_is cf done
@@ -1670,6 +1670,7 @@ check "wait lists the usage-limited lane blocked" eq "$(awk '$1 == "ul" { print 
 check "list names usage-limit and the reset time" contains "$(lane list ul)" '[usage-limit resets 3:40pm]'
 wait_until 10 proc_gone ul
 check "a usage-limited lane stays blocked after exit" state_is ul blocked
+check "an unstopped usage-limited lane records blocked" meta_is ul status blocked
 start_idle ua
 jq -cn --arg t "$LIMIT_MSG" '{type: "assistant", parent_tool_use_id: null, message: {content: [{type: "text", text: $t}]}}' >> "$RUN/ua.jsonl"
 jq -cn --arg t "$LIMIT_MSG" '{type: "result", subtype: "success", is_error: true, result: $t}' >> "$RUN/ua.jsonl"
@@ -1703,6 +1704,44 @@ sleep 1.5
 check "a limit message before its turn's result is not blocked" state_is um alive
 lane close um > /dev/null
 wait_until 10 proc_gone um
+
+# stop and close are explicit ends: reaping after a usage limit keeps them.
+start_idle us
+jq -cn --arg t "$LIMIT_MSG" '{type: "result", subtype: "success", is_error: true, result: $t}' >> "$RUN/us.jsonl"
+wait_until 10 state_is us blocked
+lane stop us > /dev/null
+wait_until 10 proc_gone us
+out="$(lane list us)"
+lane wait us > /dev/null
+lane count > /dev/null
+check "a stopped usage-limited lane keeps status stopped" meta_is us status stopped
+check "a stopped usage-limited lane lists dead" eq "$(awk '$1 == "us" { print $3 }' <<<"$out")" dead
+check "a stopped usage-limited lane has no usage-limit prefix" eq "$(grep -cF '[usage-limit' <<<"$out")" 0
+lane resume us 'STUB-FINISH resumed' > /dev/null 2>&1
+check "resuming a stopped lane clears its end" wait_until 10 meta_is us status done
+wait_until 10 proc_gone us
+start_idle uc
+lane close uc > /dev/null
+jq -cn --arg t "$LIMIT_MSG" '{type: "result", subtype: "success", is_error: true, result: $t}' >> "$RUN/uc.jsonl"
+wait_until 10 proc_gone uc
+check "a closed lane whose turn ends on a usage limit lists dead" eq "$(list_col uc 3)" dead
+check "a closed lane keeps status closed after list" meta_is uc status closed
+start_idle ucr
+lane close ucr > /dev/null
+jq -cn --arg t "$LIMIT_MSG" '{type: "result", subtype: "success", is_error: true, result: $t}' >> "$RUN/ucr.jsonl"
+wait_until 10 proc_gone ucr
+check "reap reports a closed lane's recorded end" eq "$(lane reap | head -n1)" 'reaped ucr (closed): exited'
+check "a closed lane keeps status closed after reap" meta_is ucr status closed
+start_idle usb
+lane send usb "STUB-BLOCK" > /dev/null
+wait_until 10 log_has usb '"result":"LANE-BLOCKED'
+lane stop usb > /dev/null
+wait_until 10 proc_gone usb
+jq -cn --arg t "$LIMIT_MSG" '{type: "assistant", parent_tool_use_id: null, message: {content: [{type: "text", text: $t}]}}' >> "$RUN/usb.jsonl"
+jq -cn --arg t "$LIMIT_MSG" '{type: "result", subtype: "success", is_error: false, result: $t}' >> "$RUN/usb.jsonl"
+out="$(lane list usb)"
+check "a stopped lane with a non-fatal limit has no usage-limit prefix" eq "$(grep -cF '[usage-limit' <<<"$out")" 0
+check "a stopped lane with a non-fatal limit keeps status stopped" meta_is usb status stopped
 
 printf '%s\n' 'harness=codex' 'claude_bin=/contradictory' > "$RUN/unknown.meta"
 before="$(run_snapshot)"
