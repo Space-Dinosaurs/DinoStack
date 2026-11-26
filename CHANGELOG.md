@@ -3,6 +3,18 @@
 
 # Changelog
 
+## 2026-11-26
+
+### Fixes
+
+- **#1107** [start a Claude lane on another account](https://github.com/Space-Dinosaurs/DinoStack/pull/1107) - tyson-solara6
+
+## 2026-11-25
+
+### Fixes
+
+- **#1106** [keep an explicit stop or close end](https://github.com/Space-Dinosaurs/DinoStack/pull/1106) - tyson-solara6
+
 ## 2026-11-24
 
 ### Fixes
