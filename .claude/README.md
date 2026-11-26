@@ -132,6 +132,9 @@ containing `{cwd, approval_policy, sandbox_policy}`. Executable overrides are
 account, set `DS_LANE_CLAUDE_CONFIG_DIR` to that account's config dir and leave
 `CLAUDE_CONFIG_DIR` as the conductor has it: the lane runs on the lane account,
 while its permission mode still comes from the conductor's own transcript.
+The variable always sets the lane's `CLAUDE_CONFIG_DIR`, so `~/.claude` there
+selects a different macOS keychain entry than an unset variable, and a
+conductor with `CLAUDE_CONFIG_DIR` set cannot start a lane with it unset.
 
 Legacy records with `claude_bin` remain Claude. Legacy resume requires
 `DS_LANE_LEGACY_CLAUDE_CONFIG_DIR` plus captured Claude init permission mode and

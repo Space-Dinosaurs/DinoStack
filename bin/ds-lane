@@ -97,6 +97,10 @@
 #   value as its CLAUDE_CONFIG_DIR, while `start` still reads the conductor's
 #   permission mode from its transcript under CLAUDE_CONFIG_DIR (a value
 #   overridden on the ds-lane command line hides the conductor's from it).
+#   DS_LANE_CLAUDE_CONFIG_DIR always sets the lane's CLAUDE_CONFIG_DIR, so
+#   pointing it at ~/.claude selects a different macOS keychain entry than an
+#   unset variable, and a conductor with CLAUDE_CONFIG_DIR set cannot start a
+#   lane with it unset.
 #   Internal subcommands (not for callers): `__open-tab <name> <conductor-tty>`
 #   (the detached opener `start`/`resume` fork), `__close-tab <own-tty>
 #   <conductor-tty> <tab-log>` (the detached closer a watch tab forks),

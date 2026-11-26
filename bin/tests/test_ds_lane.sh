@@ -631,9 +631,11 @@ rm "$ACCT/projects/-proj/conductor-sid.jsonl"
 out="$(cd "$PRIMARY" && env -u DS_LANE_PERMISSION_MODE CLAUDE_CONFIG_DIR="$ACCT" "$TOOL" start xb "$PROMPT" 2>&1)"; rc=$?
 check "overriding CLAUDE_CONFIG_DIR refuses and names DS_LANE_CLAUDE_CONFIG_DIR" died_with "$rc" "$out" "DS_LANE_CLAUDE_CONFIG_DIR"
 mv "$PROJ/conductor-sid.jsonl" "$TMP/conductor-sid.jsonl.bak"
+echo '{"type":"permission-mode","permissionMode":"bypassPermissions","sessionId":"conductor-sid"}' > "$ACCT/projects/-proj/conductor-sid.jsonl"
 out="$(cd "$PRIMARY" && env -u DS_LANE_PERMISSION_MODE DS_LANE_CLAUDE_CONFIG_DIR="$ACCT" "$TOOL" start xc "$PROMPT" 2>&1)"; rc=$?
-check "cross-account start refuses when the conductor's transcript is missing" died_with "$rc" "$out" "native transcript missing"
+check "cross-account start refuses when only the lane account has the session's transcript" died_with "$rc" "$out" "native transcript missing"
 check "cross-account refusal wrote no files" test ! -e "$RUN/xc.meta"
+rm "$ACCT/projects/-proj/conductor-sid.jsonl"
 mv "$TMP/conductor-sid.jsonl.bak" "$PROJ/conductor-sid.jsonl"
 
 unset CLAUDE_CODE_SESSION_ID
