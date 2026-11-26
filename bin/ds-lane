@@ -78,7 +78,8 @@
 #   Env: DS_LANE_MAX (default 5, per repo), DS_LANE_RUN_DIR (overrides
 #   run/, propagated into the watch tab), DS_LANE_CLAUDE_BIN,
 #   DS_LANE_HARNESS, DS_LANE_CODEX_BIN, DS_LANE_CODEX_CONTEXT_FILE, DS_LANE_VIEWER,
-#   DS_LANE_LEGACY_CLAUDE_CONFIG_DIR, DS_LANE_PERMISSION_MODE, DS_LANE_BG_CEILING_MS (default 0 = wait
+#   DS_LANE_CLAUDE_CONFIG_DIR, DS_LANE_LEGACY_CLAUDE_CONFIG_DIR,
+#   DS_LANE_PERMISSION_MODE, DS_LANE_BG_CEILING_MS (default 0 = wait
 #   indefinitely; "default" leaves the CLI default), DS_LANE_NO_TAB=1,
 #   DS_LANE_TAB_LOCK_WAIT_S (default 30), DS_LANE_TAB_LOCK (lock file path,
 #   for tests; not propagated into the watch tab), DS_LANE_TAB_WAIT_S (whole
@@ -90,7 +91,12 @@
 #   The lane gets the caller's CLAUDE_CONFIG_DIR (Codex: CODEX_HOME) exactly
 #   as set, and none when the caller had none: Claude Code's macOS keychain
 #   entry depends on whether the variable is set. `resume` and `resume-hint`
-#   reuse the choice recorded at `start`.
+#   reuse the choice recorded at `start`. To start a Claude lane on another
+#   account, leave CLAUDE_CONFIG_DIR as the conductor inherited it and set
+#   DS_LANE_CLAUDE_CONFIG_DIR to the lane account's dir: the lane gets that
+#   value as its CLAUDE_CONFIG_DIR, while `start` still reads the conductor's
+#   permission mode from its transcript under CLAUDE_CONFIG_DIR (a value
+#   overridden on the ds-lane command line hides the conductor's from it).
 #   Internal subcommands (not for callers): `__open-tab <name> <conductor-tty>`
 #   (the detached opener `start`/`resume` fork), `__close-tab <own-tty>
 #   <conductor-tty> <tab-log>` (the detached closer a watch tab forks),

@@ -128,7 +128,10 @@ refuse. `CODEX_HOME` selects Codex runtime config; `AGENTIC_CONFIG_DIR` remains
 an activation binding. Marker-less callers require explicit harness binding
 plus Claude `DS_LANE_PERMISSION_MODE` or absolute `DS_LANE_CODEX_CONTEXT_FILE`
 containing `{cwd, approval_policy, sandbox_policy}`. Executable overrides are
-`DS_LANE_CODEX_BIN` and `DS_LANE_CLAUDE_BIN`.
+`DS_LANE_CODEX_BIN` and `DS_LANE_CLAUDE_BIN`. To start a Claude lane on another
+account, set `DS_LANE_CLAUDE_CONFIG_DIR` to that account's config dir and leave
+`CLAUDE_CONFIG_DIR` as the conductor has it: the lane runs on the lane account,
+while its permission mode still comes from the conductor's own transcript.
 
 Legacy records with `claude_bin` remain Claude. Legacy resume requires
 `DS_LANE_LEGACY_CLAUDE_CONFIG_DIR` plus captured Claude init permission mode and
