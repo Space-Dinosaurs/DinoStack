@@ -163,7 +163,11 @@ def claude_mode(config, native):
             refuse("cannot determine the conductor's permission mode: native Claude session id missing/invalid")
         paths = glob.glob(str(Path(config) / "projects" / "*" / (sid + ".jsonl")))
         if len(paths) != 1:
-            refuse("cannot determine the conductor's permission mode: native transcript missing/ambiguous")
+            refuse(
+                "cannot determine the conductor's permission mode: native transcript missing/ambiguous under "
+                + config
+                + " (for a lane on another account, keep CLAUDE_CONFIG_DIR and set DS_LANE_CLAUDE_CONFIG_DIR)"
+            )
         events = list(records(paths[0]))
         modes = [e.get("permissionMode") for e in events if e.get("type") == "permission-mode"]
         if not modes:
@@ -188,6 +192,11 @@ def resolve():
         refuse("POSIX setsid unavailable; native Windows lane detachment is unsupported")
     config_env = env.get("CODEX_HOME" if harness == "codex" else "CLAUDE_CONFIG_DIR", "")
     config = directory(config_env or str(Path.home() / (".codex" if harness == "codex" else ".claude")))
+    # The conductor's transcript stays under its own inherited config dir; only the lane moves.
+    conductor_config = config
+    lane_config_env = env.get("DS_LANE_CLAUDE_CONFIG_DIR", "") if harness == "claude" else ""
+    if lane_config_env:
+        config_env, config = lane_config_env, directory(lane_config_env)
     override = env.get("DS_LANE_" + harness.upper() + "_BIN")
     if harness == "claude" and not override:
         override = shutil.which("claude") or env.get("CLAUDE_CODE_EXECPATH")
@@ -202,7 +211,9 @@ def resolve():
         "runtime_cwd": directory(os.getcwd()),
     }
     if harness == "claude":
-        result.update(permission_mode=claude_mode(config, native), bg_ceiling=env.get("DS_LANE_BG_CEILING_MS", "0"))
+        result.update(
+            permission_mode=claude_mode(conductor_config, native), bg_ceiling=env.get("DS_LANE_BG_CEILING_MS", "0")
+        )
         if result["bg_ceiling"] != "default" and not re.fullmatch(r"[0-9]+", result["bg_ceiling"]):
             refuse("invalid DS_LANE_BG_CEILING_MS")
     else:

@@ -613,6 +613,31 @@ out="$(cd "$PRIMARY" && env -u DS_LANE_PERMISSION_MODE CLAUDE_CODE_SESSION_ID=no
 check "unresolvable mode dies" died_with "$rc" "$out" "cannot determine the conductor's permission mode"
 check "unresolvable mode wrote no files" test ! -e "$RUN/m4.meta"
 
+# --- a lane on another account: the mode comes from the conductor's own config dir ---
+ACCT="$TMP/lane-account"
+mkdir -p "$ACCT/projects/-proj"
+echo '{"type":"permission-mode","permissionMode":"bypassPermissions","sessionId":"conductor-sid"}' > "$ACCT/projects/-proj/conductor-sid.jsonl"
+(cd "$PRIMARY" && env -u DS_LANE_PERMISSION_MODE DS_LANE_CLAUDE_CONFIG_DIR="$ACCT" "$TOOL" start xa "$PROMPT" > /dev/null 2>&1)
+check "cross-account lane takes the conductor's mode, not the lane account's" eq "$(init_field xa permissionMode)" dontAsk
+check "cross-account lane runs on the lane account's config dir" eq "$(claude_config_env)" "$ACCT"
+check "cross-account lane records the lane account's config dir" eq "$(meta_value xa config_dir)" "$ACCT"
+lane close xa > /dev/null
+wait_until 10 lane_down xa
+(cd "$PRIMARY" && env -u DS_LANE_CLAUDE_CONFIG_DIR "$TOOL" resume xa 'STUB-FINISH cross' > /dev/null 2>&1)
+check "cross-account resume stays on the lane account" eq "$(claude_config_env)" "$ACCT"
+lane stop xa > /dev/null
+wait_until 10 lane_down xa
+rm "$ACCT/projects/-proj/conductor-sid.jsonl"
+out="$(cd "$PRIMARY" && env -u DS_LANE_PERMISSION_MODE CLAUDE_CONFIG_DIR="$ACCT" "$TOOL" start xb "$PROMPT" 2>&1)"; rc=$?
+check "overriding CLAUDE_CONFIG_DIR refuses and names DS_LANE_CLAUDE_CONFIG_DIR" died_with "$rc" "$out" "DS_LANE_CLAUDE_CONFIG_DIR"
+mv "$PROJ/conductor-sid.jsonl" "$TMP/conductor-sid.jsonl.bak"
+echo '{"type":"permission-mode","permissionMode":"bypassPermissions","sessionId":"conductor-sid"}' > "$ACCT/projects/-proj/conductor-sid.jsonl"
+out="$(cd "$PRIMARY" && env -u DS_LANE_PERMISSION_MODE DS_LANE_CLAUDE_CONFIG_DIR="$ACCT" "$TOOL" start xc "$PROMPT" 2>&1)"; rc=$?
+check "cross-account start refuses when only the lane account has the session's transcript" died_with "$rc" "$out" "native transcript missing"
+check "cross-account refusal wrote no files" test ! -e "$RUN/xc.meta"
+rm "$ACCT/projects/-proj/conductor-sid.jsonl"
+mv "$TMP/conductor-sid.jsonl.bak" "$PROJ/conductor-sid.jsonl"
+
 unset CLAUDE_CODE_SESSION_ID
 
 # --- tab opener (R7, R8, R13) ---
